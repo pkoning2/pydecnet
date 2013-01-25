@@ -19,6 +19,16 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 
+#if PY_VERSION_HEX >= 0x03000000
+
+/* SWIG references these in generated code but doesn't map them correctly
+   to Python 3 replacements.
+*/
+#define PyInt_CheckExact(x) PyLong_CheckExact (x)
+#define PyInt_AS_LONG(x) PyLong_AsLong (x)
+
+#endif
+
 /* the pcap class */
 typedef struct {
   pcap_t *pcap;

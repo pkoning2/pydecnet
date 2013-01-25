@@ -42,6 +42,35 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 void linux_restore_ifr(void);
 #endif
 
+#if PY_VERSION_HEX >= 0x03000000
+
+/* Map some Python 2 constructs to Python 3.  Taken from what SWIG gave
+   us in pcap_wrap.c.
+*/
+#define PyClass_Check(obj) PyObject_IsInstance(obj, (PyObject *)&PyType_Type)
+#define PyInt_Check(x) PyLong_Check(x)
+#define PyInt_AsLong(x) PyLong_AsLong(x)
+#define PyInt_FromLong(x) PyLong_FromLong(x)
+#define PyInt_FromSize_t(x) PyLong_FromSize_t(x)
+#define PyString_Check(name) PyBytes_Check(name)
+#define PyString_FromStringAndSize(x, y) PyUnicode_FromStringAndSize(x, y)
+#define PyString_FromString(x) PyUnicode_FromString(x)
+#define PyString_Format(fmt, args)  PyUnicode_Format(fmt, args)
+#define PyString_FromFormat  PyUnicode_FromFormat
+#define PyString_AsString(str) PyBytes_AsString(str)
+#define PyString_Size(str) PyBytes_Size(str)	
+#define PyString_InternFromString(key) PyUnicode_InternFromString(key)
+#define Py_TPFLAGS_HAVE_CLASS Py_TPFLAGS_BASETYPE
+#define PyString_AS_STRING(x) PyUnicode_AS_STRING(x)
+#define _PyLong_FromSsize_t(x) PyLong_FromSsize_t(x)
+
+/* Format code to use for Py_BuildValue given packet data and length.  */
+#define Build_BufAndLen "y#"
+#else
+/* Format code to use for Py_BuildValue given packet data and length.  */
+#define Build_BufAndLen "s#"
+
+#endif
 
 static int check_ctx(pcapObject *self);
 static int pcapObject_invoke(pcapObject *self, int cnt, PyObject *PyObj,
@@ -305,7 +334,8 @@ PyObject *pcapObject_next(pcapObject *self)
     return Py_None;
   }
 
-  outObject = Py_BuildValue("is#f", header.len, buf, header.caplen,
+  outObject = Py_BuildValue("i" Build_BufAndLen "f",
+			    header.len, buf, header.caplen,
 			    header.ts.tv_sec*1.0+header.ts.tv_usec*1.0/1e6);
   return outObject;
 
@@ -766,17 +796,20 @@ void PythonCallBack(u_char *user_data,
                     const u_char *packetdata)
 {
   struct pythonCallBackContext *context;
-  PyObject *arglist, *result;
+  PyObject *arglist, *result = NULL;
 
   context = (struct pythonCallBackContext *)user_data;
 
   /* Re-acquire the GIL and restore the Python thread state */
   PyEval_RestoreThread(context->threadstate);
 
-  arglist = Py_BuildValue("is#f", header->len, packetdata, header->caplen,
+  arglist = Py_BuildValue("i" Build_BufAndLen "f",
+			  header->len, packetdata, header->caplen,
 			  header->ts.tv_sec*1.0+header->ts.tv_usec*1.0e-6);
-  result = PyObject_CallObject(context->func, arglist);
-  Py_DECREF(arglist);
+  if (arglist != NULL) {
+    result = PyObject_CallObject(context->func, arglist);
+    Py_DECREF(arglist);
+  }
   if (result == NULL) {
     /* An exception was raised by the Python callback */
     context->threadstate = PyEval_SaveThread();
