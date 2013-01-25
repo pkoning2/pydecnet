@@ -74,6 +74,7 @@ pcapObject_open_offline_doc = _pcap.pcapObject_open_offline_doc
 pcapObject_dump_open_doc = _pcap.pcapObject_dump_open_doc
 pcapObject_setnonblock_doc = _pcap.pcapObject_setnonblock_doc
 pcapObject_getnonblock_doc = _pcap.pcapObject_getnonblock_doc
+pcapObject_inject_doc = _pcap.pcapObject_inject_doc
 pcapObject_setfilter_doc = _pcap.pcapObject_setfilter_doc
 pcapObject_loop_doc = _pcap.pcapObject_loop_doc
 pcapObject_dispatch_doc = _pcap.pcapObject_dispatch_doc
@@ -113,6 +114,7 @@ class pcapObject(_object):
     def dump_open(self, *args): return _pcap.pcapObject_dump_open(self, *args)
     def setnonblock(self, *args): return _pcap.pcapObject_setnonblock(self, *args)
     def getnonblock(self): return _pcap.pcapObject_getnonblock(self)
+    def inject(self, *args): return _pcap.pcapObject_inject(self, *args)
     def setfilter(self, *args): return _pcap.pcapObject_setfilter(self, *args)
     def loop(self, *args): return _pcap.pcapObject_loop(self, *args)
     def dispatch(self, *args): return _pcap.pcapObject_dispatch(self, *args)

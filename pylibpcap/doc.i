@@ -13,6 +13,7 @@
 "  dump_open(filename)\n" \
 "  setnonblock(nonblock)\n" \
 "  getnonblock()\n" \
+"  inject(buffer)\n" \
 "  setfilter(filter, optimize, netmask)\n" \
 "  loop(count, callback)\n" \
 "  dispatch(count, callback)\n" \
@@ -72,6 +73,12 @@
 "non-blocking, returns 0 for blocking).  0 is always returned for savefiles\n"\
 "Non-blocking behavior is only applicable to the dispatch method, and not\n"\
 "the loop and next methods.  It has no effect on savefiles."
+
+
+#define pcapObject_inject_doc \
+"inject(buffer)\n\n" \
+"Send the specified packet to the pcapObject, which must be an actual\n"\
+"interface (opened with open_live).  Returns the number of bytes sent."
 
 
 #define pcapObject_setfilter_doc \
