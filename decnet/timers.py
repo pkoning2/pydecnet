@@ -7,6 +7,7 @@ This implements the timer wheel mechanism, with callbacks on expiration.
 
 from abc import abstractmethod
 import threading
+import time
 
 class StopThread (threading.Thread):
     """A thread with stop method.
@@ -14,7 +15,7 @@ class StopThread (threading.Thread):
     def __init__ (self):
         super ().__init__ ()
         self.stopnow = False
-
+        
     def stop (self, wait = False):
         """Stop the thread associated with this connection.  The actual
         handling of "stopnow" needs to go into the class that uses this.
@@ -24,7 +25,9 @@ class StopThread (threading.Thread):
         if not self.stopnow and self.isAlive ():
             self.stopnow = True
             if wait:
-                self.join ()
+                self.join (10)
+                if self.is_alive ():
+                    print ("Thread failed to stop after 10 seconds")
 
 class Cque (object):
     """Base class for objects that can be put on a circular queue.
@@ -85,8 +88,8 @@ class TimerWheel (StopThread):
     """A timer wheel.
     """
     # We want to reuse these names for the timer API.
-    _start = StopThread.start
-    _stop = StopThread.stop
+    __start = StopThread.start
+    __stop = StopThread.stop
     
     def __init__ (self, tick, maxtime):
         """Define a wheel that ticks every "tick" seconds and has
@@ -99,7 +102,7 @@ class TimerWheel (StopThread):
         self.maxtime = maxtime
         self.tick = tick
         self.lock = threading.Lock ()
-        self._start ()
+        self.__start ()
 
     def start (self, item, timeout):
         """Start timer running for "item", it will time out in "timeout"
@@ -112,7 +115,7 @@ class TimerWheel (StopThread):
             raise TypeError ("Timer item is not of Timer type")
         self.lock.acquire ()
         pos = (self.pos + ticks) % self.maxtime
-        self.wheel[pos].insert (item)
+        self.wheel[pos].add (item)
         self.lock.release ()
         
     def run (self):
@@ -136,7 +139,7 @@ class TimerWheel (StopThread):
                 item.timeout ()
 
     def shutdown (self):
-        self._stop (True)
+        self.__stop (True)
 
     def stop (self, item):
         """Stop the timer for "item".
@@ -147,7 +150,7 @@ class TimerWheel (StopThread):
 
 try:
     timers
-except AttributeError:
+except (AttributeError, NameError):
     # timers will be a singleton timer wheel, one second ticks, timeouts
     # up to one hour.
     timers = TimerWheel (1, 3600)
