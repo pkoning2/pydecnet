@@ -108,7 +108,15 @@ class Ethernet (BcDatalink):
     def __init__ (self, name, owner, proto, pad = True):
         super ().__init__ (dev, owner, proto)
         self.pad = pad
-        
+        f = self.frame = bytearray (1514)
+        f[12] = proto >> 8
+        f[13] = proto & 0xff
+        self.hwaddr = None
+        for name, desc, addrs, flags in pcap.findalldevs ():
+            if addrs:
+                self.hwaddr = addrs[0][0]
+                self.set_macaddr (self.hwaddr)
+                
     def open (self):
         p = pcap.pcapObject ()
         p.open_live (self.name, 1600, 0, 1000)
@@ -116,6 +124,10 @@ class Ethernet (BcDatalink):
         self.pcap = p
         # start receive thread
 
+    def set_macaddr (self, addr):
+        super ().set_macaddr (addr)
+        self.frame[6:12] = addr
+        
     def run (self):        
         while not self.stopnow:
             p.dispatch (1, receive_indication)
@@ -124,21 +136,21 @@ class Ethernet (BcDatalink):
         if len (dest) != 6:
             raise ValueError
         l = len (msg)
-        data = [ dest, self.macaddr, self.proto ]
+        f = self.frame
+        f[0:6] = dest
         if self.pad:
             if l > 1498:
                 raise ValueError
-            data.append (struct.pack ("<H", l))
-            data.append (msg)
-            if l < 44:
-                data.append (bytes (44 - l))
-                l = 44
+            f[14] = l & 0xff
+            f[15] = l >> 8
+            f[16:16 + l] = msg
             l += 16
         else:
-            if l > 1500 or l < 46:
+            if l > 1500:
                 raise ValueError
-            data.append (msg)
+            f[14:14 + l] = msg
             l += 14
-        l2 = self.pcap.inject (b''.join (data))
+        l = min (l, 60)
+        l2 = self.pcap.inject (memoryview (f)[:l])
         if l != l2:
             raise IOError

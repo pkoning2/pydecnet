@@ -14,44 +14,75 @@ try:
 except AttributeError:
     raise ImportError ("Python 3.2 or later required")
 
+def proc_layoutelem (e):
+    code, *args = e
+    code = code.lower ()
 
+    if code == "tlv":
+        tlen, llen, wild, layoutdict = args
+        codedict = { k : proc_layoutelem (v) for k, v in layoutdict.items () }
+        return [ Packet.encode_tlv, Packet.decode_tlv,
+                 tlen, llen, wild, codedict ]
+    else:
+        enc = getattr (Packet, "encode_%s" % code)
+        dec = getattr (Packet, "decode_%s" % code)
+        if code == "bm":
+            # Find the field length in bytes
+            topbit = -1
+            fields = args
+            for name, start, bits in fields:
+                topbit = max (topbit, start + bits - 1)
+            flen = (topbit + 8) // 8
+            args = [ flen ]
+            for name, start, bits in fields:
+                if name:
+                    args.append ((name, start, bits))
+        return [ enc, dec ] + args
+        
 def process_layout (layout):
     """Process a layout definition and return the resulting
     encode/decode table.
 
-    The layout is a sequence of tuples.  Usually, each tuple
-    is a field code, field name, and field length.  In the
-    case of a bit map field, it is field code, field name,
-    start bit position, and bit count.  Field codes are as
-    given in the DECnet specs: "I", "B", "EX", and so on;
-    these codes are case insensitive.
+    The layout is a sequence of tuples.  Each starts with a field code
+    (case insensitive), followed by a description for that field.  The
+    format of the description depends on the field code:
+
+    "BM": description is a sequence of triples, which together make
+    up the bit field elements of the protocol field.  Each triple 
+    consists of name, start bit position, and bit count.
+    The bit fields must be listed together and given in ascending order 
+    of bit position.  The size of the field is taken to be the minimal 
+    number of bytes needed to hold all the bit fields.
+
+    "I", "B", "EX": description is name and length.  For I and EX,
+    length means the maximum length.
+
+    "BS" is byte string, i.e., same as "I" but with the length implied.
+    Typically this is used inside TLV items, where the length is part of
+    the prefix rather than the value.  DECnet specs show I fields inside
+    TLV structures, but in fact those are BS, not I.
+
+    "TLV": description is the size of the type field, size of the length
+    field, wildcard flag, and a dictionary of value codes.  The dictionary
+    is keyed by the value type code, and the value is a layout tuple as
+    described here.  If the wildcard flag is True, unrecognized type
+    fields are accepted in decode, and turn into "fieldnnn" attributes
+    containing the field value as a byte string.  If False, unrecognized
+    type fields are an error.  Note that in encode, only known fields
+    (those listed as keys of the fields dictionary) are encoded.
 
     The code table is used by the "encode" and "decode" methods
     of the "Packet" class.
     """
     codetable = [ ]
-    item = [ ]
-    for code, name, *flen in layout:
-        code = code.lower ()
-        if code == "i":
-            f = Packet.encode_i, Packet.decode_i, name, flen[0]
-        elif code == "b":
-            f = Packet.encode_b, Packet.decode_b, name, flen[0]
-        elif code == "bm":
-            f = ( name, ) + tuple (flen)
-        elif code == "ex":
-            f = Packet.encode_ex, Packet.decode_ex, name, flen[0]
-        else:
-            raise ValueError ("Unrecognized field code %s" % code.upper ())
-        if code == "bm":
-            item.append (f)
-        else:
-            if item:
-                codetable.append ([ Packet.encode_bm, Packet.decode_bm ] + item)
-                item = [ ]
-            codetable.append (f)
-    if item:
-        codetable.append ([ Packet.encode_bm, Packet.decode_bm ] + item)
+    nomore = None
+    for e in layout:
+        code = e[0].lower ()
+        if nomore:
+            raise TypeError ("%s field must be last in layout" % nomore)
+        if code == "tlv":
+            nomore = "TLV"
+        codetable.append (proc_layoutelem (e))
     return codetable
     
 class _packet_encoding (type):
@@ -89,7 +120,17 @@ class Packet (bytearray, metaclass = _packet_encoding):
         super ().__init__ ()
         if buf:
             self.decode (buf)
-            
+
+    def encode_res (self, flen):
+        """Encode a reserved field.
+        """
+        return bytes (flen)
+
+    def decode_res (self, buf, flen):
+        """Decode a reserved field.  Just skip it.
+        """
+        return buf[flen:]
+    
     def encode_i (self, field, maxlen):
         """Encode "field" as an image field with max length "maxlen".
         If val is a string, it is encoded using the current default
@@ -131,31 +172,23 @@ class Packet (bytearray, metaclass = _packet_encoding):
         setattr (self, field, int.from_bytes (buf[:flen], LE))
         return buf[flen:]
 
-    def encode_bm (self, *elements):
+    def encode_bm (self, flen, *elements):
         """Encode a bitmap field.  "elements" is a sequence of
         triples: name, starting bit position, bit count.
         """
         field = 0
-        topbit = -1
         for name, start, bits in elements:
             val = getattr (self, name)
             if val >> bits:
                 raise OverflowError ("Field %s value too large for %d bit field" % (name, bits))
-            topbit = max (topbit, start + bits - 1)
             field |= val << start
-        flen = (topbit + 8) // 8
         return field.to_bytes (flen, LE)
 
-    def decode_bm (self, buf, *elements):
+    def decode_bm (self, buf, flen, *elements):
         """Decode a bitmap field.  "elements" is a sequence of
         triples: name, starting bit position, bit count.  The fields
         are decoded as integers.  Returns the remaining buffer.
         """
-        topbit = -1
-        for e in elements:
-            name, start, bits = e
-            topbit = max (topbit, start + bits - 1)
-        flen = (topbit + 8) // 8
         field = int.from_bytes (buf[:flen], LE)
         for name, start, bits in elements:
             val = (field >> start) & ((1 << bits) - 1)
@@ -191,11 +224,70 @@ class Packet (bytearray, metaclass = _packet_encoding):
         setattr (self, field, val)
         return buf[i + 1:]
 
+    def encode_bs (self, field, flen):
+        retval = bytes (getattr (self, field))
+        l = len (retval)
+        if l < flen:
+            retval += bytes (flen - l)
+        elif l > flen:
+            retval = retval[:flen]
+        return retval
+
+    def decode_bs (self, buf, field, flen):
+        setattr (self, field, buf[:flen])
+        return buf[flen:]
+    
+    def encode_tlv (self, tlen, llen, wild, codedict):
+        retval = [ ]
+        for k, v in codedict.items ():
+            e, d, *fieldargs = v
+            if e is Packet.encode_bm:
+                field = True
+            else:
+                field = getattr (self, fieldargs[0], None)
+            if field:
+                retval.append (k.to_bytes (tlen, LE))
+                field = e (self, *fieldargs)
+                retval.append (len (field).to_bytes (llen, LE))
+                retval.append (field)
+        return b''.join (retval)
+
+    def decode_tlv (self, buf, tlen, llen, wild, codedict):
+        """Decode the remainder of the buffer as a sequence of TLV
+        (tag, length, value) fields where tlen and llen are the length
+        of the tag and length fields.  Each value field is decoded
+        according to the decode rules given by the codedict entry
+        keyed by the tag value.
+        """
+        pos = 0
+        blen = len (buf)
+        while pos < blen:
+            left = blen - pos
+            if left < tlen + llen:
+                raise ValueError ("Incomplete TLV at end of buffer")
+            tag = int.from_bytes (buf[pos:pos + tlen], LE)
+            pos += tlen + llen
+            vlen = int.from_bytes (buf[pos - llen:pos], LE)
+            if pos + vlen > blen:
+                raise ValueError ("TLV %d Value field extends beyond end of buffer" % tag)
+            try:
+                e, d, *fieldargs = codedict[tag]
+            except KeyError:
+                if wild:
+                    e, d, *fieldargs = ( Packet.encode_bs, Packet.decode_bs,
+                                         "field%d" % tag, 255 )
+                else:
+                    raise KeyError ("Unknown TLV tag %d" % tag)
+            buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
+            if buf2:
+                raise ValueError ("TLV %d Value field not fully parsed, left = %d" % (tag, len (buf2)))
+            pos += vlen
+            
     def encode (self, layout = None):
         """Encode the packet according to the current attributes.  The
         resulting packet data is returned.
         
-        If the"layout" argument is used, that layout table is used;
+        If the "layout" argument is used, that layout table is used;
         otherwise the class layout table is used, and in that case the
         bytearray of the object is set to the encoded data.   Also,
         in that case, if there is a "payload" attribute, that data
@@ -206,15 +298,16 @@ class Packet (bytearray, metaclass = _packet_encoding):
         for e, d, *args in codetable:
             data.append (e (self, *args))
         if not layout:
-            try:
-                data.append (self.payload)
-            except AttributeError:
-                pass
+            payload = getattr (self, "payload", None)
+            if payload:
+                data.append (payload)
         data = b''.join (data)
         if not layout:
             self[:] = data
         return data
 
+    __bytes__ = encode
+    
     def decode (self, buf, layout = None):
         """Decode a packet buffer and set the packet object attributes
         from the fields that were found.
