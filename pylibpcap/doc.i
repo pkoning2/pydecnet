@@ -11,6 +11,7 @@
 "  open_dead(linktype, snaplen)\n" \
 "  open_offline(filename)\n" \
 "  dump_open(filename)\n" \
+"  close()\n" \
 "  setnonblock(nonblock)\n" \
 "  getnonblock()\n" \
 "  inject(buffer)\n" \
@@ -57,6 +58,12 @@
 "Opens a saved pcap/tcpdump-format file for writing. 'filename' is the name\n"\
 "of the file to open.  The filename '-' is synonymous with stdout"
 
+
+
+#define pcapObject_close_doc \
+"close()\n\n" \
+"Closes the pcapObject.  Another pcap_open* is required before this\n"\
+"pcapObject is useable again."
 
 
 #define pcapObject_setnonblock_doc \

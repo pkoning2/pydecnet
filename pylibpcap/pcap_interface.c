@@ -107,6 +107,19 @@ static int check_noctx(pcapObject *self)
 }
 
 
+void pcapObject_close (pcapObject *self)
+{
+  if (self->pcap_dumper)
+    pcap_dump_close(self->pcap_dumper);
+  if (self->pcap)
+    pcap_close(self->pcap);
+#if 0
+#ifdef __linux
+  linux_restore_ifr();
+#endif
+#endif
+}
+
 /*
 pcapObject *new_pcapObject(char *device, int snaplen, int promisc, int to_ms)
 */
@@ -123,16 +136,8 @@ pcapObject *new_pcapObject(void)
 
 void delete_pcapObject(pcapObject *self)
 {
-  if (self->pcap_dumper)
-    pcap_dump_close(self->pcap_dumper);
-  if (self->pcap)
-    pcap_close(self->pcap);
-#if 0
-#ifdef __linux
-  linux_restore_ifr();
-#endif
-#endif
-
+  pcapObject_close (self);
+    
   free(self);
 }
 

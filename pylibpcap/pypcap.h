@@ -47,8 +47,10 @@ void pcapObject_open_live(pcapObject *self, char *device, int snaplen,
 void pcapObject_open_dead(pcapObject *self, int linktype, int snaplen);
 void pcapObject_open_offline(pcapObject *self, char *fname);
 void pcapObject_dump_open(pcapObject *self, char *fname);
+void pcapObject_close(pcapObject *self);
 void pcapObject_setnonblock(pcapObject *self, int nonblock);
 int pcapObject_getnonblock(pcapObject *self);
+int pcapObject_inject(pcapObject *self, PyObject *bufobj);
 void pcapObject_setfilter(pcapObject *self, char *str,
                           int optimize, in_addr_t netmask);
 PyObject *pcapObject_next(pcapObject *self);

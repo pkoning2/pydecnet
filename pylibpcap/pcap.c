@@ -3253,6 +3253,7 @@ SWIG_AsVal_int (PyObject * obj, int *val)
  static char _doc_pcapObject_open_dead[] =  "open_dead(linktype, snaplen)\n\n"  "open_dead is used to initialize the pcapObject so that methods that\n" "require the object to be initialized can be called, such as for compiling\n" "BPF code.  'snaplen' is the maximum number of bytes to capture per packet."; 
  static char _doc_pcapObject_open_offline[] =  "open_offline(filename)\n\n"  "Opens a saved pcap/tcpdump-format file for reading. 'filename' is the name\n" "of the file to open.  The filename '-' is synonymous with stdin"; 
  static char _doc_pcapObject_dump_open[] =  "dump_open(filename)\n\n"  "Opens a saved pcap/tcpdump-format file for writing. 'filename' is the name\n" "of the file to open.  The filename '-' is synonymous with stdout"; 
+ static char _doc_pcapObject_close[] =  "close()\n\n"  "Closes the pcapObject.  Another pcap_open* is required before this\n" "pcapObject is useable again."; 
  static char _doc_pcapObject_setnonblock[] =  "setnonblock(nonblock)\n\n"  "Puts the pcapObject in non-blocking mode ('nonblock'==1) or blocking mode\n" "('nonblock'==0).  Non-blocking behavior is only applicable to the\n" "dispatch method, and not the loop and next methods.  It has no effect on\n" "savefiles."; 
 
 SWIGINTERNINLINE PyObject*
@@ -3508,6 +3509,32 @@ SWIGINTERN PyObject *_wrap_pcapObject_dump_open(PyObject *SWIGUNUSEDPARM(self), 
   return resultobj;
 fail:
   if (alloc2 == SWIG_NEWOBJ) free((char*)buf2);
+  return NULL;
+}
+
+
+SWIGINTERN PyObject *_wrap_pcapObject_close(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0;
+  pcapObject *arg1 = (pcapObject *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  PyObject * obj0 = 0 ;
+  
+  if (!PyArg_ParseTuple(args,(char *)"O:pcapObject_close",&obj0)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_pcapObject, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "pcapObject_close" "', argument " "1"" of type '" "pcapObject *""'"); 
+  }
+  arg1 = (pcapObject *)(argp1);
+  {
+    pcapObject_close(arg1);
+    if(PyErr_Occurred()) {
+      SWIG_fail;
+    }
+  }
+  resultobj = SWIG_Py_Void();
+  return resultobj;
+fail:
   return NULL;
 }
 
@@ -4169,6 +4196,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"pcapObject_open_dead", _wrap_pcapObject_open_dead, METH_VARARGS, NULL},
 	 { (char *)"pcapObject_open_offline", _wrap_pcapObject_open_offline, METH_VARARGS, NULL},
 	 { (char *)"pcapObject_dump_open", _wrap_pcapObject_dump_open, METH_VARARGS, NULL},
+	 { (char *)"pcapObject_close", _wrap_pcapObject_close, METH_VARARGS, NULL},
 	 { (char *)"pcapObject_setnonblock", _wrap_pcapObject_setnonblock, METH_VARARGS, NULL},
 	 { (char *)"pcapObject_getnonblock", _wrap_pcapObject_getnonblock, METH_VARARGS, NULL},
 	 { (char *)"pcapObject_inject", _wrap_pcapObject_inject, METH_VARARGS, NULL},
@@ -4898,11 +4926,12 @@ SWIG_init(void) {
   
   SWIG_InstallConstants(d,swig_const_table);
   
-  SWIG_Python_SetConstant(d, "pcap_doc",SWIG_FromCharPtr("pcap module\n-----------\npcapObject(): Returns a pcapObject instance, with the following methods.\nPlease see the __doc__ attributes of the instance methods of a pcapObject\nfor more information. (there are no method __doc__ attributes in the\nclass). Also please note that at this time, method __doc__ attributes are\nonly functional for python2.\n  open_live(device, snaplen, promisc, to_ms)\n  open_dead(linktype, snaplen)\n  open_offline(filename)\n  dump_open(filename)\n  setnonblock(nonblock)\n  getnonblock()\n  inject(buffer)\n  setfilter(filter, optimize, netmask)\n  loop(count, callback)\n  dispatch(count, callback)\n  next()\n  datalink()\n  snapshot()\n  is_swapped()\n  major_version()\n  stats()\n  fileno()\n\nPlease see the __doc__ attributes of the following pcap module functions\nfor further information:\n  lookupdev()\n  lookupnet(device)\n  findalldevs()\n  aton(addr)\n  ntoa(addr)\n"));
+  SWIG_Python_SetConstant(d, "pcap_doc",SWIG_FromCharPtr("pcap module\n-----------\npcapObject(): Returns a pcapObject instance, with the following methods.\nPlease see the __doc__ attributes of the instance methods of a pcapObject\nfor more information. (there are no method __doc__ attributes in the\nclass). Also please note that at this time, method __doc__ attributes are\nonly functional for python2.\n  open_live(device, snaplen, promisc, to_ms)\n  open_dead(linktype, snaplen)\n  open_offline(filename)\n  dump_open(filename)\n  close()\n  setnonblock(nonblock)\n  getnonblock()\n  inject(buffer)\n  setfilter(filter, optimize, netmask)\n  loop(count, callback)\n  dispatch(count, callback)\n  next()\n  datalink()\n  snapshot()\n  is_swapped()\n  major_version()\n  stats()\n  fileno()\n\nPlease see the __doc__ attributes of the following pcap module functions\nfor further information:\n  lookupdev()\n  lookupnet(device)\n  findalldevs()\n  aton(addr)\n  ntoa(addr)\n"));
   SWIG_Python_SetConstant(d, "pcapObject_open_live_doc",SWIG_FromCharPtr("open_live(device, snaplen, promisc, to_ms)\n\nOpens the interface specificed by \'device\' for packet capture. \'snaplen\'\nis the maximum number of bytes to capture per packet, \'promisc\' indicates\nwhether promiscuous mode should be used, and \'to_ms\' specifies the read\ntimeout in milliseconds."));
   SWIG_Python_SetConstant(d, "pcapObject_open_dead_doc",SWIG_FromCharPtr("open_dead(linktype, snaplen)\n\nopen_dead is used to initialize the pcapObject so that methods that\nrequire the object to be initialized can be called, such as for compiling\nBPF code.  \'snaplen\' is the maximum number of bytes to capture per packet."));
   SWIG_Python_SetConstant(d, "pcapObject_open_offline_doc",SWIG_FromCharPtr("open_offline(filename)\n\nOpens a saved pcap/tcpdump-format file for reading. \'filename\' is the name\nof the file to open.  The filename \'-\' is synonymous with stdin"));
   SWIG_Python_SetConstant(d, "pcapObject_dump_open_doc",SWIG_FromCharPtr("dump_open(filename)\n\nOpens a saved pcap/tcpdump-format file for writing. \'filename\' is the name\nof the file to open.  The filename \'-\' is synonymous with stdout"));
+  SWIG_Python_SetConstant(d, "pcapObject_close_doc",SWIG_FromCharPtr("close()\n\nCloses the pcapObject.  Another pcap_open* is required before this\npcapObject is useable again."));
   SWIG_Python_SetConstant(d, "pcapObject_setnonblock_doc",SWIG_FromCharPtr("setnonblock(nonblock)\n\nPuts the pcapObject in non-blocking mode (\'nonblock\'==1) or blocking mode\n(\'nonblock\'==0).  Non-blocking behavior is only applicable to the\ndispatch method, and not the loop and next methods.  It has no effect on\nsavefiles."));
   SWIG_Python_SetConstant(d, "pcapObject_getnonblock_doc",SWIG_FromCharPtr("getnonblock()\n\nReturns the non-blocking status of the pcapObject (returns 1 for\nnon-blocking, returns 0 for blocking).  0 is always returned for savefiles\nNon-blocking behavior is only applicable to the dispatch method, and not\nthe loop and next methods.  It has no effect on savefiles."));
   SWIG_Python_SetConstant(d, "pcapObject_inject_doc",SWIG_FromCharPtr("inject(buffer)\n\nSend the specified packet to the pcapObject, which must be an actual\ninterface (opened with open_live).  Returns the number of bytes sent."));
@@ -4921,7 +4950,7 @@ SWIG_init(void) {
   SWIG_Python_SetConstant(d, "lookupdev_doc",SWIG_FromCharPtr("lookupdev()\n\nReturns a string containing the name of an interface suitable for use\nwith pcapObject.open_live and lookupnet.\n"));
   SWIG_Python_SetConstant(d, "lookupnet_doc",SWIG_FromCharPtr("lookupnet(interface)\n\nReturns a tuple containing the network number and mask associated with\nthe network device \'interface\' in network byte order.\n"));
   SWIG_Python_SetConstant(d, "findalldevs_doc",SWIG_FromCharPtr("findalldevs()\n\nReturns a list of tuples for each device that can be opened with\nopen_live(). Each tuple contains the following members:\n  name\n  description\n  addressess: a tuple of tuples for each address, containing the address,\n    netmask, broadcast address, and point-to-point address.\n  flags: PCAP_IF_LOOPBACK if a loopback interface\n"));
-  SWIG_Python_SetConstant(d, "__doc__",SWIG_FromCharPtr("pcap module\n-----------\npcapObject(): Returns a pcapObject instance, with the following methods.\nPlease see the __doc__ attributes of the instance methods of a pcapObject\nfor more information. (there are no method __doc__ attributes in the\nclass). Also please note that at this time, method __doc__ attributes are\nonly functional for python2.\n  open_live(device, snaplen, promisc, to_ms)\n  open_dead(linktype, snaplen)\n  open_offline(filename)\n  dump_open(filename)\n  setnonblock(nonblock)\n  getnonblock()\n  inject(buffer)\n  setfilter(filter, optimize, netmask)\n  loop(count, callback)\n  dispatch(count, callback)\n  next()\n  datalink()\n  snapshot()\n  is_swapped()\n  major_version()\n  stats()\n  fileno()\n\nPlease see the __doc__ attributes of the following pcap module functions\nfor further information:\n  lookupdev()\n  lookupnet(device)\n  findalldevs()\n  aton(addr)\n  ntoa(addr)\n"));
+  SWIG_Python_SetConstant(d, "__doc__",SWIG_FromCharPtr("pcap module\n-----------\npcapObject(): Returns a pcapObject instance, with the following methods.\nPlease see the __doc__ attributes of the instance methods of a pcapObject\nfor more information. (there are no method __doc__ attributes in the\nclass). Also please note that at this time, method __doc__ attributes are\nonly functional for python2.\n  open_live(device, snaplen, promisc, to_ms)\n  open_dead(linktype, snaplen)\n  open_offline(filename)\n  dump_open(filename)\n  close()\n  setnonblock(nonblock)\n  getnonblock()\n  inject(buffer)\n  setfilter(filter, optimize, netmask)\n  loop(count, callback)\n  dispatch(count, callback)\n  next()\n  datalink()\n  snapshot()\n  is_swapped()\n  major_version()\n  stats()\n  fileno()\n\nPlease see the __doc__ attributes of the following pcap module functions\nfor further information:\n  lookupdev()\n  lookupnet(device)\n  findalldevs()\n  aton(addr)\n  ntoa(addr)\n"));
   
   /* m is the current module */
   /* d is the dictionary for the current module */

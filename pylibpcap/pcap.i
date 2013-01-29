@@ -124,6 +124,8 @@ typedef struct {
     DOC(pcapObject_open_offline,pcapObject_open_offline_doc)
     void dump_open(char *fname);
     DOC(pcapObject_dump_open,pcapObject_dump_open_doc)
+    void close(void);
+    DOC(pcapObject_close,pcapObject_close_doc)
     void setnonblock(int nonblock);
     DOC(pcapObject_setnonblock,pcapObject_setnonblock_doc)
     int getnonblock(void);
