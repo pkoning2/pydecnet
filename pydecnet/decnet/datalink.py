@@ -4,27 +4,45 @@
 
 """
 
-from abc import abstractmethod
+from abc import abstractmethod, ABCMeta
+import pcap
+import re
+import select
 
-class Datalink (object):
-    """Abstract base class for a datalink used by DECnet routing.
+from .node import *
+from .packet import *
+from .timers import *
+
+_mac_re = re.compile ("[-:]")
+def scan_macaddr (s):
+    """Return a binary MAC address given its string representation
     """
-    def __init__ (self, name, owner):
+    bl = _mac_re.split (s)
+    if len (bl) != 6:
+        raise ValueError ("Invalid MAC address string %s" % s)
+    return bytes (int (f, 16) for f in bl)
+
+class Datalink (Element, metaclass = ABCMeta):
+    """Abstract base class for a DECnet datalink.
+    """
+    def __init__ (self, owner, name):
         """Initialize a Datalink instance.  "name" is the name of
-        the instance; "owner" is its owner (a routing layer circuit
-        instance.  The owner will receive notifications of received data,
+        the instance; "owner" is its owner.
+        The owner will receive notifications of received data,
         transmit completions, and other applicable upcalls by calls
         to its dl_notification method.
         """
+        super ().__init__ (owner)
         self.name = name
-        self.owner = owner
 
     @abstractmethod
-    def send (self, msg):
-        """Transmit a message.  Upon completion, a DlTransmitComplete
-        will be passed to the owner.
+    def create_port (self, *args):
+        """Create a port.  Returns an instance of the Port subclass
+        associated with this datalink.  Depending on the datalink
+        type, there may be a limit on the number of ports that can
+        exist at one time.
         """
-        pass
+        return self.port_class (self, *args)
 
     @abstractmethod
     def open (self):
@@ -38,38 +56,31 @@ class Datalink (object):
         """
         pass
 
-# Classes for datalink notifications to the routing datalink dependent
-# sublayer
+class Port (Element, metaclass = ABCMeta):
+    """Abstract base class for a DECnet datalink port
+    """
+    def __init__ (self, datalink, owner):
+        super ().__init__ (datalink)
+        self.owner = owner
 
-class DlNofication (object):
     @abstractmethod
-    def __init__ (self, dl):
-        self.datalink = dl
+    def send (self, msg):
+        """Transmit a message.  Upon completion, a DlTransmitComplete
+        will be passed to the owner.
+        """
+        pass
 
-    def send (self):
-        self.datalink.dl_nofication (self)
-        
-class DlReceive (DlNotification):
+class DlReceive (Work):
     """Notification of a received packet.
     """
-    def __init__ (self, dl, msg):
-        super ().__init__ (dl)
-        self.msg = msg
 
-class DlTransmitComplete (DlNotification):
+class DlTransmitComplete (Work):
     """Notification of a packet transmit completion (successful or not).
     """
-    def __init__ (self, dl, msg):
-        super ().__init__ (dl)
-        self.msg = msg
 
-class DlStatus (DlNotification):
+class DlStatus (Work):
     """Notification of some sort of datalink event.
     """
-    def __init__ (self, dl, event):
-        super ().__init__ (dl)
-        self.event = event
-
 
 # Point to point datalink base class
 
@@ -82,55 +93,66 @@ class PtpDatalink (Datalink):
 class BcDatalink (Datalink):
     """Base class for broadcast (LAN) datalinks.
     """
-    def __init__ (self, name, owner, proto):
-        super ().__init__ (name, owner)
-        self.macaddr = None
-        self.proto = proto
-        self.multicast = set ()
+    def __init__ (self, owner, name):
+        super ().__init__ (owner, name)
+        self.hwaddr = None
+        self.ports = dict ()
 
-    @abstractmethod
+    def create_port (self, owner, proto, *args):
+        port = super ().create_port (owner, proto, *args)
+        proto = port.proto
+        if proto in self.ports:
+            raise RuntimeError ("Creating port for proto %r which is in use" \
+                                % proto)
+        self.ports[proto] = port
+        return port
+    
+# Broadcast datalink port
+
+class BcPort (Port):
+    """Base class for a broadcast (LAN) datalink port.  A port
+    describes an upper layer's use of the datalink, specifically
+    a particular protocol type, individual address, and set of
+    multicast addresses.
+    """
+    def __init__ (self, datalink, owner, proto):
+        super ().__init__ (datalink, owner)
+        self.macaddr = datalink.hwaddr
+        self.multicast = set ()
+        if isinstance (proto, int):
+            proto = proto.to_bytes (2, "big")
+        else:
+            proto = bytes (proto)
+            if len (proto) != 2:
+                raise ValueError ("Protocol type length is wrong")
+        self.proto = proto
+        
     def add_multicast (self, addr):
+        if isinstance (addr, str):
+            addr = scan_macaddr (addr)
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
-
-    @abstractmethod
+        
     def remove_multicast (self, addr):
         self.multicast.remove (addr)
 
-    @abstractmethod
     def set_macaddr (self, addr):
         self.macaddr = addr
 
-class Ethernet (BcDatalink):
-    """DEC Ethernet datalink class.
+class EthPort (BcPort):
+    """DEC Ethernet port class.
     """
-    def __init__ (self, name, owner, proto, pad = True):
-        super ().__init__ (dev, owner, proto)
+    def __init__ (self, datalink, owner, proto, pad = True):
+        super ().__init__ (datalink, owner, proto)
         self.pad = pad
         f = self.frame = bytearray (1514)
-        f[12] = proto >> 8
-        f[13] = proto & 0xff
-        self.hwaddr = None
-        for name, desc, addrs, flags in pcap.findalldevs ():
-            if addrs:
-                self.hwaddr = addrs[0][0]
-                self.set_macaddr (self.hwaddr)
+        f[6:12] = self.macaddr
+        f[12:14] = self.proto
                 
-    def open (self):
-        p = pcap.pcapObject ()
-        p.open_live (self.name, 1600, 0, 1000)
-        p.setfilter ("ether proto 0x%04x" % self.proto, 0, 0)
-        self.pcap = p
-        # start receive thread
-
     def set_macaddr (self, addr):
         super ().set_macaddr (addr)
         self.frame[6:12] = addr
-        
-    def run (self):        
-        while not self.stopnow:
-            p.dispatch (1, receive_indication)
         
     def send (self, msg, dest):
         if len (dest) != 6:
@@ -151,6 +173,61 @@ class Ethernet (BcDatalink):
             f[14:14 + l] = msg
             l += 14
         l = min (l, 60)
-        l2 = self.pcap.inject (memoryview (f)[:l])
-        if l != l2:
+        datalink.send (memoryview (f)[:l])
+
+class Ethernet (BcDatalink, StopThread):
+    """DEC Ethernet datalink.
+    """
+    port_class = EthPort
+    
+    def __init__ (self, owner, name):
+        StopThread.__init__ (self)
+        BcDatalink.__init__ (self, owner, name)
+        self.hwaddr = bytes (6)
+        for dname, desc, addrs, flags in pcap.findalldevs ():
+            if dname == name and addrs:
+                self.hwaddr = scan_macaddr (addrs[0][0])
+        self.pcap = pcap.pcapObject ()
+    
+    def open (self):
+        # Always set promiscuous mode
+        self.pcap.open_live (self.name, 1600, 1, 1000)
+        # start receive thread
+        self.start ()
+        
+    def close (self):
+        self.stop ()
+        self.pcap.close ()
+        
+    def create_port (self, owner, proto, pad = True):
+        return super ().create_port (owner, proto, pad)
+
+    def send (self, buf):
+        l2 = self.pcap.inject (buf)
+        if l2 != len (buf):
             raise IOError
+        
+    def run (self):
+        pobj = select.poll ()
+        pobj.register (self.pcap.fileno ())
+        while True:
+            pobj.poll (1000)
+            if self.stopnow:
+                break
+            packet = self.pcap.next ()
+            if not packet:
+                # pcap_next sometimes returns None...
+                continue
+            plen, packet, ts = packet
+            if plen < 14:
+                continue
+            proto = packet[12:14]
+            try:
+                port = self.ports[proto]
+            except KeyError:
+                # No protocol type match, ignore packet
+                continue
+            dest = packet[:6]
+            if dest in port.multicast:
+                self.node.addwork (DlReceive (port.owner, packet))
+                
