@@ -22,6 +22,9 @@ def scan_macaddr (s):
         raise ValueError ("Invalid MAC address string %s" % s)
     return bytes (int (f, 16) for f in bl)
 
+def format_macaddr (b):
+    return "{0[0]:%02x-0[1]:%02x-0[2]:%02x-0[3]:%02x-0[4]:%02x-0[5]:%02x".format (b)
+
 class Datalink (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink.
     """
@@ -71,7 +74,9 @@ class Port (Element, metaclass = ABCMeta):
         pass
 
 class DlReceive (Work):
-    """Notification of a received packet.
+    """Notification of a received packet.  The argument passed to the
+    dispatch is a pair: the source address of the received packet, and
+    the packet payload (datalink header stripped off).
     """
 
 class DlTransmitComplete (Work):
@@ -228,6 +233,12 @@ class Ethernet (BcDatalink, StopThread):
                 # No protocol type match, ignore packet
                 continue
             dest = packet[:6]
-            if dest in port.multicast:
-                self.node.addwork (DlReceive (port.owner, packet))
+            if (dest[0] & 1) == 0 or dest in port.multicast:
+                src = packet[6:12]
+                if port.pad:
+                    plen = packet[14] + (packet[15] << 8)
+                    packet = memoryview (packet)[16:16 + plen]
+                else:
+                    packet = memoryview (packet)[14:]
+                self.node.addwork (DlReceive (port.owner, (src, packet)))
                 
