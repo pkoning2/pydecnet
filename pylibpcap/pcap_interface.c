@@ -241,16 +241,29 @@ int pcapObject_inject(pcapObject *self, PyObject *bufobj)
   size_t size;
   int status;
   PyThreadState *saved_state;
+#if PY_VERSION_HEX >= 0x03000000
+  Py_buffer pybuf;
+#endif
 
   if (check_ctx(self))
     return -1;
 
-  PyArg_Parse (bufobj, Build_BufAndLen, &buf, &size);
+#if PY_VERSION_HEX >= 0x03000000
+  PyArg_Parse (bufobj, "y*", &pybuf);
+  buf = pybuf.buf;
+  size = pybuf.len;
+#else
+  PyArg_Parse (bufobj, "s#", &buf, &size);
+#endif
 
   saved_state = PyEval_SaveThread(); /* Py_BEGIN_ALLOW_THREADS */
 
   status = pcap_inject(self->pcap, buf, size);
   PyEval_RestoreThread(saved_state);
+
+#if PY_VERSION_HEX >= 0x03000000
+  PyBuffer_Release (&pybuf);
+#endif
 
   if (status < 0) 
     throw_pcap_exception(self->pcap, "pcap_inject");
