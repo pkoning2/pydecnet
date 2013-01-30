@@ -126,6 +126,7 @@ class TimerWheel (Element, StopThread):
         pos = (self.pos + ticks) % self.maxtime
         self.wheel[pos].add (item)
         self.lock.release ()
+        #print ("Started timer on", item, ticks, "delay")
         
     def run (self):
         """Tick handler.
