@@ -6,26 +6,29 @@ Classes for packet layouts.
 """
 
 import sys
+import struct
 
 LE = "little"
+getbyte = struct.Struct ("<B")
 
 try:
     int.from_bytes
 except AttributeError:
     raise ImportError ("Python 3.2 or later required")
 
-def proc_layoutelem (e):
+def proc_layoutelem (cls, e):
     code, *args = e
     code = code.lower ()
 
     if code == "tlv":
         tlen, llen, wild, layoutdict = args
-        codedict = { k : proc_layoutelem (v) for k, v in layoutdict.items () }
-        return [ Packet.encode_tlv, Packet.decode_tlv,
+        codedict = { k : proc_layoutelem (cls, v)
+                     for k, v in layoutdict.items () }
+        return [ cls.encode_tlv, cls.decode_tlv,
                  ( tlen, llen, wild, codedict ) ]
     else:
-        enc = getattr (Packet, "encode_%s" % code)
-        dec = getattr (Packet, "decode_%s" % code)
+        enc = getattr (cls, "encode_%s" % code)
+        dec = getattr (cls, "decode_%s" % code)
         if code == "bm":
             # Find the field length in bytes
             topbit = -1
@@ -39,7 +42,7 @@ def proc_layoutelem (e):
             args = args[0]
         return [ enc, dec, args ]
         
-def process_layout (layout):
+def process_layout (cls, layout):
     """Process a layout definition and return the resulting
     encode/decode table.
 
@@ -57,11 +60,13 @@ def process_layout (layout):
     "I", "B", "EX": description is name and length.  For I and EX,
     length means the maximum length.
 
-    "BS" is byte string, i.e., same as "I" but with the length implied.
-    Typically this is used inside TLV items, where the length is part of
-    the prefix rather than the value.  DECnet specs show I fields inside
-    TLV structures, but in fact those are BS, not I.
+    "BS" is byte string, i.e., same as "I" but with the length
+    implied.  This is only used inside TLV items, where the length is
+    part of the prefix rather than the value.  DECnet specs show I
+    fields inside TLV structures, but in fact those are BS, not I.
 
+    "BV" is a fixed length byte string.
+    
     "TLV": description is the size of the type field, size of the length
     field, wildcard flag, and a dictionary of value codes.  The dictionary
     is keyed by the value type code, and the value is a layout tuple as
@@ -72,7 +77,9 @@ def process_layout (layout):
     (those listed as keys of the fields dictionary) are encoded.
 
     The code table is used by the "encode" and "decode" methods
-    of the "Packet" class.
+    of the class being defined.  This generally means those methods
+    as defined in the Packet base class, but it allows new encodings
+    to be defined or existing ones to be overridden.
     """
     codetable = [ ]
     nomore = None
@@ -82,10 +89,10 @@ def process_layout (layout):
             raise TypeError ("%s field must be last in layout" % nomore)
         if code == "tlv":
             nomore = "TLV"
-        codetable.append (proc_layoutelem (e))
+        codetable.append (proc_layoutelem (cls, e))
     return codetable
     
-class _packet_encoding (type):
+class packet_encoding_meta (type):
     """Metaclass for "Packet" that will process the "layout"
     for the packet into the necessary encoding and decoding
     tables.
@@ -97,21 +104,37 @@ class _packet_encoding (type):
     """
     def __new__ (cls, name, bases, classdict):
         result = type.__new__ (cls, name, bases, classdict)
-        try:
-            layout = result.layout
-        except AttributeError:
+        # Look for an existing codetable.  If we find one, that means
+        # this class is derived from another Packet subclass, and we
+        # will either use its layout as-is (if this class doesn't define
+        # its own additional layout) or we will treat that base layout
+        # as the header for any additional layout given here.
+        baselayout = getattr (result, "codetable", None)
+        layout = classdict.get ("layout", None)
+        if layout:
+            # This class defines a layout.  It's either the packet layout
+            # (if there is no layout in its base classes) or additional
+            # layout after the header defined by the base classes.
+            # For the latter case, the header layout cannot end in a
+            # TLV field, because those consume the entire packet.
+            if baselayout and baselayout[-1][0] is result.encode_tlv:
+                raise TypeError ("Packet header cannot end in TLV field")
+            layout = process_layout (result, layout)
+            if baselayout:
+                layout = baselayout + layout
+            result.codetable = layout
+        elif not baselayout:
             raise AttributeError ("Required attribute 'layout' not defined in class '%s'" % name)
-        result.codetable = process_layout (layout)
         return result
             
-class Packet (bytearray, metaclass = _packet_encoding):
+class Packet (bytearray, metaclass = packet_encoding_meta):
     """Base class for DECnet packets.
 
     The packet layout is given by class variable "layout",
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    layout = ()
+    layout = ( ( "res", 1 ), )    # Dummy layout to satisfy the metaclass
 
     def __init__ (self, buf = None):
         """Construct a packet.  If "buf" is supplied, that buffer
@@ -151,7 +174,9 @@ class Packet (bytearray, metaclass = _packet_encoding):
         remaining buffer.
         """
         field, maxlen = args
-        flen = buf[0]
+        # This doesn't just pick up buf[0] because that's an int if
+        # buf is bytes, but a length one bytes if buf is memoryview.
+        flen = getbyte.unpack_from (buf)[0]
         if flen > maxlen:
             raise OverflowError ("Image field longer than max length %d" % maxlen)
         v = buf[1:flen + 1]
@@ -183,7 +208,8 @@ class Packet (bytearray, metaclass = _packet_encoding):
         flen, elements = args
         field = 0
         for name, start, bits in elements:
-            val = getattr (self, name)
+            # For fields not defined in the object, substitute zero
+            val = getattr (self, name, 0)
             if val >> bits:
                 raise OverflowError ("Field %s value too large for %d bit field" % (name, bits))
             field |= val << start
@@ -234,7 +260,16 @@ class Packet (bytearray, metaclass = _packet_encoding):
 
     def encode_bs (self, args):
         field, flen = args
-        retval = bytes (getattr (self, field))
+        return bytes (getattr (self, field))
+
+    def decode_bs (self, buf, args):
+        field, flen = args
+        setattr (self, field, bytes (buf))
+        return b""
+    
+    def encode_bv (self, args):
+        field, flen = args
+        return bytes (getattr (self, field))
         l = len (retval)
         if l < flen:
             retval += bytes (flen - l)
@@ -242,9 +277,9 @@ class Packet (bytearray, metaclass = _packet_encoding):
             retval = retval[:flen]
         return retval
 
-    def decode_bs (self, buf, args):
+    def decode_bv (self, buf, args):
         field, flen = args
-        setattr (self, field, buf[:flen])
+        setattr (self, field, bytes (buf[:flen]))
         return buf[flen:]
     
     def encode_tlv (self, args):

@@ -23,7 +23,7 @@ def scan_macaddr (s):
     return bytes (int (f, 16) for f in bl)
 
 def format_macaddr (b):
-    return "{0[0]:%02x-0[1]:%02x-0[2]:%02x-0[3]:%02x-0[4]:%02x-0[5]:%02x".format (b)
+    return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (b)
 
 class Datalink (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink.
@@ -177,8 +177,10 @@ class EthPort (BcPort):
                 raise ValueError
             f[14:14 + l] = msg
             l += 14
-        l = min (l, 60)
-        datalink.send (memoryview (f)[:l])
+        # Always send packet padded to min of 60 if need be, whether
+        # pad mode is specified or not.
+        l = max (l, 60)
+        self.parent.send (memoryview (f)[:l])
 
 class Ethernet (BcDatalink, StopThread):
     """DEC Ethernet datalink.
