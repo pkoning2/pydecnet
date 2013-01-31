@@ -7,7 +7,7 @@
 from abc import abstractmethod, ABCMeta
 import pcap
 import re
-import select
+import time
 
 from .node import *
 from .packet import *
@@ -125,6 +125,7 @@ class BcPort (Port):
         super ().__init__ (datalink, owner)
         self.macaddr = datalink.hwaddr
         self.multicast = set ()
+        self.destfilter = set ((self.macaddr, ))
         if isinstance (proto, int):
             proto = proto.to_bytes (2, "big")
         else:
@@ -139,12 +140,16 @@ class BcPort (Port):
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
+        self.destfilter.add (addr)
         
     def remove_multicast (self, addr):
         self.multicast.remove (addr)
+        self.destfilter.remove (addr)
 
     def set_macaddr (self, addr):
         self.macaddr = addr
+        self.destfilter = set (self.multicast)
+        self.destfilter.add (addr)
 
 class EthPort (BcPort):
     """DEC Ethernet port class.
@@ -199,12 +204,12 @@ class Ethernet (BcDatalink, StopThread):
     
     def open (self):
         # Always set promiscuous mode
-        self.pcap.open_live (self.name, 1600, 1, 1000)
+        self.pcap.open_live (self.name, 1600, 1, 100)
         # start receive thread
         self.start ()
         
     def close (self):
-        self.stop ()
+        #self.stop ()
         self.pcap.close ()
         
     def create_port (self, owner, proto, pad = True):
@@ -216,33 +221,40 @@ class Ethernet (BcDatalink, StopThread):
             raise IOError
         
     def run (self):
-        pobj = select.poll ()
-        pobj.register (self.pcap.fileno ())
         while True:
-            pobj.poll (1000)
             if self.stopnow:
                 break
-            packet = self.pcap.next ()
-            if not packet:
-                # pcap_next sometimes returns None...
-                continue
-            plen, packet, ts = packet
-            if plen < 14:
-                continue
-            proto = packet[12:14]
             try:
-                port = self.ports[proto]
-            except KeyError:
-                # No protocol type match, ignore packet
-                continue
-            dest = packet[:6]
-            if (dest[0] & 1) == 0 or dest in port.multicast:
-                src = packet[6:12]
-                if port.pad:
-                    plen = packet[14] + (packet[15] << 8)
-                    packet = memoryview (packet)[16:16 + plen]
-                else:
-                    packet = memoryview (packet)[14:]
-                self.node.addwork (DlReceive (port.owner,
-                                              src = src, packet = packet))
+                cnt = self.pcap.dispatch (0, self.receive)
+            except pcap._pcap.error:
+                break
+            #print (cnt, "packets dispatched")
+
+    def receive (self, plen, packet, ts):
+        #print (plen, packet, ts)
+        if not packet:
+            # pcap_next returns None if we got a timeout
+            return
+        if plen < 60:
+            # Runt???
+            return
+        proto = packet[12:14]
+        try:
+            port = self.ports[proto]
+        except KeyError:
+            # No protocol type match, ignore packet
+            return
+        dest = packet[:6]
+        if dest in port.destfilter:
+            src = packet[6:12]
+            if port.pad:
+                plen2 = packet[14] + (packet[15] << 8)
+                if plen < plen2 + 16:
+                    print ("Packet length field %d inconsistent with packet length %d" % (plen2, plen))
+                    return
+                packet = memoryview (packet)[16:16 + plen2]
+            else:
+                packet = memoryview (packet)[14:]
+            self.node.addwork (DlReceive (port.owner,
+                                          src = src, packet = packet))
                 

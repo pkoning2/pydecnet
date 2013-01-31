@@ -176,8 +176,12 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         field, maxlen = args
         # This doesn't just pick up buf[0] because that's an int if
         # buf is bytes, but a length one bytes if buf is memoryview.
+        # More precisely, it work that way in Python 3.2 and before;
+        # this bug is fixed in Python 3.3.
         flen = getbyte.unpack_from (buf)[0]
-        if flen > maxlen:
+        if flen < 0:
+            raise ValueError ("Image field with negative length %d" % flen)
+        elif flen > maxlen:
             raise OverflowError ("Image field longer than max length %d" % maxlen)
         v = buf[1:flen + 1]
         if len (v) != flen:
@@ -347,7 +351,7 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         if not layout:
             payload = getattr (self, "payload", None)
             if payload:
-                data.append (payload)
+                data.append (bytes (payload))
         data = b''.join (data)
         if not layout:
             self[:] = data

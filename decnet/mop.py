@@ -11,6 +11,8 @@ from .datalink import *
 class MopHdr (Packet):
     layout = ( ( "b", "code", 1 ), )
 
+SYSIDTIME = 30 # temp
+
 class SysId (MopHdr):
     layout = ( ( "res", 1 ),
                ( "b", "receipt", 2 ),
@@ -33,7 +35,7 @@ class SysId (MopHdr):
                    7 : ( "bs", "hwaddr", 6 ),
                    8 : ( "bs", "time", 10 ),
                    100 : ( "b", "device", 1 ),
-                   200 : ( "bs", "software", 17 ),
+                   200 : ( "c", "software", 17 ),
                    300 : ( "b", "processor", 1 ),
                    400 : ( "b", "datalink", 1 ) } )
                )
@@ -95,7 +97,51 @@ class SysId (MopHdr):
                     v = format_macaddr (v)
                 ret.append ("{0:<12}: {1}".format (f, v))
         return '\n'.join (ret)
-    
+
+    def encode_c (self, args):
+        """Encode "field" according to the rules for the "software"
+        protocol field.  If "field" is a string, encode it as for the
+        "I" type. If it is an integer, it has to be in -2..0, and the
+        encoding is just that one byte.
+        """
+        field, maxlen = args
+        val = getattr (self, field)
+        if isinstance (val, int):
+            if val not in (0, -1, -2):
+                raise ValueError ("MOP C-n field integer not in -2..0")
+            val = val.to_bytes (1, LE)
+        else:
+            if isinstance (val, str):
+                val = bytes (val, sys.getdefaultencoding ())
+            vl = len (val)
+            if vl > maxlen:
+                raise OverflowError ("Value too long for %d byte field" % maxlen)
+            val = vl.to_bytes (1, LE) + val
+        return val
+
+    def decode_c (self, buf, args):
+        """Decode "field" according to the rules for the "software"
+        protocol field.  Basically this is like an I-n field, but
+        special values -1 and -2 are accepted in the first byte,
+        and string values are taken to be text strings.
+        """
+        field, maxlen = args
+        flen = getbyte.unpack_from (buf)[0]
+        if flen < -2:
+            raise ValueError ("Image field with negative length %d" % flen)
+        elif flen > maxlen:
+            raise OverflowError ("Image field longer than max length %d" % maxlen)
+        elif flen < 0:
+            v = flen
+            flen = 1
+        else:
+            v = buf[1:flen + 1]
+            if len (v) != flen:
+                raise ValueError ("Not %d bytes left for image field" % flen)
+            v = bytes (v).decode ()
+        setattr (self, field, v)
+        return buf[flen + 1:]
+        
 class RequestId (MopHdr):
     layout = ( ( "res", 1 ),
                ( "b", "receipt", 2 ), )
@@ -128,6 +174,19 @@ class ConsoleResponse (MopHdr):
                  ( "cmd_lost", 1, 1 ),
                  ( "resp_lost", 2, 1 ) ), )
     code = 19
+
+class LoopSkip (Packet):
+    layout = ( ( "b", "skip", 2 ), )
+    
+class LoopFwd (Packet):
+    function = 2
+    layout = ( ( "b", "function", 2 ),
+               ( "bv", "dest", 6 ) )
+
+class LoopReply (Packet):
+    function = 2
+    layout = ( ( "b", "function", 2 ),
+               ( "b", "receipt", 2 ) )
 
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
@@ -191,13 +250,13 @@ class SysIdHandler (Element, Timer):
     def __init__ (self, parent, port):
         Element.__init__ (self, parent)
         Timer.__init__ (self)
-        self.node.timers.start (self, 10)
+        self.node.timers.start (self, SYSIDTIME)
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
         
     def dispatch (self, pkt):
-        if isinstance (item, DlReceive):
+        if isinstance (pkt, Packet):
             src = pkt.src
             if pkt.code == SysId.code:
                 if src in self.heard:
@@ -210,9 +269,9 @@ class SysIdHandler (Element, Timer):
                 self.send_id (src, pkt.receipt)
             else:
                 print ("in sysidhandler: mop message code", pkt.code)
-        elif isinstance (item, Timeout):
+        elif isinstance (pkt, Timeout):
             self.send_id (MopCircuit.consmc, 0)
-            self.node.timers.start (self, 10)
+            self.node.timers.start (self, SYSIDTIME)
 
     def send_id (self, dest, receipt):
         sysid = SysId ()
@@ -229,8 +288,7 @@ class SysIdHandler (Element, Timer):
         sysid.device = 9    # PCL, for grins
         sysid.datalink = 1  # Ethernet
         sysid.processor = 2 # Comm server
-        sw = b"DECnet/Python"  # Note: 16 chars max
-        sysid.software = bytes ((len (sw),)) + sw
+        sysid.software = "DECnet/Python"  # Note: 16 chars max
         sysid.encode ()
         self.port.send (sysid, dest)
 
@@ -259,8 +317,26 @@ class LoopHandler (Element):
 
     def __init__ (self, parent, datalink):
         super ().__init__ (parent)
-        #self.port = port = datalink.create_port (self, 0x9000)
-        #port.add_multicast (self.loopmc)
+        self.port = port = datalink.create_port (self, 0x9000, pad = False)
+        port.add_multicast (self.loopmc)
     
     def dispatch (self, item):
         if isinstance (item, DlReceive):
+            buf = item.packet
+            top = LoopSkip (buf)
+            skip = top.skip
+            if (skip & 1) or skip > len (buf) - 4:
+                # Invalid skip count, ignore
+                return
+            # Guess it's a forward operation
+            f = LoopFwd (buf[skip + 2:])
+            if f.function == LoopFwd.function:
+                if f.dest[0] & 1:
+                    # Forward to multicast, invalid, ignore
+                    return
+                top.skip += 8
+                top.encode ()
+                self.port.send (top, f.dest)
+            elif f.function == LoopReply.function:
+                f = LoopReply (buf[skip + 2:])
+                # deliver the reply
