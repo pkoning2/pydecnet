@@ -4,6 +4,8 @@
 
 """
 
+from random import randint
+
 from .node import *
 from .packet import *
 from .datalink import *
@@ -12,6 +14,12 @@ class MopHdr (Packet):
     layout = ( ( "b", "code", 1 ), )
 
 SYSIDTIME = 30 # temp
+
+_lastreceipt = randint (0, 0xffff)
+def receipt ():
+    global _lastreceipt
+    _lastreceipt = (_lastreceipt + 1) & 0xffff
+    return _lastreceipt
 
 class SysId (MopHdr):
     layout = ( ( "res", 1 ),
@@ -184,10 +192,36 @@ class LoopFwd (Packet):
                ( "bv", "dest", 6 ) )
 
 class LoopReply (Packet):
-    function = 2
+    function = 1
     layout = ( ( "b", "function", 2 ),
                ( "b", "receipt", 2 ) )
 
+class LoopDirect (LoopSkip):
+    """A direct (not assisted) loop packet, as originally sent.
+    """
+    layout = ( ( "b", "fwd", 2 ),
+               ( "bv", "dest", 6 ),
+               ( "b", "reply", 2 ),
+               ( "b", "receipt", 2 ) )
+    fwd = LoopFwd.function
+    reply = LoopReply.function
+    skip = 0
+
+# Requests we handle:
+
+class LoopExchange (Exchange):
+    """Loop to "dest", data is "payload", output goes to file "output".
+    """
+    
+class IdExchange (Exchange):
+    """Request SysId from "dest", output goes to file "output".
+    """
+    
+class ConsoleExchange (Exchange):
+    """Open console carrier session with "dest", output goes to file "output".
+    Data to send is "payload".  
+    """
+    
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
                   if type (c) is packet_encoding_meta
@@ -197,6 +231,9 @@ class Mop (Element):
     """The MOP layer.  It doesn't do much, other than being the
     parent of the per-datalink MOP objects.
     """
+    consmc = scan_macaddr ("AB-00-00-02-00-00")
+    loopmc = scan_macaddr ("CF-00-00-00-00-00")
+
     def __init__ (self, parent):
         super ().__init__ (parent)
         self.reservation = None
@@ -206,8 +243,6 @@ class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
     and services enabled on a particular circuit (datalink instance).
     """
-    consmc = scan_macaddr ("AB-00-00-02-00-00")
-    
     def __init__ (self, parent, datalink):
         super ().__init__ (parent)
         if isinstance (datalink, BcDatalink):
@@ -216,7 +251,7 @@ class MopCircuit (Element):
             # The various MOP console handlers share a port, so we'll
             # own it and dispatch received traffic.
             self.consport = consport = datalink.create_port (self, 0x6002)
-            consport.add_multicast (self.consmc)
+            consport.add_multicast (Mop.consmc)
             self.sysid = SysIdHandler (self, consport)
             self.carrier_client = CarrierClient (self, consport)
             if parent.console_carrier:
@@ -237,10 +272,18 @@ class MopCircuit (Element):
                 print ("Unknown message code", msgcode)
                 return
             parsed.src = work.src
-            self.sysid.dispatch (parsed)
-            self.carrier_client.dispatch (parsed)
-            if self.carrier_server:
-                self.carrier_server.dispatch (parsed)
+        elif isinstance (work, Exchange):
+            parsed = work
+            # We also send this to the loop handler so requesters
+            # only need to know how to find the MopCircuit object to use
+            self.loophandler.dispatch (work)
+        else:
+            # Unknown request
+            return
+        self.sysid.dispatch (parsed)
+        self.carrier_client.dispatch (parsed)
+        if self.carrier_server:
+            self.carrier_server.dispatch (parsed)
 
 class SysIdHandler (Element, Timer):
     """This class defines processing for SysId messages, both sending
@@ -264,20 +307,18 @@ class SysIdHandler (Element, Timer):
                 else:
                     print ("new node heard from:", format_macaddr (src))
                 self.heard[src] = pkt
-                print (pkt)
             elif pkt.code == RequestId.code:
                 self.send_id (src, pkt.receipt)
-            else:
-                print ("in sysidhandler: mop message code", pkt.code)
         elif isinstance (pkt, Timeout):
-            self.send_id (MopCircuit.consmc, 0)
+            self.send_id (Mop.consmc, 0)
             self.node.timers.start (self, SYSIDTIME)
 
     def send_id (self, dest, receipt):
         sysid = SysId ()
         sysid.receipt = receipt
         sysid.hwaddr = self.port.parent.hwaddr
-        sysid.loop = sysid.counters = True
+        sysid.loop = True
+        #sysid.counters = True
         if self.parent.carrier_server:
             sysid.carrier = True
             sysid.reservation_timer = ConsoleServer.reservation_timer
@@ -313,13 +354,12 @@ class CarrierServer (Element):
 class LoopHandler (Element):
     """Handler for loopback protocol
     """
-    loopmc = scan_macaddr ("CF-00-00-00-00-00")
-
     def __init__ (self, parent, datalink):
         super ().__init__ (parent)
         self.port = port = datalink.create_port (self, 0x9000, pad = False)
-        port.add_multicast (self.loopmc)
-    
+        port.add_multicast (Mop.loopmc)
+        self.pendingreq = None
+        
     def dispatch (self, item):
         if isinstance (item, DlReceive):
             buf = item.packet
@@ -338,5 +378,21 @@ class LoopHandler (Element):
                 top.encode ()
                 self.port.send (top, f.dest)
             elif f.function == LoopReply.function:
-                f = LoopReply (buf[skip + 2:])
-                # deliver the reply
+                req = self.pendingreq
+                if req:
+                    f = LoopReply (buf[skip + 2:])
+                    reply = str (bytes (f.payload), "ascii", "ignore")
+                    req.output.write (reply + "\n")
+                    self.pendingreq = None
+        elif isinstance (item, LoopExchange):
+            if self.pendingreq:
+                item.output.write ("busy\n")
+            else:
+                self.pendingreq = item
+                msg = LoopDirect ()
+                msg.dest = self.port.macaddr
+                msg.receipt = receipt ()
+                msg.payload = item.payload[:1472]
+                msg.encode ()
+                self.port.send (msg, item.dest)
+                

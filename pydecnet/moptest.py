@@ -24,10 +24,23 @@ def main (args):
 
     # All set, start running the node dispatch loop
     try:
-        node.run ()
+        print ("Running -- Ctrl/C to exit")
+        while True:
+            task = input ("What do you want to do? ").lower ()
+            if task == "loop":
+                dest = input ("destination? ")
+                if dest:
+                    dest = scan_macaddr (dest)
+                else:
+                    dest = Mop.loopmc
+                data = bytes (input ("test data? " ), "ascii")
+                req = LoopExchange (mopeth,
+                                    dest = dest, payload = data,
+                                    output = sys.stdout)
+                node.addwork (req)
     finally:
         eth.close ()
-
+        node.addwork (Shutdown (node))
         
 if __name__ == "__main__":
     main (sys.argv[1:])

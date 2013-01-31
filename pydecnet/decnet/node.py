@@ -5,19 +5,22 @@
 """
 
 import queue
+import threading
 
-class Node (object):
+class Node (threading.Thread):
     """A Node object is the outermost container for all the other objects
     that make up a DECnet node.  Typically there is one Node object, but
     it's certainly possible to create multiple ones (to emulate an
     entire network within a single process).
     """
     def __init__ (self):
+        super ().__init__ ()
         from decnet import timers    # Done here to avoid import loop
         self.node = self
         self.timers = timers.TimerWheel (self, 1, 3600)
         self.workqueue = queue.Queue ()
-
+        self.start ()
+        
     def addwork (self, work):
         """Add a work item (instance of a Work subclass) to the node's
         work queue.  This can be called from any thread.
@@ -29,6 +32,8 @@ class Node (object):
         try:
             while True:
                 work = q.get ()
+                if isinstance (work, Shutdown):
+                    break
                 work.dispatch ()
         finally:
             self.timers.shutdown ()
@@ -65,4 +70,16 @@ class Work (object):
 
     def dispatch (self):
         self.owner.dispatch (self)
-        
+
+class Shutdown (Work):
+    """A work item that says "shut down".
+    """
+    
+class Exchange (Work):
+    """A work request that involves an exchange with another communicating
+    party.  The information needed to make the outgoing communication
+    is in the Exchange object; the reply comes back to the requester
+    in some suitable form by way of a file-like object given by the
+    "output" attribute.
+    """
+    
