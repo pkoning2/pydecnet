@@ -165,9 +165,9 @@ class MopCircuit (Element):
             else:
                 self.carrier_server = None
 
-    def dispatch (self, work, pkt):
+    def dispatch (self, work):
         if isinstance (work, DlReceive):
-            src, buf = pkt
+            buf = work.packet
             if not buf:
                 print ("Null MOP packet")
                 return
@@ -177,10 +177,11 @@ class MopCircuit (Element):
             except KeyError:
                 print ("Unknown message code", msgcode)
                 return
-            self.sysid.dispatch (work, (src, parsed))
-            self.carrier_client.dispatch (work, (src, parsed))
+            parsed.src = work.src
+            self.sysid.dispatch (parsed)
+            self.carrier_client.dispatch (parsed)
             if self.carrier_server:
-                self.carrier_server.dispatch (work, (src, parsed))
+                self.carrier_server.dispatch (parsed)
 
 class SysIdHandler (Element, Timer):
     """This class defines processing for SysId messages, both sending
@@ -195,9 +196,9 @@ class SysIdHandler (Element, Timer):
         self.mop = parent.parent
         self.heard = dict ()
         
-    def dispatch (self, item, arg):
+    def dispatch (self, pkt):
         if isinstance (item, DlReceive):
-            src, pkt = arg
+            src = pkt.src
             if pkt.code == SysId.code:
                 if src in self.heard:
                     print ("update from", format_macaddr (src))
@@ -239,7 +240,7 @@ class CarrierClient (Element):
     def __init__ (self, parent, port):
         super ().__init__ (parent)
 
-    def dispatch (self, item, arg):
+    def dispatch (self, item):
         pass
     
 class CarrierServer (Element):
@@ -248,7 +249,7 @@ class CarrierServer (Element):
     def __init__ (self, parent, port):
         super ().__init__ (parent)
 
-    def dispatch (self, item, arg):
+    def dispatch (self, item):
         pass
     
 class LoopHandler (Element):
@@ -261,6 +262,5 @@ class LoopHandler (Element):
         #self.port = port = datalink.create_port (self, 0x9000)
         #port.add_multicast (self.loopmc)
     
-    def dispatch (self, item, arg):
+    def dispatch (self, item):
         if isinstance (item, DlReceive):
-            src, pkt = arg

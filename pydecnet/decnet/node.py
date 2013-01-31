@@ -52,17 +52,17 @@ class Element (object):
 # to the routing initialization layer instance for that circuit.
 #
 # Derived classes can override __init__ to add more attributes, but
-# in many cases derived classes need nothing else and the dispatch
-# method simply recognizes what it is handed based on the class of the
-# work object.
+# in many cases derived classes need nothing else.  Any keyword arguments
+# on the constructor will produce attributes by those names, so overriding
+# __init__ is only useful if you need something more complicated.
 
 class Work (object):
     """Base class for work object
     """
-    def __init__ (self, owner, arg):
+    def __init__ (self, owner, **kwarg):
         self.owner = owner
-        self.arg = arg
+        self.__dict__.update (kwarg)
 
     def dispatch (self):
-        self.owner.dispatch (self, self.arg)
+        self.owner.dispatch (self)
         

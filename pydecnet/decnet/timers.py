@@ -83,7 +83,7 @@ class CallbackTimer (Timer):
         self.fun = fun
         self.arg = arg
 
-    def dispatch (self, item, unused):
+    def dispatch (self, item):
         self.fun (self.arg)
 
 class Timeout (Work):
@@ -146,7 +146,7 @@ class TimerWheel (Element, StopThread):
                 item = qh.next
                 item.remove ()
                 self.lock.release ()
-                self.node.addwork (Timeout (item, None))
+                self.node.addwork (Timeout (item))
 
     def shutdown (self):
         self.__stop (True)
