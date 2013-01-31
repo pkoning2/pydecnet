@@ -74,17 +74,18 @@ class Port (Element, metaclass = ABCMeta):
         pass
 
 class DlReceive (Work):
-    """Notification of a received packet.  The argument passed to the
-    dispatch is a pair: the source address of the received packet, and
-    the packet payload (datalink header stripped off).
+    """Notification of a received packet.  Attributes are "packet"
+    (the data) and, for LANs, "src" (the source address)
     """
 
 class DlTransmitComplete (Work):
     """Notification of a packet transmit completion (successful or not).
+    Attribute is "packet".
     """
 
 class DlStatus (Work):
-    """Notification of some sort of datalink event.
+    """Notification of some sort of datalink event.  Attribute is
+    "status".
     """
 
 # Point to point datalink base class
@@ -242,5 +243,6 @@ class Ethernet (BcDatalink, StopThread):
                     packet = memoryview (packet)[16:16 + plen]
                 else:
                     packet = memoryview (packet)[14:]
-                self.node.addwork (DlReceive (port.owner, (src, packet)))
+                self.node.addwork (DlReceive (port.owner,
+                                              src = src, packet = packet))
                 
