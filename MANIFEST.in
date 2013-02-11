@@ -1,3 +1,5 @@
 include MANIFEST.in
 include README.txt
+include pydecnet.conf
+include pydecnet
 recursive-include decnet *.py

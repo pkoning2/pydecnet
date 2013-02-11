@@ -162,7 +162,7 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         field, maxlen = args
         val = getattr (self, field)
         if isinstance (val, str):
-            val = bytes (val, sys.getdefaultencoding ())
+            val = bytes (val, "latin-1", "ignore")
         vl = len (val)
         if vl > maxlen:
             raise OverflowError ("Value too long for %d byte field" % maxlen)

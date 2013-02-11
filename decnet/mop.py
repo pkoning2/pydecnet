@@ -5,15 +5,20 @@
 """
 
 from random import randint
+import logging
+import time
+import fcntl
+import socket
 
-from .node import *
-from .packet import *
-from .datalink import *
+from .common import *
+from .node import ApiRequest
+from . import packet
+from . import datalink
+from . import timers
+from . import statemachine
 
-class MopHdr (Packet):
+class MopHdr (packet.Packet):
     layout = ( ( "b", "code", 1 ), )
-
-SYSIDTIME = 30 # temp
 
 _lastreceipt = randint (0, 0xffff)
 def receipt ():
@@ -117,14 +122,14 @@ class SysId (MopHdr):
         if isinstance (val, int):
             if val not in (0, -1, -2):
                 raise ValueError ("MOP C-n field integer not in -2..0")
-            val = val.to_bytes (1, LE)
+            val = val.to_bytes (1, packet.LE)
         else:
             if isinstance (val, str):
-                val = bytes (val, sys.getdefaultencoding ())
+                val = bytes (val, "latin-1", "ignore")
             vl = len (val)
             if vl > maxlen:
                 raise OverflowError ("Value too long for %d byte field" % maxlen)
-            val = vl.to_bytes (1, LE) + val
+            val = vl.to_bytes (1, packet.LE) + val
         return val
 
     def decode_c (self, buf, args):
@@ -134,7 +139,7 @@ class SysId (MopHdr):
         and string values are taken to be text strings.
         """
         field, maxlen = args
-        flen = getbyte.unpack_from (buf)[0]
+        flen = packet.getbyte.unpack_from (buf)[0]
         if flen < -2:
             raise ValueError ("Image field with negative length %d" % flen)
         elif flen > maxlen:
@@ -183,15 +188,15 @@ class ConsoleResponse (MopHdr):
                  ( "resp_lost", 2, 1 ) ), )
     code = 19
 
-class LoopSkip (Packet):
+class LoopSkip (packet.Packet):
     layout = ( ( "b", "skip", 2 ), )
     
-class LoopFwd (Packet):
+class LoopFwd (packet.Packet):
     function = 2
     layout = ( ( "b", "function", 2 ),
                ( "bv", "dest", 6 ) )
 
-class LoopReply (Packet):
+class LoopReply (packet.Packet):
     function = 1
     layout = ( ( "b", "function", 2 ),
                ( "b", "receipt", 2 ) )
@@ -207,76 +212,117 @@ class LoopDirect (LoopSkip):
     reply = LoopReply.function
     skip = 0
 
-# Requests we handle:
+# This message is largely constant.
+loopmsg = LoopDirect ()
+loopmsg.payload = b"*" * 100
 
-class LoopExchange (Exchange):
-    """Loop to "dest", data is "payload", output goes to file "output".
-    """
-    
-class IdExchange (Exchange):
-    """Request SysId from "dest", output goes to file "output".
-    """
-    
-class ConsoleExchange (Exchange):
-    """Open console carrier session with "dest", output goes to file "output".
-    Data to send is "payload".  
-    """
-    
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
-                  if type (c) is packet_encoding_meta
+                  if type (c) is packet.packet_encoding_meta
                   and hasattr (c, "code") }
 
 class Mop (Element):
     """The MOP layer.  It doesn't do much, other than being the
     parent of the per-datalink MOP objects.
     """
-    consmc = scan_macaddr ("AB-00-00-02-00-00")
-    loopmc = scan_macaddr ("CF-00-00-00-00-00")
-
-    def __init__ (self, parent):
+    def __init__ (self, parent, config):
         super ().__init__ (parent)
+        self.config = config
         self.reservation = None
-        self.console_carrier = False
+        self.circuits = dict ()
+        self.node.mop = self
+        logging.debug ("Initializing MOP layer")
+        loop = parent.register_api ("loop", self, "MOP Loop operation")
+        loop.set_defaults (final_handler = "loophandler")
+        loop.add_argument ("circuit", help = "Interface to loop")
+        loop.add_argument ("dest", nargs = "?", default = LOOPMC,
+                           type = scan_l2id,
+                           help = "Destination (default = CF-00-00-00-00-00)")
+        loop.add_argument ("-c", "--count", type = int, default = 1,
+                           help = "Count of packets to loop (default: 1)")
+        loop.add_argument ("-f", "--fast", action = "store_true", default = False,
+                           help = "Send packets at full speed (default: 1/s)")
+        dlcirc = self.node.datalink.circuits
+        for name, c in config.circuit.items ():
+            dl = dlcirc[name]
+            try:
+                self.circuits[name] = MopCircuit (self, name, dl, c)
+                logging.debug ("Initialized MOP circuit %s", name)
+            except Exception:
+                logging.exception ("Error initializing MOP circuit %s", name)
 
+    def start (self):
+        logging.debug ("Starting MOP layer")
+        for name, c in self.circuits.items ():
+            try:
+                c.start ()
+                logging.debug ("Started MOP circuit %s", name)
+            except Exception:
+                logging.exception ("Error starting MOP circuit %s", name)
+    
+    def dispatch (self, work):
+        """API requests come here.
+        """
+        if isinstance (work, ApiRequest):
+            logging.debug ("Processing API request %s %s", work.command,
+                           work.circuit)
+            try:
+                port = self.circuits[work.circuit]
+            except KeyError:
+                work.reject ("Unknown circuit %s" % work.circuit)
+                return
+            # Redirect this to the correct handler for final action
+            h = getattr (port, work.final_handler, None)
+            if h is None:
+                work.reject ("No %s handler for circuit %s" % (work.command,
+                                                               work.circuit))
+                return
+            del work.final_handler     # to make it die if we somehow loop
+            self.node.addwork (work, h)
+            
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
     and services enabled on a particular circuit (datalink instance).
     """
-    def __init__ (self, parent, datalink):
+    def __init__ (self, parent, name, datalink, config):
         super ().__init__ (parent)
-        if isinstance (datalink, BcDatalink):
+        self.config = config
+        self.name = name
+        self.datalink = datalink
+        self.mop = parent
+        
+    def start (self):
+        logging.debug ("starting mop for %s %s",
+                       self.datalink.__class__.__name__, self.name)
+        if isinstance (self.datalink, datalink.BcDatalink):
             # Do the following only on LANs
-            self.loophandler = LoopHandler (self, datalink)
+            self.loophandler = LoopHandler (self, self.datalink)
             # The various MOP console handlers share a port, so we'll
             # own it and dispatch received traffic.
-            self.consport = consport = datalink.create_port (self, 0x6002)
-            consport.add_multicast (Mop.consmc)
+            self.consport = consport = self.datalink.create_port (self, MOPCONSPROTO)
+            consport.add_multicast (CONSMC)
             self.sysid = SysIdHandler (self, consport)
             self.carrier_client = CarrierClient (self, consport)
-            if parent.console_carrier:
-                self.carrier_server = CarrierServer (self, consport)
+            if self.config.console:
+                self.carrier_server = CarrierServer (self, consport, self.config)
             else:
                 self.carrier_server = None
 
     def dispatch (self, work):
-        if isinstance (work, DlReceive):
+        if isinstance (work, datalink.DlReceive):
             buf = work.packet
             if not buf:
-                print ("Null MOP packet")
+                logging.debug ("Null MOP packet received on %s", self.name)
                 return
             header = MopHdr (buf)
+            msgcode = header.code
             try:
-                parsed = packetformats[header.code] (buf)
+                parsed = packetformats[msgcode] (buf)
             except KeyError:
-                print ("Unknown message code", msgcode)
+                logging.debug ("MOP packet with unknown message code %d on %s",
+                               msgcode, self.name)
                 return
             parsed.src = work.src
-        elif isinstance (work, Exchange):
-            parsed = work
-            # We also send this to the loop handler so requesters
-            # only need to know how to find the MopCircuit object to use
-            self.loophandler.dispatch (work)
         else:
             # Unknown request
             return
@@ -285,33 +331,40 @@ class MopCircuit (Element):
         if self.carrier_server:
             self.carrier_server.dispatch (parsed)
 
-class SysIdHandler (Element, Timer):
+class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
     and directed).  We track received ones in a dictionary.
     """
     def __init__ (self, parent, port):
         Element.__init__ (self, parent)
-        Timer.__init__ (self)
-        self.node.timers.start (self, SYSIDTIME)
+        timers.Timer.__init__ (self)
+        self.node.timers.start (self, self.id_self_delay ())
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
-        
+        logging.debug ("Initialized sysid handler for %s", parent.name)
+
+    def id_self_delay (self):
+        return randint (8 * 60, 12 * 60)
+    
     def dispatch (self, pkt):
-        if isinstance (pkt, Packet):
+        if isinstance (pkt, packet.Packet):
             src = pkt.src
             if pkt.code == SysId.code:
                 if src in self.heard:
-                    print ("update from", format_macaddr (src))
+                    logging.debug ("Sysid update on %s from %s",
+                                   self.parent.name, format_macaddr (src))
                 else:
-                    print ("new node heard from:", format_macaddr (src))
+                    logging.debug ("Sysid on %s from new node %s",
+                                   self.parent.name, format_macaddr (src))
                 self.heard[src] = pkt
             elif pkt.code == RequestId.code:
                 self.send_id (src, pkt.receipt)
-        elif isinstance (pkt, Timeout):
-            self.send_id (Mop.consmc, 0)
-            self.node.timers.start (self, SYSIDTIME)
+        elif isinstance (pkt, timers.Timeout):
+            logging.debug ("Sending periodic sysid on %s", self.parent.name)
+            self.send_id (CONSMC, 0)
+            self.node.timers.start (self, self.id_self_delay ())
 
     def send_id (self, dest, receipt):
         sysid = SysId ()
@@ -321,47 +374,101 @@ class SysIdHandler (Element, Timer):
         #sysid.counters = True
         if self.parent.carrier_server:
             sysid.carrier = True
-            sysid.reservation_timer = ConsoleServer.reservation_timer
-            sysid.console_cmd_size = sysid.console_resp_size = ConsoleServer.msgsize
+            sysid.reservation_timer = CarrierServer.reservation_timer
+            sysid.console_cmd_size = sysid.console_resp_size = CarrierServer.msgsize
             if self.mop.reservation:
                 sysid.carrier_reserved = True
                 sysid.console_user = self.mop.reservation
-        sysid.device = 9    # PCL, for grins
+        sysid.device = 9    # PCL, to freak out some people
         sysid.datalink = 1  # Ethernet
         sysid.processor = 2 # Comm server
         sysid.software = "DECnet/Python"  # Note: 16 chars max
         sysid.encode ()
         self.port.send (sysid, dest)
 
-class CarrierClient (Element):
+class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.
     """
     def __init__ (self, parent, port):
-        super ().__init__ (parent)
+        Element.__init__ (self, parent)
+        statemachine.StateMachine.__init__ (self)
+        logging.debug ("Initialized console carrier client for %s", parent.name)
 
     def dispatch (self, item):
         pass
+
+    def s0 (self, data):
+        pass
     
-class CarrierServer (Element):
+class CarrierServer (Element, timers.Timer):
     """The server side of the console carrier protocol.
     """
-    def __init__ (self, parent, port):
-        super ().__init__ (parent)
+    reservation_timer = 15
+    msgsize = 1024
+    def __init__ (self, parent, port, config):
+        Element.__init__ (self, parent)
+        timers.Timer.__init__ (self)
+        self.verification = config.console
+        self.mop = parent.mop
+        self.pty = None
+        self.response = None
+        self.pendingdata = None
+        logging.debug ("Initialized console carrier server for %s", parent.name)
 
     def dispatch (self, item):
-        pass
+        if isinstance (item, timers.Timer):
+            # Reservation timeout, clear any reservation
+            if self.pty:
+                self.pty.close ()
+                self.pty = None
+                self.mop.reservation = None
+        elif isinstance (item, packet.Packet):
+            # Some received packet.
+            res = self.mop.reservation
+            if res:
+                # Console is reserved.  Ignore any packets from others
+                if item.src != res:
+                    return
+            else:
+                # Not reserved.  If it's a reserve console and the verification
+                # matches, set reservation.  Ignore other packets.
+                if isinstance (item, ConsoleRequest) and \
+                   item.verification == self.verification:
+                    self.mop.reservation = item.src
+                    self.seq = 0
+                    self.pendinginput = b""
+                    try:
+                        pid, fd = os.forkpty () #pty.fork ()
+                        if pid:
+                            # Parent process.  Save the pty fd and set it
+                            # to non-blocking mode
+                            logging.debug ("Started console client process %d", pid)
+                            self.pendingoutput = b"Ctrl-] to exit\n"
+                            self.ptyfd = fd
+                            oldflags = fcntl (fd, F_GETFL, 0)
+                            fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
+                        else:
+                            os.execlp ("login", "login")
+                            sys._exit (1)
+                    except Exception:
+                        logging.exception ("Exception starting console client session")
+                        self.mop.reservation = None
     
-class LoopHandler (Element):
+class LoopHandler (Element, timers.Timer):
     """Handler for loopback protocol
     """
     def __init__ (self, parent, datalink):
-        super ().__init__ (parent)
-        self.port = port = datalink.create_port (self, 0x9000, pad = False)
-        port.add_multicast (Mop.loopmc)
+        Element.__init__ (self, parent)
+        timers.Timer.__init__ (self)
+        self.port = port = datalink.create_port (self, LOOPPROTO, pad = False)
+        port.add_multicast (LOOPMC)
         self.pendingreq = None
+        logging.debug ("Initialized loop handler for %s", parent.name)
         
     def dispatch (self, item):
-        if isinstance (item, DlReceive):
+        """Work item handler
+        """
+        if isinstance (item, datalink.DlReceive):
             buf = item.packet
             top = LoopSkip (buf)
             skip = top.skip
@@ -378,21 +485,58 @@ class LoopHandler (Element):
                 top.encode ()
                 self.port.send (top, f.dest)
             elif f.function == LoopReply.function:
+                f = LoopReply (buf[skip + 2:])
                 req = self.pendingreq
-                if req:
-                    f = LoopReply (buf[skip + 2:])
-                    reply = str (bytes (f.payload), "ascii", "ignore")
-                    req.output.write (reply + "\n")
-                    self.pendingreq = None
-        elif isinstance (item, LoopExchange):
+                if req and f.receipt == req.receipt:
+                    delta = (time.time () - self.sendtime) * 1000.0
+                    if req.dest[0] & 1:
+                        # Original request was multicast, remember who replied
+                        req.dest = item.src
+                    elif item.src != req.dest:
+                        # Reply from a different node, most likely a second
+                        # reply to an assistance multicast loop.
+                        return
+                    try:
+                        print ("%d bytes from %s, time= %.1f ms" %
+                               (len (f.payload),
+                                format_macaddr (item.src), delta),
+                               file = req.wfile)
+                    except (OSError, ValueError, socket.error):
+                        logging.debug ("API socket closed")
+                        req.finished (None)
+                        self.pendingreq = None
+                        self.node.timers.stop (self)
+                        return
+                    self.sendtime = 0
+                    self.sendloop (req, req.fast)
+        elif isinstance (item, timers.Timeout):
+            req = self.pendingreq
+            if req:
+                if self.sendtime:
+                    print ("Loop %d timed out" % self.loopcount, file = req.wfile)
+                self.sendloop (req, True)
+                
+        elif isinstance (item, ApiRequest):
             if self.pendingreq:
-                item.output.write ("busy\n")
+                item.reject ("Loop busy")
             else:
                 self.pendingreq = item
-                msg = LoopDirect ()
-                msg.dest = self.port.macaddr
-                msg.receipt = receipt ()
-                msg.payload = item.payload[:1472]
-                msg.encode ()
-                self.port.send (msg, item.dest)
+                item.accepted (None)
+                self.loopcount = 0
+                self.sendloop (item, True)
                 
+    def sendloop (self, req, now):
+        if self.loopcount >= req.count:
+            self.pendingreq = None
+            self.node.timers.stop (self)
+            req.done ()
+        elif now:
+            self.loopcount += 1
+            loopmsg.dest = self.port.macaddr
+            loopmsg.receipt = req.receipt = receipt ()
+            loopmsg.encode ()
+            self.sendtime = time.time ()
+            self.port.send (loopmsg, req.dest)
+            self.node.timers.stop (self)
+            self.node.timers.start (self, 1)
+    
