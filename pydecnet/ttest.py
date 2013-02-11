@@ -11,7 +11,6 @@ else:
 
 def tmo (arg):
     print ("timeout callback,", arg)
-    print ("Enter control/C to stop the test")
     
 c = CallbackTimer (tmo, "hello")
 
@@ -19,9 +18,12 @@ print ("asking for callback in 3 seconds")
 node.timers.start (c, 3)
 
 try:
-    node.run ()
+    print ("Enter control/C to stop the test")
+    time.sleep (3600)
 except KeyboardInterrupt:
+    node.addwork (Shutdown (node))
+    time.sleep (1)
     if node.timers.is_alive ():
-        print ("timers still running?")
+        print ("\ntimers still running?")
     else:
-        print ("timers shut down")
+        print ("\ntimers shut down")

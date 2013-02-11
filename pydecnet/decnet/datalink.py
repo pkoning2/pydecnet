@@ -6,38 +6,63 @@
 
 from abc import abstractmethod, ABCMeta
 import pcap
-import re
 import time
+import logging
 
-from .node import *
-from .packet import *
-from .timers import *
+from .common import *
 
-_mac_re = re.compile ("[-:]")
-def scan_macaddr (s):
-    """Return a binary MAC address given its string representation
+class DatalinkLayer (Element):
+    """The datalink layer.  This is mainly a container for the individual
+    datalink circuits.
     """
-    bl = _mac_re.split (s)
-    if len (bl) != 6:
-        raise ValueError ("Invalid MAC address string %s" % s)
-    return bytes (int (f, 16) for f in bl)
+    def __init__ (self, owner, config):
+        """Initialize the Datalink layer.  "config" is the configuration.
+        Establish our common state, then create Datalink objects for each
+        circuit given in the configuration.
+        """
+        logging.debug ("Initializing data link layer")
+        super ().__init__ (owner)
+        self.node.datalink = self
+        self.config = config
+        self.circuits = dict ()
+        for name, c in config.circuit.items ():
+            kind = globals ()[c.type]
+            kindname = kind.__name__
+            try:
+                dl = kind (self, name, c)
+                self.circuits[name] = dl
+                logging.debug ("Initialized %s datalink %s", kindname, name)
+            except Exception:
+                logging.exception ("Error initializing %s datalink %s",
+                                   kindname, name)
 
-def format_macaddr (b):
-    return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (b)
-
+    def start (self):
+        """Start the datalink layer, which means starting each of
+        the circuits that were configured.
+        """
+        logging.debug ("Starting datalink layer")
+        for name, c in self.circuits.items ():
+            try:
+                c.open ()
+                logging.debug ("Started datalink %s", name)
+            except Exception:
+                logging.exception ("Error starting datalink %s", name)
+    
+    
 class Datalink (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink.
     """
-    def __init__ (self, owner, name):
+    def __init__ (self, owner, name, config):
         """Initialize a Datalink instance.  "name" is the name of
-        the instance; "owner" is its owner.
+        the instance; "owner" is its owner; "config" is the configuration
+        data for this circuit.
         The owner will receive notifications of received data,
         transmit completions, and other applicable upcalls by calls
         to its dl_notification method.
         """
         super ().__init__ (owner)
         self.name = name
-
+        
     @abstractmethod
     def create_port (self, *args):
         """Create a port.  Returns an instance of the Port subclass
@@ -99,8 +124,8 @@ class PtpDatalink (Datalink):
 class BcDatalink (Datalink):
     """Base class for broadcast (LAN) datalinks.
     """
-    def __init__ (self, owner, name):
-        super ().__init__ (owner, name)
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
         self.hwaddr = None
         self.ports = dict ()
 
@@ -193,18 +218,30 @@ class Ethernet (BcDatalink, StopThread):
     """
     port_class = EthPort
     
-    def __init__ (self, owner, name):
+    def __init__ (self, owner, name, config):
         StopThread.__init__ (self)
-        BcDatalink.__init__ (self, owner, name)
+        BcDatalink.__init__ (self, owner, name, config)
+        dev = config.device or name
+        if dev.startswith ("tap:"):
+            self.api = "tap"
+            dev = dev[4:]
+        else:
+            self.api = "pcap"
+        self.dev = dev
         self.hwaddr = bytes (6)
-        for dname, desc, addrs, flags in pcap.findalldevs ():
-            if dname == name and addrs:
-                self.hwaddr = scan_macaddr (addrs[0][0])
         self.pcap = pcap.pcapObject ()
     
     def open (self):
-        # Always set promiscuous mode
-        self.pcap.open_live (self.name, 1600, 1, 100)
+        # Find our hardware address
+        for dname, desc, addrs, flags in pcap.findalldevs ():
+            if dname == self.name and addrs:
+                self.hwaddr = scan_macaddr (addrs[0][0])
+        if self.api == "pcap":
+            # Always set promiscuous mode
+            self.pcap.open_live (self.name, 1600, 1, 100)
+        else:
+            # tap
+            pass
         # start receive thread
         self.start ()
         
@@ -228,10 +265,8 @@ class Ethernet (BcDatalink, StopThread):
                 cnt = self.pcap.dispatch (0, self.receive)
             except pcap._pcap.error:
                 break
-            #print (cnt, "packets dispatched")
 
     def receive (self, plen, packet, ts):
-        #print (plen, packet, ts)
         if not packet:
             # pcap_next returns None if we got a timeout
             return
@@ -250,7 +285,8 @@ class Ethernet (BcDatalink, StopThread):
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
                 if plen < plen2 + 16:
-                    print ("Packet length field %d inconsistent with packet length %d" % (plen2, plen))
+                    logging.debug ("On %s, packet length field %d inconsistent with packet length %d",
+                                   self.name, plen2, plen)
                     return
                 packet = memoryview (packet)[16:16 + plen2]
             else:

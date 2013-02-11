@@ -6,35 +6,16 @@ This implements the timer wheel mechanism, with callbacks on expiration.
 """
 
 from abc import abstractmethod, ABCMeta
-import threading
 import time
 
-from .node import *
-
-class StopThread (threading.Thread):
-    """A thread with stop method.
-    """
-    def __init__ (self):
-        super ().__init__ ()
-        self.stopnow = False
-        
-    def stop (self, wait = False):
-        """Stop the thread associated with this connection.  The actual
-        handling of "stopnow" needs to go into the class that uses this.
-
-        If "wait" is True, wait for the thread to exit.
-        """
-        if not self.stopnow and self.isAlive ():
-            self.stopnow = True
-            if wait:
-                self.join (10)
-                if self.is_alive ():
-                    print ("Thread failed to stop after 10 seconds")
+from .common import *
 
 class Cque (object):
     """Base class for objects that can be put on a circular queue.
     Instances of this class will also serve as list heads.
     """
+    __slots__ = ("prev", "next")
+    
     def __init__ (self):
         self.next = self.prev = self
 
@@ -58,7 +39,7 @@ class Cque (object):
         self.prev.next = self.next
         self.reset ()
 
-    def __bool__ (self):
+    def islinked (self):
         """Return True if the queue is not empty (for list heads) or
         the queue element is linked into a queue (for elements).
         """
@@ -68,8 +49,10 @@ class Timer (Cque, metaclass = ABCMeta):
     """Abstract base class for an object that can be put on the
     TimerWheel, i.e., acts as a timer.
     """
+    __slots__ = ()
+    
     @abstractmethod
-    def dispatch (self):
+    def dispatch (self, item):
         """This method is called if the timer expires.
         """
         pass
@@ -78,6 +61,8 @@ class CallbackTimer (Timer):
     """A simple timer that does a call to a given function with
     a given argument on expiration.
     """
+    __slots__ = ("fun", "arg")
+    
     def __init__ (self, fun, arg):
         super ().__init__ ()
         self.fun = fun
@@ -99,11 +84,11 @@ class TimerWheel (Element, StopThread):
     
     def __init__ (self, parent, tick, maxtime):
         """Define a wheel that ticks every "tick" seconds and has
-        a max tick count of "maxtime".
+        a max timeout of "maxtime" seconds.
         """
         Element.__init__ (self, parent)
         StopThread.__init__ (self)
-        maxtime += 1
+        maxtime = int ((maxtime + 1) / tick)
         self.wheel = [ Cque () for i in range (maxtime) ]
         self.pos = 0
         self.maxtime = maxtime
@@ -113,11 +98,11 @@ class TimerWheel (Element, StopThread):
 
     def start (self, item, timeout):
         """Start timer running for "item", it will time out in "timeout"
-        timer ticks.  The minimum timeout is one tick.
+        seconds.  The minimum timeout is one tick.
 
         If the timer times out, send a Timeout work item to "item".
         """
-        ticks = timeout // self.tick or 1
+        ticks = int (timeout / self.tick) or 1
         if ticks >= self.maxtime:
             raise OverflowError ("Timeout %d too large" % timeout)
         if not isinstance (item, Timer):
@@ -126,7 +111,6 @@ class TimerWheel (Element, StopThread):
         pos = (self.pos + ticks) % self.maxtime
         self.wheel[pos].add (item)
         self.lock.release ()
-        #print ("Started timer on", item, ticks, "delay")
         
     def run (self):
         """Tick handler.
@@ -141,7 +125,7 @@ class TimerWheel (Element, StopThread):
             # items are removed one at a time under protection of the
             # timer wheel lock, rather than making a copy of the list
             # and walking that copy.
-            while qh:
+            while qh.islinked ():
                 self.lock.acquire ()
                 item = qh.next
                 item.remove ()
