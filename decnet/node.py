@@ -12,8 +12,10 @@ import queue
 import threading
 import socketserver
 import shlex
-import logging
 import socket
+import logging
+import select
+from fcntl import *
 
 from .common import *
 from . import timers
@@ -168,6 +170,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
             
     def setup (self):
         super ().setup ()
+        self.binary = False
         self.rfile = io.TextIOWrapper(self.rfile, encoding = "latin-1",
                                       errors = "ignore", newline = None,
                                       line_buffering = True)
@@ -179,10 +182,12 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
         self._done = False
 
     def send (self, msg):
-        #if isinstance (msg, str):
-        #    msg = msg.encode ("latin-1", "ignore")
+        msg += '\n'
+        if isinstance (msg, str) and self.binary:
+            msg = msg.encode ("latin-1", "ignore")
+        logging.debug ("Sending reply %r", msg)
         try:
-            print (msg, file = self.wfile)
+            self.wfile.write (msg)
         except (OSError, ValueError, socket.error):
             pass
         
@@ -196,6 +201,11 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
         """
         if binary:
             self.send (ACCEPT_BINARY)
+            if not self.binary:
+                # Unwrap twice to get the raw (unbuffered) file
+                self.rfile = self.rfile.detach ().detach ()
+                self.wfile = self.wfile.detach ().detach ()
+                self.binary = True
         else:
             self.send (ACCEPT_TEXT)
         self.worker = worker
@@ -269,17 +279,29 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
             logging.debug ("Request is finished")
             return
         logging.debug ("Starting request data loop")
-        while not self._done:
-            req = self.rfile.read ()
-            if req is None:
-                break
-            w = ApiWork (self.worker)
-            w.data = req
-            self.node.addwork (w)
-            if not req:
-                # end of file, i.e., disconnect
-                logging.debug ("Request done due to closed connection")
-                return
+        infd = self.rfile.fileno ()
+        oldflags = fcntl (infd, F_GETFL, 0)
+        p = select.poll ()
+        p.register (infd, select.POLLIN)
+        try:
+            fcntl (infd, F_SETFL, oldflags | os.O_NONBLOCK)
+            while not self._done:
+                p.poll ()
+                while True:
+                    req = self.rfile.read (256)
+                    if req is None:
+                        break
+                    #logging.debug ("API data: %r", req)
+                    w = ApiWork (self.worker, data = req)
+                    self.node.addwork (w)
+                    if not req:
+                        # end of file, i.e., disconnect
+                        logging.debug ("Request done due to closed connection")
+                        return
+        except (OSError, socket.error, ValueError):
+            logging.debug ("Request done due to closed connection")
+            return
+        self.rfile.close ()
         logging.debug ("Request is finished")
         
 class DnApiServer (Element, socketserver.ThreadingUnixStreamServer):

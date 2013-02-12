@@ -7,6 +7,7 @@ Classes for packet layouts.
 
 import sys
 import struct
+import logging
 
 LE = "little"
 getbyte = struct.Struct ("<B")
@@ -136,13 +137,19 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
     """
     layout = ( ( "res", 1 ), )    # Dummy layout to satisfy the metaclass
 
-    def __init__ (self, buf = None):
+    def __init__ (self, buf = None, **kwargs):
         """Construct a packet.  If "buf" is supplied, that buffer
-        is decoded.
+        is decoded.  Conversely, if other keyword arguments are supplied,
+        they initialize attributes of those names.  Note that the packet
+        is not encoded yet in that case, because the set of attributes
+        supplied may not include everything needed to finish encoding
+        the packet.
         """
         super ().__init__ ()
         if buf:
             self.decode (buf)
+        elif kwargs:
+            self.__dict__.update (kwargs)
 
     def encode_res (self, flen):
         """Encode a reserved field.
@@ -347,7 +354,10 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         codetable = layout or self.codetable
         data = [ ]
         for e, d, args in codetable:
-            data.append (e (self, args))
+            try:
+                data.append (e (self, args))
+            except Exception:
+                logging.exception ("Error encoding %s", (e, d, args))
         if not layout:
             payload = getattr (self, "payload", None)
             if payload:
@@ -380,6 +390,7 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
             buf = d (self, buf, args)
         if not layout:
             self.payload = buf
+        #logging.debug ("packet parse: %s", self.__dict__)
         return buf
     
 # Delete these two because we want them to come only from derived classes

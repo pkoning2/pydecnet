@@ -236,6 +236,8 @@ class Ethernet (BcDatalink, StopThread):
         for dname, desc, addrs, flags in pcap.findalldevs ():
             if dname == self.name and addrs:
                 self.hwaddr = scan_macaddr (addrs[0][0])
+        logging.debug ("Ethernet %s hardware address is %s",
+                       self.name, format_macaddr (self.hwaddr))
         if self.api == "pcap":
             # Always set promiscuous mode
             self.pcap.open_live (self.name, 1600, 1, 100)

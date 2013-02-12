@@ -7,6 +7,7 @@ This implements the timer wheel mechanism, with callbacks on expiration.
 
 from abc import abstractmethod, ABCMeta
 import time
+import logging
 
 from .common import *
 
@@ -109,6 +110,7 @@ class TimerWheel (Element, StopThread):
             raise TypeError ("Timer item is not of Timer type")
         self.lock.acquire ()
         pos = (self.pos + ticks) % self.maxtime
+        item.remove ()
         self.wheel[pos].add (item)
         self.lock.release ()
         
@@ -130,7 +132,8 @@ class TimerWheel (Element, StopThread):
                 item = qh.next
                 item.remove ()
                 self.lock.release ()
-                self.node.addwork (Timeout (item))
+                if item is not qh:
+                    self.node.addwork (Timeout (item))
 
     def shutdown (self):
         self.__stop (True)
@@ -138,6 +141,8 @@ class TimerWheel (Element, StopThread):
     def stop (self, item):
         """Stop the timer for "item".
         """
+        if not isinstance (item, Timer):
+            raise TypeError ("Timer item is not of Timer type")
         self.lock.acquire ()
         item.remove ()
         self.lock.release ()
