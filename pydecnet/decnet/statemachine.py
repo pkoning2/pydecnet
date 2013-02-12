@@ -5,6 +5,8 @@
 """
 
 from abc import abstractmethod
+import logging
+
 from . import timers
 
 class Timeout (object): pass

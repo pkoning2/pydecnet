@@ -5,8 +5,8 @@
 """
 
 import argparse
-import logging
 import time
+import logging
 
 from . import common
 from . import config

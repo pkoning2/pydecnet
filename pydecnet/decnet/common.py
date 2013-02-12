@@ -6,6 +6,7 @@
 
 import re
 import threading
+import logging
 
 DNVERSION = "DECnet/Python V1.0"
 

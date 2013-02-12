@@ -5,13 +5,15 @@
 """
 
 from random import randint
-import logging
 import time
-import fcntl
+from fcntl import *
 import socket
+import logging
+import os
 
 from .common import *
-from .node import ApiRequest
+from .node import ApiRequest, ApiWork
+from .config import scan_ver
 from . import packet
 from . import datalink
 from . import timers
@@ -213,8 +215,7 @@ class LoopDirect (LoopSkip):
     skip = 0
 
 # This message is largely constant.
-loopmsg = LoopDirect ()
-loopmsg.payload = b"*" * 100
+loopmsg = LoopDirect (payload = b"Python! " * 12)
 
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
@@ -242,6 +243,14 @@ class Mop (Element):
                            help = "Count of packets to loop (default: 1)")
         loop.add_argument ("-f", "--fast", action = "store_true", default = False,
                            help = "Send packets at full speed (default: 1/s)")
+        cons = parent.register_api ("console", self, "MOP Console Carrier client")
+        cons.set_defaults (final_handler = "carrier_client")
+        cons.add_argument ("circuit", help = "Interface to use")
+        cons.add_argument ("dest", type = scan_l2id,
+                           help = "Destination address")
+        cons.add_argument ("verification", type = scan_ver,
+                           help = "Verification value")
+                           
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -367,10 +376,13 @@ class SysIdHandler (Element, timers.Timer):
             self.node.timers.start (self, self.id_self_delay ())
 
     def send_id (self, dest, receipt):
-        sysid = SysId ()
-        sysid.receipt = receipt
-        sysid.hwaddr = self.port.parent.hwaddr
-        sysid.loop = True
+        sysid = SysId (receipt = receipt, hwaddr = self.port.parent.hwaddr,
+                       loop = True,
+                       device = 9,    # PCL, to freak out some people
+                       datalink = 1,  # Ethernet
+                       processor = 2, # Comm server
+                       software = "DECnet/Python"  # Note: 16 chars max
+                       )
         #sysid.counters = True
         if self.parent.carrier_server:
             sysid.carrier = True
@@ -379,10 +391,6 @@ class SysIdHandler (Element, timers.Timer):
             if self.mop.reservation:
                 sysid.carrier_reserved = True
                 sysid.console_user = self.mop.reservation
-        sysid.device = 9    # PCL, to freak out some people
-        sysid.datalink = 1  # Ethernet
-        sysid.processor = 2 # Comm server
-        sysid.software = "DECnet/Python"  # Note: 16 chars max
         sysid.encode ()
         self.port.send (sysid, dest)
 
@@ -392,36 +400,217 @@ class CarrierClient (Element, statemachine.StateMachine):
     def __init__ (self, parent, port):
         Element.__init__ (self, parent)
         statemachine.StateMachine.__init__ (self)
+        self.req = None
+        self.port = port
         logging.debug ("Initialized console carrier client for %s", parent.name)
 
-    def dispatch (self, item):
-        pass
+    def validate (self, item):
+        if self.state != self.s0 and isinstance (item, ApiRequest):
+            item.reject ("Console client busy")
+            return False
+        return True
 
-    def s0 (self, data):
-        pass
-    
+    def sendmsg (self, tries = 5):
+        self.retries = tries
+        self.node.timers.stop (self)
+        self.node.timers.start (self, 1)
+        self.port.send (self.msg, self.req.dest)
+        
+    def s0 (self, item):
+        """Initial (inactive) state.  Look for API requests.
+        """
+        if isinstance (item, ApiRequest):
+            self.req = item
+            self.deststr = format_macaddr (item.dest)
+            self.msg = RequestId (receipt = receipt ())
+            self.msg.encode ()
+            self.sendmsg ()
+            return self.check
+
+    def check (self, item):
+        """Await SysId response, make sure console carrier is available.
+        """
+        if isinstance (item, SysId) and item.receipt == self.msg.receipt:
+            self.node.timers.stop (self)
+            if item.carrier and not item.carrier_reserved:
+                # Looks good, proceed
+                self.cmdsize = item.console_cmd_size
+                self.respsize = item.console_resp_size
+                self.restimer = item.reservation_timer
+                # Now we send a reservation request followed by another
+                # RequestId to see if it worked.
+                self.msg2 = ConsoleRequest (verification = self.req.verification)
+                self.msg2.encode ()
+                self.port.send (self.msg2, self.req.dest)
+                self.sendmsg ()
+                return self.reserve
+            if not item.carrier:
+                self.req.reject ("Node %s does not support console carrier",
+                                 self.deststr)
+            else:
+                self.req.reject ("Node %s console carrier reserved by %s",
+                                 self.deststr, format_macaddr (item.console_user))
+            self.node.timers.stop (self)
+            self.req = None
+            return self.s0
+        elif isinstance (item, timers.Timeout):
+            # Timeout, try again if not at the limit
+            self.retries -= 1
+            if self.retries:
+                self.sendmsg (self.retries)
+            else:
+                self.req.reject ("No response from node %s" % self.deststr)
+                self.req = None
+                return self.s0
+            
+    def reserve (self, item):
+        """Verify that reservation was successful.
+        """
+        if isinstance (item, SysId) and item.receipt == self.msg.receipt:
+            # If the reservation succeeded, switch to active state to
+            # run the two-way console data stream.  
+            if item.carrier_reserved and item.console_user == self.req.dest:
+                self.seq = 0
+                self.msg = None      # No poll message yet
+                self.pendinginput = b""
+                self.sendpoll ()
+                self.req.accepted (self, binary = True)
+                return self.active
+        elif isinstance (item, timers.Timeout):
+            # Timeout, try again if not at the limit
+            self.retries -= 1
+            if self.retries:
+                # Resend a reservation request followed by another
+                # RequestId to see if it worked.
+                self.port.send (self.msg2, self.req.dest)
+                self.sendmsg (self.retries)
+            else:
+                self.req.reject ("Reservation request timed out for node %s" % \
+                                 self.deststr)
+                self.req = None
+                return self.s0
+
+    def sendpoll (self):
+        """Send a new poll, or retransmit the previous one.
+        """
+        tries = self.retries
+        if not self.msg:
+            tries = 5
+            self.seq ^= 1
+            indata = self.pendinginput[:self.cmdsize]
+            self.pendinginput = self.pendinginput[self.cmdsize:]
+            self.msg = ConsoleCommand (seq = self.seq, payload = indata)
+            self.msg.encode ()
+        self.node.timers.stop (self)
+        self.node.timers.start (self, 1)
+        self.sendmsg (tries)
+
+    def active (self, item):
+        """Active (connected) state of the console carrier.
+        """
+        if isinstance (item, ConsoleResponse) and item.src == self.req.dest:
+            # Response packet from our peer.  See if it's next in sequence
+            if item.seq == self.seq:
+                self.retries = 5
+                try:
+                    self.req.wfile.write (item.payload)
+                except (OSError, ValueError, socket.error):
+                    logging.debug ("API socket closed")
+                    # Send a null data work item to self to close things down
+                    self.node.addwork (ApiWork (self, data = None))
+                self.msg = None
+                # If there is more data to send, do so now
+                if self.pendinginput:
+                    self.sendpoll ()
+                return
+        if isinstance (item, (ConsoleResponse, timers.Timeout)):
+            # Console response but not in sequence, or timeout: for
+            # both, retransmit if it isn't time to give up.  If there is
+            # no currently pending message, send the next one.
+            self.retries -= 1
+            if self.retries:
+                self.sendpoll ()
+            else:
+                self.req.reject ("No answer from %s" % self.deststr)
+                self.req = None
+                return self.s0
+        elif isinstance (item, ApiWork):
+            # More data from API.  If we already have some or a message
+            # is already pending, handle it later.  Otherwise send a
+            # ConsoleCommand now.
+            if not item.data:
+                # API connection closed -- release the console
+                self.msg2 = ConsoleRelease ()
+                self.msg2.encode ()
+                self.port.send (self.msg2, self.req.dest)
+                self.msg = RequestId (receipt = receipt ())
+                self.msg.encode ()
+                self.sendmsg ()
+                return self.release
+            elif self.pendinginput or self.msg:
+                self.pendinginput += item.data
+            else:
+                self.pendinginput = item.data
+                self.sendpoll ()
+                
+    def release (self, item):
+        """Verify that release was successful.
+        """
+        if isinstance (item, SysId) and item.receipt == self.msg.receipt:
+            # If the reservation succeeded, switch to active state to
+            # run the two-way console data stream.  
+            if not (item.carrier_reserved and item.console_user == self.req.dest):
+                self.node.timers.stop (self)
+                self.req = None
+                self.msg = self.msg2 = None
+                return self.s0
+        elif isinstance (item, timers.Timeout):
+            # Timeout, try again if not at the limit
+            self.retries -= 1
+            if self.retries:
+                # Resend a release request followed by another
+                # RequestId to see if it worked.
+                self.port.send (self.msg2, self.req.dest)
+                self.sendmsg (self.retries)
+            else:
+                self.req.reject ("Release request timed out for node %s" % \
+                                 self.deststr)
+                self.req = None
+                return self.s0
+
 class CarrierServer (Element, timers.Timer):
     """The server side of the console carrier protocol.
     """
     reservation_timer = 15
-    msgsize = 1024
+    msgsize = 512
+    
     def __init__ (self, parent, port, config):
         Element.__init__ (self, parent)
         timers.Timer.__init__ (self)
+        self.port = port
         self.verification = config.console
         self.mop = parent.mop
         self.pty = None
         self.response = None
-        self.pendingdata = None
+        self.pendinginput = self.pendingoutput = None
         logging.debug ("Initialized console carrier server for %s", parent.name)
+
+    def release (self):
+        self.node.timers.stop (self)
+        if self.pty:
+            try:
+                os.close (self.pty)
+            except Exception:
+                pass
+        self.pty = self.pendinginput = self.pendingoutput = None
+        self.response = None
+        self.mop.reservation = None
 
     def dispatch (self, item):
         if isinstance (item, timers.Timer):
             # Reservation timeout, clear any reservation
             if self.pty:
-                self.pty.close ()
-                self.pty = None
-                self.mop.reservation = None
+                self.release ()
         elif isinstance (item, packet.Packet):
             # Some received packet.
             res = self.mop.reservation
@@ -429,30 +618,66 @@ class CarrierServer (Element, timers.Timer):
                 # Console is reserved.  Ignore any packets from others
                 if item.src != res:
                     return
+                if isinstance (item, ConsoleRelease):
+                    # Session ended
+                    self.release ()
+                elif isinstance (item, ConsoleCommand):
+                    # Command/poll message.
+                    self.node.timers.stop (self)
+                    self.node.timers.start (self, self.reservation_timer)
+                    if item.seq == self.seq:
+                        # Retransmit, so resend the previous message
+                        if self.response:
+                            self.port.send (self.response, res)
+                    else:
+                        # New packet.  Save any input, check for output,
+                        # build a response packet with pending output.
+                        self.pendinginput += item.payload
+                        try:
+                            accepted = os.write (self.pty, self.pendinginput)
+                        except Exception:
+                            accepted = len (self.pendinginput)
+                        self.pendinginput = self.pendinginput[accepted:]
+                        self.seq ^= 1
+                        lp = len (self.pendingoutput)
+                        if lp < self.msgsize:
+                            try:
+                                self.pendingoutput += os.read (self.pty,
+                                                               self.msgsize - lp)
+                            except Exception:
+                                pass
+                        self.response = ConsoleResponse (seq = self.seq,
+                                                         payload = self.pendingoutput)
+                        self.pendingoutput = b""
+                        self.response.encode ()
+                        self.port.send (self.response, res)
+                        
             else:
                 # Not reserved.  If it's a reserve console and the verification
                 # matches, set reservation.  Ignore other packets.
                 if isinstance (item, ConsoleRequest) and \
                    item.verification == self.verification:
                     self.mop.reservation = item.src
-                    self.seq = 0
+                    self.seq = self.pty = 0
                     self.pendinginput = b""
+                    self.node.timers.start (self, self.reservation_timer)
                     try:
                         pid, fd = os.forkpty () #pty.fork ()
                         if pid:
                             # Parent process.  Save the pty fd and set it
                             # to non-blocking mode
                             logging.debug ("Started console client process %d", pid)
-                            self.pendingoutput = b"Ctrl-] to exit\n"
-                            self.ptyfd = fd
+                            self.pendingoutput = b""
+                            self.pty = fd
                             oldflags = fcntl (fd, F_GETFL, 0)
                             fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
                         else:
+                            # Child process, send it off to login.
                             os.execlp ("login", "login")
                             sys._exit (1)
                     except Exception:
                         logging.exception ("Exception starting console client session")
-                        self.mop.reservation = None
+                        self.release ()
     
 class LoopHandler (Element, timers.Timer):
     """Handler for loopback protocol
@@ -515,7 +740,6 @@ class LoopHandler (Element, timers.Timer):
                 if self.sendtime:
                     print ("Loop %d timed out" % self.loopcount, file = req.wfile)
                 self.sendloop (req, True)
-                
         elif isinstance (item, ApiRequest):
             if self.pendingreq:
                 item.reject ("Loop busy")
