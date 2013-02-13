@@ -9,10 +9,12 @@ import pcap
 import time
 import logging
 import os
+import sys
 import select
 from fcntl import *
 import struct
 import socket
+import random
 
 from .common import *
 
@@ -223,6 +225,8 @@ ifreq = struct.Struct ("=16sH")
 sizeof_ifreq = 32
 SIOCSIFFLAGS = 0x80000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 16
 SIOCGIFFLAGS = 0xc0000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 17
+ETH_TMO = 100    # ms
+ETH_MTU = 1518
 
 class Ethernet (BcDatalink, StopThread):
     """DEC Ethernet datalink.
@@ -239,34 +243,38 @@ class Ethernet (BcDatalink, StopThread):
         else:
             self.api = "pcap"
         self.dev = dev
-        self.hwaddr = bytes (6)
+        if config.random_address:
+            self.hwaddr = ((random.getrandbits (46) << 2) + 2).to_bytes (6, "little")
+        else:
+            self.hwaddr = bytes (6)
+        self.randaddr = config.random_address
         self.pcap = pcap.pcapObject ()
     
     def open (self):
         if self.api == "pcap":
             # Always set promiscuous mode
-            self.pcap.open_live (self.name, 1600, 1, 100)
+            self.pcap.open_live (self.name, ETH_MTU, 1, ETH_TMO)
         else:
             # tap
             fd = os.open (self.dev, os.O_RDWR)
             oldflags = fcntl (fd, F_GETFL, 0)
-            p = select.poll ()
-            p.register (fd, select.POLLIN)
             fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
             self.tap = fd
-            self.poll = p
-            # Turn the interface on (this is apparently specific to Mac OS)
-            req = bytearray (sizeof_ifreq)
-            ifreq.pack_into (req, 0, self.name.encode ("ascii"), 0)
-            s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
-            ioctl (s, SIOCGIFFLAGS, req)
-            name, flags = ifreq.unpack_from (req)
-            ifreq.pack_into (req, 0, name, flags | 1)
-            ioctl (s, SIOCSIFFLAGS, req)
-        # Find our hardware address
-        for dname, desc, addrs, flags in pcap.findalldevs ():
-            if dname == self.name and addrs:
-                self.hwaddr = scan_macaddr (addrs[0][0])
+            self.sellist = ( fd, )
+            # Turn the interface on -- needed only on Mac OS
+            if sys.platform == "darwin":
+                req = bytearray (sizeof_ifreq)
+                ifreq.pack_into (req, 0, self.name.encode ("ascii"), 0)
+                s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
+                ioctl (s, SIOCGIFFLAGS, req)
+                name, flags = ifreq.unpack_from (req)
+                ifreq.pack_into (req, 0, name, flags | 1)
+                ioctl (s, SIOCSIFFLAGS, req)
+        # Find our hardware address, if not generated
+        if not self.randaddr:
+            for dname, desc, addrs, flags in pcap.findalldevs ():
+                if dname == self.name and addrs:
+                    self.hwaddr = scan_macaddr (addrs[0][0])
         logging.debug ("Ethernet %s hardware address is %s",
                        self.name, format_macaddr (self.hwaddr))
         # start receive thread
@@ -299,17 +307,20 @@ class Ethernet (BcDatalink, StopThread):
                     break
         else:
             # tap
-            #buf = bytearray (1518)
             while True:
                 if self.stopnow:
                     break
                 try:
-                    self.poll.poll ()
-                    while True:
-                        pkt = os.read (self.tap, 1518)
-                        if not pkt:
-                            break
-                        self.receive (len (pkt), pkt, None)
+                    # Note: for some reason, the timeout does nothing
+                    # on Mac OS.
+                    r, w, x = select.select (self.sellist, (),
+                                             self.sellist, ETH_TMO)
+                    if not r and not x:
+                        continue
+                    pkt = os.read (self.tap, 1518)
+                    if not pkt:
+                        continue
+                    self.receive (len (pkt), pkt, None)
                 except OSError:
                     break
             

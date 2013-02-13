@@ -41,11 +41,9 @@ cp.add_argument ("--type", default = "Ethernet",
                  choices = ("Ethernet",),
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
-                 help = "Device or connection name (default: same as name)")
-cp.add_argument ("--primary", action = "store_true", default = False,
-                 help = "Primary mode for SIMH DDCMP")
-cp.add_argument ("--secondary", dest = "primary", action = "store_false",
-                 help = "Secondary mode for SIMH DDCMP (default)")
+                 help = "Device or connection string (default: same as name)")
+cp.add_argument ("--random-address", action = "store_true", default = False,
+                 help = "Generate random \"hardware address\" (Ethernet only)")
 
 cp = config_cmd ("node", "Overall node configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
