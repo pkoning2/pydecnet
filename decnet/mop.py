@@ -96,23 +96,6 @@ class SysId (MopHdr):
                    2 : "Communication Server",
                    3 : "Professional" }
 
-    def __str__ (self):
-        ret = [ ]
-        for f in ("srcaddr", "carrier", "console_user", "reservation_timer",
-                  "hwaddr", "device", "processor", "datalink", "software"):
-            v = getattr (self, f, None)
-            if v:
-                if f == "device":
-                    v = self.devices.get (v, v)[1]
-                elif f == "processor":
-                    v = self.processors.get (v, v)
-                elif f == "datalink":
-                    v = self.datalinks.get (v, v)
-                elif f in ("hwaddr", "console_user"):
-                    v = format_macaddr (v)
-                ret.append ("{0:<12}: {1}".format (f, v))
-        return '\n'.join (ret)
-
     def encode_c (self, args):
         """Encode "field" according to the rules for the "software"
         protocol field.  If "field" is a string, encode it as for the
@@ -250,7 +233,19 @@ class Mop (Element):
                            help = "Destination address")
         cons.add_argument ("verification", type = scan_ver,
                            help = "Verification value")
-                           
+        cons = parent.register_api ("sysid", self, "Show SysId data")
+        cons.set_defaults (final_handler = "sysid")
+        cons.add_argument ("circuit", help = "Interface to query")
+        cons.add_argument ("--brief", action = "store_const",
+                           dest = "size", const = 0, default = 0,
+                           help = "Brief display (default)")
+        cons.add_argument ("--medium", action = "store_const",
+                           dest = "size", const = 1,
+                           help = "Medium display")
+        cons.add_argument ("--full", action = "store_const",
+                           dest = "size", const = 2,
+                           help = "Extended display")
+        
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -340,6 +335,32 @@ class MopCircuit (Element):
         if self.carrier_server:
             self.carrier_server.dispatch (parsed)
 
+def format_sysid (id, config):
+    """Format a sysid report, brief, regular, or full
+    """
+    ret = [ ]
+    if config.size == 0:
+        items = ( "hwaddr", )
+    elif config.size == 2:
+        items = ("srcaddr", "carrier", "console_user", "reservation_timer",
+                 "hwaddr", "device", "processor", "datalink", "software")
+    else:
+        items = ( "srcaddr", "hwaddr", "device" )
+    for f in items:
+        v = getattr (id, f, None)
+        if v:
+            if f == "device":
+                v = id.devices.get (v, v)[1]
+            elif f == "processor":
+                v = id.processors.get (v, v)
+            elif f == "datalink":
+                v = id.datalinks.get (v, v)
+            elif f in ("hwaddr", "console_user"):
+                v = format_macaddr (v)
+            ret.append ("{0:<12}: {1}".format (f, v))
+    return '\n'.join (ret)
+
+    
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
@@ -374,6 +395,15 @@ class SysIdHandler (Element, timers.Timer):
             logging.debug ("Sending periodic sysid on %s", self.parent.name)
             self.send_id (CONSMC, 0)
             self.node.timers.start (self, self.id_self_delay ())
+        elif isinstance (pkt, ApiRequest):
+            # Request for SysId data dump
+            if not self.heard:
+                reply = "No entries"
+            else:
+                reply = '\n'.join (["{}: {}".format (format_macaddr (k),
+                                                     format_sysid (v, pkt))
+                                    for k, v in self.heard.items ()])
+            pkt.done (reply)
 
     def send_id (self, dest, receipt):
         sysid = SysId (receipt = receipt, hwaddr = self.port.parent.hwaddr,

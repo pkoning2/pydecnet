@@ -185,7 +185,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
         msg += '\n'
         if isinstance (msg, str) and self.binary:
             msg = msg.encode ("latin-1", "ignore")
-        logging.debug ("Sending reply %r", msg)
+        #logging.debug ("Sending reply %r", msg)
         try:
             self.wfile.write (msg)
         except (OSError, ValueError, socket.error):
