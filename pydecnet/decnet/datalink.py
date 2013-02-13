@@ -8,6 +8,11 @@ from abc import abstractmethod, ABCMeta
 import pcap
 import time
 import logging
+import os
+import select
+from fcntl import *
+import struct
+import socket
 
 from .common import *
 
@@ -213,6 +218,12 @@ class EthPort (BcPort):
         l = max (l, 60)
         self.parent.send (memoryview (f)[:l])
 
+# ifr_name, ifru_flags
+ifreq = struct.Struct ("=16sH")
+sizeof_ifreq = 32
+SIOCSIFFLAGS = 0x80000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 16
+SIOCGIFFLAGS = 0xc0000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 17
+
 class Ethernet (BcDatalink, StopThread):
     """DEC Ethernet datalink.
     """
@@ -232,18 +243,32 @@ class Ethernet (BcDatalink, StopThread):
         self.pcap = pcap.pcapObject ()
     
     def open (self):
+        if self.api == "pcap":
+            # Always set promiscuous mode
+            self.pcap.open_live (self.name, 1600, 1, 100)
+        else:
+            # tap
+            fd = os.open (self.dev, os.O_RDWR)
+            oldflags = fcntl (fd, F_GETFL, 0)
+            p = select.poll ()
+            p.register (fd, select.POLLIN)
+            fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
+            self.tap = fd
+            self.poll = p
+            # Turn the interface on (this is apparently specific to Mac OS)
+            req = bytearray (sizeof_ifreq)
+            ifreq.pack_into (req, 0, self.name.encode ("ascii"), 0)
+            s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
+            ioctl (s, SIOCGIFFLAGS, req)
+            name, flags = ifreq.unpack_from (req)
+            ifreq.pack_into (req, 0, name, flags | 1)
+            ioctl (s, SIOCSIFFLAGS, req)
         # Find our hardware address
         for dname, desc, addrs, flags in pcap.findalldevs ():
             if dname == self.name and addrs:
                 self.hwaddr = scan_macaddr (addrs[0][0])
         logging.debug ("Ethernet %s hardware address is %s",
                        self.name, format_macaddr (self.hwaddr))
-        if self.api == "pcap":
-            # Always set promiscuous mode
-            self.pcap.open_live (self.name, 1600, 1, 100)
-        else:
-            # tap
-            pass
         # start receive thread
         self.start ()
         
@@ -255,19 +280,39 @@ class Ethernet (BcDatalink, StopThread):
         return super ().create_port (owner, proto, pad)
 
     def send (self, buf):
-        l2 = self.pcap.inject (buf)
+        if self.api == "pcap":
+            l2 = self.pcap.inject (buf)
+        else:
+            # tap
+            l2 = os.write (self.tap, buf)
         if l2 != len (buf):
             raise IOError
         
     def run (self):
-        while True:
-            if self.stopnow:
-                break
-            try:
-                cnt = self.pcap.dispatch (0, self.receive)
-            except pcap._pcap.error:
-                break
-
+        if self.api == "pcap":
+            while True:
+                if self.stopnow:
+                    break
+                try:
+                    cnt = self.pcap.dispatch (0, self.receive)
+                except pcap._pcap.error:
+                    break
+        else:
+            # tap
+            #buf = bytearray (1518)
+            while True:
+                if self.stopnow:
+                    break
+                try:
+                    self.poll.poll ()
+                    while True:
+                        pkt = os.read (self.tap, 1518)
+                        if not pkt:
+                            break
+                        self.receive (len (pkt), pkt, None)
+                except OSError:
+                    break
+            
     def receive (self, plen, packet, ts):
         if not packet:
             # pcap_next returns None if we got a timeout

@@ -30,7 +30,7 @@ def config_cmd (name, help, collection = False):
 # relating to the datalink layer, routing layer, and so on.
 
 cp = config_cmd ("circuit", "Circuit configuration", True)
-cp.add_argument ("name", help = "Circuit name")
+cp.add_argument ("name", help = "Circuit name", type = name)
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (1..25, default 1)",
                  choices = range (1, 25), default = 1)

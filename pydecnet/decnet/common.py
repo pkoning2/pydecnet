@@ -118,6 +118,16 @@ def scan_l2id (s):
         return HIORD + n.to_bytes (2, "little")
     return scan_macaddr (s)
 
+_name_re = re.compile (r"\w+$")
+def name (s):
+    """Accept a string that looks like a name, which for our purposes
+    means any alphanumeric string.  Yes, DECnet sometimes allows hyphens
+    and such, but that's too much trouble.
+    """
+    if _name_re.match (s):
+        return s
+    raise ValueError ("Invalid name %s" % s)
+
 class StopThread (threading.Thread):
     """A thread with stop method.  By default this will be
     a daemon thread.
