@@ -5,7 +5,7 @@
 """
 
 from abc import abstractmethod, ABCMeta
-import pcap
+#import pcap
 import time
 import logging
 import os
@@ -17,6 +17,7 @@ import socket
 import random
 
 from .common import *
+from . import pcap
 
 class DatalinkLayer (Element):
     """The datalink layer.  This is mainly a container for the individual
