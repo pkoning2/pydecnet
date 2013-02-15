@@ -88,7 +88,7 @@ class pcap_pkthdr (Structure):
 
 _dispatch_callback_type = CFUNCTYPE (None, c_void_p,
                                      POINTER (pcap_pkthdr),
-                                     POINTER (c_ubyte * PCAP_MTU))
+                                     POINTER (c_ubyte))
 
 def _findlib ():
     global _pcaplib
@@ -102,10 +102,10 @@ def _findlib ():
         _pcaplib.pcap_open_live.restype = c_void_p
         _pcaplib.pcap_close.argtypes = (c_void_p,)
         _pcaplib.pcap_close.restype = None
-        _pcaplib.pcap_inject.argtypes = (c_void_p, c_char_p, c_size_t)
+        _pcaplib.pcap_inject.argtypes = (c_void_p, POINTER (c_ubyte), c_size_t)
         _pcaplib.pcap_inject.restype = c_int
         _pcaplib.pcap_dispatch.argtypes = (c_void_p, c_int,
-                                           _dispatch_callback_type, py_object)
+                                           _dispatch_callback_type, c_void_p)
         _pcaplib.pcap_dispatch.restype = c_int
         _pcaplib.pcap_findalldevs.argtypes = (pp_pcap_if_t,
                                               c_char * PCAP_ERRBUF_SIZE)
@@ -169,7 +169,8 @@ class _pcapCallback (object):
 
     def __call__ (self, unused, hdr, buf):
         hdr = hdr.contents
-        buf = bytes (buf.contents)[:hdr.caplen]
+        buf = cast (buf, POINTER (c_ubyte * hdr.caplen))
+        buf = bytes (buf.contents)
         self.fun (hdr.len, buf, float (hdr.ts.tv_sec) + hdr.ts.tv_usec / 1000000.)
         
 class pcapObject (object):
@@ -200,7 +201,8 @@ class pcapObject (object):
         _findlib ()
         if not self.pcap:
             raise _pcap.error ("pcap.inject on closed handle")
-        return _pcaplib.pcap_inject (self.pcap, bytes (buf), len (buf))
+        buf = (c_ubyte * len (buf)).from_buffer_copy (buf)
+        return _pcaplib.pcap_inject (self.pcap, buf, len (buf))
 
     def dispatch (self, count, fun):
         """Dispatch "count" packets (or unlimited if 0) to "fun".
@@ -211,4 +213,4 @@ class pcapObject (object):
         if not self.pcap:
             raise _pcap.error ("pcap.dispatch on closed handle")
         cb = _dispatch_callback_type (_pcapCallback (fun))
-        _pcaplib.pcap_dispatch (self.pcap, count, cb, 0)
+        _pcaplib.pcap_dispatch (self.pcap, count, cb, None)
