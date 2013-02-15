@@ -131,11 +131,10 @@ def findalldevs ():
     retval = list ()
     listhead = p_pcap_if_t ()
     errbuf = create_string_buffer (PCAP_ERRBUF_SIZE)
-    ret = -1
+    ret = _pcaplib.pcap_findalldevs (byref (listhead), errbuf)
+    if ret < 0:
+        raise _pcap.error (errbuf)
     try:
-        ret = _pcaplib.pcap_findalldevs (byref (listhead), errbuf)
-        if ret < 0:
-            raise _pcap.error (errbuf)
         lptr = listhead
         while lptr:
             lptr = lptr.contents
@@ -158,8 +157,7 @@ def findalldevs ():
             retval.append ((name, desc, alist, flags))
             lptr = lptr.next
     finally:
-        if ret >= 0:
-            _pcaplib.pcap_freealldevs (listhead)
+        _pcaplib.pcap_freealldevs (listhead)
     return retval
 
 class _pcapCallback (object):
@@ -213,4 +211,4 @@ class pcapObject (object):
         if not self.pcap:
             raise _pcap.error ("pcap.dispatch on closed handle")
         cb = _dispatch_callback_type (_pcapCallback (fun))
-        _pcaplib.pcap_dispatch (self.pcap, count, cb, self)
+        _pcaplib.pcap_dispatch (self.pcap, count, cb, 0)
