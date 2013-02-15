@@ -1,0 +1,8 @@
+#!/usr/bin/env python3.2
+
+"""Main program for DECnet node.
+"""
+
+import decnet.main
+
+decnet.main.main ()
