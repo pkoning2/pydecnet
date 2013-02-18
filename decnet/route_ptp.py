@@ -10,37 +10,37 @@ from .statemachine import *
 from .datalink import *
 
 class ShortData (Packet):
-    layout = (( "bm", "sfpd", 0, 2 ),
-              ( "bm", "rqr", 3, 1 ),
-              ( "bm", "rts", 4, 1 ),
-              ( "bm", "v", 6, 1 ),
-              ( "b", "dstnode", 2 ),
-              ( "b", "srcnode", 2 ),
-              ( "bm", "visit", 0, 6 ))
+    _layout = (( "bm", "sfpd", 0, 2 ),
+               ( "bm", "rqr", 3, 1 ),
+               ( "bm", "rts", 4, 1 ),
+               ( "bm", "v", 6, 1 ),
+               ( "b", "dstnode", 2 ),
+               ( "b", "srcnode", 2 ),
+               ( "bm", "visit", 0, 6 ))
     
 class PtpPInit (Packet):
-    layout = (( "bm", "control", 0, 1 ),
-              ( "bm", "type", 1, 3 ),
-              ( "b", "srcnode", 2 ),
-              ( "bm", "ntype", 0, 2 ),
-              ( "bm", "verif", 2, 1 ),
-              ( "bm", "blo", 3, 1 ),
-              ( "b", "blksize", 2 ),
-              ( "b", "tiver", 3 ),
-              ( "b", "timer", 2 ),
-              ( "i", "reserved", 64 ))
+    _layout = (( "bm", "control", 0, 1 ),
+               ( "bm", "type", 1, 3 ),
+               ( "b", "srcnode", 2 ),
+               ( "bm", "ntype", 0, 2 ),
+               ( "bm", "verif", 2, 1 ),
+               ( "bm", "blo", 3, 1 ),
+               ( "b", "blksize", 2 ),
+               ( "b", "tiver", 3 ),
+               ( "b", "timer", 2 ),
+               ( "i", "reserved", 64 ))
 
 class PtpVerify (Packet):
-    layout = (( "bm", "control", 0, 1 ),
-              ( "bm", "type", 1, 3 ),
-              ( "b", "srcnode", 2 ),
-              ( "i", "fcnval", 64 ))
+    _layout = (( "bm", "control", 0, 1 ),
+               ( "bm", "type", 1, 3 ),
+               ( "b", "srcnode", 2 ),
+               ( "i", "fcnval", 64 ))
 
 class PtpHello (Packet):
-    layout = (( "bm", "control", 0, 1 ),
-              ( "bm", "type", 1, 3 ),
-              ( "b", "srcnode", 2 ),
-              ( "i", "testdata", 128 ))
+    _layout = (( "bm", "control", 0, 1 ),
+               ( "bm", "type", 1, 3 ),
+               ( "b", "srcnode", 2 ),
+               ( "i", "testdata", 128 ))
 
 class PtpCircuit (StateMachine):
     """A point to point circuit, i.e., the datalink dependent
