@@ -66,6 +66,11 @@ you can always prevent this just by defining a default transition.
 Noah Spurrier 20020822
 """
 
+try:
+    raw_input
+except AttributeError:
+    raw_input = input
+    
 class ExceptionFSM(Exception):
 
     """This is the FSM Exception class."""
@@ -74,7 +79,7 @@ class ExceptionFSM(Exception):
         self.value = value
 
     def __str__(self):
-        return `self.value`
+        return repr(self.value)
 
 class FSM:
 
@@ -278,11 +283,11 @@ def DoOperator (fsm):
         fsm.memory.append (al / ar)
 
 def DoEqual (fsm):
-    print str(fsm.memory.pop())
+    print (str(fsm.memory.pop()))
 
 def Error (fsm):
-    print 'That does not compute.'
-    print str(fsm.input_symbol)
+    print ('That does not compute.')
+    print (str(fsm.input_symbol))
 
 def main():
 
@@ -299,12 +304,11 @@ def main():
     f.add_transition_list (string.whitespace, 'BUILDING_NUMBER', EndBuildNumber,   'INIT')
     f.add_transition_list ('+-*/',            'INIT',            DoOperator,       'INIT')
 
-    print
-    print 'Enter an RPN Expression.'
-    print 'Numbers may be integers. Operators are * / + -'
-    print 'Use the = sign to evaluate and print the expression.'
-    print 'For example: '
-    print '    167 3 2 2 * * * 1 - ='
+    print ('\nEnter an RPN Expression.')
+    print ('Numbers may be integers. Operators are * / + -')
+    print ('Use the = sign to evaluate and print the expression.')
+    print ('For example: ')
+    print ('    167 3 2 2 * * * 1 - =')
     inputstr = raw_input ('> ')
     f.process_list(inputstr)
 
@@ -314,18 +318,17 @@ if __name__ == '__main__':
         parser = optparse.OptionParser(formatter=optparse.TitledHelpFormatter(), usage=globals()['__doc__'], version='$Id: FSM.py 490 2007-12-07 15:46:24Z noah $')
         parser.add_option ('-v', '--verbose', action='store_true', default=False, help='verbose output')
         (options, args) = parser.parse_args()
-        if options.verbose: print time.asctime()
+        if options.verbose: print (time.asctime())
         main()
-        if options.verbose: print time.asctime()
-        if options.verbose: print 'TOTAL TIME IN MINUTES:',
-        if options.verbose: print (time.time() - start_time) / 60.0
+        if options.verbose: print (time.asctime())
+        if options.verbose: print ('TOTAL TIME IN MINUTES: %f' % 
+                                   (time.time() - start_time) / 60.0)
         sys.exit(0)
-    except KeyboardInterrupt, e: # Ctrl-C
-        raise e
-    except SystemExit, e: # sys.exit()
-        raise e
-    except Exception, e:
-        print 'ERROR, UNEXPECTED EXCEPTION'
-        print str(e)
+    except KeyboardInterrupt: # Ctrl-C
+        raise 
+    except SystemExit: # sys.exit()
+        raise 
+    except Exception:
+        print ('ERROR, UNEXPECTED EXCEPTION')
         traceback.print_exc()
         os._exit(1)
