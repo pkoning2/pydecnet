@@ -20,7 +20,7 @@ from . import timers
 from . import statemachine
 
 class MopHdr (packet.Packet):
-    layout = ( ( "b", "code", 1 ), )
+    _layout = ( ( "b", "code", 1 ), )
 
 _lastreceipt = randint (0, 0xffff)
 def receipt ():
@@ -29,34 +29,34 @@ def receipt ():
     return _lastreceipt
 
 class SysId (MopHdr):
-    layout = ( ( "res", 1 ),
-               ( "b", "receipt", 2 ),
-               ( "tlv", 2, 1, True,
-                 { 1 : ( "bs", "version", 3 ),
-                   2 : ( "bm",
-                         ( "loop", 0, 1 ),
-                         ( "dump", 1, 1 ),
-                         ( "ploader", 2, 1 ),
-                         ( "sloader", 3, 1 ),
-                         ( "boot", 4, 1 ),
-                         ( "carrier", 5, 1 ),
-                         ( "counters", 6, 1 ),
-                         ( "carrier_reserved", 7, 1 ),
-                         ( "", 8, 8 ) ),
-                   3 : ( "bs", "console_user", 6 ),
-                   4 : ( "b", "reservation_timer", 2 ),
-                   5 : ( "b", "console_cmd_size", 2 ),
-                   6 : ( "b", "console_resp_size", 2 ),
-                   7 : ( "bs", "hwaddr", 6 ),
-                   8 : ( "bs", "time", 10 ),
-                   100 : ( "b", "device", 1 ),
-                   200 : ( "c", "software", 17 ),
-                   300 : ( "b", "processor", 1 ),
-                   400 : ( "b", "datalink", 1 ) } )
-               )
+    _layout = ( ( "res", 1 ),
+                ( "b", "receipt", 2 ),
+                ( "tlv", 2, 1, True,
+                  { 1 : ( "bs", "version", 3 ),
+                    2 : ( "bm",
+                          ( "loop", 0, 1 ),
+                          ( "dump", 1, 1 ),
+                          ( "ploader", 2, 1 ),
+                          ( "sloader", 3, 1 ),
+                          ( "boot", 4, 1 ),
+                          ( "carrier", 5, 1 ),
+                          ( "counters", 6, 1 ),
+                          ( "carrier_reserved", 7, 1 ),
+                          ( "", 8, 8 ) ),
+                    3 : ( "bs", "console_user", 6 ),
+                    4 : ( "b", "reservation_timer", 2 ),
+                    5 : ( "b", "console_cmd_size", 2 ),
+                    6 : ( "b", "console_resp_size", 2 ),
+                    7 : ( "bs", "hwaddr", 6 ),
+                    8 : ( "bs", "time", 10 ),
+                    100 : ( "b", "device", 1 ),
+                    200 : ( "c", "software", 17 ),
+                    300 : ( "b", "processor", 1 ),
+                    400 : ( "b", "datalink", 1 ) } )
+                )
     
     code = 7
-    version = b"\x03\x00\x00"
+    def_version = b"\x03\x00\x00"
     
     devices = { 0 : ( "DP", "DP11-DA (OBSOLETE)" ),
                 1 : ( "UNA", "DEUNA multiaccess communication link" ),
@@ -139,62 +139,60 @@ class SysId (MopHdr):
             v = bytes (v).decode ()
         setattr (self, field, v)
         return buf[flen + 1:]
-        
+
 class RequestId (MopHdr):
-    layout = ( ( "res", 1 ),
-               ( "b", "receipt", 2 ), )
+    _layout = ( ( "res", 1 ),
+                ( "b", "receipt", 2 ), )
     code = 5
 
 class RequestCounters (MopHdr):
-    layout = ( ( "b", "receipt", 2 ), )
+    _layout = ( ( "b", "receipt", 2 ), )
     code = 9
 
 class Counters (MopHdr):
-    layout = ( ( "b", "receipt", 2 ), )
+    _layout = ( ( "b", "receipt", 2 ), )
     code = 11
 
 class ConsoleRequest (MopHdr):
-    layout = ( ( "bv", "verification", 8 ), )
+    _layout = ( ( "bv", "verification", 8 ), )
     code = 13
 
 class ConsoleRelease (MopHdr):
     code = 15
 
 class ConsoleCommand (MopHdr):
-    layout = ( ( "bm",
-                 ( "seq", 0, 1 ),
-                 ( "break", 1, 1 ) ), )
+    _layout = ( ( "bm",
+                  ( "seq", 0, 1 ),
+                  ( "break", 1, 1 ) ), )
     code = 17
 
 class ConsoleResponse (MopHdr):
-    layout = ( ( "bm",
-                 ( "seq", 0, 1 ),
-                 ( "cmd_lost", 1, 1 ),
-                 ( "resp_lost", 2, 1 ) ), )
+    _layout = ( ( "bm",
+                  ( "seq", 0, 1 ),
+                  ( "cmd_lost", 1, 1 ),
+                  ( "resp_lost", 2, 1 ) ), )
     code = 19
 
 class LoopSkip (packet.Packet):
-    layout = ( ( "b", "skip", 2 ), )
+    _layout = ( ( "b", "skip", 2 ), )
     
 class LoopFwd (packet.Packet):
-    function = 2
-    layout = ( ( "b", "function", 2 ),
-               ( "bv", "dest", 6 ) )
+    _layout = ( ( "b", "function", 2 ),
+                ( "bv", "dest", 6 ) )
 
 class LoopReply (packet.Packet):
-    function = 1
-    layout = ( ( "b", "function", 2 ),
-               ( "b", "receipt", 2 ) )
+    _layout = ( ( "b", "function", 2 ),
+                ( "b", "receipt", 2 ) )
 
 class LoopDirect (LoopSkip):
     """A direct (not assisted) loop packet, as originally sent.
     """
-    layout = ( ( "b", "fwd", 2 ),
-               ( "bv", "dest", 6 ),
-               ( "b", "reply", 2 ),
-               ( "b", "receipt", 2 ) )
-    fwd = LoopFwd.function
-    reply = LoopReply.function
+    _layout = ( ( "b", "fwd", 2 ),
+                ( "bv", "dest", 6 ),
+                ( "b", "reply", 2 ),
+                ( "b", "receipt", 2 ) )
+    fwd = 2
+    reply = 1
     skip = 0
 
 # This message is largely constant.
@@ -406,7 +404,9 @@ class SysIdHandler (Element, timers.Timer):
             pkt.done (reply)
 
     def send_id (self, dest, receipt):
-        sysid = SysId (receipt = receipt, hwaddr = self.port.parent.hwaddr,
+        sysid = SysId (receipt = receipt,
+                       version = SysId.def_version,
+                       hwaddr = self.port.parent.hwaddr,
                        loop = True,
                        device = 9,    # PCL, to freak out some people
                        datalink = 1,  # Ethernet
@@ -421,7 +421,6 @@ class SysIdHandler (Element, timers.Timer):
             if self.mop.reservation:
                 sysid.carrier_reserved = True
                 sysid.console_user = self.mop.reservation
-        sysid.encode ()
         self.port.send (sysid, dest)
 
 class CarrierClient (Element, statemachine.StateMachine):
@@ -453,7 +452,6 @@ class CarrierClient (Element, statemachine.StateMachine):
             self.req = item
             self.deststr = format_macaddr (item.dest)
             self.msg = RequestId (receipt = receipt ())
-            self.msg.encode ()
             self.sendmsg ()
             return self.check
 
@@ -470,7 +468,6 @@ class CarrierClient (Element, statemachine.StateMachine):
                 # Now we send a reservation request followed by another
                 # RequestId to see if it worked.
                 self.msg2 = ConsoleRequest (verification = self.req.verification)
-                self.msg2.encode ()
                 self.port.send (self.msg2, self.req.dest)
                 self.sendmsg ()
                 return self.reserve
@@ -530,7 +527,6 @@ class CarrierClient (Element, statemachine.StateMachine):
             indata = self.pendinginput[:self.cmdsize]
             self.pendinginput = self.pendinginput[self.cmdsize:]
             self.msg = ConsoleCommand (seq = self.seq, payload = indata)
-            self.msg.encode ()
         self.node.timers.stop (self)
         self.node.timers.start (self, 1)
         self.sendmsg (tries)
@@ -571,10 +567,8 @@ class CarrierClient (Element, statemachine.StateMachine):
             if not item.data:
                 # API connection closed -- release the console
                 self.msg2 = ConsoleRelease ()
-                self.msg2.encode ()
                 self.port.send (self.msg2, self.req.dest)
                 self.msg = RequestId (receipt = receipt ())
-                self.msg.encode ()
                 self.sendmsg ()
                 return self.release
             elif self.pendinginput or self.msg:
@@ -679,7 +673,6 @@ class CarrierServer (Element, timers.Timer):
                         self.response = ConsoleResponse (seq = self.seq,
                                                          payload = self.pendingoutput)
                         self.pendingoutput = b""
-                        self.response.encode ()
                         self.port.send (self.response, res)
                         
             else:
@@ -730,16 +723,16 @@ class LoopHandler (Element, timers.Timer):
             if (skip & 1) or skip > len (buf) - 4:
                 # Invalid skip count, ignore
                 return
-            # Guess it's a forward operation
-            f = LoopFwd (buf[skip + 2:])
-            if f.function == LoopFwd.function:
+            # Get the function code
+            fun = int.from_bytes (buf[skip + 2:skip + 4], packet.LE)
+            if fun == LoopDirect.fwd:
+                f = LoopFwd (buf[skip + 2:])
                 if f.dest[0] & 1:
                     # Forward to multicast, invalid, ignore
                     return
                 top.skip += 8
-                top.encode ()
                 self.port.send (top, f.dest)
-            elif f.function == LoopReply.function:
+            elif fun == LoopDirect.reply:
                 f = LoopReply (buf[skip + 2:])
                 req = self.pendingreq
                 if req and f.receipt == req.receipt:
@@ -788,7 +781,6 @@ class LoopHandler (Element, timers.Timer):
             self.loopcount += 1
             loopmsg.dest = self.port.macaddr
             loopmsg.receipt = req.receipt = receipt ()
-            loopmsg.encode ()
             self.sendtime = time.time ()
             self.port.send (loopmsg, req.dest)
             self.node.timers.stop (self)

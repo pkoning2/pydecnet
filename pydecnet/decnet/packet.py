@@ -92,26 +92,73 @@ def process_layout (cls, layout):
             nomore = "TLV"
         codetable.append (proc_layoutelem (cls, e))
     return codetable
+
+def proc_slotelem (e):
+    code, *args = e
+    code = code.lower ()
     
+    if code == "tlv":
+        tlen, llen, wild, layoutdict = args
+        ret = set ()
+        for v in layoutdict.values ():
+            ret |= proc_slotelem (v)
+        return ret
+    else:
+        if code == "bm":
+            return { name for name, start, bits in args if name }
+        elif code == "res":
+            return set ()
+        else:
+            return { args[0] }
+        
+def process_slots (layout):
+    """Build the set of slots (attribute names) given by the supplied layout.
+    """
+    slots = set ()
+    for e in layout:
+        slots |= (proc_slotelem (e))
+    return slots
+
 class packet_encoding_meta (type):
-    """Metaclass for "Packet" that will process the "layout"
+    """Metaclass for "Packet" that will process the "_layout"
     for the packet into the necessary encoding and decoding
     tables.
 
-    The layout is specified in class variable "layout".
+    The layout is specified in class variable "_layout".
     The metaclass uses the layout definition to build an
     encode/decode table, which becomes class variable
-    "codetable".
+    "_codetable".
+
+    All fields mentioned in the layout, except those that are
+    given values by class attributes, are mentioned in __slots__
+    so they become valid instance attributes.
     """
     def __new__ (cls, name, bases, classdict):
+        # For the base class Packet, we do nothing special; the extra
+        # work only kicks in for its derived classes.
+        if name == "Packet":
+            return type.__new__ (cls, name, bases, classdict)
+        layout = classdict.get ("_layout", None)
+        if layout:
+            # This class defines a layout.  It's either the packet layout
+            # (if there is no layout in its base classes) or additional
+            # layout after the header defined by the base classes.
+            # Build the set of new fields from that, which will be
+            # the __slots__ class variable.
+            slots = process_slots (layout)
+            # Any attributes defined as class attributes will not be
+            # allowed as instance attributes.
+            slots -= set (classdict)
+        else:
+            slots = set ()
+        classdict["__slots__"] = slots
         result = type.__new__ (cls, name, bases, classdict)
-        # Look for an existing codetable.  If we find one, that means
+        # Look for an existing _codetable.  If we find one, that means
         # this class is derived from another Packet subclass, and we
         # will either use its layout as-is (if this class doesn't define
         # its own additional layout) or we will treat that base layout
         # as the header for any additional layout given here.
-        baselayout = getattr (result, "codetable", None)
-        layout = classdict.get ("layout", None)
+        baselayout = getattr (result, "_codetable", None)
         if layout:
             # This class defines a layout.  It's either the packet layout
             # (if there is no layout in its base classes) or additional
@@ -123,20 +170,20 @@ class packet_encoding_meta (type):
             layout = process_layout (result, layout)
             if baselayout:
                 layout = baselayout + layout
-            result.codetable = layout
+            result._codetable = layout
         elif not baselayout:
             raise AttributeError ("Required attribute 'layout' not defined in class '%s'" % name)
         return result
             
-class Packet (bytearray, metaclass = packet_encoding_meta):
+class Packet (metaclass = packet_encoding_meta):
     """Base class for DECnet packets.
 
     The packet layout is given by class variable "layout",
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    layout = ( ( "res", 1 ), )    # Dummy layout to satisfy the metaclass
-
+    __slots__ = { "src", "_bytes", "payload" }
+    
     def __init__ (self, buf = None, **kwargs):
         """Construct a packet.  If "buf" is supplied, that buffer
         is decoded.  Conversely, if other keyword arguments are supplied,
@@ -146,11 +193,27 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         the packet.
         """
         super ().__init__ ()
+        self._bytes = None
         if buf:
             self.decode (buf)
         elif kwargs:
-            self.__dict__.update (kwargs)
+            for k, v in kwargs.items ():
+                setattr (self, k, v)
 
+    def __setattr__ (self, name, value):
+        """Set an attribute.  If it's a field name (not starting with "_"),
+        get rid of a previously saved bytes value.
+        If the value isn't changing, take no action.  This matters for
+        fields that have a fixed value set in the class -- those aren't
+        instance attributes so they can't be set.
+        """
+        if name[0] != '_':
+            curval = getattr (self, name, None)
+            if curval is not None and value == curval:
+                return
+            self._bytes = None
+        super ().__setattr__ (name, value)
+        
     def encode_res (self, flen):
         """Encode a reserved field.
         """
@@ -351,7 +414,7 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         in that case, if there is a "payload" attribute, that data
         is added to the end of the encoded data.
         """
-        codetable = layout or self.codetable
+        codetable = layout or self._codetable
         data = [ ]
         for e, d, args in codetable:
             try:
@@ -364,10 +427,29 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
                 data.append (bytes (payload))
         data = b''.join (data)
         if not layout:
-            self[:] = data
+            self._bytes = data
         return data
 
-    __bytes__ = encode
+    def __bytes__ (self):
+        """Convert to bytes.  Save the result for later, but note that
+        __setattr__ will zap the saved result if any attribute is changed.
+        """
+        if not self._bytes:
+            self.encode ()
+        return self._bytes
+
+    def __len__ (self):
+        """Return the packet length, i.e., the length of the encoded
+        packet data.
+        """
+        if not self._bytes:
+            self.encode ()
+        return len (self._bytes)
+
+    def __iter__ (self):
+        """Return an iterator over the packet contents.
+        """
+        return iter (bytes (self))
     
     def decode (self, buf, layout = None):
         """Decode a packet buffer and set the packet object attributes
@@ -382,17 +464,17 @@ class Packet (bytearray, metaclass = packet_encoding_meta):
         variable layout packets; in that case the class layout is used
         to define the header layout, and anything beyond the header
         is processed separately.
+
+        If any layout fields have values set in the packet class, those
+        values are required values and mismatches will generate an
+        AttributeError exception.
         """
-        codetable = layout or self.codetable
+        codetable = layout or self._codetable
         if not layout:
-            self[:] = buf
+            self._bytes = buf
         for e, d, args in codetable:
             buf = d (self, buf, args)
         if not layout:
             self.payload = buf
         #logging.debug ("packet parse: %s", self.__dict__)
         return buf
-    
-# Delete these two because we want them to come only from derived classes
-del Packet.layout
-del Packet.codetable

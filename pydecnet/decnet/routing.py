@@ -11,15 +11,15 @@ from .util import *
 class RouteSegEntry (Packet):
     """An entry in the routing message: the cost/hops fields.
     """
-    layout = (( "bm", "cost", 0, 10 ),
-              ( "bm", "hops", 10, 5 ))
+    _layout = (( "bm", "cost", 0, 10 ),
+               ( "bm", "hops", 10, 5 ))
 
 class L1Segment (Packet):
     """A segment of a Level 1 routing message.  It consists of
     a header followed by some number of segment entries.
     """
-    layout = (( "b", "count", 2 ),
-              ( "b", "startid", 2 ))
+    _layout = (( "b", "count", 2 ),
+               ( "b", "startid", 2 ))
 
     def validate (self):
         if self.count + self.startid > 1024:
@@ -57,10 +57,10 @@ class L1Routing (Packet):
     """A Level 1 routing message.  It consists of a header,
     followed by some number of segments, followed by a checksum.
     """
-    layout = (( "bm", "control", 0, 1 ),
-              ( "bm", "type", 1, 3 ),
-              ( "b", "srcnode", 2 ),
-              ( "b", "reserved", 1 ))
+    _layout = (( "bm", "control", 0, 1 ),
+               ( "bm", "type", 1, 3 ),
+               ( "b", "srcnode", 2 ),
+               ( "b", "reserved", 1 ))
     initchecksum = 1
     packet_type = 3
     segtype = L1Segment
@@ -129,10 +129,10 @@ class L2Routing (L1Routing):
     message, but with a different packet type code and entries
     for areas rather than nodes in the area.
     """
-    layout = (( "bm", "control", 0, 1 ),
-              ( "bm", "type", 1, 3 ),
-              ( "b", "srcnode", 2 ),
-              ( "b", "reserved", 1 ))
+    _layout = (( "bm", "control", 0, 1 ),
+               ( "bm", "type", 1, 3 ),
+               ( "b", "srcnode", 2 ),
+               ( "b", "reserved", 1 ))
     packet_type = 4
     segtype = L2Segment
     
