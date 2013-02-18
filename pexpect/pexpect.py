@@ -93,12 +93,17 @@ __all__ = ['ExceptionPexpect', 'EOF', 'TIMEOUT', 'spawn', 'run', 'which',
 try:
     unicode
     def tostr (s): return s
+    tobytes = tostr
 except NameError:
     unicode = str
     def tostr (b):
         if isinstance (b, str):
             return b
         return b.decode ("latin1", "ignore")
+    def tobytes (s):
+        if isinstance (s, str):
+            return s.encode ("latin1", "ignore")
+        return s
     
 # Exception classes used by this module.
 class ExceptionPexpect(Exception):
@@ -846,7 +851,7 @@ class spawn (object):
                 raise EOF ('End Of File (EOF) in read_nonblocking(). Empty string style platform.')
 
             if self.logfile is not None:
-                self.logfile.write (s)
+                self.logfile.write (tostr (s))
                 self.logfile.flush()
             if self.logfile_read is not None:
                 self.logfile_read.write (s)
@@ -960,9 +965,9 @@ class spawn (object):
             self.logfile.write (s)
             self.logfile.flush()
         if self.logfile_send is not None:
-            self.logfile_send.write (s)
+            self.logfile_send.write(s)
             self.logfile_send.flush()
-        c = os.write(self.child_fd, s)
+        c = os.write(self.child_fd, tobytes (s))
         return c
 
     def sendline(self, s=''):
@@ -1515,7 +1520,7 @@ class spawn (object):
         """
 
         while data != '' and self.isalive():
-            n = os.write(fd, data)
+            n = os.write(fd, tobytes (data))
             data = data[n:]
 
     def __interact_read(self, fd):
@@ -1538,7 +1543,7 @@ class spawn (object):
                 if self.logfile is not None:
                     self.logfile.write (data)
                     self.logfile.flush()
-                os.write(self.STDOUT_FILENO, data)
+                os.write(self.STDOUT_FILENO, tobytes (data))
             if self.STDIN_FILENO in r:
                 data = self.__interact_read(self.STDIN_FILENO)
                 if input_filter: data = input_filter(data)
