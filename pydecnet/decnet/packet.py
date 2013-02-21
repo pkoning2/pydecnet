@@ -8,9 +8,12 @@ Classes for packet layouts.
 import sys
 import struct
 import logging
+import time
 
 LE = "little"
 getbyte = struct.Struct ("<B")
+
+maxint = [ (1 << (8 * i)) - 1 for i in range (9) ]
 
 try:
     int.from_bytes
@@ -149,6 +152,10 @@ class packet_encoding_meta (type):
             # Any attributes defined as class attributes will not be
             # allowed as instance attributes.
             slots -= set (classdict)
+            # Add any extra slots requested by the class
+            addslots = classdict.get ("_addslots", None)
+            if addslots:
+                slots |= set (addslots)
         else:
             slots = set ()
         classdict["__slots__"] = slots
@@ -182,38 +189,42 @@ class Packet (metaclass = packet_encoding_meta):
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    __slots__ = { "src", "_bytes", "payload" }
-    
-    def __init__ (self, buf = None, **kwargs):
+    __slots__ = { "src", "payload" }
+
+    @classmethod
+    def allslots (cls):
+        """Return a set that contains the contents of the slots for
+        this class and its base classes.
+        """
+        ret = set ()
+        for c in cls.__mro__:
+            s = getattr (c, "__slots__", None)
+            if s:
+                ret |= s
+        return ret
+        
+    def __init__ (self, buf = None, src = None, **kwargs):
         """Construct a packet.  If "buf" is supplied, that buffer
         is decoded.  Conversely, if other keyword arguments are supplied,
-        they initialize attributes of those names.  Note that the packet
-        is not encoded yet in that case, because the set of attributes
-        supplied may not include everything needed to finish encoding
-        the packet.
+        they initialize attributes of those names.  If "src" is
+        specified, its instance attributes are initialized from that
+        object, to the extent that the src object has corresponding attributes.
         """
         super ().__init__ ()
-        self._bytes = None
         if buf:
             self.decode (buf)
-        elif kwargs:
-            for k, v in kwargs.items ():
-                setattr (self, k, v)
+        else:
+            if src:
+                for attr in self.allslots ():
+                    try:
+                        v = getattr (src, attr)
+                    except (NameError, AttributeError):
+                        continue
+                    setattr (self, attr, v)
+            if kwargs:
+                for k, v in kwargs.items ():
+                    setattr (self, k, v)
 
-    def __setattr__ (self, name, value):
-        """Set an attribute.  If it's a field name (not starting with "_"),
-        get rid of a previously saved bytes value.
-        If the value isn't changing, take no action.  This matters for
-        fields that have a fixed value set in the class -- those aren't
-        instance attributes so they can't be set.
-        """
-        if name[0] != '_':
-            curval = getattr (self, name, None)
-            if curval is not None and value == curval:
-                return
-            self._bytes = None
-        super ().__setattr__ (name, value)
-        
     def encode_res (self, flen):
         """Encode a reserved field.
         """
@@ -274,6 +285,29 @@ class Packet (metaclass = packet_encoding_meta):
         field, flen = args
         setattr (self, field, int.from_bytes (buf[:flen], LE))
         return buf[flen:]
+
+    def encode_ctr (self, args):
+        """Encode "field" as a counter field with length "flen".
+        The field value is assumed to be an integer.  This is the
+        same as "b" except that values too large for the field
+        are capped at the max.
+        """
+        field, flen = args
+        return min (getattr (self, field), maxint[flen]).to_bytes (flen, LE)
+
+    decode_ctr = decode_b
+
+    def encode_deltat (self, args):
+        """Encode "field" as elapsed time with length "flen".  The
+        field value is assumed to be the start time of the interval to
+        be encoded This is the same as "ctr" except that we first convert
+        the start time to a delta time.
+        """
+        field, flen = args
+        delta = int (time.time () - getattr (self, field))
+        return min (delta, maxint[flen]).to_bytes (flen, LE)
+
+    decode_deltat = decode_b
 
     def encode_bm (self, args):
         """Encode a bitmap field.  "elements" is a sequence of
@@ -409,10 +443,9 @@ class Packet (metaclass = packet_encoding_meta):
         resulting packet data is returned.
         
         If the "layout" argument is used, that layout table is used;
-        otherwise the class layout table is used, and in that case the
-        bytearray of the object is set to the encoded data.   Also,
-        in that case, if there is a "payload" attribute, that data
-        is added to the end of the encoded data.
+        otherwise the class layout table is used.   Also, in that
+        case, if there is a "payload" attribute, that data is added
+        to the end of the encoded data.
         """
         codetable = layout or self._codetable
         data = [ ]
@@ -426,25 +459,20 @@ class Packet (metaclass = packet_encoding_meta):
             if payload:
                 data.append (bytes (payload))
         data = b''.join (data)
-        if not layout:
-            self._bytes = data
         return data
 
     def __bytes__ (self):
-        """Convert to bytes.  Save the result for later, but note that
-        __setattr__ will zap the saved result if any attribute is changed.
+        """Convert to bytes.  We encode the data each time, since this
+        doesn't happen often enough to bother with the rather hairy
+        process of caching the answer.
         """
-        if not self._bytes:
-            self.encode ()
-        return self._bytes
+        return self.encode ()
 
     def __len__ (self):
         """Return the packet length, i.e., the length of the encoded
         packet data.
         """
-        if not self._bytes:
-            self.encode ()
-        return len (self._bytes)
+        return len (bytes (self))
 
     def __iter__ (self):
         """Return an iterator over the packet contents.
@@ -456,8 +484,7 @@ class Packet (metaclass = packet_encoding_meta):
         from the fields that were found.
 
         If the "layout" argument is used, that layout table is used to
-        do the decode.  Otherwise, the class layout table is used, and
-        the bytearray base of the object is set to the supplied buffer.
+        do the decode.  Otherwise, the class layout table is used.
 
         If more data is present than accounted for in the layout
         definition, the remainder is returned.  This is useful for
@@ -470,11 +497,19 @@ class Packet (metaclass = packet_encoding_meta):
         AttributeError exception.
         """
         codetable = layout or self._codetable
-        if not layout:
-            self._bytes = buf
         for e, d, args in codetable:
             buf = d (self, buf, args)
         if not layout:
             self.payload = buf
         #logging.debug ("packet parse: %s", self.__dict__)
         return buf
+
+    def __str__ (self):
+        ret = list ()
+        for a in self.allslots ():
+            v = getattr (self, a, None)
+            if v is not None:
+                ret.append ("{}={}".format (a, v))
+        return "{}({})".format (self.__class__.__name__, ", ".join (ret))
+
+    __repr__ = __str__
