@@ -42,7 +42,7 @@ class SysId (MopHdr):
                           ( "carrier", 5, 1 ),
                           ( "counters", 6, 1 ),
                           ( "carrier_reserved", 7, 1 ),
-                          ( "", 8, 8 ) ),
+                          ( None, 8, 8 ) ),    # Reserved
                     3 : ( "bs", "console_user", 6 ),
                     4 : ( "b", "reservation_timer", 2 ),
                     5 : ( "b", "console_cmd_size", 2 ),
@@ -150,7 +150,18 @@ class RequestCounters (MopHdr):
     code = 9
 
 class Counters (MopHdr):
-    _layout = ( ( "b", "receipt", 2 ), )
+    _layout = ( ( "b", "receipt", 2 ),
+                ( "deltat", "ctr_zero_time", 2 ),
+                ( "ctr", "bytes_recd", 4 ),
+                ( "ctr", "bytes_sent", 4 ),
+                ( "ctr", "pkts_recd", 4 ),
+                ( "ctr", "pkts_sent", 4 ),
+                ( "ctr", "mcbytes_recd", 4 ),
+                ( "ctr", "mcpkts_recd", 4 ),
+                ( "res", 12 ),        # Frames sent, deferred, collision(s)
+                ( "res", 8 ),         # Send/receive failures
+                ( "ctr", "unk_dest", 2 ),
+                ( "res", 6 ) )        # overrun, buffer unavailable
     code = 11
 
 class ConsoleRequest (MopHdr):
@@ -231,18 +242,23 @@ class Mop (Element):
                            help = "Destination address")
         cons.add_argument ("verification", type = scan_ver,
                            help = "Verification value")
-        cons = parent.register_api ("sysid", self, "Show SysId data")
-        cons.set_defaults (final_handler = "sysid")
-        cons.add_argument ("circuit", help = "Interface to query")
-        cons.add_argument ("--brief", action = "store_const",
-                           dest = "size", const = 0, default = 0,
-                           help = "Brief display (default)")
-        cons.add_argument ("--medium", action = "store_const",
-                           dest = "size", const = 1,
-                           help = "Medium display")
-        cons.add_argument ("--full", action = "store_const",
-                           dest = "size", const = 2,
-                           help = "Extended display")
+        showid = parent.register_api ("sysid", self, "Show SysId data")
+        showid.set_defaults (final_handler = "sysid")
+        showid.add_argument ("circuit", help = "Interface to query")
+        showid.add_argument ("--brief", action = "store_const",
+                             dest = "size", const = 0, default = 0,
+                             help = "Brief display (default)")
+        showid.add_argument ("--medium", action = "store_const",
+                             dest = "size", const = 1,
+                             help = "Medium display")
+        showid.add_argument ("--full", action = "store_const",
+                             dest = "size", const = 2,
+                             help = "Extended display")
+        reqctr = parent.register_api ("counters", self, "Request Counters")
+        reqctr.set_defaults (final_handler = "sysid")
+        reqctr.add_argument ("circuit", help = "Interface to query")
+        reqctr.add_argument ("dest", type = scan_l2id,
+                             help = "Destination address")
         
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
@@ -379,7 +395,7 @@ class SysIdHandler (Element, timers.Timer):
     def dispatch (self, pkt):
         if isinstance (pkt, packet.Packet):
             src = pkt.src
-            if pkt.code == SysId.code:
+            if isinstance (pkt, SysId):
                 if src in self.heard:
                     logging.debug ("Sysid update on %s from %s",
                                    self.parent.name, format_macaddr (src))
@@ -387,33 +403,42 @@ class SysIdHandler (Element, timers.Timer):
                     logging.debug ("Sysid on %s from new node %s",
                                    self.parent.name, format_macaddr (src))
                 self.heard[src] = pkt
-            elif pkt.code == RequestId.code:
+            elif isinstance (pkt, RequestId):
                 self.send_id (src, pkt.receipt)
+            elif isinstance (pkt, RequestCounters):
+                self.send_ctrs (src, pkt.receipt)
         elif isinstance (pkt, timers.Timeout):
             logging.debug ("Sending periodic sysid on %s", self.parent.name)
             self.send_id (CONSMC, 0)
             self.node.timers.start (self, self.id_self_delay ())
         elif isinstance (pkt, ApiRequest):
-            # Request for SysId data dump
-            if not self.heard:
-                reply = "No entries"
+            # Request for SysId data dump or request id
+            if pkt.command == "sysid":
+                if not self.heard:
+                    reply = "No entries"
+                else:
+                    reply = '\n'.join (["{}: {}".format (format_macaddr (k),
+                                                         format_sysid (v, pkt))
+                                        for k, v in self.heard.items ()])
+                pkt.done (reply)
+            elif pkt.command == "counters":
+                self.port.send (RequestCounters (receipt = receipt ()),
+                                pkt.dest)
+                pkt.done ()
             else:
-                reply = '\n'.join (["{}: {}".format (format_macaddr (k),
-                                                     format_sysid (v, pkt))
-                                    for k, v in self.heard.items ()])
-            pkt.done (reply)
+                pkt.reject ("unknown API request %s"% pkt.command)
 
     def send_id (self, dest, receipt):
         sysid = SysId (receipt = receipt,
                        version = SysId.def_version,
                        hwaddr = self.port.parent.hwaddr,
                        loop = True,
+                       counters = True,
                        device = 9,    # PCL, to freak out some people
                        datalink = 1,  # Ethernet
                        processor = 2, # Comm server
                        software = "DECnet/Python"  # Note: 16 chars max
                        )
-        #sysid.counters = True
         if self.parent.carrier_server:
             sysid.carrier = True
             sysid.reservation_timer = CarrierServer.reservation_timer
@@ -423,6 +448,10 @@ class SysIdHandler (Element, timers.Timer):
                 sysid.console_user = self.mop.reservation
         self.port.send (sysid, dest)
 
+    def send_ctrs (self, dest, receipt):
+        reply = Counters (src = self.port.parent, receipt = receipt)
+        self.port.send (reply, dest)
+        
 class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.
     """

@@ -136,7 +136,33 @@ class BcDatalink (Datalink):
         super ().__init__ (owner, name, config)
         self.hwaddr = None
         self.ports = dict ()
+        # A subset of the counters defined by the architecture
+        self.ctr_zero_time = time.time ()
+        # The traffic counters are derived from the per-port counters
+        #self.bytes_sent = self.pkts_sent = 0
+        #self.bytes_recd = seld.pkts_recd = 0
+        self.mcbytes_recd = self.mcpkts_recd = 0
+        self.unk_dest = 0
 
+    @property
+    def bytes_sent (self):
+        return self.combine ("bytes_sent")
+    
+    @property
+    def bytes_recd (self):
+        return self.combine ("bytes_recd")
+    
+    @property
+    def pkts_sent (self):
+        return self.combine ("pkts_sent")
+    
+    @property
+    def pkts_recd (self):
+        return self.combine ("pkts_recd")
+
+    def combine (self, attr):
+        return sum (getattr (v, attr) for v in self.ports.values ())
+    
     def create_port (self, owner, proto, *args):
         port = super ().create_port (owner, proto, *args)
         proto = port.proto
@@ -166,6 +192,10 @@ class BcPort (Port):
             if len (proto) != 2:
                 raise ValueError ("Protocol type length is wrong")
         self.proto = proto
+        # A subset of the counters defined by the architecture
+        self.ctr_zero_time = time.time ()
+        self.bytes_sent = self.pkts_sent = 0
+        self.bytes_recd = self.pkts_recd = 0
         
     def add_multicast (self, addr):
         if isinstance (addr, str):
@@ -337,9 +367,15 @@ class Ethernet (BcDatalink, StopThread):
             port = self.ports[proto]
         except KeyError:
             # No protocol type match, ignore packet
+            self.unk_dest += 1
             return
         dest = packet[:6]
         if dest in port.destfilter:
+            if dest[0] & 1:
+                self.mcbytes_recd += plen
+                self.mcpkts_recd += 1
+            port.bytes_recd += plen
+            port.pkts_recd += 1
             src = packet[6:12]
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
