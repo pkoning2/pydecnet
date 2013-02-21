@@ -90,24 +90,33 @@ def scan_ver (s):
             v += bytes (8 - l)
     return v
 
-_nodeid_re = re.compile (r"^(\d+)\.(\d+)$")
+_nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 def scan_nodeid (s):
-    """Scan a node ID, return the resulting 16 bit value.
+    """Scan a node ID, return the resulting 16 bit value.  Accept either
+    a phase 4 ID n.n, or a phase 3 id (just an integer).
     """
     m = _nodeid_re.match (s)
     if not m:
         raise ValueError ("Invalid node ID %s" % s)
     a, n = m.groups ()
-    a = int (a)
     n = int (n)
-    if 1 <= a <= 63 and 1 <= n <= 1023:
-        return (a << 10) + n
+    if a is None:
+        # Phase 3 ID
+        if 1 <= n <= 255:
+            return n
+    else:
+        a = int (a)
+        if 1 <= a <= 63 and 1 <= n <= 1023:
+            return (a << 10) + n
     raise ValueError ("Invalid node ID %s" % s)
     
 def format_nodeid (n):
-    """Format a node ID
+    """Format a node ID.  Phase 3 IDs are formatted as a simple integer.
     """
-    return "{:d}.{:d}".format (divmod (n, 1024))
+    if n < 1024:
+        return str (n)
+    else:
+        return "{:d}.{:d}".format (divmod (n, 1024))
 
 def scan_l2id (s):
     """Accept either a MAC address or a node address; a node address

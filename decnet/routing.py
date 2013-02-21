@@ -4,22 +4,38 @@
 
 """
 
-from .packet import *
-from .util import *
-#from adjancency import *
+from .common import *
+from .node import ApiRequest, ApiWork
+from .config import scan_ver
+from . import packet
+from . import datalink
+from . import timers
+from . import statemachine
+from . import route_ptp
+#from . import route_lan
 
-class RouteSegEntry (Packet):
+class CtlHdr (packet.Packet):
+    _layout = (( "bm",
+                 ( "control", 0, 1 ),
+                 ( "type", 1, 3 ),
+                 ( "pf", 7, 1 )),)
+    control = 1
+    pf = 0
+
+class RouteSegEntry (packet.Packet):
     """An entry in the routing message: the cost/hops fields.
     """
-    _layout = (( "bm", "cost", 0, 10 ),
-               ( "bm", "hops", 10, 5 ))
+    _layout = (( "bm",
+                 ( "cost", 0, 10 ),
+                 ( "hops", 10, 5 )),)
 
-class L1Segment (Packet):
+class L1Segment (packet.Packet):
     """A segment of a Level 1 routing message.  It consists of
     a header followed by some number of segment entries.
     """
     _layout = (( "b", "count", 2 ),
                ( "b", "startid", 2 ))
+    _addslots = { "entries" }
 
     def validate (self):
         if self.count + self.startid > 1024:
@@ -36,9 +52,9 @@ class L1Segment (Packet):
         return data
 
     def encode (self):
-        self.payload = b''.join ([ e.encode () for e in self.entries ])
+        payload = b''.join ([ bytes (e) for e in self.entries ])
         self.count = len (self.entries)
-        return super ().encode ()
+        return super ().encode () + payload
     
 class L2Segment (L1Segment):
     """A segment of a Level 2 routing message.  Similar to the
@@ -53,16 +69,15 @@ class L2Segment (L1Segment):
             raise OverflowError ("Invalid L2 segment, start %d, count %d" % (self.startid, self.count))
         
     
-class L1Routing (Packet):
+class L1Routing (CtlHdr):
     """A Level 1 routing message.  It consists of a header,
     followed by some number of segments, followed by a checksum.
     """
-    _layout = (( "bm", "control", 0, 1 ),
-               ( "bm", "type", 1, 3 ),
-               ( "b", "srcnode", 2 ),
-               ( "b", "reserved", 1 ))
+    _layout = (( "b", "srcnode", 2 ),
+               ( "res", 1 ))
+    _addslots = { "segments" }
     initchecksum = 1
-    packet_type = 3
+    type = 3
     segtype = L1Segment
     
     def validate (self):
@@ -72,11 +87,11 @@ class L1Routing (Packet):
             raise ValueError ("Invalid routing packet payload")
         s = self.initchecksum
         for i in range (0, segslen - 2, 2):
-            s += int.from_bytes (segs[i:i + 2], LE)
+            s += int.from_bytes (segs[i:i + 2], packet.LE)
         # end around carry
         s = (s & 0xffff) + (s >> 16)
         s = (s & 0xffff) + (s >> 16)
-        check = int.from_bytes (segs[-2:], LE)
+        check = int.from_bytes (segs[-2:], packet.LE)
         if s != check:
             raise ValueError ("Routing packet checksum error (%04x not %04x)" % (s, check))
 
@@ -95,21 +110,18 @@ class L1Routing (Packet):
         self.segments = self.decode_segments ()
 
     def encode_segments (self):
-        return b''.join ([ s.encode () for s in self.segments ])
+        return b''.join ([ bytes (s) for s in self.segments ])
     
     def encode (self):
         segs = self.encode_segments ()
         s = self.initchecksum
         for i in range (0, len (segs), 2):
-            s += int.from_bytes (segs[i:i+2], LE)
+            s += int.from_bytes (segs[i:i+2], packet.LE)
         # end around carry
         s = (s & 0xffff) + (s >> 16)
         s = (s & 0xffff) + (s >> 16)
-        self.payload = segs + s.to_bytes (2, LE)
-        self.control = 1
-        self.type = self.packet_type
-        self.reserved = 0
-        return super ().encode ()
+        payload = segs + s.to_bytes (2, packet.LE)
+        return super ().encode () + payload
 
     def entries (self):
         """Returns the routing information entries defined
@@ -129,11 +141,7 @@ class L2Routing (L1Routing):
     message, but with a different packet type code and entries
     for areas rather than nodes in the area.
     """
-    _layout = (( "bm", "control", 0, 1 ),
-               ( "bm", "type", 1, 3 ),
-               ( "b", "srcnode", 2 ),
-               ( "b", "reserved", 1 ))
-    packet_type = 4
+    type = 4
     segtype = L2Segment
     
 class PhaseIIIRouting (L1Routing):
@@ -182,3 +190,51 @@ class PhaseIIIRouting (L1Routing):
 #            if id == self.nodeid and val != ( 0, 0 ):
 #                raise ValueError ("Neighbor %s route entry for self is not zero" % nodeid (self.node))
 #        
+
+nodetypes = { "l2router" : 1,
+              "l1router" : 2,
+              "endnode" : 3,
+              "phase3router" : 2,
+              "phase3endnode" : 2,
+              "phase2" : 0 }
+
+class Routing (Element):
+    """The routing layer.  Mainly this is the parent of a number of control
+    components and collections of circuits and adjacencies.
+    """
+    def __init__ (self, parent, config):
+        super ().__init__ (parent)
+        logging.debug ("Initializing routing layer")
+        self.config = config
+        self.circuits = dict ()
+        self.adjacencies = dict ()
+        self.node.routing = self
+        self.nodeid = config.id
+        self.typename = self.config.executor.type
+        self.nodetype = nodetypes[self.typename]
+        self.endnode = self.nodetype == 3
+        if self.endnode:
+            if len (config.circuits) > 1:
+                raise ValueError ("End node must have 1 circuit, found %d" % \
+                                  len (config.circuits))
+        for name, c in config.circuit.items ():
+            dl = dlcirc[name]
+            try:
+                self.circuits[name] = routing_circuit (self, name, dl, c)
+                logging.debug ("Initialized routing circuit %s", name)
+            except Exception:
+                logging.exception ("Error initializing routing circuit %s", name)
+        
+    def routing_circuit (self, name, dl, c):
+        if self.endnode:
+            if isinstance (dl, datalink.BcDatalink):
+                if self.type == "phase3endnode":
+                    raise ValueError ("LAN datalink for Phase 3 node")
+                return EndnodeLanCircuit (self, name, dl, c)
+            return EndnodePtpCircuit (self, name, dl, c)
+        else:
+            if isinstance (dl, datalink.BcDatalink):
+                if self.type in { "phase3router", "phase2" }:
+                    raise ValueError ("LAN datalink for Phase 2 or 3 node")
+                return RoutingLanCircuit (self, name, dl, c)
+            return RoutingPtpCircuit (self, name, dl, c)
