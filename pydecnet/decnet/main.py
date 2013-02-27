@@ -13,6 +13,7 @@ from . import config
 from . import node
 from . import datalink
 from . import mop
+from . import routing
 
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("-f", "--config-file", type = argparse.FileType ("r"),
@@ -66,11 +67,12 @@ def main ():
     n = node.Node (c)
     dl = datalink.DatalinkLayer (n, c)
     m = mop.Mop (n, c)
-    # r = routing.Routing (n, c)
+    r = routing.Routing (n, c)
 
     # Things have been created.  Now start them.  We'll start the Node
     # last because its loop will be the main thread.
     dl.start ()
     m.start ()
+    r.start ()
     n.start ()
     

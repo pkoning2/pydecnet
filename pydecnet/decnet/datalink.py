@@ -101,8 +101,7 @@ class Port (Element, metaclass = ABCMeta):
 
     @abstractmethod
     def send (self, msg):
-        """Transmit a message.  Upon completion, a DlTransmitComplete
-        will be passed to the owner.
+        """Transmit a message.  
         """
         pass
 
@@ -198,8 +197,7 @@ class BcPort (Port):
         self.bytes_recd = self.pkts_recd = 0
         
     def add_multicast (self, addr):
-        if isinstance (addr, str):
-            addr = scan_macaddr (addr)
+        addr = Macaddr (addr)
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
@@ -225,10 +223,12 @@ class EthPort (BcPort):
         f[12:14] = self.proto
                 
     def set_macaddr (self, addr):
+        addr = Macaddr (addr)
         super ().set_macaddr (addr)
         self.frame[6:12] = addr
         
     def send (self, msg, dest):
+        dest = bytes (dest)
         if len (dest) != 6:
             raise ValueError
         l = len (msg)
@@ -249,7 +249,7 @@ class EthPort (BcPort):
         # Always send packet padded to min of 60 if need be, whether
         # pad mode is specified or not.
         l = max (l, 60)
-        self.parent.send (memoryview (f)[:l])
+        self.parent.send_frame (memoryview (f)[:l])
 
 # ifr_name, ifru_flags
 ifreq = struct.Struct ("=16sH")
@@ -275,9 +275,9 @@ class Ethernet (BcDatalink, StopThread):
             self.api = "pcap"
         self.dev = dev
         if config.random_address:
-            self.hwaddr = ((random.getrandbits (46) << 2) + 2).to_bytes (6, "little")
+            self.hwaddr = Macaddr (((random.getrandbits (46) << 2) + 2).to_bytes (6, "little"))
         else:
-            self.hwaddr = bytes (6)
+            self.hwaddr = NULLID
         self.randaddr = config.random_address
         self.pcap = pcap.pcapObject ()
     
@@ -305,9 +305,9 @@ class Ethernet (BcDatalink, StopThread):
         if not self.randaddr:
             for dname, desc, addrs, flags in pcap.findalldevs ():
                 if dname == self.name and addrs:
-                    self.hwaddr = scan_macaddr (addrs[0][0])
+                    self.hwaddr = Macaddr (addrs[0][0])
         logging.debug ("Ethernet %s hardware address is %s",
-                       self.name, format_macaddr (self.hwaddr))
+                       self.name, self.hwaddr)
         # start receive thread
         self.start ()
         
@@ -318,7 +318,7 @@ class Ethernet (BcDatalink, StopThread):
     def create_port (self, owner, proto, pad = True):
         return super ().create_port (owner, proto, pad)
 
-    def send (self, buf):
+    def send_frame (self, buf):
         if self.api == "pcap":
             l2 = self.pcap.inject (buf)
         else:
@@ -376,7 +376,7 @@ class Ethernet (BcDatalink, StopThread):
                 self.mcpkts_recd += 1
             port.bytes_recd += plen
             port.pkts_recd += 1
-            src = packet[6:12]
+            src = Macaddr (packet[6:12])
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
                 if plen < plen2 + 16:

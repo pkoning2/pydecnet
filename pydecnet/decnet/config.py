@@ -52,7 +52,7 @@ cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
                  help = "Unix socket name for DECnet API")
 
 cp = config_cmd ("routing", "Routing layer configuration")
-cp.add_argument ("id", choices = range (1, 65536), type = scan_nodeid,
+cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
                  help = "Node address")
 cp.add_argument ("--type", metavar = "T", default = "l2router",
                  choices = ("l2router", "l1router", "endnode",

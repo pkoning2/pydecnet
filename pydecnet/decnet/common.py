@@ -7,6 +7,8 @@
 import re
 import threading
 import logging
+import builtins
+import struct
 
 DNVERSION = "DECnet/Python V1.0"
 
@@ -21,6 +23,25 @@ MOPCONSPROTO = 0x6002
 ROUTINGPROTO = 0x6003
 LOOPPROTO = 0x9000
 HIORD = b"\xaa\x00\x04\x00"
+T2 = 1
+T3MULT = 2
+BCT3MULT = 3
+DRDELAY = 5
+INFCOST = 31
+INFHOPS = 1023
+
+MTU = 576
+
+# Make a version of "bytes" that pays attention to __bytes__ even
+# if the argument is an int.
+class bytes (builtins.bytes):
+    def __new__ (cls, o, *args):
+        if not args:
+            try:
+                return o.__bytes__ ()
+            except AttributeError:
+                pass
+        return builtins.bytes.__new__ (cls, o, *args)
 
 class Element (object):
     """Element is the base class for most classes that define DECnet
@@ -59,22 +80,117 @@ class Shutdown (Work):
     """A work item that says "shut down".
     """
     
-_mac_re = re.compile ("[-:]")
-def scan_macaddr (s):
-    """Return a binary MAC address given its string representation
+_nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
+class Nodeid (int):
+    """A DECnet Node ID.
     """
-    bl = _mac_re.split (s)
-    if len (bl) != 6:
-        raise ValueError ("Invalid MAC address string %s" % s)
-    return bytes (int (f, 16) for f in bl)
+    _len = 2
+    def __new__ (cls, s, id2 = None):
+        if isinstance (s, str):
+            m = _nodeid_re.match (s)
+            if not m:
+                raise ValueError ("Invalid node ID %s" % s)
+            a, n = m.groups ()
+            n = int (n)
+            if a is None:
+                # Phase 3 ID
+                a = 0
+            else:
+                a = int (a)
+        elif isinstance (s, int):
+            if id2 is None:
+                n = s
+                a = 0
+            else:
+                a, n = s, id2
+        else:
+            if len (s) != 2:
+                raise ValueError ("Invalid node ID %s" % s)
+            a, n = divmod (int.from_bytes (s, "little"), 1024)
+        if a == 0:
+            if n < 1 or n > 255:
+                raise ValueError ("Invalid node ID %s" % s)
+        else:
+            if 1 <= a <= 63 and 1 <= n <= 1023:
+                n = (a << 10) + n
+            else:
+                raise ValueError ("Invalid node ID %s" % s)
+        return int.__new__ (cls, n)
 
-def format_macaddr (b):
-    return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (b)
+    @property
+    def area (self):
+        return int (self) >> 10
 
-# Some well known Ethernet addresses
-CONSMC = scan_macaddr ("AB-00-00-02-00-00")
-LOOPMC = scan_macaddr ("CF-00-00-00-00-00")
+    @property
+    def tid (self):
+        return int (self) & 1023
+    
+    def __str__ (self):
+        a = self.area
+        if a:
+            return "{}.{}".format (a, self.tid)
+        else:
+            return "{}".format (self.tid)
 
+    def __bytes__ (self):
+        return self.to_bytes (2, "little")
+    
+_mac_re = re.compile ("[-:]")
+class Macaddr (bytes):
+    """MAC address for Ethernet (or similar LAN).
+    """
+    _len = 6
+    def __new__ (cls, s):
+        """Create a Macaddr instance from a string, a Nodeid, or
+        any other object that can be converted to a bytes object of
+        length 6.
+        """
+        if isinstance (s, str):
+            bl = _mac_re.split (s)
+            if len (bl) != 6:
+                if _nodeid_re.match (s):
+                    s = HIORD + bytes (Nodeid (s))
+                else:
+                    raise ValueError ("Invalid MAC address string %s" % s)
+            else:
+                s = bytes (int (f, 16) for f in bl)
+        elif isinstance (s, Nodeid):
+            s = HIORD + bytes (s)
+        else:
+            s = bytes (s)
+            if len (s) != 6:
+                raise ValueError ("Invalid MAC address string %s" % s)
+        return bytes.__new__ (cls, s)
+
+    def __str__ (self):
+        return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (self)
+    
+NULLID = Macaddr (bytes (6))
+
+_version = struct.Struct ("<BBB")
+class Version (bytes):
+    """DECnet component version number -- 3 integers.
+    """
+    _len = 3
+    
+    def __new__ (cls, v1, v2 = 0, v3 = 0):
+        if isinstance (v1, str):
+            v = v1.split ('.')
+            if len (v) != 3:
+                raise ValueError ("Invalid version string %s" % v1)
+            v = _version.pack (*(int (i) for i in v))
+        elif isinstance (v1, int):
+            v = _version.pack (v1, v2, v3)
+        else:
+            v = bytes (v1)
+            if len (v) != 3:
+                raise ValueError ("Invalid version string %s" % v1)
+        return super ().__new__ (cls, v)
+
+    def __str__ (self):
+        v1, v2, v3 = _version.unpack (self)
+        return "{}.{}.{}".format (v1, v2, v3)
+    
 def scan_ver (s):
     """Convert a string specifying the console carrier verification data
     to the protocol value (8 bytes).
@@ -89,43 +205,6 @@ def scan_ver (s):
         if l < 8:
             v += bytes (8 - l)
     return v
-
-_nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
-def scan_nodeid (s):
-    """Scan a node ID, return the resulting 16 bit value.  Accept either
-    a phase 4 ID n.n, or a phase 3 id (just an integer).
-    """
-    m = _nodeid_re.match (s)
-    if not m:
-        raise ValueError ("Invalid node ID %s" % s)
-    a, n = m.groups ()
-    n = int (n)
-    if a is None:
-        # Phase 3 ID
-        if 1 <= n <= 255:
-            return n
-    else:
-        a = int (a)
-        if 1 <= a <= 63 and 1 <= n <= 1023:
-            return (a << 10) + n
-    raise ValueError ("Invalid node ID %s" % s)
-    
-def format_nodeid (n):
-    """Format a node ID.  Phase 3 IDs are formatted as a simple integer.
-    """
-    if n < 1024:
-        return str (n)
-    else:
-        return "{:d}.{:d}".format (divmod (n, 1024))
-
-def scan_l2id (s):
-    """Accept either a MAC address or a node address; a node address
-    is converted by the usual Phase IV rules.
-    """
-    if _nodeid_re.match (s):
-        n = scan_nodeid (s)
-        return HIORD + n.to_bytes (2, "little")
-    return scan_macaddr (s)
 
 _name_re = re.compile (r"\w+$")
 def name (s):

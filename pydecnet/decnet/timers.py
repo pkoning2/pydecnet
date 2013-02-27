@@ -113,6 +113,7 @@ class TimerWheel (Element, StopThread):
         item.remove ()
         self.wheel[pos].add (item)
         self.lock.release ()
+        #logging.debug ("Started %d second timeout for %s", timeout, item)
         
     def run (self):
         """Tick handler.
