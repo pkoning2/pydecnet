@@ -10,8 +10,22 @@ import struct
 import logging
 import time
 
+from .common import *
+
 LE = "little"
-getbyte = struct.Struct ("<B")
+
+# We need this ugliness because Python 3.2 has a bug in the memoryview
+# class: it acts like bytes except that indexing a single element yields
+# a length 1 memoryview, rather than an int.  Python 3.3 fixes this but
+# to avoid requiring 3.2, we use this workaround
+
+if sys.hexversion >= 0x03030000:
+    def getbyte (buf, off = 0):
+        return buf[off]
+else:
+    _getbyte = struct.Struct ("<B")
+    def getbyte (buf, off = 0):
+        return _getbyte.unpack_from (buf, off)[0]
 
 maxint = [ (1 << (8 * i)) - 1 for i in range (9) ]
 
@@ -22,7 +36,8 @@ except AttributeError:
 
 def proc_layoutelem (cls, e):
     code, *args = e
-    code = code.lower ()
+    if isinstance (code, str):
+        code = code.lower ()
 
     if code == "tlv":
         tlen, llen, wild, layoutdict = args
@@ -31,8 +46,14 @@ def proc_layoutelem (cls, e):
         return [ cls.encode_tlv, cls.decode_tlv,
                  ( tlen, llen, wild, codedict ) ]
     else:
-        enc = getattr (cls, "encode_%s" % code)
-        dec = getattr (cls, "decode_%s" % code)
+        if isinstance (code, str):
+            enc = getattr (cls, "encode_%s" % code)
+            dec = getattr (cls, "decode_%s" % code)
+        else:
+            enc = getattr (cls, "encode_type")
+            dec = getattr (cls, "decode_type")
+            # Insert the type to use as the first argument
+            args.insert (0, code)
         if code == "bm":
             # Find the field length in bytes
             topbit = -1
@@ -80,6 +101,10 @@ def process_layout (cls, layout):
     type fields are an error.  Note that in encode, only known fields
     (those listed as keys of the fields dictionary) are encoded.
 
+    The field code can also be the name of a class.  In that case, the
+    class must have a _len attribute which gives the length of an
+    encoded item of that type (this must be a constant).
+    
     The code table is used by the "encode" and "decode" methods
     of the class being defined.  This generally means those methods
     as defined in the Packet base class, but it allows new encodings
@@ -88,17 +113,18 @@ def process_layout (cls, layout):
     codetable = [ ]
     nomore = None
     for e in layout:
-        code = e[0].lower ()
+        code = e[0]
         if nomore:
             raise TypeError ("%s field must be last in layout" % nomore)
-        if code == "tlv":
+        if isinstance (code, str) and code.lower () == "tlv":
             nomore = "TLV"
         codetable.append (proc_layoutelem (cls, e))
     return codetable
 
 def proc_slotelem (e):
     code, *args = e
-    code = code.lower ()
+    if isinstance (code, str):
+        code = code.lower ()
     
     if code == "tlv":
         tlen, llen, wild, layoutdict = args
@@ -200,31 +226,47 @@ class Packet (metaclass = packet_encoding_meta):
         for c in cls.__mro__:
             s = getattr (c, "__slots__", None)
             if s:
-                ret |= s
+                ret |= s 
         return ret
         
-    def __init__ (self, buf = None, src = None, **kwargs):
+    def __init__ (self, buf = None, copy = None, **kwargs):
         """Construct a packet.  If "buf" is supplied, that buffer
-        is decoded.  Conversely, if other keyword arguments are supplied,
-        they initialize attributes of those names.  If "src" is
-        specified, its instance attributes are initialized from that
-        object, to the extent that the src object has corresponding attributes.
+        is decoded.  Otherwise, if "copy" is specified, its instance
+        attributes are initialized from that object, to the extent
+        that the copied-from object has the corresponding attributes.
+        In either case, if other keyword arguments are supplied, they
+        initialize attributes of those names.
         """
         super ().__init__ ()
         if buf:
             self.decode (buf)
         else:
-            if src:
+            if copy:
                 for attr in self.allslots ():
                     try:
-                        v = getattr (src, attr)
+                        v = getattr (copy, attr)
                     except (NameError, AttributeError):
                         continue
                     setattr (self, attr, v)
-            if kwargs:
-                for k, v in kwargs.items ():
-                    setattr (self, k, v)
+        if kwargs:
+            for k, v in kwargs.items ():
+                setattr (self, k, v)
 
+    def __setattr__ (self, field, val):
+        """Set an attribute.  If the attribute being set is the name
+        of a class attribute, the value being set must match that
+        class attribute's value.  This enforces fixed field values
+        when decoding incoming packets.
+        """
+        try:
+            super ().__setattr__ (field, val)
+        except AttributeError:
+            prev = getattr (self, field, None)
+            if prev is None:
+                raise
+            if prev != val:
+                raise ValueError ("Field %s required value mismatch, %s instead of %s" % (field, val, prev))
+                
     def encode_res (self, flen):
         """Encode a reserved field.
         """
@@ -233,6 +275,22 @@ class Packet (metaclass = packet_encoding_meta):
     def decode_res (self, buf, flen):
         """Decode a reserved field.  Just skip it.
         """
+        return buf[flen:]
+
+    def encode_type (self, args):
+        """Encode a given type.
+        """
+        t, field = args
+        val = getattr (self, field)
+        return bytes (val)
+
+    def decode_type (self, buf, args):
+        """Decode a given type.  We use the type's attribute _len to
+        know how many bytes to decode.
+        """
+        t, field = args
+        flen = t._len
+        setattr (self, field, t (buf[:flen]))
         return buf[flen:]
     
     def encode_i (self, args):
@@ -259,7 +317,7 @@ class Packet (metaclass = packet_encoding_meta):
         # buf is bytes, but a length one bytes if buf is memoryview.
         # More precisely, it work that way in Python 3.2 and before;
         # this bug is fixed in Python 3.3.
-        flen = getbyte.unpack_from (buf)[0]
+        flen = getbyte (buf)
         if flen < 0:
             raise ValueError ("Image field with negative length %d" % flen)
         elif flen > maxlen:
@@ -474,6 +532,9 @@ class Packet (metaclass = packet_encoding_meta):
         """
         return len (bytes (self))
 
+    def __bool__ (self):
+        return True
+    
     def __iter__ (self):
         """Return an iterator over the packet contents.
         """

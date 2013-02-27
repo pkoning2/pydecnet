@@ -13,11 +13,14 @@ import os
 
 from .common import *
 from .node import ApiRequest, ApiWork
-from .config import scan_ver
 from . import packet
 from . import datalink
 from . import timers
 from . import statemachine
+
+# Some well known Ethernet addresses
+CONSMC = Macaddr ("AB-00-00-02-00-00")
+LOOPMC = Macaddr ("CF-00-00-00-00-00")
 
 class MopHdr (packet.Packet):
     _layout = ( ( "b", "code", 1 ), )
@@ -32,7 +35,7 @@ class SysId (MopHdr):
     _layout = ( ( "res", 1 ),
                 ( "b", "receipt", 2 ),
                 ( "tlv", 2, 1, True,
-                  { 1 : ( "bs", "version", 3 ),
+                  { 1 : ( Version, "version" ),
                     2 : ( "bm",
                           ( "loop", 0, 1 ),
                           ( "dump", 1, 1 ),
@@ -47,7 +50,7 @@ class SysId (MopHdr):
                     4 : ( "b", "reservation_timer", 2 ),
                     5 : ( "b", "console_cmd_size", 2 ),
                     6 : ( "b", "console_resp_size", 2 ),
-                    7 : ( "bs", "hwaddr", 6 ),
+                    7 : ( Macaddr, "hwaddr" ),
                     8 : ( "bs", "time", 10 ),
                     100 : ( "b", "device", 1 ),
                     200 : ( "c", "software", 17 ),
@@ -56,7 +59,7 @@ class SysId (MopHdr):
                 )
     
     code = 7
-    def_version = b"\x03\x00\x00"
+    def_version = Version (3, 0, 0)
     
     devices = { 0 : ( "DP", "DP11-DA (OBSOLETE)" ),
                 1 : ( "UNA", "DEUNA multiaccess communication link" ),
@@ -124,7 +127,7 @@ class SysId (MopHdr):
         and string values are taken to be text strings.
         """
         field, maxlen = args
-        flen = packet.getbyte.unpack_from (buf)[0]
+        flen = packet.getbyte (buf)
         if flen < -2:
             raise ValueError ("Image field with negative length %d" % flen)
         elif flen > maxlen:
@@ -189,7 +192,7 @@ class LoopSkip (packet.Packet):
     
 class LoopFwd (packet.Packet):
     _layout = ( ( "b", "function", 2 ),
-                ( "bv", "dest", 6 ) )
+                ( Macaddr, "dest" ) )
 
 class LoopReply (packet.Packet):
     _layout = ( ( "b", "function", 2 ),
@@ -199,7 +202,7 @@ class LoopDirect (LoopSkip):
     """A direct (not assisted) loop packet, as originally sent.
     """
     _layout = ( ( "b", "fwd", 2 ),
-                ( "bv", "dest", 6 ),
+                ( Macaddr, "dest" ),
                 ( "b", "reply", 2 ),
                 ( "b", "receipt", 2 ) )
     fwd = 2
@@ -229,7 +232,7 @@ class Mop (Element):
         loop.set_defaults (final_handler = "loophandler")
         loop.add_argument ("circuit", help = "Interface to loop")
         loop.add_argument ("dest", nargs = "?", default = LOOPMC,
-                           type = scan_l2id,
+                           type = Macaddr,
                            help = "Destination (default = CF-00-00-00-00-00)")
         loop.add_argument ("-c", "--count", type = int, default = 1,
                            help = "Count of packets to loop (default: 1)")
@@ -238,7 +241,7 @@ class Mop (Element):
         cons = parent.register_api ("console", self, "MOP Console Carrier client")
         cons.set_defaults (final_handler = "carrier_client")
         cons.add_argument ("circuit", help = "Interface to use")
-        cons.add_argument ("dest", type = scan_l2id,
+        cons.add_argument ("dest", type = Macaddr,
                            help = "Destination address")
         cons.add_argument ("verification", type = scan_ver,
                            help = "Verification value")
@@ -257,7 +260,7 @@ class Mop (Element):
         reqctr = parent.register_api ("counters", self, "Request Counters")
         reqctr.set_defaults (final_handler = "sysid")
         reqctr.add_argument ("circuit", help = "Interface to query")
-        reqctr.add_argument ("dest", type = scan_l2id,
+        reqctr.add_argument ("dest", type = Macaddr,
                              help = "Destination address")
         
         dlcirc = self.node.datalink.circuits
@@ -369,8 +372,6 @@ def format_sysid (id, config):
                 v = id.processors.get (v, v)
             elif f == "datalink":
                 v = id.datalinks.get (v, v)
-            elif f in ("hwaddr", "console_user"):
-                v = format_macaddr (v)
             ret.append ("{0:<12}: {1}".format (f, v))
     return '\n'.join (ret)
 
@@ -398,10 +399,10 @@ class SysIdHandler (Element, timers.Timer):
             if isinstance (pkt, SysId):
                 if src in self.heard:
                     logging.debug ("Sysid update on %s from %s",
-                                   self.parent.name, format_macaddr (src))
+                                   self.parent.name, src)
                 else:
                     logging.debug ("Sysid on %s from new node %s",
-                                   self.parent.name, format_macaddr (src))
+                                   self.parent.name, src)
                 self.heard[src] = pkt
             elif isinstance (pkt, RequestId):
                 self.send_id (src, pkt.receipt)
@@ -417,7 +418,7 @@ class SysIdHandler (Element, timers.Timer):
                 if not self.heard:
                     reply = "No entries"
                 else:
-                    reply = '\n'.join (["{}: {}".format (format_macaddr (k),
+                    reply = '\n'.join (["{}: {}".format (k,
                                                          format_sysid (v, pkt))
                                         for k, v in self.heard.items ()])
                 pkt.done (reply)
@@ -479,7 +480,7 @@ class CarrierClient (Element, statemachine.StateMachine):
         """
         if isinstance (item, ApiRequest):
             self.req = item
-            self.deststr = format_macaddr (item.dest)
+            self.deststr = str (item.dest)
             self.msg = RequestId (receipt = receipt ())
             self.sendmsg ()
             return self.check
@@ -505,7 +506,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                                  self.deststr)
             else:
                 self.req.reject ("Node %s console carrier reserved by %s",
-                                 self.deststr, format_macaddr (item.console_user))
+                                 self.deststr, item.console_user)
             self.node.timers.stop (self)
             self.req = None
             return self.s0
@@ -775,8 +776,7 @@ class LoopHandler (Element, timers.Timer):
                         return
                     try:
                         print ("%d bytes from %s, time= %.1f ms" %
-                               (len (f.payload),
-                                format_macaddr (item.src), delta),
+                               (len (f.payload), item.src, delta),
                                file = req.wfile)
                     except (OSError, ValueError, socket.error):
                         logging.debug ("API socket closed")
