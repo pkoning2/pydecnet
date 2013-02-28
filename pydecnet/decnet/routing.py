@@ -38,6 +38,8 @@ class Routing (Element):
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea = self.nodeid.area
         self.tid = self.nodeid.tid
+        # See if we have a nodename
+        self.nodename = self.node.nodename = config.nodeid.get (self.nodeid, "")
         self.typename = config.routing.type
         self.nodetype = nodetypes[self.typename]
         self.endnode = self.nodetype == 3
@@ -62,8 +64,8 @@ class Routing (Element):
                 logging.debug ("Started Routing circuit %s", name)
             except Exception:
                 logging.exception ("Error starting Routing circuit %s", name)
-        logevent (Event.node_state, reason = "operator_command",
-                  old_state = "off", new_state = "on")
+        self.node.logevent (Event.node_state, reason = "operator_command",
+                            old_state = "off", new_state = "on")
     
     def routing_circuit (self, name, dl, c):
         """Factory function for circuit objects.  Depending on the datalink
@@ -88,10 +90,11 @@ class Routing (Element):
         pass
 
     def adjacency_up (self, adj):
-        logevent (Event.adj_up, adjacent_node = self.node.eventnode (adj.nodeid))
+        self.node.logevent (Event.adj_up,
+                            adjacent_node = self.node.eventnode (adj.nodeid))
 
     def adjacency_down (self, adj, reason = None):
         e = Event (Event.adj_down, adjacent_node = self.node.eventnode (adj.nodeid))
         if reason is not None:
             e.reason = reason
-        logevent (e)
+        self.node.logevent (e)

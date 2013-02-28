@@ -18,6 +18,7 @@ import select
 from fcntl import *
 
 from .common import *
+from .events import *
 from . import timers
 
 class dnparser_message (Exception): pass
@@ -72,7 +73,7 @@ class Node (object):
             sock = DEFAPISOCKET
         self.api = DnApiServer (self, sock)
         self.workqueue = queue.Queue ()
-        #self.start ()
+        self.nodename = ""
         
     def addwork (self, work, handler = None):
         """Add a work item (instance of a Work subclass) to the node's
@@ -132,6 +133,12 @@ class Node (object):
             return id, self.config.nodeid[id].name
         except KeyError:
             return (id, )
+
+    def logevent (self, event, **kwds):
+        if not isinstance (event, Event):
+            event = Event (event, **kwds)
+        event.local_node = self.nodename
+        logging.info (event)
         
 class ApiWork (Work):
     """Work requests carrying continuation data in the "data" attribute.

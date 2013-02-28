@@ -225,9 +225,10 @@ class Event (object):
 
     def __str__ (self):
         ret = [ "Event type {0[0]}.{0[1]}, {1}".format (self.event,
-                                                        self.eventnames[self.event]) ]
+                                                        self.eventnames[self.event]) ,
+                "  On {0.id} ({0.name})".format (self.local_node) ]
         for k, v in self.__dict__.items ():
-            if k != "event":
+            if k != "event" and k != "local_node":
                 k = k.replace ("_", " ").capitalize ()
                 if isinstance (v, str):
                     v = v.replace ("_", " ")
@@ -236,8 +237,3 @@ class Event (object):
                 ret.append ("  {}: {}".format (k, v))
         return '\n'.join (ret)
 
-def logevent (event, **kwds):
-    if not isinstance (event, Event):
-        event = Event (event, **kwds)
-    logging.info (event)
-    
