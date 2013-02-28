@@ -455,6 +455,8 @@ class Packet (metaclass = packet_encoding_meta):
             e, d, fieldargs = v
             if e is Packet.encode_bm:
                 field = True
+            elif e is Packet.encode_type:
+                field = getattr (self, fieldargs[1], None)
             else:
                 field = getattr (self, fieldargs[0], None)
             if field:

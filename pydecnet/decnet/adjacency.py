@@ -20,8 +20,9 @@ class Adjacency (Element, timers.Timer):
         self.circuit = circuit
         self.nodeid = nodeid
         self.t4 = t4
-        self.node.timers.start (self, t4)
-        self.macid = HIORD + nodeid.to_bytes (2, packet.LE)
+        self.alive ()
+        self.macid = Macaddr (nodeid)
+        self.priority = 0
         
     def __eq__ (self, other):
         if isinstance (other, self.__class__):
@@ -51,6 +52,9 @@ class Adjacency (Element, timers.Timer):
         self.node.timers.stop (self)
         self.circuit.adjacency_down (self)
 
+    def up (self):
+        self.circuit.adjacency_up (self)
+
 class BcAdjacency (Adjacency):
     """Adjacency on a broadcast (LAN) circuit.
     """
@@ -62,6 +66,9 @@ class BcAdjacency (Adjacency):
             pkt = LongData (copy = pkt, payload = pkt.payload)
         self.circuit.datalink.send (pkt, dest = self.macid)
 
+    def sortkey (self):
+        return self.priority, self.nodeid
+    
 class PtpAdjacency (Adjacency):
     """Adjacency on a point to point (non-LAN) circuit.
     """

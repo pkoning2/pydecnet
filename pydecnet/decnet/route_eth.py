@@ -5,6 +5,7 @@
 """
 
 import re
+import time
 
 from .common import *
 from .node import ApiRequest, ApiWork
@@ -33,8 +34,9 @@ class LanCircuit (Element, timers.Timer):
         self.config = config
         self.hellotime = config.t3 or 10
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
-        self.datalink.set_macaddr (parent.nodeid)
-
+        self.datalink.set_macaddr (parent.nodemacaddr)
+        self.lasthello = 0
+        
     def restart (self):
         self.start ()
 
@@ -43,6 +45,9 @@ class LanCircuit (Element, timers.Timer):
 
     def common_dispatch (self, work):
         if isinstance (work, datalink.DlReceive):
+            if work.src == self.parent.nodemacaddr:
+                # Ignore packets from self.
+                return
             buf = work.packet
             if not buf:
                 logging.debug ("Null routing layer packet received on %s",
@@ -115,6 +120,7 @@ class EndnodeLanCircuit (LanCircuit):
         self.prevhops = dict ()
         
     def sendhello (self):
+        self.lasthello = time.time ()
         h = self.hello
         if self.dr:
             h.neighbor = self.dr.macid
@@ -128,7 +134,9 @@ class EndnodeLanCircuit (LanCircuit):
         if not item:
             # Rejected by common code
             return
-        if isinstance (item, RouterHello):
+        if isinstance (item, timers.Timeout):
+            self.sendhello ()
+        elif isinstance (item, RouterHello):
             if item.id.area != self.parent.homearea:
                 # Silently ignore out of area hellos
                 return
@@ -150,8 +158,6 @@ class EndnodeLanCircuit (LanCircuit):
             logging.debug ("Endnode hello from %s received by endnode",
                            item.src)
             return
-        elif isinstance (item, timers.Timeout):
-            self.sendhello ()
         else:
             if isinstance (item, (LongData, ShortData)):
                 try:
@@ -189,4 +195,173 @@ class EndnodeLanCircuit (LanCircuit):
             self.dr.send (pkt)
         else:
             self.datalink.send (pkt, Macaddr (dstnode))
+
+# Adjacency states
+INIT = 1
+UP = 2
+
+class RoutingLanCircuit (LanCircuit):
+    """The datalink dependent sublayer for broadcast circuits on a router.
+    """
+    def __init__ (self, parent, name, datalink, config):
+        super ().__init__ (parent, name, datalink, config)
+        self.datalink.add_multicast (ALL_ROUTERS)
+        self.adjacencies = dict ()
+        self.isdr = False
+        self.nr = config.nr
+        self.prio = config.priority
+        self.drkey = (self.prio, self.node.nodeid)
+        self.hello = RouterHello (tiver = tiver_ph4, prio = self.prio,
+                                  ntype = parent.nodetype,
+                                  blksize = MTU, id = parent.nodeid,
+                                  timer = self.hellotime)
+
+    def routers (self, anyarea = True):
+        return ( a for a in self.adjacencies.values ()
+                 if a.ntype != 3 and (anyarea or
+                                      a.nodeid.area == self.parent.homearea))
+    
+    def sendhello (self):
+        self.lasthello = time.time ()
+        h = self.hello
+        rslist = b''.join ([ bytes (RSent (router = a.nodeid, prio = a.priority,
+                                           twoway = (a.state == UP)))
+                             for a in self.routers () ])
+        h.elist = bytes (Elist (rslist = rslist))
+        self.datalink.send (h, ALL_ROUTERS)
+        if self.isdr:
+            self.datalink.send (h, ALL_ENDNODES)
+        self.node.timers.start (self, self.hellotime)
+        
+    def dispatch (self, item):
+        hellochange = False
+        item = self.common_dispatch (item)
+        if not item:
+            # Rejected by common code
+            return
+        if isinstance (item, timers.Timeout):
+            self.sendhello ()
+        elif isinstance (item, (EndnodeHello, RouterHello)):
+            id = item.id
+            t4 = item.timer * BCT3MULT
+            if id.area != self.parent.homearea and \
+               not (self.parent.nodetype == 1 and \
+                    item.ntype == 1):
+                # Silently ignore out of area hellos, unless we're an
+                # area router and so is the sender.
+                return
+            # See if we have an existing adjacency
+            a = self.adjacencies.get (id, None)
+            if isinstance (item, EndnodeHello):
+                if not testdata_re.match (item.testdata):
+                    logging.debug ("Invalid test data %s in hello from %s",
+                                   item.testdata, item.id)
+                    return
+                # End node.  If it's new, add its adjacency and mark it up.
+                if a is None:
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4)
+                    a.up ()
+                else:
+                    a.alive ()
+            else:
+                # Router hello.  Add its adjacency if it's new.
+                if a is None:
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4)
+                    a.state = INIT
+                    a.priority = item.prio
+                    a.ntype = item.ntype
+                    # Check that the RSlist is not too long
+                    rslist = list (self.routers ())
+                    if len (rslist) > self.nr:
+                        # The list is full.  Add the new node and remove
+                        # the lowest priority one.
+                        a2 = min (rslist, key = adjacency.BcAdjacency.sortkey)
+                        a2.down ()
+                        if a == a2:
+                            # This node is the lowest priority, ignore its hello
+                            return
+                    hellochange = True
+                else:
+                    a.alive ()
+                if a.ntype != item.ntype or a.priority != item.prio:
+                    logging.warning ("Node %s changed type or priority", id)
+                    a.down ()
+                    return
+                # Process the received E-list and see if two-way state changed.
+                rslist = Elist (item.elist).rslist
+                while rslist:
+                    ent = RSent ()
+                    rslist = ent.decode (rslist)
+                    if ent.router == self.parent.nodeid:
+                        if ent.prio != self.prio:
+                            logging.error ("Node %s has our prio as %d rather than %d",
+                                           id, ent.prio, self,prio)
+                            a.down ()
+                            return
+                        if ent.twoway:
+                            if a.state == INIT:
+                                a.up ()
+                                hellochange = True
+                        else:
+                            if a.state == UP:
+                                # Don't kill the adjacency in our state, but
+                                # do as far as the control layer is concerned.
+                                a.state = INIT
+                                self.parent.adjacency_down (a)
+                                hellochange = True
+                # Update the DR state, if needed
+                self.calcdr ()
+                # If something we saw changes what we say in the hello, send
+                # an updated hello now.
+                if hellochange:
+                    self.newhello ()
+        elif isinstance (item, packet.Packet):
+            # Some other packet type.  Pass it up, but only if it is for
+            # an adjacency that is in the UP state
+            a = self.adjacencies.get (item.id, None)
+            if a and a.state = UP:
+                item.src = a
+                self.parent.dispatch (item)
             
+    def calcdr (self):
+        """Figure out who should be the designated router.  More precisely,
+        are we DR, or someone else?
+        """
+        dr = max (self.routers (False), key = adjacency.BcAdjacency.sortkey)
+        if self.drkey > adjacency.BcAdjacency.sortkey (dr):
+            # Tag, we're it, but don't act on that for DRDELAY seconds.
+            if not self.isdr:
+                self.isdr = True
+                self.holdoff = True
+                self.node.timers.start (self, DRDELAY)
+        else:
+            self.isdr = False
+            
+    def newhello (self):
+        """Hello content changed.  Send a new one right now, unless
+        it's been less than T2 since we sent the last one.
+        If a deferred hello is already pending, take no action (the previously
+        set timer will remain in effect).
+        """
+        deltat = time.time () - self.lasthello
+        if deltat < T2:
+            if not self.holdoff:
+                self.holdoff = True
+                self.node.timers.start (self, deltat)
+        else:
+            self.sendhello ()
+        
+    def adjacency_up (self, a):
+        a.state = UP
+        self.parent.adjacency_up (a)
+
+    def adjacency_down (self, a):
+        self.parent.adjacency_down (a)
+        try:
+            del self.adjacencies[a.nodeid]
+        except KeyError:
+            pass
+        if a.ntype != 3:
+            # Router adjacency, update DR state and send an updated hello
+            self.calcdr ()
+            self.newhello ()

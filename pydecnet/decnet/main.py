@@ -21,7 +21,9 @@ dnparser.add_argument ("-f", "--config-file", type = argparse.FileType ("r"),
                        help = "Configuration file, default '%s'" % config.DEFCONFIG)
 dnparser.add_argument ("-L", "--log-file", metavar = "FN",
                        help = "Log file (default: stderr)")
-dnparser.add_argument ("-e", "--log-level", default = "WARNING",
+# Note that we set the default level to INFO rather than the conventional WARNING,
+# so that events will get logged by default.
+dnparser.add_argument ("-e", "--log-level", default = "INFO",
                        metavar = "LV",
                        choices = ("DEBUG", "INFO", "WARNING", "ERROR"),
                        help = "Log level (default: WARNING)")

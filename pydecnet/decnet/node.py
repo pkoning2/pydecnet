@@ -63,6 +63,8 @@ class Node (object):
         #super ().__init__ ()
         self.node = self
         self.config = config
+        # Build mapping from node ID to node name
+        config.nodeid = { v.id : v for v in config.node.values () }
         self.timers = timers.TimerWheel (self, 0.1, 3600)
         try:
             sock = config.node.api_socket
@@ -123,7 +125,14 @@ class Node (object):
         sp.set_defaults (command = command, handler = handler)
         return sp
 
-
+    def eventnode (self, id):
+        """Convert a node ID to a node argument for event logging.
+        """
+        try:
+            return id, self.config.nodeid[id].name
+        except KeyError:
+            return (id, )
+        
 class ApiWork (Work):
     """Work requests carrying continuation data in the "data" attribute.
     """

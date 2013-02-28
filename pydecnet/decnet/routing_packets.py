@@ -244,6 +244,18 @@ class RouterHello (CtlHdr):
     hiid = HIORD
     ntype_l1 = 2
     ntype_l2 = 1
+
+class Elist (packet.Packet):
+    _layout = (( "res", 7 ),
+               ( "i", "rslist", 236 ))
+
+class RSent (packet.Packet):
+    _layout = (( "bv", "hiid", 4 ),
+               ( Nodeid, "router" ),
+               ( "bm",
+                 ( "prio", 0, 7 ),
+                 ( "twoway", 7, 1 )))
+    hiid = HIORD
     
 class EndnodeHello (CtlHdr):
     _layout = (( Version, "tiver" ),

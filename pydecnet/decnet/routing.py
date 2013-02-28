@@ -7,6 +7,7 @@
 from .common import *
 from .node import ApiRequest, ApiWork
 from .routing_packets import *
+from .events import *
 from . import datalink
 from . import timers
 from . import statemachine
@@ -34,6 +35,7 @@ class Routing (Element):
         self.node.routing = self
         # Save node id in the parent Node object for easy reference
         self.node.nodeid = self.nodeid = config.routing.id
+        self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea = self.nodeid.area
         self.tid = self.nodeid.tid
         self.typename = config.routing.type
@@ -60,6 +62,8 @@ class Routing (Element):
                 logging.debug ("Started Routing circuit %s", name)
             except Exception:
                 logging.exception ("Error starting Routing circuit %s", name)
+        logevent (Event.node_state, reason = "operator_command",
+                  old_state = "off", new_state = "on")
     
     def routing_circuit (self, name, dl, c):
         """Factory function for circuit objects.  Depending on the datalink
@@ -84,7 +88,10 @@ class Routing (Element):
         pass
 
     def adjacency_up (self, adj):
-        logging.debug ("Adjacency up: %s %s", adj.circuit.name, adj.nodeid)
+        logevent (Event.adj_up, adjacent_node = self.node.eventnode (adj.nodeid))
 
-    def adjacency_down (self, adj):
-        logging.debug ("Adjacency down: %s %s", adj.circuit.name, adj.nodeid)        
+    def adjacency_down (self, adj, reason = None):
+        e = Event (Event.adj_down, adjacent_node = self.node.eventnode (adj.nodeid))
+        if reason is not None:
+            e.reason = reason
+        logevent (e)
