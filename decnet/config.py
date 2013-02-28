@@ -29,7 +29,7 @@ def config_cmd (name, help, collection = False):
 # paying attention to layering, so for example a "circuit" gives things
 # relating to the datalink layer, routing layer, and so on.
 
-cp = config_cmd ("circuit", "Circuit configuration", True)
+cp = config_cmd ("circuit", "Circuit configuration", collection = True)
 cp.add_argument ("name", help = "Circuit name", type = name)
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (1..25, default 1)",
@@ -46,8 +46,15 @@ cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")
 cp.add_argument ("--random-address", action = "store_true", default = False,
                  help = "Generate random \"hardware address\" (Ethernet only)")
+# The spec says the valid range is 0..255 but that is wrong, because the list
+# of routers has to fit in a field of the router hello message that can at
+# most hold 33.7 (!) entries.
+cp.add_argument ("--nr", type = int, choices = range (34),
+                 help = "Maximum routers on this LAN", default = 10)
+cp.add_argument ("--priority", metavar = "P", type = int, choices = range (128),
+                 default = 64, help = "Designated router priority")
 
-cp = config_cmd ("node", "Overall node configuration")
+cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
                  help = "Unix socket name for DECnet API")
 
@@ -75,6 +82,11 @@ cp.add_argument ("--t1", type = int, default = 600,
                  help = "Non-LAN background routing message interval")
 cp.add_argument ("--bct1", type = int, default = 10,
                  help = "LAN background routing message interval")
+
+cp = config_cmd ("node", "DECnet node database", collection = True)
+cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
+                 help = "Node address")
+cp.add_argument ("name", type = name, help = "Node name")
 
 class Config (object):
     """Container for configuration data.

@@ -132,6 +132,8 @@ class Nodeid (int):
         else:
             return "{}".format (self.tid)
 
+    __repr__ = __str__
+    
     def __bytes__ (self):
         return self.to_bytes (2, "little")
     
@@ -164,6 +166,8 @@ class Macaddr (bytes):
 
     def __str__ (self):
         return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (self)
+
+    __repr__ = __str__
     
 NULLID = Macaddr (bytes (6))
 
@@ -190,6 +194,8 @@ class Version (bytes):
     def __str__ (self):
         v1, v2, v3 = _version.unpack (self)
         return "{}.{}.{}".format (v1, v2, v3)
+
+    __repr__ = __str__
     
 def scan_ver (s):
     """Convert a string specifying the console carrier verification data

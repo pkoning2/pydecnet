@@ -319,13 +319,17 @@ class Ethernet (BcDatalink, StopThread):
         return super ().create_port (owner, proto, pad)
 
     def send_frame (self, buf):
-        if self.api == "pcap":
-            l2 = self.pcap.inject (buf)
-        else:
-            # tap
-            l2 = os.write (self.tap, buf)
-        if l2 != len (buf):
-            raise IOError
+        """Send an Ethernet frame.  Ignore any errors, because that's
+        the DECnet way.
+        """
+        try:
+            if self.api == "pcap":
+                l2 = self.pcap.inject (buf)
+            else:
+                # tap
+                os.write (self.tap, buf)
+        except IOError:
+            pass
         
     def run (self):
         if self.api == "pcap":
