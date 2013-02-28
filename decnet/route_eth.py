@@ -36,6 +36,7 @@ class LanCircuit (Element, timers.Timer):
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
         self.datalink.set_macaddr (parent.nodemacaddr)
         self.lasthello = 0
+        self.holdoff = False
         
     def restart (self):
         self.start ()
@@ -318,8 +319,8 @@ class RoutingLanCircuit (LanCircuit):
         elif isinstance (item, packet.Packet):
             # Some other packet type.  Pass it up, but only if it is for
             # an adjacency that is in the UP state
-            a = self.adjacencies.get (item.id, None)
-            if a and a.state = UP:
+            a = self.adjacencies.get (Nodeid (item.src), None)
+            if a and a.state == UP:
                 item.src = a
                 self.parent.dispatch (item)
             
