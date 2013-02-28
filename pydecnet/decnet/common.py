@@ -103,6 +103,8 @@ class Nodeid (int):
                 a = 0
             else:
                 a, n = s, id2
+        elif isinstance (s, Macaddr):
+            return int.__new__ (cls, int.from_bytes (s[4:], "little"))
         else:
             if len (s) != 2:
                 raise ValueError ("Invalid node ID %s" % s)
