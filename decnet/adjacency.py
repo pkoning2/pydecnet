@@ -45,16 +45,16 @@ class Adjacency (Element, timers.Timer):
         """
         self.node.timers.start (self, self.t4)
         
-    def down (self):
+    def down (self, **kwargs):
         """Mark this adjacency down by external request.  This in turn
         calls the adjacency down handler for the parent circuit for
         further action.
         """
         self.node.timers.stop (self)
-        self.circuit.adjacency_down (self)
+        self.circuit.adjacency_down (self, **kwargs)
 
-    def up (self):
-        self.circuit.adjacency_up (self)
+    def up (self, **kwargs):
+        self.circuit.adjacency_up (self, **kwargs)
 
 class BcAdjacency (Adjacency):
     """Adjacency on a broadcast (LAN) circuit.

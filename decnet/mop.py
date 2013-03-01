@@ -99,13 +99,12 @@ class SysId (MopHdr):
                    2 : "Communication Server",
                    3 : "Professional" }
 
-    def encode_c (self, args):
+    def encode_c (self, field, maxlen):
         """Encode "field" according to the rules for the "software"
         protocol field.  If "field" is a string, encode it as for the
         "I" type. If it is an integer, it has to be in -2..0, and the
         encoding is just that one byte.
         """
-        field, maxlen = args
         val = getattr (self, field)
         if isinstance (val, int):
             if val not in (0, -1, -2):
@@ -120,13 +119,12 @@ class SysId (MopHdr):
             val = vl.to_bytes (1, packet.LE) + val
         return val
 
-    def decode_c (self, buf, args):
+    def decode_c (self, buf, field, maxlen):
         """Decode "field" according to the rules for the "software"
         protocol field.  Basically this is like an I-n field, but
         special values -1 and -2 are accepted in the first byte,
         and string values are taken to be text strings.
         """
-        field, maxlen = args
         flen = packet.getbyte (buf)
         if flen < -2:
             raise ValueError ("Image field with negative length %d" % flen)
