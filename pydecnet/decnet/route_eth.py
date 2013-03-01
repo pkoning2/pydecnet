@@ -331,7 +331,7 @@ class RoutingLanCircuit (LanCircuit):
         """Figure out who should be the designated router.  More precisely,
         are we DR, or someone else?
         """
-        routers = self.routers (False)
+        routers = list (self.routers (False))
         if routers:
             # Look for the best remote router, if there are any
             dr = max (routers, key = adjacency.BcAdjacency.sortkey)
