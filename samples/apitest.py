@@ -15,21 +15,24 @@ def makefile (sock, mode, buf = -1):
     return f
     
 sock = socket.socket (socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect ("decnetsocket")
+args = sys.argv[1:]
+if len (args) > 2 and args[0] == "-s":
+    sockname = args[1]
+    args = args[2:]
+else:
+    sockname = "decnetsocket"
+sock.connect (sockname)
 rf = makefile (sock, "r", buf = 1)
 wf = makefile (sock, "w")
 
 # "quit" argument means break the connection prematurely to test
 # server error handling.
-try:
-    if sys.argv[1] == "quit":
-        sys.exit (0)
-except IndexError:
-    pass
+if args and args[0] == "quit":
+    sys.exit (0)
 
 try:
-    if len (sys.argv) > 1:
-        s = ' '.join (sys.argv[1:]) + '\n'
+    if args:
+        s = ' '.join (args) + '\n'
     else:
         s = input ("> ") + '\n'
     wf.write (s)
