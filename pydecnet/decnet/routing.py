@@ -84,12 +84,12 @@ class Routing (Element):
     def dispatch (self, item):
         pass
 
-    def adjacency_up (self, adj):
+    def adjacency_up (self, adj, **kwargs):
         self.node.logevent (Event.adj_up,
-                            adjacent_node = self.node.eventnode (adj.nodeid))
+                            adjacent_node = self.node.eventnode (adj.nodeid),
+                            **kwargs)
 
-    def adjacency_down (self, adj, reason = None):
-        e = Event (Event.adj_down, adjacent_node = self.node.eventnode (adj.nodeid))
-        if reason is not None:
-            e.reason = reason
-        self.node.logevent (e)
+    def adjacency_down (self, adj, **kwargs):
+        self.node.logevent (Event.adj_down,
+                            adjacent_node = self.node.eventnode (adj.nodeid),
+                            **kwargs)

@@ -254,8 +254,8 @@ class RoutingLanCircuit (LanCircuit):
             a = self.adjacencies.get (id, None)
             if isinstance (item, EndnodeHello):
                 if not testdata_re.match (item.testdata):
-                    logging.debug ("Invalid test data %s in hello from %s",
-                                   item.testdata, item.id)
+                    if a:
+                        a.down (reason = "listener_invalid_data")
                     return
                 # End node.  If it's new, add its adjacency and mark it up.
                 if a is None:
@@ -265,8 +265,7 @@ class RoutingLanCircuit (LanCircuit):
                 elif a.endnode:
                     a.alive ()
                 else:
-                    logging.warning ("Node %s changed type or priority", id)
-                    a.down ()
+                    a.down (reason = "address_change")
                     return
             else:
                 # Router hello.  Add its adjacency if it's new.
@@ -290,8 +289,7 @@ class RoutingLanCircuit (LanCircuit):
                 else:
                     a.alive ()
                 if a.endnode or a.ntype != item.ntype or a.priority != item.prio:
-                    logging.warning ("Node %s changed type or priority", id)
-                    a.down ()
+                    a.down (reason = "address_change")
                     return
                 # Process the received E-list and see if two-way state changed.
                 rslist = Elist (item.elist).rslist
@@ -302,7 +300,7 @@ class RoutingLanCircuit (LanCircuit):
                         if ent.prio != self.prio:
                             logging.error ("Node %s has our prio as %d rather than %d",
                                            id, ent.prio, self,prio)
-                            a.down ()
+                            a.down (reason = "data_errors")
                             return
                         if ent.twoway:
                             if a.state == INIT:
@@ -313,7 +311,7 @@ class RoutingLanCircuit (LanCircuit):
                                 # Don't kill the adjacency in our state, but
                                 # do as far as the control layer is concerned.
                                 a.state = INIT
-                                self.parent.adjacency_down (a)
+                                self.parent.adjacency_down (a, reason = "dropped")
                                 hellochange = True
                 # Update the DR state, if needed
                 self.calcdr ()
@@ -333,8 +331,11 @@ class RoutingLanCircuit (LanCircuit):
         """Figure out who should be the designated router.  More precisely,
         are we DR, or someone else?
         """
-        dr = max (self.routers (False), key = adjacency.BcAdjacency.sortkey)
-        if self.drkey > adjacency.BcAdjacency.sortkey (dr):
+        routers = self.routers (False)
+        if routers:
+            # Look for the best remote router, if there are any
+            dr = max (routers, key = adjacency.BcAdjacency.sortkey)
+        if not routers or self.drkey > adjacency.BcAdjacency.sortkey (dr):
             # Tag, we're it, but don't act on that for DRDELAY seconds.
             if not self.isdr:
                 self.isdr = True
@@ -357,12 +358,12 @@ class RoutingLanCircuit (LanCircuit):
         else:
             self.sendhello ()
         
-    def adjacency_up (self, a):
+    def adjacency_up (self, a, **kwargs):
         a.state = UP
-        self.parent.adjacency_up (a)
+        self.parent.adjacency_up (a, **kwargs)
 
-    def adjacency_down (self, a):
-        self.parent.adjacency_down (a)
+    def adjacency_down (self, a, **kwargs):
+        self.parent.adjacency_down (a, **kwargs)
         try:
             del self.adjacencies[a.nodeid]
         except KeyError:
