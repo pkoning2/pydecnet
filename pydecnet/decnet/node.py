@@ -46,7 +46,7 @@ class Node (object):
         logging.debug ("Initializing node %s", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
         try:
-            sock = config.node.api_socket
+            sock = config.system.api_socket
         except AttributeError:
             sock = DEFAPISOCKET
         self.api = apiserver.ApiServer (self, sock)
@@ -88,7 +88,10 @@ class Node (object):
         if mainthread:
             self.mainloop ()
         else:
-            threading.Thread (target = self.mainloop, name = self.nodename)
+            t = threading.Thread (target = self.mainloop, name = self.nodename)
+            # Exit the server thread when the main thread terminates
+            t.daemon = True
+            t.start ()
             
     def mainloop (self):
         """Node main loop.  This is intended to be the main loop of

@@ -264,7 +264,8 @@ class Ethernet (BcDatalink, StopThread):
     port_class = EthPort
     
     def __init__ (self, owner, name, config):
-        StopThread.__init__ (self)
+        tname = "{}.{}".format (owner.node.nodename, name)
+        StopThread.__init__ (self, name = tname)
         BcDatalink.__init__ (self, owner, name, config)
         dev = config.device or name
         if dev.startswith ("tap:"):

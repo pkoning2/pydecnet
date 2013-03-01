@@ -6,6 +6,7 @@
 import os
 import sys
 import io
+import logging
 import argparse
 import socketserver
 import shlex
@@ -69,6 +70,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
                                       errors = "ignore", newline = None,
                                       line_buffering = True)
         self.node = self.server.parent
+        threading.current_thread ().name = "{}.API".format (self.node.nodename)
         self.phore = threading.Semaphore (0)
         self._done = False
 
@@ -229,6 +231,7 @@ class ApiServer (Element, socketserver.ThreadingUnixStreamServer):
     """A class for the Unix socket server for the DECnet API.
     """
     def __init__ (self, parent, name):
+        logging.debug ("Initializing API server on %s", name)
         if os.path.exists (name):
             raise RuntimeError ("Another socket server is already running")
         Element.__init__ (self, parent)
@@ -255,12 +258,20 @@ class ApiServer (Element, socketserver.ThreadingUnixStreamServer):
         except Exception:
             logging.exception ("Error binding to API socket")
             return
-        self.server_thread = threading.Thread (target = self.serve_forever)
+        tname = "{}.API".format (self.node.nodename)
+        self.server_thread = threading.Thread (target = self.serveapi,
+                                               name = tname)
         # Exit the server thread when the main thread terminates
         self.server_thread.daemon = True
         self.server_thread.start ()
         logging.debug ("API server started")
 
+    def serveapi (self):
+        try:
+            self.serve_forever ()
+        finally:
+            self.stop (False)
+            
     def stop (self, wait = True):
         try:
             os.remove (self.socketname)
