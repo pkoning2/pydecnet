@@ -214,15 +214,21 @@ def scan_ver (s):
             v += bytes (8 - l)
     return v
 
-_name_re = re.compile (r"\w+$")
-def name (s):
-    """Accept a string that looks like a name, which for our purposes
-    means any alphanumeric string.  Yes, DECnet sometimes allows hyphens
-    and such, but that's too much trouble.
+_nodename_re = re.compile (r"[a-z0-9]*[a-z][a-z0-9]*$", re.I)
+def nodename (s):
+    """Accept a string that looks like a node name.
     """
-    if _name_re.match (s):
-        return s
-    raise ValueError ("Invalid name %s" % s)
+    if _nodename_re.match (s) and len (s) <= 6:
+        return s.upper ()
+    raise ValueError ("Invalid node name %s" % s)
+
+_circname_re = re.compile (r"[a-z]+[-0-9]*$", re.I)
+def circname (s):
+    """Accept a string that looks like a circuit name.
+    """
+    if _circname_re.match (s):
+        return s.upper ()
+    raise ValueError ("Invalid circuit name %s" % s)
 
 class StopThread (threading.Thread):
     """A thread with stop method.  By default this will be

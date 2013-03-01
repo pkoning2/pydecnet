@@ -12,7 +12,7 @@ import logging
 import os
 
 from .common import *
-from .node import ApiRequest, ApiWork
+from .apiserver import ApiRequest, ApiWork
 from . import packet
 from . import datalink
 from . import timers
@@ -223,11 +223,11 @@ class Mop (Element):
     """
     def __init__ (self, parent, config):
         super ().__init__ (parent)
+        self.node.mop = self
+        logging.debug ("Initializing MOP layer")
         self.config = config
         self.reservation = None
         self.circuits = dict ()
-        self.node.mop = self
-        logging.debug ("Initializing MOP layer")
         loop = parent.register_api ("loop", self, "MOP Loop operation")
         loop.set_defaults (final_handler = "loophandler")
         loop.add_argument ("circuit", help = "Interface to loop")

@@ -5,8 +5,10 @@
 """
 
 import io
+import os
 import argparse
 import shlex
+import logging
 
 from .common import *
 
@@ -30,7 +32,7 @@ def config_cmd (name, help, collection = False):
 # relating to the datalink layer, routing layer, and so on.
 
 cp = config_cmd ("circuit", "Circuit configuration", collection = True)
-cp.add_argument ("name", help = "Circuit name", type = name)
+cp.add_argument ("name", help = "Circuit name", type = circname)
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (1..25, default 1)",
                  choices = range (1, 26), default = 1)
@@ -86,7 +88,7 @@ cp.add_argument ("--bct1", type = int, default = 10,
 cp = config_cmd ("node", "DECnet node database", collection = True)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
                  help = "Node address")
-cp.add_argument ("name", type = name, help = "Node name")
+cp.add_argument ("name", type = nodename, help = "Node name")
 
 class Config (object):
     """Container for configuration data.
@@ -94,15 +96,27 @@ class Config (object):
     def __init__ (self, f = None):
         if not f:
             f = open (DEFCONFIG, "rt")
+        logging.debug ("Reading config %s", f.name)
+        
         # First supply empty dicts for each collection config component
         for name in cmd_init:
             setattr (self, name, dict ())
+        self.scanconfig (f)
+
+    def scanconfig (self, f):
         for l in f:
             l = l.rstrip ("\n").strip ()
             if not l or l[0] == "#":
+                continue
+            if l[0] == '@':
+                # Indirect file, read it recursively.  The supplied file
+                # name is relative to the current file.
+                fn = os.path.join (os.path.dirname (f.name), l[1:])
+                self.scanconfig (open (fn, "rt"))
                 continue
             p = configparser.parse_args (shlex.split (l))
             if p.collection:
                 getattr (self, p.attr)[p.name] = p
             else:
                 setattr (self, p.attr, p)
+        f.close ()
