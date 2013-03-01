@@ -52,8 +52,11 @@ def proc_layoutelem (cls, e):
         else:
             enc = getattr (cls, "encode_type")
             dec = getattr (cls, "decode_type")
-            # Insert the type to use as the first argument
-            args.insert (0, code)
+            # Argument list should have one entry (the attribute name).
+            # Make an argument list of attribute name and type
+            if len (args) != 1:
+                raise TypeError ("%s layout requires 1 argument" % code)
+            args = [ args[0], code ]
         if code == "bm":
             # Find the field length in bytes
             topbit = -1
@@ -63,8 +66,6 @@ def proc_layoutelem (cls, e):
             flen = (topbit + 8) // 8
             args = ( flen, [ ( name, start, bits)
                              for name, start, bits in fields if name ] )
-        elif len (args) == 1:
-            args = args[0]
         return [ enc, dec, args ]
         
 def process_layout (cls, layout):
@@ -277,28 +278,25 @@ class Packet (metaclass = packet_encoding_meta):
         """
         return buf[flen:]
 
-    def encode_type (self, args):
-        """Encode a given type.
+    def encode_type (self, field, t):
+        """Encode a given type.  Note that the type argument is not used.
         """
-        t, field = args
         val = getattr (self, field)
         return bytes (val)
 
-    def decode_type (self, buf, args):
+    def decode_type (self, buf, field, t):
         """Decode a given type.  We use the type's attribute _len to
         know how many bytes to decode.
         """
-        t, field = args
         flen = t._len
         setattr (self, field, t (buf[:flen]))
         return buf[flen:]
     
-    def encode_i (self, args):
+    def encode_i (self, field, maxlen):
         """Encode "field" as an image field with max length "maxlen".
         If val is a string, it is encoded using the current default
         encoding.  If the value is too large, OverflowError is raised.
         """
-        field, maxlen = args
         val = getattr (self, field)
         if isinstance (val, str):
             val = bytes (val, "latin-1", "ignore")
@@ -307,12 +305,11 @@ class Packet (metaclass = packet_encoding_meta):
             raise OverflowError ("Value too long for %d byte field" % maxlen)
         return vl.to_bytes (1, LE) + val
 
-    def decode_i (self, buf, args):
+    def decode_i (self, buf, field, maxlen):
         """Decode "field" from an image field with max length "maxlen".
         If the field is too large, OverflowError is raised.  Returns the
         remaining buffer.
         """
-        field, maxlen = args
         # This doesn't just pick up buf[0] because that's an int if
         # buf is bytes, but a length one bytes if buf is memoryview.
         # More precisely, it work that way in Python 3.2 and before;
@@ -328,50 +325,45 @@ class Packet (metaclass = packet_encoding_meta):
         setattr (self, field, v)
         return buf[flen + 1:]
 
-    def encode_b (self, args):
+    def encode_b (self, field, flen):
         """Encode "field" as a binary field with length "flen".
         The field value is assumed to be an integer.
         """
-        field, flen = args
         return getattr (self, field).to_bytes (flen, LE)
 
-    def decode_b (self, buf, args):
+    def decode_b (self, buf, field, flen):
         """Decode "field" from a binary field with length "flen".
         The field is decoded to a little endian integer.  Returns the
         remaining buffer.
         """
-        field, flen = args
         setattr (self, field, int.from_bytes (buf[:flen], LE))
         return buf[flen:]
 
-    def encode_ctr (self, args):
+    def encode_ctr (self, field, flen):
         """Encode "field" as a counter field with length "flen".
         The field value is assumed to be an integer.  This is the
         same as "b" except that values too large for the field
         are capped at the max.
         """
-        field, flen = args
         return min (getattr (self, field), maxint[flen]).to_bytes (flen, LE)
 
     decode_ctr = decode_b
 
-    def encode_deltat (self, args):
+    def encode_deltat (self, field, flen):
         """Encode "field" as elapsed time with length "flen".  The
         field value is assumed to be the start time of the interval to
         be encoded This is the same as "ctr" except that we first convert
         the start time to a delta time.
         """
-        field, flen = args
         delta = int (time.time () - getattr (self, field))
         return min (delta, maxint[flen]).to_bytes (flen, LE)
 
     decode_deltat = decode_b
 
-    def encode_bm (self, args):
+    def encode_bm (self, flen, elements):
         """Encode a bitmap field.  "elements" is a sequence of
         triples: name, starting bit position, bit count.
         """
-        flen, elements = args
         field = 0
         for name, start, bits in elements:
             # For fields not defined in the object, substitute zero
@@ -381,23 +373,21 @@ class Packet (metaclass = packet_encoding_meta):
             field |= val << start
         return field.to_bytes (flen, LE)
 
-    def decode_bm (self, buf, args):
+    def decode_bm (self, buf, flen, elements):
         """Decode a bitmap field.  "elements" is a sequence of
         triples: name, starting bit position, bit count.  The fields
         are decoded as integers.  Returns the remaining buffer.
         """
-        flen, elements = args
         field = int.from_bytes (buf[:flen], LE)
         for name, start, bits in elements:
             val = (field >> start) & ((1 << bits) - 1)
             setattr (self, name, val)
         return buf[flen:]
 
-    def encode_ex (self, args):
+    def encode_ex (self, field, maxlen):
         """Encode "field" as an extensible field with max length "maxlen".
         The field value is assumed to be an integer.
         """
-        field, maxlen = args
         val = getattr (self, field)
         retval = [ ]
         while val >> 7:
@@ -408,11 +398,10 @@ class Packet (metaclass = packet_encoding_meta):
             raise OverflowError ("Extensible field is longer than %d bytes" % maxlen)
         return b''.join (retval)
         
-    def decode_ex (self, buf, args):
+    def decode_ex (self, buf, field, maxlen):
         """Decode "field" as an extensible field with max length "maxlen".
         The field is decoded as an integer.  Returns the remaining buffer.
         """
-        field, maxlen = args
         val = 0
         for i in range (maxlen):
             b = buf[i]
@@ -424,17 +413,14 @@ class Packet (metaclass = packet_encoding_meta):
         setattr (self, field, val)
         return buf[i + 1:]
 
-    def encode_bs (self, args):
-        field, flen = args
+    def encode_bs (self, field, flen):
         return bytes (getattr (self, field))
 
-    def decode_bs (self, buf, args):
-        field, flen = args
+    def decode_bs (self, buf, field, flen):
         setattr (self, field, bytes (buf))
         return b""
     
-    def encode_bv (self, args):
-        field, flen = args
+    def encode_bv (self, field, flen):
         return bytes (getattr (self, field))
         l = len (retval)
         if l < flen:
@@ -443,37 +429,32 @@ class Packet (metaclass = packet_encoding_meta):
             retval = retval[:flen]
         return retval
 
-    def decode_bv (self, buf, args):
-        field, flen = args
+    def decode_bv (self, buf, field, flen):
         setattr (self, field, bytes (buf[:flen]))
         return buf[flen:]
     
-    def encode_tlv (self, args):
-        tlen, llen, wild, codedict = args
+    def encode_tlv (self, tlen, llen, wild, codedict):
         retval = [ ]
         for k, v in codedict.items ():
             e, d, fieldargs = v
             if e is Packet.encode_bm:
                 field = True
-            elif e is Packet.encode_type:
-                field = getattr (self, fieldargs[1], None)
             else:
                 field = getattr (self, fieldargs[0], None)
             if field:
                 retval.append (k.to_bytes (tlen, LE))
-                field = e (self, fieldargs)
+                field = e (self, *fieldargs)
                 retval.append (len (field).to_bytes (llen, LE))
                 retval.append (field)
         return b''.join (retval)
 
-    def decode_tlv (self, buf, args):
+    def decode_tlv (self, buf, tlen, llen, wild, codedict):
         """Decode the remainder of the buffer as a sequence of TLV
         (tag, length, value) fields where tlen and llen are the length
         of the tag and length fields.  Each value field is decoded
         according to the decode rules given by the codedict entry
         keyed by the tag value.
         """
-        tlen, llen, wild, codedict = args
         pos = 0
         blen = len (buf)
         while pos < blen:
@@ -493,7 +474,7 @@ class Packet (metaclass = packet_encoding_meta):
                                         ( "field%d" % tag, 255 ) )
                 else:
                     raise KeyError ("Unknown TLV tag %d" % tag)
-            buf2 = d (self, buf[pos:pos + vlen], fieldargs)
+            buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
             if buf2:
                 raise ValueError ("TLV %d Value field not fully parsed, left = %d" % (tag, len (buf2)))
             pos += vlen
@@ -511,7 +492,7 @@ class Packet (metaclass = packet_encoding_meta):
         data = [ ]
         for e, d, args in codetable:
             try:
-                data.append (e (self, args))
+                data.append (e (self, *args))
             except Exception:
                 logging.exception ("Error encoding %s", (e, d, args))
         if not layout:
@@ -561,7 +542,7 @@ class Packet (metaclass = packet_encoding_meta):
         """
         codetable = layout or self._codetable
         for e, d, args in codetable:
-            buf = d (self, buf, args)
+            buf = d (self, buf, *args)
         if not layout:
             self.payload = buf
         #logging.debug ("packet parse: %s", self.__dict__)
