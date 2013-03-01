@@ -14,7 +14,7 @@ class Adjacency (Element, timers.Timer):
     """Base class for DECnet adjacencies.  Its parent class is the circuit
     to which this adjacency belongs.
     """
-    def __init__ (self, circuit, nodeid, t4):
+    def __init__ (self, circuit, nodeid, t4, endnode):
         Element.__init__ (self, circuit)
         timers.Timer.__init__ (self)
         self.circuit = circuit
@@ -23,6 +23,7 @@ class Adjacency (Element, timers.Timer):
         self.alive ()
         self.macid = Macaddr (nodeid)
         self.priority = 0
+        self.endnode = endnode
         
     def __eq__ (self, other):
         if isinstance (other, self.__class__):

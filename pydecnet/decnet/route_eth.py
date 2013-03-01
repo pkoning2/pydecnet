@@ -146,13 +146,13 @@ class EndnodeLanCircuit (LanCircuit):
                     # Different.  Make the old one go away
                     self.dr.down ()
                     self.dr = adjacency.BcAdjacency (self, item.id,
-                                                     item.timer * BCT3MULT)
+                                                     item.timer * BCT3MULT, False)
                     self.parent.adjacency_up (self.dr)
                 else:
                     self.dr.alive ()
             else:
                 self.dr = adjacency.BcAdjacency (self, item.id,
-                                                 item.timer * BCT3MULT)
+                                                 item.timer * BCT3MULT, False)
                 self.parent.adjacency_up (self.dr)
         elif isinstance (item, EndnodeHello):
             logging.debug ("Endnode hello from %s received by endnode",
@@ -218,8 +218,8 @@ class RoutingLanCircuit (LanCircuit):
 
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
-                 if a.ntype != 3 and (anyarea or
-                                      a.nodeid.area == self.parent.homearea))
+                 if not a.endnode and (anyarea or
+                                       a.nodeid.area == self.parent.homearea))
     
     def sendhello (self):
         self.lasthello = time.time ()
@@ -259,14 +259,20 @@ class RoutingLanCircuit (LanCircuit):
                     return
                 # End node.  If it's new, add its adjacency and mark it up.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4)
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id,
+                                                                      t4, True)
                     a.up ()
-                else:
+                elif a.endnode:
                     a.alive ()
+                else:
+                    logging.warning ("Node %s changed type or priority", id)
+                    a.down ()
+                    return
             else:
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4)
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id,
+                                                                      t4, False)
                     a.state = INIT
                     a.priority = item.prio
                     a.ntype = item.ntype
@@ -283,7 +289,7 @@ class RoutingLanCircuit (LanCircuit):
                     hellochange = True
                 else:
                     a.alive ()
-                if a.ntype != item.ntype or a.priority != item.prio:
+                if a.endnode or a.ntype != item.ntype or a.priority != item.prio:
                     logging.warning ("Node %s changed type or priority", id)
                     a.down ()
                     return
@@ -361,7 +367,7 @@ class RoutingLanCircuit (LanCircuit):
             del self.adjacencies[a.nodeid]
         except KeyError:
             pass
-        if a.ntype != 3:
+        if not a.endnode:
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
             self.newhello ()
