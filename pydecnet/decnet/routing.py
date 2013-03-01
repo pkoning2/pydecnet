@@ -5,7 +5,6 @@
 """
 
 from .common import *
-from .node import ApiRequest, ApiWork
 from .routing_packets import *
 from .events import *
 from . import datalink
@@ -32,14 +31,10 @@ class Routing (Element):
         self.config = config.routing
         self.circuits = dict ()
         self.adjacencies = dict ()
-        self.node.routing = self
-        # Save node id in the parent Node object for easy reference
-        self.node.nodeid = self.nodeid = config.routing.id
+        self.nodeid = config.routing.id
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea = self.nodeid.area
         self.tid = self.nodeid.tid
-        # See if we have a nodename
-        self.nodename = self.node.nodename = config.nodeid.get (self.nodeid, "")
         self.typename = config.routing.type
         self.nodetype = nodetypes[self.typename]
         self.endnode = self.nodetype == 3

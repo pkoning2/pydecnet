@@ -30,7 +30,6 @@ class DatalinkLayer (Element):
         """
         logging.debug ("Initializing data link layer")
         super ().__init__ (owner)
-        self.node.datalink = self
         self.config = config
         self.circuits = dict ()
         for name, c in config.circuit.items ():
@@ -284,7 +283,7 @@ class Ethernet (BcDatalink, StopThread):
     def open (self):
         if self.api == "pcap":
             # Always set promiscuous mode
-            self.pcap.open_live (self.name, ETH_MTU, 1, ETH_TMO)
+            self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
         else:
             # tap
             fd = os.open (self.dev, os.O_RDWR)
@@ -295,7 +294,7 @@ class Ethernet (BcDatalink, StopThread):
             # Turn the interface on -- needed only on Mac OS
             if sys.platform == "darwin":
                 req = bytearray (sizeof_ifreq)
-                ifreq.pack_into (req, 0, self.name.encode ("ascii"), 0)
+                ifreq.pack_into (req, 0, self.dev.encode ("ascii"), 0)
                 s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
                 ioctl (s, SIOCGIFFLAGS, req)
                 name, flags = ifreq.unpack_from (req)
@@ -304,7 +303,7 @@ class Ethernet (BcDatalink, StopThread):
         # Find our hardware address, if not generated
         if not self.randaddr:
             for dname, desc, addrs, flags in pcap.findalldevs ():
-                if dname == self.name and addrs:
+                if dname == self.dev and addrs:
                     self.hwaddr = Macaddr (addrs[0][0])
         logging.debug ("Ethernet %s hardware address is %s",
                        self.name, self.hwaddr)

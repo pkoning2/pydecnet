@@ -8,7 +8,6 @@ import re
 import time
 
 from .common import *
-from .node import ApiRequest, ApiWork
 from .routing_packets import *
 from . import datalink
 from . import timers

@@ -12,14 +12,11 @@ import threading
 from . import common
 from . import config
 from . import node
-from . import datalink
-from . import mop
-from . import routing
 
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
-                       metavar = "FN", nargs = "*",
-                       help = "Configuration file, default '%s'" % config.DEFCONFIG)
+                       metavar = "FN", nargs = "+",
+                       help = "Configuration file")
 dnparser.add_argument ("-L", "--log-file", metavar = "FN",
                        help = "Log file (default: stderr)")
 # Note that we set the default level to INFO rather than the conventional WARNING,
@@ -49,36 +46,6 @@ def formatTime(self, record, datefmt=None):
     return s
 logging.Formatter.formatTime = formatTime
 
-class system (object):
-    """A wrapper for a single system (i.e., an instance of a configuration,
-    as defined by a config file).
-    """
-    def __init__ (self, cf, last = False):
-        self.cf = cf.name
-        logging.info ("Initializing DECnet/Python for %s", self.cf)
-        c = config.Config (cf)
-
-        # Now create the major entities in the appropriate order.  They will
-        # create subsidiary ones based on the config settings.
-        self.last = last
-        self.n = node.Node (c)
-        self.dl = datalink.DatalinkLayer (self.n, c)
-        self.m = mop.Mop (self.n, c)
-        self.r = routing.Routing (self.n, c)
-
-    def start (self):
-        logging.info ("Starting DECnet/Python for %s", self.cf)
-        
-        # Things have been created.  Now start them.  We'll start the Node
-        # last because its loop will be the main thread.
-        self.dl.start ()
-        self.m.start ()
-        self.r.start ()
-        if self.last:
-            self.n.start ()
-        else:
-            threading.Thread (target = self.n.start)
-
 def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
@@ -90,16 +57,19 @@ def main ():
         else:
             args = ( "-h", )
         config.configparser.parse_args (args)
+        return
     logging.basicConfig (filename = p.log_file, level = p.log_level,
-                         format = "%(asctime)s: %(levelname)s: %(message)s")
-    cflist = p.configfile
-    if not cflist:
-        cflist = [ config.DEFCONFIG ]
+                         format = "%(asctime)s: %(threadName)s: %(message)s")
 
-    # Initialize all the systems
-    systems = [ system (cf) for cf in cflist[:-1] ]
-    systems.append (system (cflist[-1], True))
+    # Read all the configs
+    logging.info ("Starting DECnet/Python")
+    configs = [ config.Config (c) for c in p.configfile ]
+    
+    # Initialize all the nodes
+    nodes = [ node.Node (c) for c in configs ]
 
-    # Now start them all
-    for s in systems:
-        s.start ()
+    # Start all the nodes.  The last one will run in the main thread,
+    # the others get a thread of their own
+    for n in nodes[:-1]:
+        n.start ()
+    nodes[-1].start (mainthread = True)

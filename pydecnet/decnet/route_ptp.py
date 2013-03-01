@@ -7,7 +7,6 @@
 import re
 
 from .common import *
-from .node import ApiRequest, ApiWork
 from . import packet
 from .routing_packets import *
 from . import datalink
