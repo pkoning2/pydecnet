@@ -142,6 +142,6 @@ class Node (object):
     def logevent (self, event, **kwds):
         if not isinstance (event, Event):
             event = Event (event, **kwds)
-        event.local_node = self
+        event._local_node = self
         logging.info (event)
         

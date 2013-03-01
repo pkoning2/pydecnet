@@ -9,6 +9,7 @@ event listener.
 """
 
 import logging
+import time
 
 class Event (object):
     """A DECnet event.
@@ -224,11 +225,16 @@ class Event (object):
         self.__dict__.update (kwds)
 
     def __str__ (self):
-        ret = [ "Event type {0[0]}.{0[1]}, {1}".format (self.event,
-                                                        self.eventnames[self.event]) ,
-                "  On {0.nodeid} ({0.nodename})".format (self.local_node) ]
+        e = self.event
+        n = self._local_node
+        ts = self._timestamp
+        ms = int (ts * 1000.) % 1000
+        ts = time.strftime("%d-%b-%Y %H:%M:%S", time.localtime (ts))
+        ts = "{}.{:03d}".format (ts, ms)
+        ret = [ "Event type {0[0]}.{0[1]}, {1}".format (e, self.eventnames[e]),
+                "  On {0.nodeid} ({0.nodename}), occurred {1}".format (n, ts) ]
         for k, v in self.__dict__.items ():
-            if k != "event" and k != "local_node":
+            if k != "event" and k[0] != "_":
                 k = k.replace ("_", " ").capitalize ()
                 if isinstance (v, str):
                     v = v.replace ("_", " ")
@@ -237,3 +243,11 @@ class Event (object):
                 ret.append ("  {}: {}".format (k, v))
         return '\n'.join (ret)
 
+def logging_add_ts (rec):
+    """Filter to add the log record timestamp to the Event, if this is
+    an event being logged.
+    """
+    m = rec.msg
+    if isinstance (m, Event):
+        m._timestamp = rec.created
+    return True

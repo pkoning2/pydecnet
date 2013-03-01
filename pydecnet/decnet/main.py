@@ -12,6 +12,7 @@ import threading
 from . import common
 from . import config
 from . import node
+from . import events
 
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
@@ -60,6 +61,8 @@ def main ():
         return
     logging.basicConfig (filename = p.log_file, level = p.log_level,
                          format = "%(asctime)s: %(threadName)s: %(message)s")
+    rootlogger = logging.getLogger ()
+    rootlogger.addFilter (events.logging_add_ts)
 
     # Read all the configs
     logging.info ("Starting DECnet/Python")
