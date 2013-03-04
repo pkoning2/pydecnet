@@ -112,12 +112,14 @@ class Node (object):
                 except Exception:
                     logging.exception ("Exception processing work item %r", work)
         finally:
-            logging.debug ("Stopping node")
-            self.api.stop ()
-            self.timers.shutdown ()
-            logging.debug ("DECnet/Python shut down")
-            logging.shutdown ()
-            
+            self.stop ()
+
+    def stop (self):
+        threading.current_thread ().name = self.nodename
+        logging.debug ("Stopping node")
+        self.api.stop ()
+        self.timers.shutdown ()
+        
     def register_api (self, command, handler, help = None):
         """Register a command under the DECnet/Python API.  Arguments
         are the command name, the handler element (where requests for this
@@ -135,13 +137,22 @@ class Node (object):
         """
         try:
             n = self.nodeinfo (id)
-            return n.nodeid, n.nodename
+            return NodeEntity (n.nodeid, n.nodename)
         except KeyError:
-            return (id, )
+            return NodeEntity (id, None)
 
-    def logevent (self, event, **kwds):
+    def logevent (self, event, entity = None, **kwds):
         if not isinstance (event, Event):
-            event = Event (event, **kwds)
+            event = Event (event, entity, **kwds)
         event._local_node = self
         logging.info (event)
-        
+
+class NodeEntity (object):
+    def __init__ (self, nodeid, nodename):
+        self.nodeid = nodeid
+        self.nodename = nodename
+
+    def __str__ (self):
+        if self.nodename:
+            return "  Node {0.nodeid} ({0.nodename})".format (self)
+        return "Node {0.nodeid}".format (self)

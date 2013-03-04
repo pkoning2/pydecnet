@@ -27,10 +27,11 @@ T2 = 1
 T3MULT = 2
 BCT3MULT = 3
 DRDELAY = 5
-INFCOST = 31
-INFHOPS = 1023
+INFHOPS = 31
+INFCOST = 1023
 
 MTU = 576
+ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 
 # Make a version of "bytes" that pays attention to __bytes__ even
 # if the argument is an int.

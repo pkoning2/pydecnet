@@ -75,4 +75,16 @@ def main ():
     # the others get a thread of their own
     for n in nodes[:-1]:
         n.start ()
-    nodes[-1].start (mainthread = True)
+    try:
+        nodes[-1].start (mainthread = True)
+    finally:
+        # Stop nodes in reverse of the order in which they were started.
+        # Note that the last node (the one that owns the main thread)
+        # was already stopped by the time we get here.
+        for n in reversed (nodes[:-1]):
+            n.stop ()
+        # For symmetry with the startup messages:
+        threading.current_thread ().name = "MainThread"
+        logging.debug ("DECnet/Python shut down")
+        logging.shutdown ()
+        

@@ -7,6 +7,12 @@
 from .common import *
 from . import packet
 
+# Router type codes (basically those used in NICE):
+PHASE2 = 0
+L2ROUTER = 1
+L1ROUTER = 2
+ENDNODE = 3
+
 class ShortData (packet.Packet):
     _layout = (( "bm",
                  ( "sfpd", 0, 3 ),
@@ -178,18 +184,18 @@ class L1Routing (CtlHdr):
         payload = segs + s.to_bytes (2, packet.LE)
         return super ().encode () + payload
 
-    def entries (self):
-        """Returns the routing information entries defined
-        by this routing message.  Returned value is a dictionary
-        of entries, each with key = node id, and value (cost, hops)
+    def entries (self, circ):
+        """Return a generator that walks over the routing message
+        entries, yielding tuples: id, (cost, hops) -- the latter from the
+        point of view of the caller, i.e., with incoming circuit's
+        hop/cost included.
         """
-        entries = dict ()
+        cost = circ.config.cost
         for s in self.segments:
-            i = 0
+            i = s.startid
             for e in s.entries:
-                entries[i] = ( e.cost, e.hops )
+                yield i, (e.cost + cost, e.hops + 1)
                 i += 1
-        return entries
     
 class L2Routing (L1Routing):
     """A level 2 routing message.  Similar to a Level 1 routing
@@ -216,17 +222,17 @@ class PhaseIIIRouting (L1Routing):
             entries.append (e)
         return entries
 
-    def entries (self):
-        """Returns the routing information entries defined
-        by this routing message.  Returned value is a dictionary
-        of entries, each with key = node id, and value (cost, hops)
+    def entries (self, circ):
+        """Return a generator that walks over the routing message
+        entries, yielding tuples: id, (cost, hops) -- the latter from the
+        point of view of the caller, i.e., with incoming circuit's
+        hop/cost included.
         """
-        entries = dict ()
+        cost = circ.config.cost
         i = 1
         for e in self.segments:
-            entries[i] = ( e.cost, e.hops )
+            yield i, (e.cost + cost, e.hops + 1)
             i += 1
-        return entries
 
 class RouterHello (CtlHdr):
     _layout = (( Version, "tiver" ),
@@ -271,7 +277,7 @@ class EndnodeHello (CtlHdr):
                ( "i", "testdata", 128 ))
     type = 6
     hiid = HIORD
-    ntype = 3
+    ntype = ENDNODE
 
 tiver_ph3 = Version (1, 3, 0)
 tiver_ph4 = Version (2, 0, 0)

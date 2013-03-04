@@ -14,7 +14,7 @@ class Adjacency (Element, timers.Timer):
     """Base class for DECnet adjacencies.  Its parent class is the circuit
     to which this adjacency belongs.
     """
-    def __init__ (self, circuit, nodeid, t4, endnode):
+    def __init__ (self, circuit, nodeid, t4, ntype):
         Element.__init__ (self, circuit)
         timers.Timer.__init__ (self)
         self.circuit = circuit
@@ -23,8 +23,11 @@ class Adjacency (Element, timers.Timer):
         self.alive ()
         self.macid = Macaddr (nodeid)
         self.priority = 0
-        self.endnode = endnode
+        self.ntype = ntype
         
+    def __str__ (self):
+        return "Adjacent node {0.nodeid}".format (self)
+
     def __eq__ (self, other):
         if isinstance (other, self.__class__):
             return self.circuit == other.circuit and self.nodeid == other.nodeid
@@ -43,7 +46,8 @@ class Adjacency (Element, timers.Timer):
     def alive (self):
         """Mark this adjacency as alive -- restart its listen timeout.
         """
-        self.node.timers.start (self, self.t4)
+        if self.t4:
+            self.node.timers.start (self, self.t4)
         
     def down (self, **kwargs):
         """Mark this adjacency down by external request.  This in turn
