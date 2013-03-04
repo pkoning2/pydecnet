@@ -220,10 +220,18 @@ class Event (object):
             },
         }
 
-    def __init__ (self, event, **kwds):
+    def __init__ (self, event, entity = None, **kwds):
         self.event = event
+        self._entity = entity
         self.__dict__.update (kwds)
 
+    def paramid (self, kv):
+        k, v = kv
+        try:
+            return self.params[self.event[0]][k][0]
+        except KeyError:
+            return hash (k)
+        
     def __str__ (self):
         e = self.event
         n = self._local_node
@@ -233,7 +241,9 @@ class Event (object):
         ts = "{}.{:03d}".format (ts, ms)
         ret = [ "Event type {0[0]}.{0[1]}, {1}".format (e, self.eventnames[e]),
                 "  On {0.nodeid} ({0.nodename}), occurred {1}".format (n, ts) ]
-        for k, v in self.__dict__.items ():
+        if self._entity:
+            ret.append ("  {}".format (self._entity))
+        for k, v in sorted (self.__dict__.items (), key = self.paramid):
             if k != "event" and k[0] != "_":
                 k = k.replace ("_", " ").capitalize ()
                 if isinstance (v, str):

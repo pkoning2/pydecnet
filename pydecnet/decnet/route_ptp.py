@@ -9,6 +9,7 @@ import re
 from .common import *
 from . import packet
 from .routing_packets import *
+from .events import *
 from . import datalink
 from . import timers
 from . import statemachine
@@ -268,6 +269,9 @@ class PtpCircuit (statemachine.StateMachine, Element):
                                     verif = 0, blksize = MTU)
         h = self.hellomsg = PtpHello (srcnode = parent.nodeid,
                                       testdata = b'\252' * 10)
+
+    def __str__ (self):
+        return "Circuit {0.name}".format (self)
 
     def restart (self):
         self.datalink.close ()

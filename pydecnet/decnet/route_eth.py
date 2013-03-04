@@ -9,6 +9,7 @@ import time
 
 from .common import *
 from .routing_packets import *
+from .events import *
 from . import datalink
 from . import timers
 from . import adjacency
@@ -37,10 +38,14 @@ class LanCircuit (Element, timers.Timer):
         self.lasthello = 0
         self.holdoff = False
         
+    def __str__ (self):
+        return "Circuit {0.name}".format (self)
+
     def restart (self):
         self.start ()
 
     def start (self):
+        self.parent.circuit_up (self)
         self.sendhello ()
 
     def common_dispatch (self, work):
@@ -112,7 +117,7 @@ class EndnodeLanCircuit (LanCircuit):
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ (parent, name, datalink, config)
         self.hello = EndnodeHello (tiver = tiver_ph4,
-                                   blksize = MTU, id = parent.nodeid,
+                                   blksize = ETHMTU, id = parent.nodeid,
                                    timer = self.hellotime,
                                    testdata = 50 * b'\252')
         self.datalink.add_multicast (ALL_ENDNODES)
@@ -146,7 +151,8 @@ class EndnodeLanCircuit (LanCircuit):
                     # Different.  Make the old one go away
                     self.dr.down ()
                     self.dr = adjacency.BcAdjacency (self, item.id,
-                                                     item.timer * BCT3MULT, False)
+                                                     item.timer * BCT3MULT,
+                                                     ENDNODE)
                     self.parent.adjacency_up (self.dr)
                 else:
                     self.dr.alive ()
@@ -213,13 +219,13 @@ class RoutingLanCircuit (LanCircuit):
         self.drkey = (self.prio, self.node.nodeid)
         self.hello = RouterHello (tiver = tiver_ph4, prio = self.prio,
                                   ntype = parent.nodetype,
-                                  blksize = MTU, id = parent.nodeid,
+                                  blksize = ETHMTU, id = parent.nodeid,
                                   timer = self.hellotime)
 
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
-                 if not a.endnode and (anyarea or
-                                       a.nodeid.area == self.parent.homearea))
+                 if a.ntype != ENDNODE and
+                 (anyarea or a.nodeid.area == self.parent.homearea))
     
     def sendhello (self):
         self.lasthello = time.time ()
@@ -259,10 +265,10 @@ class RoutingLanCircuit (LanCircuit):
                     return
                 # End node.  If it's new, add its adjacency and mark it up.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id,
-                                                                      t4, True)
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4,
+                                                                      item.ntype)
                     a.up ()
-                elif a.endnode:
+                elif a.ntype == ENDNODE:
                     a.alive ()
                 else:
                     a.down (reason = "address_change")
@@ -270,8 +276,8 @@ class RoutingLanCircuit (LanCircuit):
             else:
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id,
-                                                                      t4, False)
+                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4,
+                                                                      ENDNODE)
                     a.state = INIT
                     a.priority = item.prio
                     a.ntype = item.ntype
@@ -288,7 +294,8 @@ class RoutingLanCircuit (LanCircuit):
                     hellochange = True
                 else:
                     a.alive ()
-                if a.endnode or a.ntype != item.ntype or a.priority != item.prio:
+                if a.ntype == ENDNODE or \
+                       a.ntype != item.ntype or a.priority != item.prio:
                     a.down (reason = "address_change")
                     return
                 # Process the received E-list and see if two-way state changed.
@@ -311,7 +318,10 @@ class RoutingLanCircuit (LanCircuit):
                                 # Don't kill the adjacency in our state, but
                                 # do as far as the control layer is concerned.
                                 a.state = INIT
-                                self.parent.adjacency_down (a, reason = "dropped")
+                                self.node.logevent (Event.adj_down, a.circuit,
+                                                    adjacent_node = self.node.eventnode (adj.nodeid),
+                                                    reason = "dropped")
+                                self.parent.adjacency_down (a)
                                 hellochange = True
                 # Update the DR state, if needed
                 self.calcdr ()
@@ -360,15 +370,21 @@ class RoutingLanCircuit (LanCircuit):
         
     def adjacency_up (self, a, **kwargs):
         a.state = UP
-        self.parent.adjacency_up (a, **kwargs)
+        self.node.logevent (Event.adj_up, a.circuit,
+                            adjacent_node = self.node.eventnode (a.nodeid),
+                            **kwargs)
+        self.parent.adjacency_up (a)
 
     def adjacency_down (self, a, **kwargs):
-        self.parent.adjacency_down (a, **kwargs)
+        self.node.logevent (Event.adj_down, a.circuit,
+                            adjacent_node = self.node.eventnode (a.nodeid),
+                            **kwargs)
+        self.parent.adjacency_down (a)
         try:
             del self.adjacencies[a.nodeid]
         except KeyError:
             pass
-        if not a.endnode:
+        if a.ntype != ENDNODE:
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
             self.newhello ()
