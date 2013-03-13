@@ -192,6 +192,7 @@ class L1Adjacency (L1CirAdj, _Adjacency):
             
     def down (self):
         L1CirAdj.down (self)
+        self.circuit.adjacency_down (self)
         if self.ntype == ENDNODE:
             # Remove this adjacency from the BEA list
             self.circuit.bea[self.nodeid.tid] = None
@@ -489,7 +490,8 @@ class L1Router (_Router, L1CirAdj):
             for r in routeinfodict.values ():
                 if r.cost[i] < bestc or \
                    (r.cost[i] == bestc and \
-                    (besta is None or r.nodeid > besta.nodeid)):
+                    (besta is None or
+                     (r.nodeid and r.nodeid > besta.nodeid))):
                     bestc = r.cost[i]
                     # routeinfo.adjacency is the adjacency for this
                     # next hop, unless we're dealing with an endnode

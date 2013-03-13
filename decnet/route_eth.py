@@ -87,6 +87,12 @@ class LanCircuit (timers.Timer):
                                    code, self.name)
                     return
         return work
+
+    def up (self):
+        pass
+
+    def down (self):
+        pass
     
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop
@@ -309,7 +315,7 @@ class RoutingLanCircuit (LanCircuit):
                             if a.state == UP:
                                 # Don't kill the adjacency in our state, but
                                 # do as far as the control layer is concerned.
-                                self.adjacency_down (a, reason = "dropped")
+                                self._adj_down (a, reason = "dropped")
                                 a.state = INIT
                                 hellochange = True
                 # Update the DR state, if needed
@@ -361,14 +367,7 @@ class RoutingLanCircuit (LanCircuit):
         else:
             self.sendhello ()
 
-    def deladj (self, a, **kwargs):
-        self.adjacency_down (a, **kwargs)
-        try:
-            del self.adjacencies[a.nodeid]
-        except KeyError:
-            pass
-
-    def adjacency_down (self, a, **kwargs):
+    def _adj_down (self, a, **kwargs):
         if a.state == UP:
             a.state = INIT
             a.down ()
@@ -376,3 +375,17 @@ class RoutingLanCircuit (LanCircuit):
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
             self.newhello ()
+
+    def deladj (self, a, **kwargs):
+        self._adj_down (a, **kwargs)
+        try:
+            del self.adjacencies[a.nodeid]
+        except KeyError:
+            pass
+
+    def adjacency_down (self, a, **kwargs):
+        """Called from the control layer to take an adjacency down.
+        """
+        a.state = INIT    # Avoid recursion
+        self.deladj (a, **kwargs)
+
