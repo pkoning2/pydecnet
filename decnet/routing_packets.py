@@ -140,6 +140,7 @@ class L1Routing (CtlHdr):
     initchecksum = 1
     type = 3
     segtype = L1Segment
+    lowid = 0
     
     def validate (self):
         segs = self.payload
@@ -186,7 +187,7 @@ class L1Routing (CtlHdr):
 
     def entries (self, circ):
         """Return a generator that walks over the routing message
-        entries, yielding tuples: id, (cost, hops) -- the latter from the
+        entries, yielding tuples: id, (hops, cost) -- the latter from the
         point of view of the caller, i.e., with incoming circuit's
         hop/cost included.
         """
@@ -194,7 +195,7 @@ class L1Routing (CtlHdr):
         for s in self.segments:
             i = s.startid
             for e in s.entries:
-                yield i, (e.cost + cost, e.hops + 1)
+                yield i, (e.hops + 1, e.cost + cost)
                 i += 1
     
 class L2Routing (L1Routing):
@@ -204,6 +205,7 @@ class L2Routing (L1Routing):
     """
     type = 4
     segtype = L2Segment
+    lowid = 1
     
 class PhaseIIIRouting (L1Routing):
     """A Phase III routing message.  Similar to a Level 1 routing
@@ -211,7 +213,9 @@ class PhaseIIIRouting (L1Routing):
     (defining routing data for all the nodes starting at node 1).
     """
     initchecksum = 0
-
+    segtype = None
+    lowid = 1
+    
     def decode_segments (self):
         id = 1
         data = self.payload[:-2]
@@ -224,14 +228,14 @@ class PhaseIIIRouting (L1Routing):
 
     def entries (self, circ):
         """Return a generator that walks over the routing message
-        entries, yielding tuples: id, (cost, hops) -- the latter from the
+        entries, yielding tuples: id, (hops, cost) -- the latter from the
         point of view of the caller, i.e., with incoming circuit's
         hop/cost included.
         """
         cost = circ.config.cost
         i = 1
         for e in self.segments:
-            yield i, (e.cost + cost, e.hops + 1)
+            yield i, (e.hops + 1, e.cost + cost)
             i += 1
 
 class RouterHello (CtlHdr):

@@ -55,7 +55,7 @@ class Node (object):
         # We now have a node.  Create its child entities in the appropriate order
         self.datalink = datalink.DatalinkLayer (self, config)
         self.mop = mop.Mop (self, config)
-        self.routing = routing.Routing (self, config)
+        self.routing = routing.Router (self, config)
 
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
@@ -154,5 +154,5 @@ class NodeEntity (object):
 
     def __str__ (self):
         if self.nodename:
-            return "  Node {0.nodeid} ({0.nodename})".format (self)
+            return "Node {0.nodeid} ({0.nodename})".format (self)
         return "Node {0.nodeid}".format (self)

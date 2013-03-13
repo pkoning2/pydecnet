@@ -247,7 +247,7 @@ The following figure shows the Routing Layer state transitions.
 
 """
           
-class PtpCircuit (statemachine.StateMachine, Element):
+class PtpCircuit (statemachine.StateMachine):
     """A point to point circuit, i.e., the datalink dependent
     routing sublayer instance for a non-Ethernet type circuit.
 
@@ -255,16 +255,13 @@ class PtpCircuit (statemachine.StateMachine, Element):
     and "datalink" (the datalink layer object for this circuit).
     """
     def __init__ (self, parent, name, datalink, config):
-        statemachine.StateMachine.__init__ (self)
-        Element.__init (self, parent)
-        self.name = name
-        self.config = config.circuits[name]
+        super ().__init__ ()
         self.listentimer = CallbackTimer (self.listentimeout, self)
         self.hellotime = self.config.t3 or 60
         self.listentime = self.hellotime * 3
         self.datalink = datalink
         i = self.initmsg = PtpInit (srcnode = parent.nodeid,
-                                    ntype = parent.nodetype,
+                                    ntype = parent.ntype,
                                     tiver = tiver_ph4,
                                     verif = 0, blksize = MTU)
         h = self.hellomsg = PtpHello (srcnode = parent.nodeid,

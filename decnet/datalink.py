@@ -211,6 +211,8 @@ class BcPort (Port):
         self.destfilter = set (self.multicast)
         self.destfilter.add (addr)
 
+FILL = b'\x42' * 60
+
 class EthPort (BcPort):
     """DEC Ethernet port class.
     """
@@ -247,6 +249,8 @@ class EthPort (BcPort):
             l += 14
         # Always send packet padded to min of 60 if need be, whether
         # pad mode is specified or not.
+        if l < 60:
+            f[l:60] = FILL[l:60]
         l = max (l, 60)
         self.parent.send_frame (memoryview (f)[:l])
 
