@@ -64,7 +64,7 @@ class CallbackTimer (Timer):
     """
     __slots__ = ("fun", "arg")
     
-    def __init__ (self, fun, arg):
+    def __init__ (self, fun, arg = None):
         super ().__init__ ()
         self.fun = fun
         self.arg = arg

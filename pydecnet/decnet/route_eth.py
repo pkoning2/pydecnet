@@ -12,14 +12,16 @@ from .routing_packets import *
 from .events import *
 from . import datalink
 from . import timers
-from . import adjacency
 from .route_ptp import ShortData
 
 # Some well known Ethernet addresses
 ALL_ROUTERS = Macaddr ("AB-00-00-03-00-00")
 ALL_ENDNODES = Macaddr ("AB-00-00-04-00-00")
 
-class LanCircuit (Element, timers.Timer):
+def sortkey (adj):
+    return adj.priority, adj.nodeid
+
+class LanCircuit (timers.Timer):
     """A broadcast circuit, i.e., the datalink dependent
     routing sublayer instance for an Ethernet type circuit.
 
@@ -28,10 +30,7 @@ class LanCircuit (Element, timers.Timer):
     (the config parameters for the circuit).
     """
     def __init__ (self, parent, name, datalink, config):
-        Element.__init__ (self, parent)
-        timers.Timer.__init__ (self)
-        self.name = name
-        self.config = config
+        super ().__init__ ()
         self.hellotime = config.t3 or 10
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
         self.datalink.set_macaddr (parent.nodemacaddr)
@@ -45,7 +44,7 @@ class LanCircuit (Element, timers.Timer):
         self.start ()
 
     def start (self):
-        self.parent.circuit_up (self)
+        self.up ()
         self.sendhello ()
 
     def common_dispatch (self, work):
@@ -150,16 +149,11 @@ class EndnodeLanCircuit (LanCircuit):
                 if self.dr.nodeid != item.id:
                     # Different.  Make the old one go away
                     self.dr.down ()
-                    self.dr = adjacency.BcAdjacency (self, item.id,
-                                                     item.timer * BCT3MULT,
-                                                     ENDNODE)
-                    self.parent.adjacency_up (self.dr)
+                    self.dr = self.Adjacency (self, item)
                 else:
                     self.dr.alive ()
             else:
-                self.dr = adjacency.BcAdjacency (self, item.id,
-                                                 item.timer * BCT3MULT, False)
-                self.parent.adjacency_up (self.dr)
+                self.dr = self.Adjacency (self, item)
         elif isinstance (item, EndnodeHello):
             logging.debug ("Endnode hello from %s received by endnode",
                            item.src)
@@ -179,10 +173,6 @@ class EndnodeLanCircuit (LanCircuit):
         except KeyError:
             pass
         
-    def adjacency_down (self):
-        self.parent.adjacency_down (self.dr)
-        self.dr = None
-
     def send (self, pkt, dstnode, tryhard = False):
         """Send pkt to dstnode.
         """
@@ -214,14 +204,16 @@ class RoutingLanCircuit (LanCircuit):
         self.datalink.add_multicast (ALL_ROUTERS)
         self.adjacencies = dict ()
         self.isdr = False
+        self.dr = None
         self.nr = config.nr
         self.prio = config.priority
         self.drkey = (self.prio, self.node.nodeid)
         self.hello = RouterHello (tiver = tiver_ph4, prio = self.prio,
-                                  ntype = parent.nodetype,
+                                  ntype = parent.ntype,
                                   blksize = ETHMTU, id = parent.nodeid,
                                   timer = self.hellotime)
-
+        self.minrouterblk = ETHMTU
+        
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
                  if a.ntype != ENDNODE and
@@ -246,12 +238,13 @@ class RoutingLanCircuit (LanCircuit):
             # Rejected by common code
             return
         if isinstance (item, timers.Timeout):
+            self.calcdr ()
             self.sendhello ()
         elif isinstance (item, (EndnodeHello, RouterHello)):
             id = item.id
             t4 = item.timer * BCT3MULT
             if id.area != self.parent.homearea and \
-               not (self.parent.nodetype == 1 and \
+               not (self.parent.ntype == 1 and \
                     item.ntype == 1):
                 # Silently ignore out of area hellos, unless we're an
                 # area router and so is the sender.
@@ -261,42 +254,40 @@ class RoutingLanCircuit (LanCircuit):
             if isinstance (item, EndnodeHello):
                 if not testdata_re.match (item.testdata):
                     if a:
-                        a.down (reason = "listener_invalid_data")
+                        self.deladj (a, reason = "listener_invalid_data")
                     return
                 # End node.  If it's new, add its adjacency and mark it up.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4,
-                                                                      item.ntype)
+                    a = self.adjacencies[id] = self.Adjacency (self, item)
+                    a.state = UP
                     a.up ()
                 elif a.ntype == ENDNODE:
                     a.alive ()
                 else:
-                    a.down (reason = "address_change")
+                    self.deladj (a, reason = "address_change")
                     return
             else:
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
-                    a = self.adjacencies[id] = adjacency.BcAdjacency (self, id, t4,
-                                                                      ENDNODE)
+                    a = self.adjacencies[id] = self.Adjacency (self, item)
                     a.state = INIT
-                    a.priority = item.prio
-                    a.ntype = item.ntype
                     # Check that the RSlist is not too long
                     rslist = list (self.routers ())
                     if len (rslist) > self.nr:
                         # The list is full.  Add the new node and remove
                         # the lowest priority one.
-                        a2 = min (rslist, key = adjacency.BcAdjacency.sortkey)
-                        a2.down ()
+                        a2 = min (rslist, key = sortkey)
+                        self.deladj (a2)
                         if a == a2:
                             # This node is the lowest priority, ignore its hello
                             return
+                    self.minrouterblk = min (a.blksize for a in rslist)
                     hellochange = True
                 else:
                     a.alive ()
                 if a.ntype == ENDNODE or \
                        a.ntype != item.ntype or a.priority != item.prio:
-                    a.down (reason = "address_change")
+                    self.deladj (a, reason = "address_change")
                     return
                 # Process the received E-list and see if two-way state changed.
                 rslist = Elist (item.elist).rslist
@@ -307,21 +298,19 @@ class RoutingLanCircuit (LanCircuit):
                         if ent.prio != self.prio:
                             logging.error ("Node %s has our prio as %d rather than %d",
                                            id, ent.prio, self,prio)
-                            a.down (reason = "data_errors")
+                            self.deladj (a, reason = "data_errors")
                             return
                         if ent.twoway:
                             if a.state == INIT:
+                                a.state = UP
                                 a.up ()
                                 hellochange = True
                         else:
                             if a.state == UP:
                                 # Don't kill the adjacency in our state, but
                                 # do as far as the control layer is concerned.
+                                self.adjacency_down (a, reason = "dropped")
                                 a.state = INIT
-                                self.node.logevent (Event.adj_down, a.circuit,
-                                                    adjacent_node = self.node.eventnode (adj.nodeid),
-                                                    reason = "dropped")
-                                self.parent.adjacency_down (a)
                                 hellochange = True
                 # Update the DR state, if needed
                 self.calcdr ()
@@ -344,15 +333,19 @@ class RoutingLanCircuit (LanCircuit):
         routers = list (self.routers (False))
         if routers:
             # Look for the best remote router, if there are any
-            dr = max (routers, key = adjacency.BcAdjacency.sortkey)
-        if not routers or self.drkey > adjacency.BcAdjacency.sortkey (dr):
+            dr = max (routers, key = sortkey)
+        if not routers or self.drkey > sortkey (dr):
             # Tag, we're it, but don't act on that for DRDELAY seconds.
             if not self.isdr:
+                logging.debug ("Designated router is self")
                 self.isdr = True
                 self.holdoff = True
                 self.node.timers.start (self, DRDELAY)
         else:
             self.isdr = False
+            if self.dr != dr:
+                self.dr = dr
+                logging.debug ("Designated router is %s", dr.nodeid)
             
     def newhello (self):
         """Hello content changed.  Send a new one right now, unless
@@ -367,23 +360,18 @@ class RoutingLanCircuit (LanCircuit):
                 self.node.timers.start (self, deltat)
         else:
             self.sendhello ()
-        
-    def adjacency_up (self, a, **kwargs):
-        a.state = UP
-        self.node.logevent (Event.adj_up, a.circuit,
-                            adjacent_node = self.node.eventnode (a.nodeid),
-                            **kwargs)
-        self.parent.adjacency_up (a)
 
-    def adjacency_down (self, a, **kwargs):
-        self.node.logevent (Event.adj_down, a.circuit,
-                            adjacent_node = self.node.eventnode (a.nodeid),
-                            **kwargs)
-        self.parent.adjacency_down (a)
+    def deladj (self, a, **kwargs):
+        self.adjacency_down (a, **kwargs)
         try:
             del self.adjacencies[a.nodeid]
         except KeyError:
             pass
+
+    def adjacency_down (self, a, **kwargs):
+        if a.state == UP:
+            a.state = INIT
+            a.down ()
         if a.ntype != ENDNODE:
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()

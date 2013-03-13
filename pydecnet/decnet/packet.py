@@ -369,7 +369,7 @@ class Packet (metaclass = packet_encoding_meta):
             # For fields not defined in the object, substitute zero
             val = getattr (self, name, 0)
             if val >> bits:
-                raise OverflowError ("Field %s value too large for %d bit field" % (name, bits))
+                raise OverflowError ("Field %s value %d too large for %d bit field" % (name, val, bits))
             field |= val << start
         return field.to_bytes (flen, LE)
 
