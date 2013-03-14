@@ -47,6 +47,9 @@ class LanCircuit (timers.Timer):
         self.up ()
         self.sendhello ()
 
+    def stop (self):
+        pass
+    
     def common_dispatch (self, work):
         if isinstance (work, datalink.DlReceive):
             if work.src == self.parent.nodemacaddr:
@@ -88,10 +91,10 @@ class LanCircuit (timers.Timer):
                     return
         return work
 
-    def up (self):
+    def up (self, **kwargs):
         pass
 
-    def down (self):
+    def down (self, **kwargs):
         pass
     
 class NiCacheEntry (timers.Timer):
@@ -121,7 +124,7 @@ class EndnodeLanCircuit (LanCircuit):
     """
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ (parent, name, datalink, config)
-        self.hello = EndnodeHello (tiver = tiver_ph4,
+        self.hello = EndnodeHello (tiver = parent.tiver,
                                    blksize = ETHMTU, id = parent.nodeid,
                                    timer = self.hellotime,
                                    testdata = 50 * b'\252')
@@ -154,7 +157,7 @@ class EndnodeLanCircuit (LanCircuit):
                 # Router hello when we already know a router.  Same?
                 if self.dr.nodeid != item.id:
                     # Different.  Make the old one go away
-                    self.dr.down ()
+                    self.dr.down (reason = "address_change")
                     self.dr = self.Adjacency (self, item)
                 else:
                     self.dr.alive ()
@@ -185,7 +188,7 @@ class EndnodeLanCircuit (LanCircuit):
         if isinstance (pkt, ShortData):
             pkt = LongData (copy = pkt, payload = pkt.payload)
         if tryhard:
-            self.expire_cache (dstnode)
+            self.cache_expire (dstnode)
         else:
             try:
                 prev = self.prevhops[dstnode]
@@ -214,23 +217,31 @@ class RoutingLanCircuit (LanCircuit):
         self.nr = config.nr
         self.prio = config.priority
         self.drkey = (self.prio, self.node.nodeid)
-        self.hello = RouterHello (tiver = tiver_ph4, prio = self.prio,
+        self.hello = RouterHello (tiver = parent.tiver, prio = self.prio,
                                   ntype = parent.ntype,
                                   blksize = ETHMTU, id = parent.nodeid,
                                   timer = self.hellotime)
         self.minrouterblk = ETHMTU
+
+    def stop (self):
+        self.sendhello (empty = True)
         
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
                  if a.ntype != ENDNODE and
                  (anyarea or a.nodeid.area == self.parent.homearea))
     
-    def sendhello (self):
+    def sendhello (self, empty = False):
         self.lasthello = time.time ()
+        self.holdoff = False
         h = self.hello
-        rslist = b''.join ([ bytes (RSent (router = a.nodeid, prio = a.priority,
-                                           twoway = (a.state == UP)))
-                             for a in self.routers () ])
+        if empty:
+            rslist = b''
+        else:
+            rslist = b''.join ([ bytes (RSent (router = a.nodeid,
+                                               prio = a.priority,
+                                               twoway = (a.state == UP)))
+                                 for a in self.routers () ])
         h.elist = bytes (Elist (rslist = rslist))
         self.datalink.send (h, ALL_ROUTERS)
         if self.isdr:
@@ -250,8 +261,8 @@ class RoutingLanCircuit (LanCircuit):
             id = item.id
             t4 = item.timer * BCT3MULT
             if id.area != self.parent.homearea and \
-               not (self.parent.ntype == 1 and \
-                    item.ntype == 1):
+               not (self.parent.ntype == L2ROUTER and \
+                    item.ntype == L2ROUTER):
                 # Silently ignore out of area hellos, unless we're an
                 # area router and so is the sender.
                 return
@@ -280,8 +291,8 @@ class RoutingLanCircuit (LanCircuit):
                     # Check that the RSlist is not too long
                     rslist = list (self.routers ())
                     if len (rslist) > self.nr:
-                        # The list is full.  Add the new node and remove
-                        # the lowest priority one.
+                        # The list is full.  Remove the lowest priority one
+                        # (which may be the new one).
                         a2 = min (rslist, key = sortkey)
                         self.deladj (a2)
                         if a == a2:
@@ -296,7 +307,9 @@ class RoutingLanCircuit (LanCircuit):
                     self.deladj (a, reason = "address_change")
                     return
                 # Process the received E-list and see if two-way state changed.
+                # First look to see if our entry is in there.
                 rslist = Elist (item.elist).rslist
+                selfent = None
                 while rslist:
                     ent = RSent ()
                     rslist = ent.decode (rslist)
@@ -306,18 +319,23 @@ class RoutingLanCircuit (LanCircuit):
                                            id, ent.prio, self,prio)
                             self.deladj (a, reason = "data_errors")
                             return
-                        if ent.twoway:
-                            if a.state == INIT:
-                                a.state = UP
-                                a.up ()
-                                hellochange = True
-                        else:
-                            if a.state == UP:
-                                # Don't kill the adjacency in our state, but
-                                # do as far as the control layer is concerned.
-                                self._adj_down (a, reason = "dropped")
-                                a.state = INIT
-                                hellochange = True
+                        selfent = ent
+                        break
+                if selfent:
+                    # We're listed, which means two way communication,
+                    # so set the adjacency "up"
+                    if a.state == INIT:
+                        a.state = UP
+                        a.up ()
+                        hellochange = True
+                else:
+                    # We're either not listed, or not two way.
+                    if a.state == UP:
+                        # Don't kill the adjacency in our state, but
+                        # do as far as the control layer is concerned.
+                        self._adj_down (a, reason = "dropped")
+                        a.state = INIT
+                        hellochange = True
                 # Update the DR state, if needed
                 self.calcdr ()
                 # If something we saw changes what we say in the hello, send
@@ -345,6 +363,7 @@ class RoutingLanCircuit (LanCircuit):
             if not self.isdr:
                 logging.debug ("Designated router is self")
                 self.isdr = True
+                self.dr = self.parent
                 self.holdoff = True
                 self.node.timers.start (self, DRDELAY)
         else:
@@ -370,11 +389,14 @@ class RoutingLanCircuit (LanCircuit):
     def _adj_down (self, a, **kwargs):
         if a.state == UP:
             a.state = INIT
-            a.down ()
+            a.down (**kwargs)
         if a.ntype != ENDNODE:
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
             self.newhello ()
+            self.minrouterblk = ETHMTU
+            for r in self.routers ():
+                self.minrouterblk = min (self.minrouterblk, r.blksize)
 
     def deladj (self, a, **kwargs):
         self._adj_down (a, **kwargs)

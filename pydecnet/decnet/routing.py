@@ -6,6 +6,7 @@
 
 import time
 import array
+import sys
 
 from .common import *
 from .routing_packets import *
@@ -35,26 +36,26 @@ class CirAdj (object):
         self.circuit = circuit
         self.routing = circuit.routing
         
-    def up (self, nodeid = None, ntype = None):
+    def up (self, nodeid = None, ntype = None, **kwargs):
         if ntype:
             self.nodeid = nodeid
             self.ntype = ntype
-        self.log_up ()
+        self.log_up (**kwargs)
 
-    def down (self):
-        self.log_down ()
+    def down (self, **kwargs):
+        self.log_down (**kwargs)
     
 class L1CirAdj (CirAdj):
     """Circuit/Adjacency common behavior on L1 routers (or the L1 part
     of area routers).
     """
     def __init__ (self, circuit):
-        super ().__init__ (circuit)
+        CirAdj.__init__ (self, circuit)
         self.hops, self.cost = allocvecs (self.routing.maxnodes)
         self.routeinfo = RouteInfo (self)
 
-    def up (self, nodeid = None, ntype = None):
-        super ().up (nodeid, ntype)
+    def up (self, nodeid = None, ntype = None, **kwargs):
+        CirAdj.up (self, nodeid, ntype, **kwargs)
         if self.ntype == ENDNODE:
             id = self.nodeid.tid
             circ = self.circuit
@@ -68,8 +69,8 @@ class L1CirAdj (CirAdj):
             self.circuit.setsrm (0, self.routing.maxnodes)
             self.routing.l1info[self] = self.routeinfo
         
-    def down (self):
-        super ().down ()
+    def down (self, **kwargs):
+        CirAdj.down (self, **kwargs)
         if self.ntype == ENDNODE:
             id = self.nodeid.tid
             circ = self.circuit
@@ -84,19 +85,19 @@ class L2CirAdj (L1CirAdj):
     """The additional adjacency/cicuit common behavior for an area router.
     """
     def __init__ (self, circuit):
-        super ().__init__ (circuit)
+        L1CirAdj.__init__ (self, circuit)
         self.ahops, self.acost = allocvecs (self.routing.maxarea)
         self.arouteinfo = RouteInfo (self, l2 = True)
     
-    def up (self, nodeid = None, ntype = None):
-        super ().up (nodeid, ntype)
+    def up (self, nodeid = None, ntype = None, **kwargs):
+        L1CirAdj.up (self, nodeid, ntype, **kwargs)
         setinf (self.ahops, self.acost)
         if self.ntype == L2ROUTER:
-            self.circuit.setasrm (0, parent.maxarea)
+            self.circuit.setasrm (0, self.routing.maxarea)
             self.routing.l2info[self] = self.arouteinfo
 
-    def down (self):
-        super ().down ()
+    def down (self, **kwargs):
+        L1CirAdj.down (self, **kwargs)
         if self.ntype == L2ROUTER:
             del self.routing.l2info[self]
             self.routing.aroute (0, self.routing.maxarea)
@@ -120,6 +121,7 @@ class _Adjacency (Element, timers.Timer):
         self.blksize = hellomsg.blksize
         self.nodeid = hellomsg.id
         self.ntype = hellomsg.ntype
+        self.tiver = hellomsg.tiver
         self.macid = Macaddr (self.nodeid)
         self.priority = 0
         
@@ -140,7 +142,7 @@ class _Adjacency (Element, timers.Timer):
         """Work item handler.
         """
         if isinstance (item, timers.Timeout):
-            self.down ()
+            self.down (reason = "listener_timeout")
             
     def alive (self):
         """Mark this adjacency as alive -- restart its listen timeout.
@@ -184,21 +186,15 @@ class L1Adjacency (L1CirAdj, _Adjacency):
         if self.ntype != ENDNODE:
             self.priority = hellomsg.prio
 
-    def up (self):
-        L1CirAdj.up (self)
+    def up (self, **kwargs):
+        L1CirAdj.up (self, **kwargs)
         if self.ntype == ENDNODE:
             # Add this adjacency to the BEA list
             self.circuit.bea[self.nodeid.tid] = self
             
-    def down (self):
-        L1CirAdj.down (self)
-        self.circuit.adjacency_down (self)
-        if self.ntype == ENDNODE:
-            # Remove this adjacency from the BEA list
-            self.circuit.bea[self.nodeid.tid] = None
-        else:
-            self.circuit.calcdr ()
-            self.circuit.newhello ()
+    def down (self, **kwargs):
+        L1CirAdj.down (self, **kwargs)
+        self.circuit.adjacency_down (self, **kwargs)
             
 class L2Adjacency (L2CirAdj, L1Adjacency):
     """Adjacency class as used on area routers.
@@ -226,9 +222,6 @@ class L1Circuit (Circuit):
     """The routing layer circuit behavior for a circuit in a level 1
     router (or the level 1 functionality of an area router).
     """
-    def __init__ (self, parent, name, dl, config):
-        super ().__init__ (parent, name, dl, config)
-
     def setsrm (self, tid, endtid = None):
         self.update.setsrm (tid, endtid)
         
@@ -238,9 +231,6 @@ class L1Circuit (Circuit):
 class L2Circuit (L1Circuit):
     """The additional cicuit behavior for an area router.
     """
-    def __init__ (self, parent, name, dl, config):
-        super ().__init__ (parent, name, dl, config)
-
     def setasrm (self, area, endarea = None):
         self.aupdate.setsrm (area, endarea)
 
@@ -263,7 +253,8 @@ class PtpL1Circuit (route_ptp.PtpCircuit, L1CirAdj, L1Circuit):
         L1Circuit.__init__ (self, parent, name, datalink, config)
         L1CirAdj.__init__ (self, self)
         self.update = Update (self, self.routing.config.t1,
-                              self.routing.maxnodes)
+                              self.routing.minhops, self.routing.mincost,
+                              L1Routing)
         
 class PtpL2Circuit (PtpL1Circuit, L2CirAdj, L2Circuit):
     """Point to point circuit on an area router.  
@@ -273,7 +264,8 @@ class PtpL2Circuit (PtpL1Circuit, L2CirAdj, L2Circuit):
         L2Circuit.__init__ (self, parent, name, datalink, config)
         L2CirAdj.__init__ (self, self)
         self.aupdate = Update (self, self.routing.config.t1,
-                               self.routing.maxarea)
+                               self.routing.aminhops, self.routing.amincost,
+                               L2Routing)
 
 # The LAN circuits have the analogous base classes.  Note that the routing
 # versions still have a CirAdj base class -- that is used to store the
@@ -329,6 +321,8 @@ class _Router (Element):
     """The routing layer.  Mainly this is the parent of a number of control
     components and collections of circuits and adjacencies.
     """
+    tiver = tiver_ph4
+    
     def __init__ (self, parent, config):
         super ().__init__ (parent)
         logging.debug ("Initializing routing layer")
@@ -337,8 +331,7 @@ class _Router (Element):
         self.circuits = dict ()
         self.nodeid = config.routing.id
         self.nodemacaddr = Macaddr (self.nodeid)
-        self.homearea = self.nodeid.area
-        self.tid = self.nodeid.tid
+        self.homearea, self.tid = self.nodeid.split ()
         self.typename = config.routing.type
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
@@ -373,6 +366,17 @@ class _Router (Element):
         self.node.logevent (Event.node_state, reason = "operator_command",
                             old_state = "off", new_state = "on")
     
+    def stop (self):
+        logging.debug ("Stopping Routing layer")
+        for name, c in self.circuits.items ():
+            try:
+                c.stop ()
+                logging.debug ("Stopped Routing circuit %s", name)
+            except Exception:
+                logging.exception ("Error stopping Routing circuit %s", name)
+        self.node.logevent (Event.node_state, reason = "operator_command",
+                            old_state = "on", new_state = "off")
+    
     def dispatch (self, item):
         pass
 
@@ -385,10 +389,29 @@ class EndnodeRouting (_Router):
     
     def __init_ (self, parent, config):
         super ().__init__ (parent, config)
-        if len (self.config.circuit) > 1:
+        if len (parent.circuits) != 1:
             raise ValueError ("End node must have 1 circuit, found %d" % \
-                              len (self.config.circuits))
-        
+                              len (parent.circuits))
+        # Remember that one circuit for easier access
+        for c in parent.circuits.values ():
+            self.circuit = c
+
+    def send (self, data, dest, rqr = False, tryhard = False):
+        """Send NSP data to the given destination.  rqr is True to
+        request return to sender (done for CI messages).  tryhard is
+        True to request ignoring endnode cache entries; this is done
+        for retransmits.  For routers it has no effect and is ignored.
+        """
+        pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
+                        srcnode = self.nodeid, visit = 0,
+                        payload = data)
+        self.c.send (pkt, dest, tryhard)
+
+    def dispatch (self, item):
+        if isinstance (item, (ShortData, LongData)):
+            if item.dstnode == self.nodeid:
+                self.node.addwork (item, self.node.nsp)
+
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
     separated out for easier access.
@@ -413,6 +436,7 @@ class L1Router (_Router, L1CirAdj):
     LanCircuit = LanL1Circuit
     PtpCircuit = PtpL1Circuit
     ntype = L1ROUTER
+    attached = False    # Set on L2 router, needed by check
 
     def __init__ (self, parent, config):
         # These are needed by various constructors so grab them first
@@ -422,46 +446,56 @@ class L1Router (_Router, L1CirAdj):
         self.maxcost = rconfig.maxcost
         self.maxvisits = rconfig.maxvisits
         self.minhops, self.mincost = allocvecs (rconfig.maxnodes)
+        self.oadj = [ None ] * (self.maxnodes + 1)
         _Router.__init__ (self, parent, config)
         L1CirAdj.__init__ (self, self)
         self.l1info = dict ()
         self.adjacencies = dict ()
-        self.oadj = [ None ] * (self.maxnodes + 1)
 
     # CirAdj.up calls this:
     def log_up (self):
         pass
 
-    def start (self):
-        super ().start ()
+    def up (self):
         # The routing object includes adjacency data which describes
         # "self" (the routing architecture spec shows this as column 0
         # of the routing matrix).
-        self.up ()
-        # The "up" call sets the whole column to infinite, so set our
+        L1CirAdj.up (self)
+        # The CirAdj "up" call sets the whole column to infinite, so set our
         # own entries correctly.
         tid = self.parent.nodeid.tid
         self.hops[tid] = self.cost[tid] = 0
         self.oadj[tid] = self
+        
+    def start (self):
+        super ().start ()
+        self.up ()
         self.route (0, self.maxnodes)
+        
+    def routemsg (self, item, info, route, maxid):
+        adj = item.src
+        maxreach = 0
+        for k, v in item.entries (adj.circuit):
+            if k > maxid:
+                if v != (INFHOPS, INFCOST):
+                    maxreach = max (maxreach, k)
+                continue
+            oldv = info.hops[k], info.cost[k]
+            if oldv != v:
+                info.hops[k], info.cost[k] = v
+                route (k)
+        if maxreach:
+            self.node.logevent (Event.rout_upd_loss, adj.circuit,
+                                highest_address = maxreach,
+                                adjacent_node = self.node.eventnode (adj.nodeid))
         
     def dispatch (self, item):
         if isinstance (item, L1Routing):
             adj = item.src
-            maxreach = 0
-            for k, v in item.entries (adj.circuit):
-                if k > self.maxnodes:
-                    if v != (INFHOPS, INFCOST):
-                        maxreach = max (maxreach, k)
-                    continue
-                oldv = adj.hops[k], adj.cost[k]
-                if oldv != v:
-                    adj.hops[k], adj.cost[k] = v
-                    self.route (k)
-            if maxreach:
-                self.node.logevent (Event.rout_upd_loss, adj.circuit,
-                                    highest_address = maxreach,
-                                    adjacent_node = self.node.eventnode (adj.nodeid))
+            if adj.nodeid.area == self.homearea:
+                self.routemsg (item, adj.routeinfo, self.route, self.maxnodes)
+        elif isinstance (item, (ShortData, LongData)):
+            self.forward (item)
             
     def setsrm (self, tid, endtid = None):
         for c in self.circuits.values ():
@@ -486,13 +520,14 @@ class L1Router (_Router, L1CirAdj):
             setsrm = self.setsrm
         self.check ()
         for i in range (start, end + 1):
-            bestc, besta = INFCOST, None
+            besth, bestc, besta = INFHOPS, INFCOST, None
             for r in routeinfodict.values ():
                 if r.cost[i] < bestc or \
                    (r.cost[i] == bestc and \
                     (besta is None or
                      (r.nodeid and r.nodeid > besta.nodeid))):
                     bestc = r.cost[i]
+                    besth = r.hops[i]
                     # routeinfo.adjacency is the adjacency for this
                     # next hop, unless we're dealing with an endnode
                     # in which case that is the circuit where the
@@ -503,7 +538,6 @@ class L1Router (_Router, L1CirAdj):
                     besta = r.adjacency
                     if r.nodeid == 0:
                         besta = besta.bea[i]
-            besth = besta.hops[i]
             if bestc > self.maxcost or besth > self.maxhops:
                 besth, bestc, besta = INFHOPS, INFCOST, None
             if minhops[i] != besth or mincost[i] != bestc:
@@ -516,8 +550,13 @@ class L1Router (_Router, L1CirAdj):
                 #               i, bestc, besth,
                 #               besta.circuit.name, besta.nodeid)
                 if l2:
-                    pass
-                else:
+                    if besta:
+                        self.node.logevent (Event.area_chg, i,
+                                            status = "reachable")
+                    else:
+                        self.node.logevent (Event.area_chg, i,
+                                            status = "unreachable")
+                elif i:
                     nod = self.node.eventnode (Nodeid (self.homearea, i))
                     if besta:
                         self.node.logevent (Event.reach_chg, nod,
@@ -533,13 +572,82 @@ class L1Router (_Router, L1CirAdj):
         pass
     
     def check (self):
-        tid = self.nodeid.tid
-        for i in range (self.maxnodes + 1):
-            if i == tid:
-                assert self.hops[i] == self.cost[i] == 0
-            else:
-                assert self.hops[i] == INFHOPS and self.cost[i] == INFCOST
+        try:
+            tid = self.nodeid.tid
+            for i in range (self.maxnodes + 1):
+                if i == tid or (self.attached and i == 0):
+                    assert self.hops[i] == self.cost[i] == 0
+                else:
+                    assert self.hops[i] == INFHOPS and self.cost[i] == INFCOST
+        except AssertionError:
+            logging.critical ("Check failure on L1 entry %d: %d %d",
+                              i, self.hops[i], self.cost[i])
+            sys.exit (1)
 
+    def findoadj (self, dest):
+        """Find the output adjacency for this destination address.
+        """
+        area, tid = dest.split ()
+        if area != self.homearea:
+            tid = 0
+        return self.oadj[tid]
+
+    def send (self, data, dest, rqr = False, tryhard = False):
+        """Send NSP data to the given destination.  rqr is True to
+        request return to sender (done for CI messages).  tryhard is
+        True to request ignoring endnode cache entries; this is done
+        for retransmits.  For routers it has no effect and is ignored.
+        """
+        pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
+                        srcnode = self.nodeid, visit = 0,
+                        payload = data)
+        self.forward (pkt)
+        
+    def forward (self, pkt, tryhard = False):
+        dest = pkt.dstnode
+        if dest == self.nodeid:
+            # Terminating packet - hand it to NSP
+            self.node.addwork (pkt, self.node.nsp)
+            return
+        else:
+            a = self.findoadj (dest)
+            if a:
+                # Destination is reachable.  Send it, unless
+                # we're at the visit limit
+                srcadj = pkt.src
+                if srcadj:
+                    # Forwarding (as opposed to originating)
+                    pkt.visit += 1
+                    if srcadj.circuit != a.circuit:
+                        # Mark "not intra-Ethernet"
+                        pkt.ie = 0
+                    limit = self.maxvisits
+                    if pkt.rts:
+                        limit *= 2
+                    if pkt.visit <= limit:
+                        # Visit limit still ok, send it and exit
+                        a.send (pkt, tryhard)
+                        return
+            # If we get to this point, we could not forward the packet,
+            # for one of two reasons: not reachable, or too many visits.
+            # Return to sender if requested and not already underway,
+            # else drop the packet.
+            if self.rqr and not self.rts:
+                pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
+                pkt.rts = 1
+                self.forward (pkt)
+                return
+            # FIXME: Build correct packet header argument
+            if isinstance (pkt, ShortData):
+                kwargs = { packet_header : 1234 }
+            else:
+                kwargs = { eth_packet_header : 1234 }
+            if a:
+                # Reachable, so the problem was max visits
+                self.node.logevent (aged_drop, **kwargs)
+            else:
+                self.node.logevent (unreach_drop, adjacency = srcadj, **kwargs)
+            
 class L2Router (L1Router, L2CirAdj):
     """Routing entity for level 2 (area) routers
     """
@@ -553,35 +661,34 @@ class L2Router (L1Router, L2CirAdj):
         self.amaxhops = rconfig.amaxhops
         self.amaxcost = rconfig.amaxcost
         self.aminhops, self.amincost = allocvecs (rconfig.maxarea)
+        self.aoadj = [ None ] * (self.maxarea + 1)
         L1Router.__init__ (self, parent, config)
         L2CirAdj.__init__ (self, self)
+        self.attached = False
         self.l2info = dict ()
-        self.aoadj = [ None ] * (self.maxnodes + 1)
         
-    def start (self):
-        super ().start ()
+    def up (self):
+        # The routing object includes adjacency data which describes
+        # "self" (the routing architecture spec shows this as column 0
+        # of the routing matrix).
+        L2CirAdj.up (self)
+        # The CirAdj "up" call sets the whole column to infinite, so set our
+        # own entries correctly.
+        tid = self.parent.nodeid.tid
+        self.hops[tid] = self.cost[tid] = 0
+        self.oadj[tid] = self
         area = self.nodeid.area
         self.ahops[area] = self.acost[area] = 0
         self.aoadj[area] = self
+        
+    def start (self):
+        super ().start ()
         self.aroute (1, self.maxarea)
 
     def dispatch (self, item):
         if isinstance (item, L2Routing):
             adj = item.src
-            maxreach = 0
-            for k, v in item.entries (adj.circuit):
-                if k > self.maxarea:
-                    if v != (INFHOPS, INFCOST):
-                        maxreach = max (maxreach, k)
-                    continue
-                oldv = adj.ahops[k], adj.acost[k]
-                if oldv != v:
-                    adj.ahops[k], adj.acost[k] = v
-                    self.aroute (k)
-            if maxreach:
-                self.node.logevent (Event.rout_upd_loss, adj.circuit,
-                                    highest_address = maxreach,
-                                    adjacent_node = self.node.eventnode (adj.nodeid))
+            self.routemsg (item, adj.arouteinfo, self.aroute, self.maxarea)
         else:
             super ().dispatch (item)
             
@@ -591,16 +698,43 @@ class L2Router (L1Router, L2CirAdj):
 
     def aroute (self, start, end = None):
         self.doroute (start, end, l2 = True)
+        attached = False
+        for i, a in enumerate (self.aoadj):
+            if a and i != self.homearea:
+                attached = True
+                break
+        if attached != self.attached:
+            logging.debug ("L2 attached state changed to %s", attached)
+            self.attached = attached
+            if attached:
+                self.hops[0] = self.cost[0] = 0
+            else:
+                self.hops[0] = INFHOPS
+                self.cost[0] = INFCOST
+            self.route (0)
+
+    def findoadj (self, dest):
+        """Find the output adjacency for this destination address.
+        """
+        area = dest.area
+        if self.attached and area != self.homearea:
+            return self.aoadj[area]
+        return super ().findoadj (dest)
 
     def check (self):
         super ().check ()
-        area = self.nodeid.area
-        for i in range (1, self.maxarea + 1):
-            if i == area:
-                assert self.ahops[i] == self.acost[i] == 0
-            else:
-                assert self.ahops[i] == INFHOPS and self.acost[i] == INFCOST
-        # Todo: attached flag
+        try:
+            area = self.nodeid.area
+            for i in range (1, self.maxarea + 1):
+                if i == area:
+                    assert self.ahops[i] == self.acost[i] == 0
+                else:
+                    assert self.ahops[i] == INFHOPS and \
+                           self.acost[i] == INFCOST
+        except AssertionError:
+            logging.critical ("Check failure on L2 entry %d: %d %d",
+                              i, self.ahops[i], self.acost[i])
+            sys.exit (1)
         
 class Update (Element, timers.Timer):
     """Update process for a circuit
@@ -646,6 +780,7 @@ class Update (Element, timers.Timer):
             for p in pkts:
                 self.parent.datalink.send (p, dest = route_eth.ALL_ROUTERS)
             self.lastupdate = time.time ()
+            self.holdoff = False
             if self.anysrm:
                 # Not periodic update; find the delta from the last
                 # periodic update as the new timeout.
@@ -672,12 +807,11 @@ class Update (Element, timers.Timer):
         if seg:
             # Phase 4 (segmented) format
             ret = list ()
-            lowid = pkt.lowid
             p = None
             previd = -999
-            curlen = 0
+            curlen = 0    # dummy value so it is defined
             mtu = self.parent.minrouterblk - 16
-            for i in range (lowid, len (minhops)):
+            for i in range (pkt.lowid, len (minhops)):
                 if complete or srm[i]:
                     if curlen > mtu:
                         # If the packet is at the size limit, finish it up
@@ -717,7 +851,7 @@ class Update (Element, timers.Timer):
                     curlen += 2
             if seg:
                 p.segments.append (seg)
-            if p:
+            if p and p.segments:
                 ret.append (p)
         else:
             # Phase 3 (not segmented) format
