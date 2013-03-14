@@ -127,13 +127,16 @@ class Nodeid (int):
     @property
     def tid (self):
         return int (self) & 1023
+
+    def split (self):
+        return divmod (self, 1024)
     
     def __str__ (self):
-        a = self.area
+        a, t = self.split ()
         if a:
-            return "{}.{}".format (a, self.tid)
+            return "{}.{}".format (a, t)
         else:
-            return "{}".format (self.tid)
+            return "{}".format (t)
 
     __repr__ = __str__
     

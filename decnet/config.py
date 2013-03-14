@@ -70,9 +70,9 @@ cp.add_argument ("--maxhops", metavar = "Maxh", type = int, default = 16,
                  choices = range (1, 31), help = "Max L1 hops")
 cp.add_argument ("--maxcost", metavar = "Maxc", type = int, default = 128,
                  choices = range (1, 1023), help = "Max L1 cost")
-cp.add_argument ("--maxahops", metavar = "AMaxh", type = int, default = 16,
+cp.add_argument ("--amaxhops", metavar = "AMaxh", type = int, default = 16,
                  choices = range (1, 31), help = "Max L2 hops")
-cp.add_argument ("--maxacost", metavar = "AMaxc", type = int, default = 128,
+cp.add_argument ("--amaxcost", metavar = "AMaxc", type = int, default = 128,
                  choices = range (1, 1023), help = "Max L2 cost")
 cp.add_argument ("--maxvisits", metavar = "Maxv", type = int, default = 32,
                  choices = range (1, 64), help = "Max visits")

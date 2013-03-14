@@ -16,6 +16,7 @@ from . import datalink
 from . import mop
 from . import routing
 from . import apiserver
+from . import nsp
 
 class Nodeinfo (object):
     """A container for node database entries.
@@ -56,7 +57,8 @@ class Node (object):
         self.datalink = datalink.DatalinkLayer (self, config)
         self.mop = mop.Mop (self, config)
         self.routing = routing.Router (self, config)
-
+        self.nsp = nsp.NSP (self, config)
+        
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
         a name (a string) or an id (a number or Nodeid).
@@ -84,6 +86,7 @@ class Node (object):
         self.datalink.start ()
         self.mop.start ()
         self.routing.start ()
+        self.nsp.start ()
         self.api.start ()
         if mainthread:
             self.mainloop ()
