@@ -126,7 +126,7 @@ class _Adjacency (Element, timers.Timer):
         self.priority = 0
         
     def __str__ (self):
-        return "Adjacent node {0.nodeid}".format (self)
+        return "{0.nodeid}".format (self)
 
     def __eq__ (self, other):
         if isinstance (other, self.__class__):
@@ -333,6 +333,7 @@ class _Router (Element):
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea, self.tid = self.nodeid.split ()
         self.typename = config.routing.type
+        self.name = parent.nodeinfo (self.nodeid).nodename
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -410,7 +411,9 @@ class EndnodeRouting (_Router):
     def dispatch (self, item):
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
-                self.node.addwork (item, self.node.nsp)
+                work = Received (self.node.nsp, packet = item,
+                                 src = item.srcnode)
+                self.node.addwork (work, self.node.nsp)
 
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
@@ -544,11 +547,12 @@ class L1Router (_Router, L1CirAdj):
                 minhops[i] = besth
                 mincost[i] = bestc
                 setsrm (i)
+                logging.trace ("Node %d, cost %d, hops %d via %s %s",
+                               i, bestc, besth,
+                               besta and besta.circuit.name,
+                               besta and besta.nodeid)
             if besta != oadj[i]:
                 oadj[i] = besta
-                #logging.debug ("Node %d, cost %d, hops %d via %s %s",
-                #               i, bestc, besth,
-                #               besta.circuit.name, besta.nodeid)
                 if l2:
                     if besta:
                         self.node.logevent (Event.area_chg, i,
@@ -557,6 +561,8 @@ class L1Router (_Router, L1CirAdj):
                         self.node.logevent (Event.area_chg, i,
                                             status = "unreachable")
                 elif i:
+                    # That check for 0 is there so reachability changes
+                    # of "nearest L2 router" aren't logged.
                     nod = self.node.eventnode (Nodeid (self.homearea, i))
                     if besta:
                         self.node.logevent (Event.reach_chg, nod,
@@ -603,11 +609,12 @@ class L1Router (_Router, L1CirAdj):
                         payload = data)
         self.forward (pkt)
         
-    def forward (self, pkt, tryhard = False):
+    def forward (self, pkt):
         dest = pkt.dstnode
         if dest == self.nodeid:
             # Terminating packet - hand it to NSP
-            self.node.addwork (pkt, self.node.nsp)
+            work = Received (self.node.nsp, packet = pkt, src = pkt.srcnode)
+            self.node.addwork (work, self.node.nsp)
             return
         else:
             a = self.findoadj (dest)
@@ -626,15 +633,16 @@ class L1Router (_Router, L1CirAdj):
                         limit *= 2
                     if pkt.visit <= limit:
                         # Visit limit still ok, send it and exit
-                        a.send (pkt, tryhard)
+                        a.send (pkt)
                         return
             # If we get to this point, we could not forward the packet,
             # for one of two reasons: not reachable, or too many visits.
             # Return to sender if requested and not already underway,
             # else drop the packet.
-            if self.rqr and not self.rts:
+            if pkt.rqr and not pkt.rts:
                 pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
                 pkt.rts = 1
+                pkt.rqr = 0
                 self.forward (pkt)
                 return
             # FIXME: Build correct packet header argument
@@ -757,6 +765,8 @@ class Update (Element, timers.Timer):
     def setsrm (self, tid, endtid = None):
         if self.parent.ntype != ENDNODE:
             endtid = endtid or tid
+            logging.trace ("Setsrm (%s): %d to %d", self.pkttype.__name__,
+                           tid, endtid)
             for i in range (tid, endtid + 1):
                 self.srm[i] = 1
             self.anysrm = True
@@ -765,6 +775,8 @@ class Update (Element, timers.Timer):
     def update_soon (self):
         if not self.holdoff:
             delta = max (T2 - (time.time () - self.lastupdate), 0)
+            logging.trace ("Scheduling update (%s) in %.1f",
+                           self.pkttype.__name__, delta)
             self.holdoff = True
             self.node.timers.start (self, delta)
 
@@ -777,6 +789,8 @@ class Update (Element, timers.Timer):
             self.startpos += 1
             startpos = self.startpos % len (pkts)
             pkts = pkts[startpos:] + pkts[:startpos]
+            logging.trace ("Sending %d update (%s) packets",
+                           len (pkts), self.pkttype.__name__)
             for p in pkts:
                 self.parent.datalink.send (p, dest = route_eth.ALL_ROUTERS)
             self.lastupdate = time.time ()

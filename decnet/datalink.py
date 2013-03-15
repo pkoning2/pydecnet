@@ -104,16 +104,6 @@ class Port (Element, metaclass = ABCMeta):
         """
         pass
 
-class DlReceive (Work):
-    """Notification of a received packet.  Attributes are "packet"
-    (the data) and, for LANs, "src" (the source address)
-    """
-
-class DlTransmitComplete (Work):
-    """Notification of a packet transmit completion (successful or not).
-    Attribute is "packet".
-    """
-
 class DlStatus (Work):
     """Notification of some sort of datalink event.  Attribute is
     "status".
@@ -229,12 +219,14 @@ class EthPort (BcPort):
         self.frame[6:12] = addr
         
     def send (self, msg, dest):
-        dest = bytes (dest)
-        if len (dest) != 6:
+        destb = bytes (dest)
+        if len (destb) != 6:
             raise ValueError
         l = len (msg)
+        logging.trace ("Sending %d byte %s packet to %s",
+                       l, msg.__class__.__name__, dest)
         f = self.frame
-        f[0:6] = dest
+        f[0:6] = destb
         if self.pad:
             if l > 1498:
                 raise ValueError
@@ -394,6 +386,6 @@ class Ethernet (BcDatalink, StopThread):
                 packet = memoryview (packet)[16:16 + plen2]
             else:
                 packet = memoryview (packet)[14:]
-            self.node.addwork (DlReceive (port.owner,
+            self.node.addwork (Received (port.owner,
                                           src = src, packet = packet))
                 

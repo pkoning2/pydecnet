@@ -38,7 +38,7 @@ class LanCircuit (timers.Timer):
         self.holdoff = False
         
     def __str__ (self):
-        return "Circuit {0.name}".format (self)
+        return "{0.name}".format (self)
 
     def restart (self):
         self.start ()
@@ -51,7 +51,7 @@ class LanCircuit (timers.Timer):
         pass
     
     def common_dispatch (self, work):
-        if isinstance (work, datalink.DlReceive):
+        if isinstance (work, datalink.Received):
             if work.src == self.parent.nodemacaddr:
                 # Ignore packets from self.
                 return
@@ -258,6 +258,7 @@ class RoutingLanCircuit (LanCircuit):
             self.calcdr ()
             self.sendhello ()
         elif isinstance (item, (EndnodeHello, RouterHello)):
+            logging.trace ("LAN hello message received: %s", item)
             id = item.id
             t4 = item.timer * BCT3MULT
             if id.area != self.parent.homearea and \
@@ -287,6 +288,7 @@ class RoutingLanCircuit (LanCircuit):
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
                     a = self.adjacencies[id] = self.Adjacency (self, item)
+                    logging.trace ("New adjacency from %s", item)
                     a.state = INIT
                     # Check that the RSlist is not too long
                     rslist = list (self.routers ())
@@ -294,6 +296,7 @@ class RoutingLanCircuit (LanCircuit):
                         # The list is full.  Remove the lowest priority one
                         # (which may be the new one).
                         a2 = min (rslist, key = sortkey)
+                        logging.trace ("Dropped adjacency %s", a2)
                         self.deladj (a2)
                         if a == a2:
                             # This node is the lowest priority, ignore its hello
@@ -324,12 +327,15 @@ class RoutingLanCircuit (LanCircuit):
                 if selfent:
                     # We're listed, which means two way communication,
                     # so set the adjacency "up"
+                    logging.trace ("self entry in received hello is %s",
+                                   selfent)
                     if a.state == INIT:
                         a.state = UP
                         a.up ()
                         hellochange = True
                 else:
                     # We're either not listed, or not two way.
+                    logging.trace ("self not listed in received hello")
                     if a.state == UP:
                         # Don't kill the adjacency in our state, but
                         # do as far as the control layer is concerned.
@@ -348,8 +354,13 @@ class RoutingLanCircuit (LanCircuit):
             a = self.adjacencies.get (Nodeid (item.src), None)
             if a and a.state == UP:
                 item.src = a
+                logging.trace ("Routing LAN message received from %s: %s",
+                               a, item)
                 self.parent.dispatch (item)
-            
+            else:
+                logging.trace ("%s packet dropped, no adjacency",
+                               item.__class__.__name__)
+                
     def calcdr (self):
         """Figure out who should be the designated router.  More precisely,
         are we DR, or someone else?

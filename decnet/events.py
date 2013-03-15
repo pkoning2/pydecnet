@@ -152,6 +152,70 @@ class Event (object):
         (physical, 4) : "Communications interface error",
         (physical, 5) : "Performance error",
         }
+    # This dictionary maps event IDs to the entity type name.
+    evententities = {
+        (netman, 0) : None,
+        (netman, 1) : "Node",
+        (netman, 2) : "Line",
+        (netman, 3) : "Circuit",
+        (netman, 4) : "Line",
+        (netman, 5) : "Node",
+        (netman, 6) : "Circuit",
+        (netman, 7) : "Circuit",
+        (netman, 8) : None,
+        (netman, 9) : None,
+        (session, 0) : None,
+        (session, 1) : None,
+        (ecl, 0) : None,
+        (ecl, 1) : None,
+        (ecl, 2) : "Node",
+        (routing, 0) : "Node",
+        (routing, 1) : "Circuit",
+        (routing, 2) : "Circuit",
+        (routing, 3) : "Circuit",
+        (routing, 4) : "Circuit",
+        (routing, 5) : "Circuit",
+        (routing, 6) : "Circuit",
+        (routing, 7) : "Circuit",
+        (routing, 8) : "Circuit",
+        (routing, 9) : "Circuit",
+        (routing, 10) : "Circuit",
+        (routing, 11) : "Circuit",
+        (routing, 12) : "Circuit",
+        (routing, 13) : "Circuit",
+        (routing, 14) : "Node",
+        (routing, 15) : "Circuit",
+        (routing, 16) : "Circuit",
+        (routing, 17) : "Area",
+        (routing, 18) : "Circuit",
+        (routing, 19) : "Circuit",
+        (datalink, 0) : "Circuit",
+        (datalink, 1) : "Circuit",
+        (datalink, 2) : "Circuit",
+        (datalink, 3) : "Circuit",
+        (datalink, 4) : "Circuit",
+        (datalink, 5) : "Circuit",
+        (datalink, 6) : "Circuit",
+        (datalink, 7) : "Circuit",
+        (datalink, 8) : "Circuit",
+        (datalink, 9) : "Circuit",
+        (datalink, 10) : "Module",
+        (datalink, 11) : "Module",
+        (datalink, 12) : "Module",
+        (datalink, 13) : "Line",
+        (datalink, 14) : "Line",
+        (datalink, 15) : "Circuit",
+        (datalink, 16) : "Line",
+        (datalink, 17) : "Module",
+        (datalink, 18) : "Module",
+        (physical, 0) : "Line",
+        (physical, 1) : "Line",
+        (physical, 2) : "Line",
+        (physical, 3) : "Line",
+        (physical, 4) : "Line",
+        (physical, 5) : "Line",
+        }
+
     # This dictionary defines event parameters and parameter value codes
     # for each event class.  The top level dictionary is indexed by class code.
     # Each value is the dictionary for that class.
@@ -240,9 +304,10 @@ class Event (object):
         ts = time.strftime("%d-%b-%Y %H:%M:%S", time.localtime (ts))
         ts = "{}.{:03d}".format (ts, ms)
         ret = [ "Event type {0[0]}.{0[1]}, {1}".format (e, self.eventnames[e]),
-                "  On {0.nodeid} ({0.nodename}), occurred {1}".format (n, ts) ]
+                "  From node {0.nodeid} ({0.nodename}), occurred {1}".format (n, ts) ]
         if self._entity:
-            ret.append ("  {}".format (self._entity))
+            ret.append ("  {} {}".format (self.evententities[e],
+                                          self._entity))
         for k, v in sorted (self.__dict__.items (), key = self.paramid):
             if k != "event" and k[0] != "_":
                 k = k.replace ("_", " ").capitalize ()

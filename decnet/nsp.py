@@ -30,7 +30,7 @@ class NSP (Element):
         self.routing = self.parent.routing
 
     def dispatch (self, item):
-        if isinstance (item, (ShortData, LongData)):
+        if isinstance (item, Received):
             # Arriving packet delivered up from Routing.
-            pass
-        
+            logging.trace ("NSP packet received from %s: %s",
+                           item.src, item.packet)

@@ -14,6 +14,8 @@ from . import config
 from . import node
 from . import events
 
+TRACE = 2
+
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
                        metavar = "FN", nargs = "+",
@@ -24,7 +26,8 @@ dnparser.add_argument ("-L", "--log-file", metavar = "FN",
 # so that events will get logged by default.
 dnparser.add_argument ("-e", "--log-level", default = "INFO",
                        metavar = "LV",
-                       choices = ("DEBUG", "INFO", "WARNING", "ERROR"),
+                       choices = ("TRACE", "DEBUG", "INFO",
+                                  "WARNING", "ERROR"),
                        help = "Log level (default: WARNING)")
 dnparser.add_argument ("-V", "--version", action = "version",
                        version = common.DNVERSION)
@@ -47,6 +50,9 @@ def formatTime(self, record, datefmt=None):
     return s
 logging.Formatter.formatTime = formatTime
 
+def trace (msg, *args, **kwargs):
+    logging.log (TRACE, msg, *args, **kwargs)
+    
 def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
@@ -59,11 +65,14 @@ def main ():
             args = ( "-h", )
         config.configparser.parse_args (args)
         return
-    logging.basicConfig (filename = p.log_file, level = p.log_level,
+    logging.addLevelName (TRACE, "TRACE")
+    logging.trace = trace
+    logging.basicConfig (filename = p.log_file, filemode = "w",
+                         level = p.log_level,
                          format = "%(asctime)s: %(threadName)s: %(message)s")
     rootlogger = logging.getLogger ()
     rootlogger.addFilter (events.logging_add_ts)
-
+    
     # Read all the configs
     logging.info ("Starting DECnet/Python")
     configs = [ config.Config (c) for c in p.configfile ]

@@ -328,7 +328,7 @@ class MopCircuit (Element):
                 self.carrier_server = None
 
     def dispatch (self, work):
-        if isinstance (work, datalink.DlReceive):
+        if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
                 logging.debug ("Null MOP packet received on %s", self.name)
@@ -744,7 +744,7 @@ class LoopHandler (Element, timers.Timer):
     def dispatch (self, item):
         """Work item handler
         """
-        if isinstance (item, datalink.DlReceive):
+        if isinstance (item, datalink.Received):
             buf = item.packet
             top = LoopSkip (buf)
             skip = top.skip
