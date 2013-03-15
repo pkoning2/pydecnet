@@ -77,10 +77,20 @@ class Work (object):
     def dispatch (self):
         self.owner.dispatch (self)
 
+# Some common work item classes
+
 class Shutdown (Work):
     """A work item that says "shut down".
     """
     
+class Received (Work):
+    """Notification of a received packet.  Attributes are "packet"
+    (the data) and "src" (the source of the packet, of whatever form
+    is meaningful to the consumer; for example, for datalink notifications
+    it would be the MAC address, for Routing layer notifications it
+    is the source node address).
+    """
+
 _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
     """A DECnet Node ID.

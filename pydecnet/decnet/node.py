@@ -157,5 +157,5 @@ class NodeEntity (object):
 
     def __str__ (self):
         if self.nodename:
-            return "Node {0.nodeid} ({0.nodename})".format (self)
-        return "Node {0.nodeid}".format (self)
+            return "{0.nodeid} ({0.nodename})".format (self)
+        return "{0.nodeid}".format (self)

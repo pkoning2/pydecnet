@@ -268,7 +268,7 @@ class PtpCircuit (statemachine.StateMachine):
                                       testdata = b'\252' * 10)
 
     def __str__ (self):
-        return "Circuit {0.name}".format (self)
+        return "{0.name}".format (self)
 
     def restart (self):
         self.datalink.close ()
@@ -284,7 +284,7 @@ class PtpCircuit (statemachine.StateMachine):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
         """
-        if isinstance (work, datalink.DlReceive):
+        if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
                 logging.debug ("Null routing layer packet received on %s",
@@ -359,7 +359,7 @@ class PtpCircuit (statemachine.StateMachine):
         if isinstance (item, Timeout):
             # Process timeout
             pass
-        elif isinstance (item, DlReceive):
+        elif isinstance (item, Received):
             # Process received packet
             msg = PtpInit (item)
             if msg.control == 1 and msg.type == 0:
