@@ -76,7 +76,7 @@ class PtpCircuit (statemachine.StateMachine):
         super ().__init__ ()
         self.hellotime = config.t3 or 60
         self.listentime = self.hellotime * 3
-        self.listentimer = timers.CallbackTimer (self.listentime, self)
+        self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         self.initmsg = PtpInit (srcnode = parent.nodeid,
                                 ntype = parent.ntype,
@@ -298,6 +298,7 @@ class PtpCircuit (statemachine.StateMachine):
                     return self.rv
                 if not self.ph2:
                     self.node.timers.start (self, self.t4)
+                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             else:
@@ -324,6 +325,7 @@ class PtpCircuit (statemachine.StateMachine):
                 # todo: check verification value
                 if not self.ph2:
                     self.node.timers.start (self, self.t4)
+                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             else:
@@ -368,4 +370,10 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.close ()
             return self.ha
 
-        
+    def sendhello (self, unused):
+        """CallbackTimer handler to send periodic hello messages.
+        """
+        if self.state == self.ru:
+            self.datalink.send (self.hellomsg)
+            self.node.timers.start (self.hellotimer, self.hellotime)
+            
