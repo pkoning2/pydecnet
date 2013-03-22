@@ -266,7 +266,9 @@ class Packet (metaclass = packet_encoding_meta):
             if prev is None:
                 raise
             if prev != val:
-                raise ValueError ("Field %s required value mismatch, %s instead of %s" % (field, val, prev))
+                logging.debug ("Field %s required value mismatch, %s instead of %s",
+                field, val, prev)
+                raise Event (fmt_err)
                 
     def encode_res (self, flen):
         """Encode a reserved field.
@@ -295,20 +297,22 @@ class Packet (metaclass = packet_encoding_meta):
     def encode_i (self, field, maxlen):
         """Encode "field" as an image field with max length "maxlen".
         If val is a string, it is encoded using the current default
-        encoding.  If the value is too large, OverflowError is raised.
+        encoding.  If the value is too large, packet format error is
+        signalled.
         """
         val = getattr (self, field)
         if isinstance (val, str):
             val = bytes (val, "latin-1", "ignore")
         vl = len (val)
         if vl > maxlen:
-            raise OverflowError ("Value too long for %d byte field" % maxlen)
+            logging.debug ("Value too long for %d byte field", maxlen)
+            raise Event (fmt_err)
         return vl.to_bytes (1, LE) + val
 
     def decode_i (self, buf, field, maxlen):
         """Decode "field" from an image field with max length "maxlen".
-        If the field is too large, OverflowError is raised.  Returns the
-        remaining buffer.
+        If the field is too large, packet format error is signalled.
+        Returns the remaining buffer.
         """
         # This doesn't just pick up buf[0] because that's an int if
         # buf is bytes, but a length one bytes if buf is memoryview.
@@ -316,12 +320,15 @@ class Packet (metaclass = packet_encoding_meta):
         # this bug is fixed in Python 3.3.
         flen = getbyte (buf)
         if flen < 0:
-            raise ValueError ("Image field with negative length %d" % flen)
+            logging.debug ("Image field with negative length %d" , flen)
+            raise Event (fmt_err)
         elif flen > maxlen:
-            raise OverflowError ("Image field longer than max length %d" % maxlen)
+            logging.debug ("Image field longer than max length %d", maxlen)
+            raise Event (fmt_err)
         v = buf[1:flen + 1]
         if len (v) != flen:
-            raise ValueError ("Not %d bytes left for image field" % flen)
+            logging.debug ("Not %d bytes left for image field", flen)
+            raise Event (fmt_err)
         setattr (self, field, v)
         return buf[flen + 1:]
 
@@ -369,7 +376,9 @@ class Packet (metaclass = packet_encoding_meta):
             # For fields not defined in the object, substitute zero
             val = getattr (self, name, 0)
             if val >> bits:
-                raise OverflowError ("Field %s value %d too large for %d bit field" % (name, val, bits))
+                logging.debug ("Field %s value %d too large for %d bit field",
+                               name, val, bits)
+                raise Event (fmt_err)
             field |= val << start
         return field.to_bytes (flen, LE)
 
@@ -395,7 +404,8 @@ class Packet (metaclass = packet_encoding_meta):
             val >>= 7
         retval.append (val.to_bytes (1, LE))
         if len (retval) > maxlen:
-            raise OverflowError ("Extensible field is longer than %d bytes" % maxlen)
+            logging.debug ("Extensible field is longer than %d bytes", maxlen)
+            raise Event (fmt_err)
         return b''.join (retval)
         
     def decode_ex (self, buf, field, maxlen):
@@ -409,7 +419,8 @@ class Packet (metaclass = packet_encoding_meta):
             if b < 0x80:
                 break
             if i == maxlen - 1:
-                raise OverflowError ("Extensible field longer than %d" % maxlen)
+                logging.debug ("Extensible field longer than %d", maxlen)
+                raise Event (fmt_err)
         setattr (self, field, val)
         return buf[i + 1:]
 
@@ -460,12 +471,15 @@ class Packet (metaclass = packet_encoding_meta):
         while pos < blen:
             left = blen - pos
             if left < tlen + llen:
-                raise ValueError ("Incomplete TLV at end of buffer")
+                logging.debug ("Incomplete TLV at end of buffer")
+                raise Event (fmt_err)
             tag = int.from_bytes (buf[pos:pos + tlen], LE)
             pos += tlen + llen
             vlen = int.from_bytes (buf[pos - llen:pos], LE)
             if pos + vlen > blen:
-                raise ValueError ("TLV %d Value field extends beyond end of buffer" % tag)
+                logging.debug ("TLV %d Value field extends beyond end of buffer",
+                               tag)
+                raise Event (fmt_err)
             try:
                 e, d, fieldargs = codedict[tag]
             except KeyError:
@@ -473,10 +487,13 @@ class Packet (metaclass = packet_encoding_meta):
                     e, d, fieldargs = ( Packet.encode_bs, Packet.decode_bs,
                                         ( "field%d" % tag, 255 ) )
                 else:
-                    raise KeyError ("Unknown TLV tag %d" % tag)
+                    logging.debug ("Unknown TLV tag %d", tag)
+                    raise Event (fmt_err)
             buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
             if buf2:
-                raise ValueError ("TLV %d Value field not fully parsed, left = %d" % (tag, len (buf2)))
+                logging.debug ("TLV %d Value field not fully parsed, left = %d",
+                               tag, len (buf2))
+                raise Event (fmt_err)
             pos += vlen
             
     def encode (self, layout = None):

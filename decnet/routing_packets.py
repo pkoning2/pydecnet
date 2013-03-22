@@ -73,6 +73,17 @@ class PtpInit (CtlHdr):
     type = 0
     blo = 0
     
+class PtpInit3 (CtlHdr):
+    _layout = (( Nodeid, "srcnode" ),
+               ( "bm",
+                 ( "ntype", 0, 2 ),
+                 ( "verif", 2, 1 )),
+               ( "b", "blksize", 2 ),
+               ( Version, "tiver" ),
+               ( "i", "reserved", 64 ))
+    type = 0
+    blo = 0
+    
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
                ( "i", "fcnval", 64 ))
@@ -100,7 +111,9 @@ class L1Segment (packet.Packet):
 
     def validate (self):
         if self.count + self.startid > 1024:
-            raise OverflowError ("Invalid L1 segment, start %d, count %d" % (self.startid, self.count))
+            logging.debug ("Invalid L1 segment, start %d, count %d",
+                           self.startid, self.count)
+            raise Event (fmt_err)
         
     def decode (self, buf):
         data = super ().decode (buf)
@@ -127,8 +140,9 @@ class L2Segment (L1Segment):
     """
     def validate (self):
         if self.count + self.startid > 64 or self.startid == 0:
-            raise OverflowError ("Invalid L2 segment, start %d, count %d" % (self.startid, self.count))
-        
+            logging.debug ("Invalid L1 segment, start %d, count %d",
+                           self.startid, self.count)
+            raise Event (fmt_err)
     
 class L1Routing (CtlHdr):
     """A Level 1 routing message.  It consists of a header,
@@ -146,7 +160,8 @@ class L1Routing (CtlHdr):
         segs = self.payload
         segslen = len (segs)
         if not segs or (segslen & 1):
-            raise ValueError ("Invalid routing packet payload")
+            logging.debug ("Invalid routing packet payload")
+            raise Event (fmt_err)
         s = self.initchecksum
         for i in range (0, segslen - 2, 2):
             s += int.from_bytes (segs[i:i + 2], packet.LE)
@@ -155,7 +170,9 @@ class L1Routing (CtlHdr):
         s = (s & 0xffff) + (s >> 16)
         check = int.from_bytes (segs[-2:], packet.LE)
         if s != check:
-            raise ValueError ("Routing packet checksum error (%04x not %04x)" % (s, check))
+            logging.debug ("Routing packet checksum error (%04x not %04x)",
+                           s, check)
+            raise Event (adj_down, reason = "checksum_error")
 
     def decode_segments (self):
         data = self.payload[:-2]

@@ -23,7 +23,7 @@ nspver_ph2 = Version (3, 1, 0)
 class NodeInit (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),
                ( "b", "starttype", 1 ),
-               ( "ex", "nodeid", 2 ),
+               ( "ex", "srcnode", 2 ),
                ( "i", "nodename", 6 ),
                ( "bm",
                  ( "int", 0, 3 )),
@@ -38,6 +38,9 @@ class NodeInit (packet.Packet):
                ( "i", "sysver", 32 ))
     msgflag = 0x58
     starttype = 1
+    # These two are field of Phase 3/4 messages, but are implied here.
+    ntype = ENDNODE
+    tiver = tiver_ph2
 
 class NodeVerify (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),
@@ -47,249 +50,77 @@ class NodeVerify (packet.Packet):
     msgflag = 0x58
     starttype = 2
     
-# Extract from the Phase IV routing spec:
-arch = """
-7.3  Routing Layer Initialization Circuit States
-
-
-The Routing Layer Initialization circuit states are:
-
-(Symbol) State                Description
-
-(RU) RUN                      The Routing Layer can use the circuit to
-                              transmit packets between two nodes.
-
-(CR) CIRCUIT REJECTED         The  circuit  is  degraded.   To   avoid
-                              excessive  packet delay the circuit will
-                              be declared down.  The Routing  Decision
-                              Process  has not yet processed a circuit
-                              down event.
-
-(DS) DATA LINK START          The  circuit  is  undergoing  Data  Link
-                              Layer initialization.
-
-(RI) ROUTING LAYER INITIALIZE The circuit has  successfully  undergone
-                              Data  Link initialization and is waiting
-                              to    receive    a     Routing     Layer
-                              Initialization Message.
-
-(RV) ROUTING LAYER VERIFY     A  valid  Routing  Layer  Initialization
-                              Message   has  been  received  for  this
-                              circuit   and   the   circuit   requires
-                              verification.
-
-(RC) ROUTING LAYER COMPLETE   The Routing Layer has completed a  valid
-                              exchange of Routing Layer Initialization
-                              and possibly Routing Layer  Verification
-                              Messages.
-
-(OF) OFF                      The  Routing  Layer   cannot   use   the
-                              circuit.   The  Routing Decision Process
-                              has not yet  processed  a  circuit  down
-                              event.
-
-(HA) HALT                     The Routing Layer cannot  use  the  cir-
-                              cuit.  A circuit down event is required.
-
-
-7.4  Routing Layer Initialization Circuit Events
-
-
-The Routing Layer Initialization circuit events are as follows:
-
-(Symbol)  Description
-
-
-(nri)     The  Routing  Layer  received  a  valid  new  Routing  Layer
-          Initialization Message.
-
-(nrv)     The  Routing  Layer  received  a  valid  new  Routing  Layer
-          Verification Message.
-
-(rt)      The Routing Layer timed out.
-
-(sc)      The Routing Layer received a start complete notification (in
-          other words, a transition from the initializing state to the
-          running state) from the Data Link Layer.
-
-(ste)     The Routing Layer received a start  notification  (in  other
-          words,  a  transition  from  any state to the stop state) or
-          threshold error notification from the Data Link Layer.
-
-          In the case of X.25, a start notification is  given  by  the
-          Data  Link  Layer  upon  receipt  of a "Clear Indication" or
-          "Reset" packet, or when a data error is observed.
-
-(opo)     Operator turned circuit on.
-
-(opf)     Operator turned circuit off.
-
-(im)      The  Routing  Layer  received  an  invalid   Routing   Layer
-          Initialization Message or an unexpected message.
-
-(rc)      The Routing  Layer  received  a  reject  complete  from  the
-          circuit rejection component of the circuit monitor.
-
-(cdc)     The Routing Layer Initialization  received  a  circuit  down
-          complete  event  from  the  Decision  Process in the Routing
-          Layer Control Sublayer.
-
-(cuc)     The Routing  Layer  Initialization  received  a  circuit  up
-          complete  event  from  the  Decision  Process in the Routing
-          Layer Control Sublayer.
-
-When the Data Link Layer has initialized,  a  timer  starts.   If  the
-timer  expires  before the circuit accepted state is reached, then the
-circuit is reinitialized.  If the  timer  expires  after  the  circuit
-accepted state is reached, then the timer is ignored.
-
-
-               Routing Layer Initialization State Table
-
-
-This table shows each possible new state and action  relating  to  the
-occurrence  of  each  event in each state.  The actions are shown by a
-slash (/) followed by the number of the action.  A dash (-)  signifies
-no action.  The actions numbers are defined above.
-
-
-                              Old State
-           RU     CR     DS     RI     RV     RC     OF     HA
-  Event
-
-
-   nri    CR/-   CR/-   DS/-   *      DS/1   DS/1   OF/-   HA/-
-
-   nrv    CR/-   CR/-   DS/-   DS/1   RC/-   DS/1   OF/-   HA/-
-
-   rt     RU/-   CR/-   DS/1   DS/1   DS/1   RC/-   OF/-   HA/-
-
-   sc     CR/-   CR/-   RI/3   DS/1   DS/1   DS/1   OF/-   HA/-
-
-   ste    CR/-   CR/-   DS/1   DS/1   DS/1   DS/1   OF/-   HA/-
-
-   opo    RU/-   CR/-   DS/-   RI/-   RV/-   RC/-   CR/-   DS/1
-
-   opf    OF/2   OF/-   HA/2   HA/2   HA/2   HA/2   OF/-   HA/-
-
-   im     CR/-   CR/-   DS/-   DS/1   DS/1   DS/1   OF/-   HA/-
-
-   rc     CR/-   CR/-   DS/-   RI/-   RV/-   DS/1   OF/-   HA/-
-
-   cdc    RU/-   DS/1   DS/-   RI/-   RV/-   RC/-   HA/-   HA/-
-
-   cuc    RU/-   CR/-   DS/-   RI/-   RV/-   RU/-   OF/-   HA/-
-
-
-                                * NOTE
-
-There are four possible new state/action sets for this transition,  as
-follows:
-
-     1.  Action:  4;   New  state:   RV;   Verification  requested  in
-         received message;  verification required by this node.
-
-     2.  Action:  4;   New  state:   RC;   Verification  requested  in
-         received message;  verification not required by this node.
-
-     3.  Action:  -;  New state:  RV;  Verification not  requested  in
-         received message;  verification required by this node.
-
-     4.  Action:  -;  New state:  RC;  Verification not  requested  in
-         received message;  verification not required by this node.
-
-
-
-The Routing Decision Process generates  circuit  down  events  in  the
-states CR and OF.  It generates a circuit up event in the state RC.
-
-Once  the  Recall  Timer  is  set,  it  must  expire  before   another
-reinitialize command is given to the Data Link Layer.
-
-The following figure shows the Routing Layer state transitions.
-
-           .---------------------------------------------------------.
-           |                                                         |
-           v                                                         |
-      .---------.           .----------.           .-----------.     |
-      |         |---------->|          |---------->|           |     |
-   .->|   RU    |    .----->|    CR    |   .------>|     DS    |<--. |
-   |  |         |    |      |          |   |   .-->|           |   | |
-   |  `---------'    |      `----------'   |   |   `-----------'   | |
-   |       |         |                     |   |         A         | |
-   |       |         |                     |   |         |         | |    
-   |       |  .------'            .--------'   |         |         | |
-   |       |  |                   |            |         |         | |
-   |       v  v                   v            |         v         | |
-   |  .---------.           .----------.       |   .-----------.   | |
-   |  |         |           |          |       |   |           |   | |
-   |  |   OF    |---------->|    HA    |<------|---|     RI    |---|-'
-   |  |         |           |          |       | .-|           |   |
-   |  `---------'           `----------'       | | `-----------'   |
-   |       ^                      A            | |       |         |
-   |       |                      |            | |       |         |
-   |       |                      |            | |       |         |
-   |       |                      |            | |       v         |
-   |       |                .----------.       | | .-----------.   |
-   |       -----------------|          |-------' | |           |   |
-   `------------------------|    RC    |<--------' |     RV    |___'
-                            |          |<----------|           |
-                            `----------'           `-----------'
-
-   Legend:
-
-        .----.
-        |    |  contains symbol representing Routing Initialization
-        |    |  state
-        `----'
-   
-   Note:  These state transitions are not guaranteed.
-
-"""
-          
+class Start (Work):
+    """A work item that says "start the circuit".
+    """
+    
 class PtpCircuit (statemachine.StateMachine):
     """A point to point circuit, i.e., the datalink dependent
     routing sublayer instance for a non-Ethernet type circuit.
 
     Arguments are "parent" (Routing instance), "name" (user visible name)
     and "datalink" (the datalink layer object for this circuit).
+
+    The state machine implemented here matches the one in the
+    Phase IV Routing layer spec (route20.txt), except that circuit
+    up/down notification to the control sublayer is synchronous, so
+    the states corresponding to delivery of notifications are omitted.
+
+    Note also that this code implements not just Phase III compatibility,
+    as usual, but also Phase II compatibility.  This isn't specified in
+    the architecture spec, but it's obvious how to do it, it just amounts
+    to applying the Phase II backward compatibility rules given in the
+    Phase III routing spec.
     """
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
-        self.listentimer = CallbackTimer (self.listentimeout, self)
-        self.hellotime = self.config.t3 or 60
+        self.hellotime = config.t3 or 60
         self.listentime = self.hellotime * 3
-        self.datalink = datalink
-        i = self.initmsg = PtpInit (srcnode = parent.nodeid,
-                                    ntype = parent.ntype,
-                                    tiver = tiver_ph4,
-                                    verif = 0, blksize = MTU)
-        h = self.hellomsg = PtpHello (srcnode = parent.nodeid,
-                                      testdata = b'\252' * 10)
+        self.listentimer = timers.CallbackTimer (self.listentime, self)
+        self.datalink = datalink.create_port (self)
+        self.initmsg = PtpInit (srcnode = parent.nodeid,
+                                ntype = parent.ntype,
+                                timer = self.hellotime,
+                                tiver = tiver_ph4,
+                                verif = 0,
+                                blksize = MTU,
+                                reserved = b'')
+        self.hellomsg = PtpHello (srcnode = parent.nodeid,
+                                  testdata = b'\252' * 10)
 
     def __str__ (self):
         return "{0.name}".format (self)
 
-    def restart (self):
+    def restart (self, msg = None):
+        if msg:
+            logging.trace ("%s restart due to %s", self.name, msg)
         self.datalink.close ()
+        self.state = self.ha
         self.start ()
-
+        return self.ha
+    
     def start (self):
-        self.datalink.open ()
-        self.datalink.send (self.initmsg)
-        timers.start (self, self.listentime)
-        self.state = self.ri
+        # Put in some dummy values until we hear from the neighbor
+        self.ntype = ENDNODE
+        self.nodeid = 0
+        self.node.addwork (Start (self))
 
+    def stop (self):
+        self.node.addwork (Shutdown (self))
+        
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
+        If the packet is not valid, turn the work item into a datalink
+        down notification, which will produce the right outcome.
         """
+        logging.trace ("Ptp circuit %s, work item %r", self.name, work)
         if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
                 logging.debug ("Null routing layer packet received on %s",
                                self.name)
-                return False
+                return datalink.DlStatus (status = False)
             hdr = packet.getbyte (buf)
             if hdr & 0x80:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
@@ -299,7 +130,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
                                    self.name)
-                    return False
+                    return datalink.DlStatus (status = False)
             p2route = None
             if (hdr & 0xf3) == 0x42:
                 # Phase 2 routing header
@@ -309,12 +140,26 @@ class PtpCircuit (statemachine.StateMachine):
             if hdr & 1:
                 # Routing control packet.  Figure out which one
                 code = (hdr >> 1) & 7
-                try:
-                    work.packet = ptpcontrolpackets[code] (buf, src = None)
-                except KeyError:
-                    logging.debug ("Unknown routing control packet %d from %s",
-                                   code, self.name)
-                    return False
+                if code:
+                    # Not init
+                    try:
+                        work.packet = ptpcontrolpackets[code] (buf, src = None)
+                    except KeyError:
+                        logging.debug ("Unknown routing control packet %d from %s",
+                                       code, self.name)
+                        return datalink.DlStatus (status = False)
+                else:
+                    mver = packet.getbyte (buf, 6)
+                    if mver == tiver_ph3[0]:
+                        # Phase 3
+                        work.packet = PtpInit3 (buf)
+                    elif mver == tiver_ph4[0]:
+                        work.packet = PtpInit (buf)
+                    elif mver < tiver_ph3[0]:
+                        logging.debug ("Unknown routing version %d", mver)
+                        return datalink.DlStatus (status = False)
+                    else:
+                        return False    # Too high, ignore it
             else:
                 code = hdr & 7
                 if code == 6:
@@ -335,7 +180,7 @@ class PtpCircuit (statemachine.StateMachine):
                             else:
                                 logging.debug ("Unknown Phase 2 control packet %x from %s",
                                                code, self.name)
-                                return False
+                                return datalink.DlStatus (status = False)
                         elif hdr == 8:
                             return False    # NOP packet, ignore
                     else:
@@ -344,39 +189,164 @@ class PtpCircuit (statemachine.StateMachine):
                 else:
                     logging.debug ("Unknown routing packet %d from %s",
                                    code, self.name)
-                    return False
+                    return datalink.DlStatus (status = False)
         return True
                 
-    def s0 (self, item):
-        """Initial state: "off".
+    def ha (self, item):
+        """Initial state: "Halted".
         """
-        pass
+        if isinstance (item, Start):
+            self.datalink.open ()
+            self.node.timers.start (self, self.listentime)
+            return self.ds
+
+    s0 = ha    # "halted" is the initial state
+    
+    def ds (self, item):
+        """Datalink start state.  Wait for a point to point datalink
+        startup complete notification.
+        """
+        if isinstance (item, timers.Timeout):
+            # Process timeout -- restart the datalink
+            return self.restart ("timeout")
+        elif isinstance (item, datalink.DlStatus):
+            # Process datalink status.  The status attribute is True
+            # for up, False for down.
+            if item.status:
+                self.datalink.send (self.initmsg)
+                return self.ri
+            return self.restart ("datalink down")
+        elif isinstance (item, Shutdown):
+            # operator "stop" command
+            self.datalink.close ()
+            return self.ha
+
+    def setsrc (self, pkt):
+        """Set our own node id as source node in the supplied packet,
+        in the correct form depending on the neighbor's version.
+        """
+        if self.ph4:
+            pkt.srcnode = self.parent.nodeid
+        else:
+            pkt.srcnode = self.parent.tid
 
     def ri (self, item):
         """Routing layer initialize state.  Wait for a point to point
         init message.
         """
-        if isinstance (item, Timeout):
+        if isinstance (item, timers.Timeout):
             # Process timeout
-            pass
+            return self.restart ("timeout")
         elif isinstance (item, Received):
             # Process received packet
-            msg = PtpInit (item)
-            if msg.control == 1 and msg.type == 0:
-                # Point to point init message
-                pass
+            pkt = item.packet
+            if isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
+                # Point to point init message. 
+                if isinstance (pkt, PtpInit):
+                    # Phase 4
+                    self.t4 = pkt.timer * T3MULT
+                    if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
+                           or pkt.blo:
+                        # Log invalid packet (bad node type or blocking)
+                        return self.restart ("bad ntype")
+                else:
+                    self.t4 = self.t3 * T3MULT
+                    if pkt.ntype not in { ENDNODE, L1ROUTER }:
+                        # Log invalid packet (bad node type)
+                        return self.restart ("bad ntype for phase 3")
+                    if isinstance (pkt, PtpInit3):
+                        # Neighbor is Phase 3, send it a Phase 3 init
+                        ntype = parent.ntype
+                        if ntype == L2ROUTER:
+                            ntype = L1ROUTER
+                        initmsg = PtpInit3 (srcnode = parent.tid,
+                                            ntype = ntype,
+                                            tiver = tiver_ph3,
+                                            verif = self.initmsg.verif,
+                                            blksize = MTU)
+                    else:
+                        initmsg = NodeInit (srcnode = parent.tid,
+                                            nodename = parent.name,
+                                            verif = self.initmsg.verif,
+                                            routver = tiver_ph2,
+                                            commver = Version (3, 1, 0),
+                                            blksize = MTU)
+                    self.datalink.send (initmsg)
+                self.ntype = pkt.ntype
+                self.blksize = pkt.blksize
+                self.nodeid = pkt.srcnode
+                self.tiver = pkt.tiver
+                self.ph4 = self.tiver[0] == tiver_ph4[0]
+                self.ph2 = self.tiver[0] == tiver_ph2[0]
+                if pkt.verif:
+                    # Verification requested
+                    verif = self.verification
+                    if self.tiver == tiver_ph2:
+                        vpkt = NodeVerify (password = verif)
+                    else:
+                        vpkt = PtpVerify (fcnval = verif)
+                    self.setsrc (vpkt)
+                    self.datalink.send (vpkt)
+                # If we requested verification, wait for that.
+                if self.initmsg.verif:
+                    return self.rv
+                if not self.ph2:
+                    self.node.timers.start (self, self.t4)
+                self.up ()
+                return self.ru
             else:
                 # Some unexpected message
-                self.restart ()
-        elif isinstance (item, DlSendComplete):
-            # Process transmit complete: no action required
-            pass
-        elif isinstance (item, DlStatus):
-            # Process datalink status (datalink down).  Restart
-            # the datalink and resend the init.
-            self.restart ()
-        else:
+                return self.restart ("unexpected message")
+        elif isinstance (item, datalink.DlStatus):
+            # Process datalink status.  Restart the datalink.
+            return self.restart ("datalink status")
+        elif isinstance (item, Shutdown):
+            # operator "stop" command
             self.datalink.close ()
-            self.state = self.s0
-
+            return self.ha
     
+    def rv (self, item):
+        """Waiting for Verification message.
+        """
+        if isinstance (item, timers.Timeout):
+            # Process timeout
+            return self.restart ("timeout")
+        elif isinstance (item, Received):
+            # Process received packet
+            pkt = item.packet
+            # todo: check verification value
+            if not self.ph2:
+                self.node.timers.start (self, self.t4)
+            self.up ()
+            return self.ru
+        elif isinstance (item, datalink.DlStatus):
+            # Process datalink status.  Restart the datalink.
+            return self.restart ("datalink status")
+        elif isinstance (item, Shutdown):
+            # operator "stop" command
+            self.datalink.close ()
+            return self.ha
+
+    def ru (self, item):
+        """Running state.  The circuit is up at the routing control layer.
+        """
+        if isinstance (item, timers.Timeout):
+            # Process listen timeout
+            return self.restart ("timeout")
+        elif isinstance (item, Received):
+            # Process received packet.  Always restart the listen timer.
+            if not self.ph2:
+                self.node.timers.start (self, self.t4)
+            pkt = item.packet
+            # TODO: more...
+        elif isinstance (item, datalink.DlStatus):
+            # Process datalink status.  Restart the datalink.
+            self.down ()
+            return self.restart ("datalink status")
+        elif isinstance (item, Shutdown):
+            # operator "stop" command
+            self.down ()
+            self.datalink.close ()
+            return self.ha
+
+        

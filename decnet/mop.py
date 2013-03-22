@@ -108,14 +108,16 @@ class SysId (MopHdr):
         val = getattr (self, field)
         if isinstance (val, int):
             if val not in (0, -1, -2):
-                raise ValueError ("MOP C-n field integer not in -2..0")
+                logging.debug ("MOP C-n field integer not in -2..0")
+                raise Event (fmt_err)
             val = val.to_bytes (1, packet.LE)
         else:
             if isinstance (val, str):
                 val = bytes (val, "latin-1", "ignore")
             vl = len (val)
             if vl > maxlen:
-                raise OverflowError ("Value too long for %d byte field" % maxlen)
+                logging.debug ("Value too long for %d byte field", maxlen)
+                raise Event (fmt_err)                
             val = vl.to_bytes (1, packet.LE) + val
         return val
 
@@ -127,16 +129,19 @@ class SysId (MopHdr):
         """
         flen = packet.getbyte (buf)
         if flen < -2:
-            raise ValueError ("Image field with negative length %d" % flen)
+            logging.debug ("Image field with negative length %d", flen)
+            raise Event (fmt_err)
         elif flen > maxlen:
-            raise OverflowError ("Image field longer than max length %d" % maxlen)
+            logging.debug ("Image field longer than max length %d", maxlen)
+            raise Event (fmt_err)
         elif flen < 0:
             v = flen
             flen = 1
         else:
             v = buf[1:flen + 1]
             if len (v) != flen:
-                raise ValueError ("Not %d bytes left for image field" % flen)
+                logging.debug ("Not %d bytes left for image field", flen)
+                raise Event (fmt_err)
             v = bytes (v).decode ()
         setattr (self, field, v)
         return buf[flen + 1:]
@@ -264,11 +269,12 @@ class Mop (Element):
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
-            try:
-                self.circuits[name] = MopCircuit (self, name, dl, c)
-                logging.debug ("Initialized MOP circuit %s", name)
-            except Exception:
-                logging.exception ("Error initializing MOP circuit %s", name)
+            if isinstance (dl, datalink.BcDatalink):
+                try:
+                    self.circuits[name] = MopCircuit (self, name, dl, c)
+                    logging.debug ("Initialized MOP circuit %s", name)
+                except Exception:
+                    logging.exception ("Error initializing MOP circuit %s", name)
 
     def start (self):
         logging.debug ("Starting MOP layer")

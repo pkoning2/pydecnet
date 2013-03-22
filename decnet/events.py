@@ -6,13 +6,17 @@ This is layered on top of the standard "logging" module, by passing along
 an additional chunk of data in an Event object.  This can then be formatted
 as a text log message, or sent by a new custom logging handler to a DECnet
 event listener.
+
+The Event class can also be used as an exception, and the Exception instance
+can be caught and then logged, resulting in the same output as for a simple
+"logevent" call.
 """
 
 import logging
 import time
 
-class Event (object):
-    """A DECnet event.
+class Event (Exception):
+    """A DECnet event.  It is derived from Exception so it can be raised.
     """
     # Event class codes
     netman = 0
@@ -285,6 +289,7 @@ class Event (object):
         }
 
     def __init__ (self, event, entity = None, **kwds):
+        Exception.__init__ (self)
         self.event = event
         self._entity = entity
         self.__dict__.update (kwds)

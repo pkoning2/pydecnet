@@ -42,7 +42,7 @@ cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
 cp.add_argument ("--type", default = "Ethernet",
-                 choices = ("Ethernet",),
+                 choices = ("Ethernet", "SimhDMC"),
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")
@@ -55,6 +55,8 @@ cp.add_argument ("--nr", type = int, choices = range (34),
                  help = "Maximum routers on this LAN", default = 10)
 cp.add_argument ("--priority", metavar = "P", type = int, choices = range (128),
                  default = 64, help = "Designated router priority")
+cp.add_argument ("--verification", default = "",
+                 help = "Point to point verification value to send")
 
 cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
