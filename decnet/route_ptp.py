@@ -107,7 +107,13 @@ class PtpCircuit (statemachine.StateMachine):
 
     def stop (self):
         self.node.addwork (Shutdown (self))
-        
+
+    def send (self, pkt):
+        if self.state == self.ru:
+            if isinstance (pkt, LongData):
+                pkt = ShortData (copy = pkt, payload = pkt.payload)
+            self.datalink.send (pkt)
+            
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
@@ -314,11 +320,14 @@ class PtpCircuit (statemachine.StateMachine):
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
-            # todo: check verification value
-            if not self.ph2:
-                self.node.timers.start (self, self.t4)
-            self.up ()
-            return self.ru
+            if isinstance (pkt, PtpVerify):
+                # todo: check verification value
+                if not self.ph2:
+                    self.node.timers.start (self, self.t4)
+                self.up ()
+                return self.ru
+            else:
+                return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
             return self.restart ("datalink status")
@@ -338,7 +347,17 @@ class PtpCircuit (statemachine.StateMachine):
             if not self.ph2:
                 self.node.timers.start (self, self.t4)
             pkt = item.packet
-            # TODO: more...
+            if isinstance (pkt, (ShortData, LongData)):
+                logging.trace ("%s data packet to routing: %s", self.name, pkt)
+                # Note that just the packet is dispatched, not the work
+                # item we received that wraps it.
+                pkt.src = self
+                self.parent.dispatch (pkt)
+            elif isinstance (pkt, PtpHello):
+                if not testdata_re.match (pkt.testdata):
+                    return self.restart ("invalid test data")
+            else:
+                return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
             self.down ()

@@ -185,6 +185,8 @@ class EndnodeLanCircuit (LanCircuit):
     def send (self, pkt, dstnode, tryhard = False):
         """Send pkt to dstnode.
         """
+        logging.trace ("Sending %d byte packet to %s: %s",
+                       len (pkt), dstnode, pkt)
         if isinstance (pkt, ShortData):
             pkt = LongData (copy = pkt, payload = pkt.payload)
         if tryhard:
