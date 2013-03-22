@@ -69,6 +69,8 @@ class Datalink (Element, metaclass = ABCMeta):
         """
         super ().__init__ (owner)
         self.name = name
+        self.owner = owner
+        self.config = config
         
     @abstractmethod
     def create_port (self, *args):
@@ -106,15 +108,202 @@ class Port (Element, metaclass = ABCMeta):
 
 class DlStatus (Work):
     """Notification of some sort of datalink event.  Attribute is
-    "status".
+    "status".  The status attribute is True for up, False for down.
     """
 
+# Point to point port
+
+class PtpPort (Port):
+    """Base class for a point to point datalink port.  A port
+    describes an upper layer's use of the datalink.  In the point to
+    point case, only one port is allowed at a time, since there is
+    no multiplexing support.  (If maintenance mode is ever added,
+    that might change.)
+    """
+    def __init__ (self, datalink, owner, proto = None):
+        super ().__init__ (datalink, owner)
+        # A subset of the counters defined by the architecture
+        self.ctr_zero_time = time.time ()
+        self.bytes_sent = self.pkts_sent = 0
+        self.bytes_recd = self.pkts_recd = 0
+
+    def open (self):
+        self.parent.port_open ()
+
+    def close (self):
+        self.parent.port_close ()
+        
+    def send (self, msg):
+        self.parent.send (msg)
+        
 # Point to point datalink base class
 
 class PtpDatalink (Datalink):
     """Base class for point to point datalinks.
     """
+    port_class = PtpPort
 
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        self.port = None
+        
+    def create_port (self, owner, proto = None, *args):
+        port = super ().create_port (owner, proto, *args)
+        if self.port:
+            raise RuntimeError ("Creating second port on point to point datalink")
+        self.port = port
+        return port
+    
+# SimDMC link states
+OFF = 0
+INIT = 1
+RUN = 2
+
+class SimhDMC (PtpDatalink):
+    """An implementation of the SIMH DMC-11 emulation.  See pdp11_dmc.c
+    in the SIMH source code for the authoritative description.
+
+    In a nutshell: this uses a TCP connection.  One side is designated
+    "primary", it issues the connect.  The "secondary" side listens for
+    the connect.  Once connected, data packets are sent as TCP stream
+    data prefixed by the packet length, as a two byte network order
+    (big endian) integer.  There is no support for Maintenance mode.
+
+    The --device config parameter is required.  The device argument
+    is either "host:portnum" or "secondary:portnum", the former for
+    primary mode.
+    """
+    def __init__ (self, owner, name, config):
+        self.tname = "{}.{}".format (owner.node.nodename, name)
+        self.rthread = None
+        super ().__init__ (owner, name, config)
+        self.config = config
+        host, port = config.device.split (':')
+        if host == "secondary":
+            self.primary = False
+            logging.trace ("Simh DMC datalink %s initialized as secondary",
+                           self.name)
+        else:
+            self.primary = True
+            self.host = host
+            logging.trace ("Simh DMC datalink %s initialized as primary",
+                           self.name)
+        self.portnum = int (port)
+        self.status = OFF
+
+    def open (self):
+        # Open and close datalink are ignored, control is via the port
+        # (the higher layer's handle on the datalink entity)
+        pass
+
+    def close (self):
+        pass
+    
+    def port_open (self):
+        if self.status != OFF:
+            # Already open, ignore
+            return
+        self.rthread = StopThread (name = self.tname, target = self.run)
+        self.status = INIT
+        self.socket = socket.socket (socket.AF_INET)
+        if self.primary:
+            try:
+                self.socket.connect ((self.host, self.portnum))
+                logging.trace ("SimDMC %s connect to %s %d in progress",
+                               self.name, self.host, self.portnum)
+            except socket.error:
+                logging.trace ("SimDMC %s connect to %s %d rejected",
+                               self.name, self.host, self.portnum)
+                self.status = OFF
+                return
+        else:
+            self.socket.bind (("", self.portnum))
+            self.listen (1)
+            logging.trace ("SimDMC %s listen to %d active",
+                           self.name, self.portnum)
+        self.rthread.start ()
+
+    def port_close (self):
+        if self.status != OFF:
+            self.rthread.stop ()
+            self.rthread = None
+            self.status = OFF
+
+    def disconnected (self):
+        if self.status == RUN and self.port:
+            self.node.addwork (DlStatus (self.port.owner, status = False))
+        self.status = OFF
+
+    def run (self):
+        logging.trace ("Simh DMC datalink %s receive thread started", self.name)
+        sock = self.socket
+        sellist = [ sock.fileno () ]
+        if self.primary:
+            # Wait for the socket to become writable, that means
+            # the connection has gone through
+            while True:
+                r, w, e = select.select ([], sellist, sellist, 1)
+                if self.rthread.stopnow or e:
+                    self.disconnected ()
+                    return
+                if w:
+                    logging.trace ("Simh DMC %s connected", self.name)
+                    break
+        else:
+            # Wait for an incoming connection.
+            while True:
+                r, w, e = select.select (sellist, [], sellist, 1)
+                if self.rthread.stopnow or e:
+                    self.disconnected ()
+                    return
+                if r:
+                    break
+            sock, ainfo = sock.accept ()
+            logging.trace ("Simh DMC %s connected", self.name)
+            sellist = [ sock.fileno () ]
+            self.socket = sock
+        # Tell the routing init layer that this datalink is running
+        self.status = RUN
+        if self.port:
+            self.node.addwork (DlStatus (self.port.owner, status = True))
+        while True:
+            # All connected.
+            r, w, e = select.select (sellist, [], sellist, 1)
+            if self.rthread.stopnow or e:
+                self.disconnected ()                
+                return
+            if r:
+                bc = sock.recv (2)
+                if not bc:
+                    self.disconnected ()
+                    return
+                if len (bc) < 2:
+                    bc += sock.recv (1)
+                    if len (bc) < 2:
+                        self.disconnected ()
+                        return
+                bc = int.from_bytes (bc, "big")
+                msg = b''
+                while len (msg) < bc:
+                    m = sock.recv (bc - len (msg))
+                    if not m:
+                        self.disconnected ()
+                        return
+                    msg += m
+                logging.trace ("Received DMC message len %d: %r",
+                               len (msg), msg)
+                if self.port:
+                    self.node.addwork (Received (self.port.owner, packet = msg))
+                else:
+                    logging.trace ("Message discarded, no port open")
+                    
+    def send (self, msg, dest = None):
+        if self.status == RUN:
+            msg = bytes (msg)
+            logging.trace ("Sending DMC message len %d: %r", len (msg), msg)
+            mlen = len (msg).to_bytes (2, "big")
+            self.socket.send (mlen + msg)
+            
 # Broadcast datalink base class
 
 class BcDatalink (Datalink):
@@ -221,7 +410,7 @@ class EthPort (BcPort):
     def send (self, msg, dest):
         destb = bytes (dest)
         if len (destb) != 6:
-            raise ValueError
+            raise ValueError ("Invalid destination address length")
         l = len (msg)
         logging.trace ("Sending %d byte %s packet to %s",
                        l, msg.__class__.__name__, dest)
@@ -229,14 +418,14 @@ class EthPort (BcPort):
         f[0:6] = destb
         if self.pad:
             if l > 1498:
-                raise ValueError
+                raise ValueError ("Ethernet packet too long")
             f[14] = l & 0xff
             f[15] = l >> 8
             f[16:16 + l] = msg
             l += 16
         else:
             if l > 1500:
-                raise ValueError
+                raise ValueError ("Ethernet packet too long")
             f[14:14 + l] = msg
             l += 14
         # Always send packet padded to min of 60 if need be, whether
@@ -387,5 +576,5 @@ class Ethernet (BcDatalink, StopThread):
             else:
                 packet = memoryview (packet)[14:]
             self.node.addwork (Received (port.owner,
-                                          src = src, packet = packet))
+                                         src = src, packet = packet))
                 

@@ -112,8 +112,11 @@ class Node (object):
                     break
                 try:
                     work.dispatch ()
-                except Exception:
-                    logging.exception ("Exception processing work item %r", work)
+                except Event as e:
+                    # If processing of the work item raises an Event
+                    # exception, log that event and keep going.
+                    # Any other exception terminates things.
+                    self.logevent (e)
         finally:
             self.stop ()
 
