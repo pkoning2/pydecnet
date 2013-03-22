@@ -155,6 +155,8 @@ class _Adjacency (Element, timers.Timer):
         """
         if isinstance (pkt, ShortData):
             pkt = LongData (copy = pkt, payload = pkt.payload)
+        logging.trace ("Sending %d byte packet to %s: %s",
+                       len (pkt), self.macid, pkt)
         self.circuit.datalink.send (pkt, dest = self.macid)
 
     def log_up (self, **kwargs):
@@ -781,7 +783,7 @@ class Update (Element, timers.Timer):
             self.node.timers.start (self, delta)
 
     def dispatch (self, item):
-        if isinstance (item, timers.Timeout):
+        if isinstance (item, timers.Timeout) and self.parent.ntype != ENDNODE:
             # If anysrm is set, that means setsrm was called to
             # request sending of specific updates.  If not, then this
             # is a periodic (all destinations) update

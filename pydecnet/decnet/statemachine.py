@@ -56,15 +56,18 @@ class StateMachine (timers.Timer):
         if self.validate (data):
             newstate = self.state (data)
             if newstate:
-                logging.trace ("%s %s new state %s", self, data, newstate)
+                logging.trace ("%s %s new state %s",
+                               self.statename (), data, newstate.__name__)
                 self.state = newstate
             else:
-                logging.trace ("%s %s no state change", self, data)
+                logging.trace ("%s %s no state change", self.statename (), data)
         else:
-            logging.trace ("%s %s rejected by validate", self, data)
+            logging.trace ("%s %s rejected by validate", self.statename (), data)
             
-    def __str__ (self):
+    def statename (self):
         """Return a string giving the state machine class name and the
         current state name.
         """
         return "%s<state: %s>" % (self.__class__.__name__, self.state.__name__)
+
+    __str__ = statename
