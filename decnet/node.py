@@ -17,6 +17,7 @@ from . import mop
 from . import routing
 from . import apiserver
 from . import nsp
+from . import monitor
 
 class Nodeinfo (object):
     """A container for node database entries.
@@ -51,6 +52,7 @@ class Node (object):
         except AttributeError:
             sock = DEFAPISOCKET
         self.api = apiserver.ApiServer (self, sock)
+        self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()
 
         # We now have a node.  Create its child entities in the appropriate order
@@ -88,6 +90,7 @@ class Node (object):
         self.routing.start ()
         self.nsp.start ()
         self.api.start ()
+        self.monitor.start ()
         if mainthread:
             self.mainloop ()
         else:
