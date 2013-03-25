@@ -101,7 +101,7 @@ class Port (Element, metaclass = ABCMeta):
         self.owner = owner
 
     @abstractmethod
-    def send (self, msg):
+    def send (self, msg, dest = None):
         """Transmit a message.  
         """
         pass
@@ -133,7 +133,7 @@ class PtpPort (Port):
     def close (self):
         self.parent.port_close ()
         
-    def send (self, msg):
+    def send (self, msg, dest = None):
         self.parent.send (msg)
         
 # Point to point datalink base class
@@ -206,6 +206,7 @@ class SimhDMC (PtpDatalink):
         self.rthread = StopThread (name = self.tname, target = self.run)
         self.status = INIT
         self.socket = socket.socket (socket.AF_INET)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if self.primary:
             try:
                 self.socket.connect ((self.host, self.portnum))
@@ -218,7 +219,7 @@ class SimhDMC (PtpDatalink):
                 return
         else:
             self.socket.bind (("", self.portnum))
-            self.listen (1)
+            self.socket.listen (1)
             logging.trace ("SimDMC %s listen to %d active",
                            self.name, self.portnum)
         self.rthread.start ()
@@ -228,10 +229,21 @@ class SimhDMC (PtpDatalink):
             self.rthread.stop ()
             self.rthread = None
             self.status = OFF
+            try:
+                self.socket.close ()
+            except Exception:
+                pass
+            self.socket = None
 
     def disconnected (self):
         if self.status == RUN and self.port:
             self.node.addwork (DlStatus (self.port.owner, status = False))
+        if self.status != OFF:
+            try:
+                self.socket.close ()
+            except Exception:
+                pass
+            self.socket = None
         self.status = OFF
 
     def run (self):
@@ -242,8 +254,11 @@ class SimhDMC (PtpDatalink):
             # Wait for the socket to become writable, that means
             # the connection has gone through
             while True:
-                r, w, e = select.select ([], sellist, sellist, 1)
-                if self.rthread.stopnow or e:
+                try:
+                    r, w, e = select.select ([], sellist, sellist, 1)
+                except select.error:
+                    e = True
+                if (self.rthread and self.rthread.stopnow) or e:
                     self.disconnected ()
                     return
                 if w:
@@ -252,8 +267,11 @@ class SimhDMC (PtpDatalink):
         else:
             # Wait for an incoming connection.
             while True:
-                r, w, e = select.select (sellist, [], sellist, 1)
-                if self.rthread.stopnow or e:
+                try:
+                    r, w, e = select.select (sellist, [], sellist, 1)
+                except select.error:
+                    e = True
+                if (self.rthread and self.rthread.stopnow) or e:
                     self.disconnected ()
                     return
                 if r:
@@ -268,12 +286,18 @@ class SimhDMC (PtpDatalink):
             self.node.addwork (DlStatus (self.port.owner, status = True))
         while True:
             # All connected.
-            r, w, e = select.select (sellist, [], sellist, 1)
-            if self.rthread.stopnow or e:
+            try:
+                r, w, e = select.select (sellist, [], sellist, 1)
+            except select.error:
+                e = True
+            if (self.rthread and self.rthread.stopnow) or e:
                 self.disconnected ()                
                 return
             if r:
-                bc = sock.recv (2)
+                try:
+                    bc = sock.recv (2)
+                except socket.error:
+                    bc = None
                 if not bc:
                     self.disconnected ()
                     return
@@ -302,7 +326,10 @@ class SimhDMC (PtpDatalink):
             msg = bytes (msg)
             logging.trace ("Sending DMC message len %d: %r", len (msg), msg)
             mlen = len (msg).to_bytes (2, "big")
-            self.socket.send (mlen + msg)
+            try:
+                self.socket.send (mlen + msg)
+            except socket.error:
+                self.disconnected ()
             
 # Broadcast datalink base class
 
@@ -533,8 +560,11 @@ class Ethernet (BcDatalink, StopThread):
                 try:
                     # Note: for some reason, the timeout does nothing
                     # on Mac OS.
-                    r, w, x = select.select (self.sellist, (),
-                                             self.sellist, ETH_TMO)
+                    try:
+                        r, w, x = select.select (self.sellist, (),
+                                                 self.sellist, ETH_TMO)
+                    except select.error:
+                        x = True
                     if not r and not x:
                         continue
                     pkt = os.read (self.tap, 1518)

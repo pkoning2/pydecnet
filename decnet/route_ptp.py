@@ -279,7 +279,7 @@ class PtpCircuit (statemachine.StateMachine):
                                             blksize = MTU)
                     self.datalink.send (initmsg)
                 self.ntype = pkt.ntype
-                self.blksize = pkt.blksize
+                self.blksize = self.minrouterblk = pkt.blksize
                 self.nodeid = pkt.srcnode
                 self.tiver = pkt.tiver
                 self.ph4 = self.tiver[0] == tiver_ph4[0]
@@ -349,7 +349,7 @@ class PtpCircuit (statemachine.StateMachine):
             if not self.ph2:
                 self.node.timers.start (self, self.t4)
             pkt = item.packet
-            if isinstance (pkt, (ShortData, LongData)):
+            if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)):
                 logging.trace ("%s data packet to routing: %s", self.name, pkt)
                 # Note that just the packet is dispatched, not the work
                 # item we received that wraps it.

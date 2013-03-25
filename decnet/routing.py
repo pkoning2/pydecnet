@@ -37,7 +37,7 @@ class CirAdj (object):
         self.routing = circuit.routing
         
     def up (self, nodeid = None, ntype = None, **kwargs):
-        if ntype:
+        if ntype is not None:
             self.nodeid = nodeid
             self.ntype = ntype
         self.log_up (**kwargs)
