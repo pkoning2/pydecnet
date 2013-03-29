@@ -379,9 +379,13 @@ class PtpCircuit (statemachine.StateMachine):
 
     def html (self, what, first):
         if first:
-            hdr = "<tr><th>Name</th><th>Cost</th><th>Hello time</th><th>State</th></tr>\n"
+            hdr = "<tr><th>Name</th><th>Cost</th><th>Neighbor</th><th>Hello time</th><th>State</th></tr>\n"
         else:
             hdr = ""
-        s = "<tr><td>{0.name}</td><td>{0.config.cost}</td><td>{0.hellotime}</td><td>{0.state.__name__}</dt></tr>\n".format (self)
+        if self.state == self.ru:
+            neighbor = str (self.nodeid)
+        else:
+            neighbor = ""
+        s = "<tr><td>{0.name}</td><td>{0.config.cost}</td><td>{1}</td><td>{0.hellotime}</td><td>{0.state.__name__}</dt></tr>\n".format (self, neighbor)
         return hdr + s
     
