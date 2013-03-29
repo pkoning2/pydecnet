@@ -376,4 +376,12 @@ class PtpCircuit (statemachine.StateMachine):
         if self.state == self.ru:
             self.datalink.send (self.hellomsg)
             self.node.timers.start (self.hellotimer, self.hellotime)
-            
+
+    def html (self, what, first):
+        if first:
+            hdr = "<tr><th>Name</th><th>Cost</th><th>Hello time</th><th>State</th></tr>\n"
+        else:
+            hdr = ""
+        s = "<tr><td>{0.name}</td><td>{0.config.cost}</td><td>{0.hellotime}</td><td>{0.state.__name__}</dt></tr>\n".format (self)
+        return hdr + s
+    

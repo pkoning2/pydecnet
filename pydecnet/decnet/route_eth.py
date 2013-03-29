@@ -96,6 +96,14 @@ class LanCircuit (timers.Timer):
 
     def down (self, **kwargs):
         pass
+
+    def html (self, what, first):
+        if first:
+            hdr = "<tr><th>Name</th><th>Cost</th><th>Priority</th><th>Hello time</th></tr>\n"
+        else:
+            hdr = ""
+        s = "<tr><td>{0.name}</td><td>{0.config.cost}</td><td>{0.config.priority}</td><td>{0.hellotime}</td></tr>\n".format (self)
+        return hdr + s
     
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop
