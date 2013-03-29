@@ -383,6 +383,11 @@ class _Router (Element):
     def dispatch (self, item):
         pass
 
+    def html (self, what):
+        if what == "summary":
+            return """<h3>Routing summary for node {0.name}</h3>
+<p>Node type: {0.node.routing.typename}</p>""".format (self)
+
 class EndnodeRouting (_Router):
     """Routing entity for endnodes.
     """
@@ -417,6 +422,13 @@ class EndnodeRouting (_Router):
                                  src = item.srcnode)
                 self.node.addwork (work, self.node.nsp)
 
+    def html (self, what):
+        ret = [ super ().html (what) ]
+        ret.append ("<table border=1>")
+        ret.append (self.circuit.html (what, True))
+        ret.append ("</table>")
+        return '\n'.join (ret)
+    
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
     separated out for easier access.
@@ -658,6 +670,25 @@ class L1Router (_Router, L1CirAdj):
             else:
                 self.node.logevent (unreach_drop, adjacency = srcadj, **kwargs)
             
+    def html (self, what):
+        ret = [ super ().html (what) ]
+        for t in (self.LanCircuit, self.PtpCircuit):
+            first = True
+            for c in self.circuits.values ():
+                if isinstance (c, t):
+                    h = c.html (what, first)
+                    if h:
+                        if first:
+                            first = False
+                            if t == self.LanCircuit:
+                                ret.append ("<h3>LAN circuits:</h3><table border=1>")
+                            else:
+                                ret.append ("<h3>Point to point circuits:</h3><table border=1>")
+                        ret.append (h)
+            if not first:
+                ret.append ("</table>")
+        return '\n'.join (ret)
+
 class L2Router (L1Router, L2CirAdj):
     """Routing entity for level 2 (area) routers
     """
