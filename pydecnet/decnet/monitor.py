@@ -70,6 +70,10 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         return """<html><head>
 <title>DECnet/Python monitoring on {0.node.nodename}</title></head>
 <body>
+<table><tr>
+<td><a href="/">Summary</td>
+<td><a href="/routing">Routing layer</td>
+<td><a href="/mop">MOP</td></table>
 """.format (self)
 
     def common_end (self):

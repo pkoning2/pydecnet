@@ -25,6 +25,11 @@ class Nodeinfo (object):
     def __init__ (self, id, name):
         self.nodeid = id
         self.nodename = name
+
+    def __str__ (self):
+        if self.nodename:
+            return "{0.nodeid} ({0.nodename})".format (self)
+        return "{0.nodeid}".format (self)
         
 class Node (object):
     """A Node object is the outermost container for all the other objects
@@ -67,7 +72,10 @@ class Node (object):
         """
         if isinstance (n, str):
             return self.nodeinfo_byname[n.upper ()]
-        return self.nodeinfo_byid[n]
+        try:
+            return self.nodeinfo_byid[n]
+        except KeyError:
+            return Nodeinfo (n, "")
     
     def addwork (self, work, handler = None):
         """Add a work item (instance of a Work subclass) to the node's
