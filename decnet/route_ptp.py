@@ -75,7 +75,8 @@ class PtpCircuit (statemachine.StateMachine):
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
         self.hellotime = config.t3 or 60
-        self.listentime = self.hellotime * 3
+        self.t4 = self.hellotime * 3
+        self.tiver = None
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         self.initmsg = PtpInit (srcnode = parent.nodeid,
@@ -203,7 +204,9 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, Start):
             self.datalink.open ()
-            self.node.timers.start (self, self.listentime)
+            self.t4 = self.hellotime * 3
+            self.tiver = None
+            self.node.timers.start (self, self.t4)
             return self.ds
 
     s0 = ha    # "halted" is the initial state
@@ -379,13 +382,19 @@ class PtpCircuit (statemachine.StateMachine):
 
     def html (self, what, first):
         if first:
-            hdr = "<tr><th>Name</th><th>Cost</th><th>Neighbor</th><th>Hello time</th><th>State</th></tr>\n"
+            hdr = """<tr><th>Name</th><th>Cost</th>
+            <th>Neighbor</th><th>Hello time</th>
+            <th>Listen time</th><th>Version</th>
+            <th>State</th></tr>\n"""
         else:
             hdr = ""
         if self.state == self.ru:
-            neighbor = str (self.nodeid)
+            neighbor = str (self.node.nodeinfo (self.nodeid))
         else:
             neighbor = ""
-        s = "<tr><td>{0.name}</td><td>{0.config.cost}</td><td>{1}</td><td>{0.hellotime}</td><td>{0.state.__name__}</dt></tr>\n".format (self, neighbor)
+        s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
+        <td>{1}</td><td>{0.hellotime}</td>
+        <td>{0.t4}</td><td>{0.tiver}</td>
+        <td>{0.state.__name__}</dt></tr>\n""".format (self, neighbor)
         return hdr + s
     

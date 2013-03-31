@@ -249,6 +249,8 @@ class SimhDMC (PtpDatalink):
     def run (self):
         logging.trace ("Simh DMC datalink %s receive thread started", self.name)
         sock = self.socket
+        if not sock:
+            return
         sellist = [ sock.fileno () ]
         if self.primary:
             # Wait for the socket to become writable, that means

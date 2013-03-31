@@ -386,7 +386,7 @@ class _Router (Element):
     def html (self, what):
         if what == "summary":
             return """<h3>Routing summary for node {0.name}</h3>
-<p>Node type: {0.node.routing.typename}</p>""".format (self)
+            <p>Node type: {0.node.routing.typename}</p>""".format (self)
 
 class EndnodeRouting (_Router):
     """Routing entity for endnodes.
@@ -687,6 +687,21 @@ class L1Router (_Router, L1CirAdj):
                         ret.append (h)
             if not first:
                 ret.append ("</table>")
+        ret.append ("<h3>Level 1 routing table</h3><table border=1>")
+        first = True
+        for i in range (self.maxnodes + 1):
+            if self.oadj[i]:
+                if i:
+                    name = str (self.node.nodeinfo (i))
+                else:
+                    name = "Nearest L2"
+                if first:
+                    ret.append ("""<tr><th>Node</th><th>Hops</th>
+                    <th>Cost</th><th>Nexthop</th></tr>""")
+                    first = False
+                hops, cost, adj = self.minhops[i], self.mincost[i], self.oadj[i]
+                ret.append ("""<tr><td>{}</td><td>{}</td>
+                <td>{}</td><td>{}</td></tr>""".format (name, hops, cost, adj))
         return '\n'.join (ret)
 
 class L2Router (L1Router, L2CirAdj):
