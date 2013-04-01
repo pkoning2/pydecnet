@@ -239,6 +239,10 @@ class RoutingLanCircuit (LanCircuit):
 
     def stop (self):
         self.sendhello (empty = True)
+        time.sleep (0.1)
+        # Do it again to make sure
+        self.sendhello (empty = True)
+        time.sleep (0.1)
         
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()

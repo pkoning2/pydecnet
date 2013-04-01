@@ -79,20 +79,20 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             
     def common_start (self):
         return """<html><head>
-<title>DECnet/Python monitoring on node {0.node.nodeid} ({0.node.nodename})</title></head>
-<body>
-<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-<td width=180 align=center><a href="/">Summary</td>
-<td width=180 align=center><a href="/routing">Routing layer</td>
-<td width=180 align=center><a href="/mop">MOP</td></table>
-""".format (self)
+        <title>DECnet/Python monitoring on node {0.node.nodeid} ({0.node.nodename})</title></head>
+        <body>
+        <table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+        <td width=180 align=center><a href="/">Overall summary</td>
+        <td width=180 align=center><a href="/routing">Routing layer</td>
+        <td width=180 align=center><a href="/mop">MOP</td></table>
+        """.format (self)
 
     def common_end (self):
         return "</body></html>\n"
     
     def summary (self):
         ret = list ()
-        ret.append (self.node.routing.html (None))
+        ret.append (self.node.routing.html ("overall"))
         # more...
         return "\n".join (ret)
 

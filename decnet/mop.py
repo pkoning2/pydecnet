@@ -315,8 +315,16 @@ class Mop (Element):
             self.node.addwork (work, h)
             
     def html (self, what):
-        whats = what or "summary"
-        ret = [ """<h3>MOP {1}</h3>""".format (self, whats) ]
+        if what == "overall":
+            whats = "summary"
+            ret = list ()
+        else:
+            whats = what or "summary"
+            ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+            <td width=180 align=center><a href="/mop">Summary</td>
+            <td width=180 align=center><a href="/mop/status">Status</td>
+            <td width=180 align=center><a href="/mop/internals">Internals</td></table>""" ]
+        ret.append ("<h3>MOP {0}</h3>".format (whats))
         first = True
         for c in self.circuits.values ():
             s = c.html (what, first)
@@ -327,7 +335,7 @@ class Mop (Element):
                 ret.append (s)
         if not first:
             ret.append ("</table>")
-        if what in ("summary", "status"):
+        if what in ("status", "internals"):
             for c in self.circuits.values ():
                 if c.sysid:
                     ret.append (c.sysid.html (what))
@@ -520,7 +528,7 @@ class SysIdHandler (Element, timers.Timer):
     def html (self, what):
         ret = [ "<h3>Sysid data for {}</h3>".format (self.parent.name) ]
         if not self.heard:
-            ret.append ("<p><em>Nothing heard</em></p>")
+            ret.append ("<p><em>Nothing heard yet</em></p>")
         else:
             ret.append ("""<table border=1 cellspacing=0 cellpadding=4>
             <tr><th>Source addr</th><th>Console</th>
