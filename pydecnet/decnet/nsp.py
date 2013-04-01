@@ -29,6 +29,9 @@ class NSP (Element):
         logging.debug ("Starting NSP")
         self.routing = self.parent.routing
 
+    def stop (self):
+        logging.debug ("Stopping NSP")
+
     def dispatch (self, item):
         if isinstance (item, Received):
             # Arriving packet delivered up from Routing.

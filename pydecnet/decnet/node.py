@@ -37,6 +37,9 @@ class Node (object):
     it's certainly possible to create multiple ones (to emulate an
     entire network within a single process).
     """
+    startlist = ( "datalink", "mop", "routing", "nsp",
+                  "api", "monitor" )
+    
     def __init__ (self, config):
         self.node = self
         self.config = config
@@ -93,12 +96,9 @@ class Node (object):
         """
         threading.current_thread ().name = self.nodename
         logging.debug ("Starting node %s", self.nodename)
-        self.datalink.start ()
-        self.mop.start ()
-        self.routing.start ()
-        self.nsp.start ()
-        self.api.start ()
-        self.monitor.start ()
+        for m in self.startlist:
+            c = getattr (self, m)
+            c.start ()
         if mainthread:
             self.mainloop ()
         else:
@@ -134,7 +134,10 @@ class Node (object):
     def stop (self):
         threading.current_thread ().name = self.nodename
         logging.debug ("Stopping node")
-        self.api.stop ()
+        # Stop things in the reverse order they are started
+        for m in reversed (self.startlist):
+            c = getattr (self, m)
+            c.stop ()
         self.timers.shutdown ()
         
     def register_api (self, command, handler, help = None):

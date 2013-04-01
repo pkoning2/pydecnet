@@ -46,7 +46,7 @@ class SysId (MopHdr):
                           ( "counters", 6, 1 ),
                           ( "carrier_reserved", 7, 1 ),
                           ( None, 8, 8 ) ),    # Reserved
-                    3 : ( "bs", "console_user", 6 ),
+                    3 : ( Macaddr, "console_user" ),
                     4 : ( "b", "reservation_timer", 2 ),
                     5 : ( "b", "console_cmd_size", 2 ),
                     6 : ( "b", "console_resp_size", 2 ),
@@ -285,6 +285,15 @@ class Mop (Element):
             except Exception:
                 logging.exception ("Error starting MOP circuit %s", name)
     
+    def stop (self):
+        logging.debug ("Stopping MOP layer")
+        for name, c in self.circuits.items ():
+            try:
+                c.stop ()
+                logging.debug ("Stopped MOP circuit %s", name)
+            except Exception:
+                logging.exception ("Error stopping MOP circuit %s", name)
+    
     def dispatch (self, work):
         """API requests come here.
         """
@@ -305,6 +314,25 @@ class Mop (Element):
             del work.final_handler     # to make it die if we somehow loop
             self.node.addwork (work, h)
             
+    def html (self, what):
+        whats = what or "summary"
+        ret = [ """<h3>MOP {1}</h3>""".format (self, whats) ]
+        first = True
+        for c in self.circuits.values ():
+            s = c.html (what, first)
+            if s:
+                if first:
+                    first = False
+                    ret.append ("<h3>Circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
+                ret.append (s)
+        if not first:
+            ret.append ("</table>")
+        if what in ("summary", "status"):
+            for c in self.circuits.values ():
+                if c.sysid:
+                    ret.append (c.sysid.html (what))
+        return '\n'.join (ret)
+                
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
     and services enabled on a particular circuit (datalink instance).
@@ -315,9 +343,11 @@ class MopCircuit (Element):
         self.name = name
         self.datalink = datalink
         self.mop = parent
+        self.loophandler = self.sysid = None
+        self.carrier_client = self.carrier_server = None
         
     def start (self):
-        logging.debug ("starting mop for %s %s",
+        logging.debug ("Starting mop for %s %s",
                        self.datalink.__class__.__name__, self.name)
         if isinstance (self.datalink, datalink.BcDatalink):
             # Do the following only on LANs
@@ -333,6 +363,12 @@ class MopCircuit (Element):
             else:
                 self.carrier_server = None
 
+    def stop (self):
+        logging.debug ("Stopping mop for %s %s",
+                       self.datalink.__class__.__name__, self.name)
+        if self.carrier_server:
+            self.carrier_server.release ()
+            
     def dispatch (self, work):
         if isinstance (work, datalink.Received):
             buf = work.packet
@@ -355,6 +391,30 @@ class MopCircuit (Element):
         self.carrier_client.dispatch (parsed)
         if self.carrier_server:
             self.carrier_server.dispatch (parsed)
+
+    def html (self, what, first):
+        services = list ()
+        if self.loophandler:
+            services.append ("loop")
+        if self.carrier_server:
+            services.append ("console")
+        services = ", ".join (services)
+        if self.carrier_server:
+            if first:
+                hdr = """<tr><th>Name</th><th>Services</th>
+                <th>Console user</th></tr>"""
+            else:
+                hdr = ""
+            cu = self.parent.reservation or ""
+            s = """<tr><td>{0.name}</td><td>{1}</td>
+            <td>{2}</dt></tr>""".format (self, services, cu)
+        else:
+            if first:
+                hdr = """<tr><th>Name</th><th>Services</th></tr>"""
+            else:
+                hdr = ""
+            s = """<tr><td>{0.name}</td><td>{1}</td>""".format (self, services)
+        return hdr + s
 
 def format_sysid (id, config):
     """Format a sysid report, brief, regular, or full
@@ -456,6 +516,38 @@ class SysIdHandler (Element, timers.Timer):
     def send_ctrs (self, dest, receipt):
         reply = Counters (src = self.port.parent, receipt = receipt)
         self.port.send (reply, dest)
+
+    def html (self, what):
+        ret = [ "<h3>Sysid data for {}</h3>".format (self.parent.name) ]
+        if not self.heard:
+            ret.append ("<p><em>Nothing heard</em></p>")
+        else:
+            ret.append ("""<table border=1 cellspacing=0 cellpadding=4>
+            <tr><th>Source addr</th><th>Console</th>
+            <th>Console user</th><th>Reservation timer</th>
+            <th>HW address</th><th>Device</th><th>Processor</th>
+            <th>Datalink</th><th>Software</th></tr>""")
+
+            for k, v in self.heard.items ():
+                srcaddr = getattr (v, "srcaddr", "") or k
+                carrier = getattr (v, "carrier", "")
+                console_user = getattr (v, "console_user", "")
+                reservation_timer = getattr (v, "reservation_timer", "")
+                hwaddr = getattr (v, "hwaddr", "")
+                device = getattr (v, "device", "")
+                device = v.devices.get (device, device)[1]
+                processor = getattr (v, "processor", "")
+                processor = v.processors.get (processor, processor)
+                datalink = getattr (v, "datalink", "")
+                datalink = v.datalinks.get (datalink, datalink)
+                software = getattr (v, "software", "")
+                ret.append ("""<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
+                <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>"""\
+                            .format (srcaddr, carrier, console_user,
+                                     reservation_timer, hwaddr, device,
+                                     processor, datalink, software))
+            ret.append ("</table>")
+        return '\n'.join (ret)
         
 class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.

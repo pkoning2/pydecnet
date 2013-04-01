@@ -56,6 +56,19 @@ class DatalinkLayer (Element):
                 logging.exception ("Error starting datalink %s", name)
     
     
+    def stop (self):
+        """Stop the datalink layer, which means stopping each of
+        the circuits that were configured.
+        """
+        logging.debug ("Stopping datalink layer")
+        for name, c in self.circuits.items ():
+            try:
+                c.close ()
+                logging.debug ("Stopped datalink %s", name)
+            except Exception:
+                logging.exception ("Error stopping datalink %s", name)
+    
+    
 class Datalink (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink.
     """
@@ -526,8 +539,9 @@ class Ethernet (BcDatalink, StopThread):
         self.start ()
         
     def close (self):
-        #self.stop ()
-        self.pcap.close ()
+        self.stop ()
+        # Don't do the close yet, it crashes for reasons yet unknown
+        #self.pcap.close ()
         
     def create_port (self, owner, proto, pad = True):
         return super ().create_port (owner, proto, pad)

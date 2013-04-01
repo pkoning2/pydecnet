@@ -384,9 +384,10 @@ class _Router (Element):
         pass
 
     def html (self, what):
-        if what == "summary":
-            return """<h3>Routing summary for node {0.name}</h3>
-            <p>Node type: {0.node.routing.typename}</p>""".format (self)
+        if not what:
+            what = "summary"
+        return """<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
+        <p>Node type: {0.node.routing.typename}</p>""".format (self, what)
 
 class EndnodeRouting (_Router):
     """Routing entity for endnodes.
@@ -424,7 +425,7 @@ class EndnodeRouting (_Router):
 
     def html (self, what):
         ret = [ super ().html (what) ]
-        ret.append ("<table border=1>")
+        ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
         ret.append (self.circuit.html (what, True))
         ret.append ("</table>")
         return '\n'.join (ret)
@@ -681,27 +682,29 @@ class L1Router (_Router, L1CirAdj):
                         if first:
                             first = False
                             if t == self.LanCircuit:
-                                ret.append ("<h3>LAN circuits:</h3><table border=1>")
+                                ret.append ("<h3>LAN circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
                             else:
-                                ret.append ("<h3>Point to point circuits:</h3><table border=1>")
+                                ret.append ("<h3>Point to point circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
                         ret.append (h)
             if not first:
                 ret.append ("</table>")
-        ret.append ("<h3>Level 1 routing table</h3><table border=1>")
-        first = True
-        for i in range (self.maxnodes + 1):
-            if self.oadj[i]:
-                if i:
-                    name = str (self.node.nodeinfo (i))
-                else:
-                    name = "Nearest L2"
-                if first:
-                    ret.append ("""<tr><th>Node</th><th>Hops</th>
-                    <th>Cost</th><th>Nexthop</th></tr>""")
-                    first = False
-                hops, cost, adj = self.minhops[i], self.mincost[i], self.oadj[i]
-                ret.append ("""<tr><td>{}</td><td>{}</td>
-                <td>{}</td><td>{}</td></tr>""".format (name, hops, cost, adj))
+        if what in ("summary", "status"):
+            ret.append ("<h3>Level 1 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
+            first = True
+            for i in range (self.maxnodes + 1):
+                if self.oadj[i]:
+                    if i:
+                        name = str (self.node.nodeinfo (Nodeid (self.homearea, i)))
+                    else:
+                        name = "Nearest L2"
+                    if first:
+                        ret.append ("""<tr><th>Node</th><th>Hops</th>
+                        <th>Cost</th><th>Nexthop</th></tr>""")
+                        first = False
+                    hops, cost, adj = self.minhops[i], self.mincost[i], self.oadj[i]
+                    ret.append ("""<tr><td>{}</td><td>{}</td>
+                    <td>{}</td><td>{}</td></tr>""".format (name, hops, cost, adj))
+            ret.append ("</table>")
         return '\n'.join (ret)
 
 class L2Router (L1Router, L2CirAdj):
@@ -792,6 +795,23 @@ class L2Router (L1Router, L2CirAdj):
                               i, self.ahops[i], self.acost[i])
             sys.exit (1)
         
+    def html (self, what):
+        ret = [ super ().html (what) ]
+        if what in ("summary", "status"):
+            ret.append ("<h3>Level 2 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
+            first = True
+            for i in range (1, self.maxarea + 1):
+                if self.aoadj[i]:
+                    if first:
+                        ret.append ("""<tr><th>Area</th><th>Hops</th>
+                        <th>Cost</th><th>Nexthop</th></tr>""")
+                        first = False
+                    hops, cost, adj = self.aminhops[i], self.amincost[i], self.aoadj[i]
+                    ret.append ("""<tr><td>{}</td><td>{}</td>
+                    <td>{}</td><td>{}</td></tr>""".format (i, hops, cost, adj))
+            ret.append ("</table>")
+        return '\n'.join (ret)
+
 class Update (Element, timers.Timer):
     """Update process for a circuit
     """
