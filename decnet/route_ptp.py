@@ -93,6 +93,8 @@ class PtpCircuit (statemachine.StateMachine):
         return "{0.name}".format (self)
 
     def restart (self, msg = None):
+        if self.state == self.ru:
+            self.down ()            
         if msg:
             logging.trace ("%s restart due to %s", self.name, msg)
         self.datalink.close ()
@@ -365,7 +367,6 @@ class PtpCircuit (statemachine.StateMachine):
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
-            self.down ()
             return self.restart ("datalink status")
         elif isinstance (item, Shutdown):
             # operator "stop" command
@@ -385,7 +386,7 @@ class PtpCircuit (statemachine.StateMachine):
             hdr = """<tr><th>Name</th><th>Cost</th>
             <th>Neighbor</th><th>Hello time</th>
             <th>Listen time</th><th>Version</th>
-            <th>State</th></tr>\n"""
+            <th>State</th></tr>"""
         else:
             hdr = ""
         if self.state == self.ru:
@@ -395,6 +396,6 @@ class PtpCircuit (statemachine.StateMachine):
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{1}</td><td>{0.hellotime}</td>
         <td>{0.t4}</td><td>{0.tiver}</td>
-        <td>{0.state.__name__}</dt></tr>\n""".format (self, neighbor)
+        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor)
         return hdr + s
     

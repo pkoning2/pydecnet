@@ -7,6 +7,8 @@
 import http.server
 import cgitb
 import io
+from urllib.parse import urlparse
+import re
 
 from .common import *
 
@@ -31,6 +33,7 @@ class DECnetMonitor (http.server.HTTPServer):
         self.node = node
         super ().__init__ (addr, rclass)
 
+psplit_re = re.compile (r"/([^/\s]*)(?:/(\S*))?")
 class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     def setup (self):
         super ().setup ()
@@ -43,15 +46,23 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     def do_GET (self):
         try:
             self.node = self.server.node
-            p = self.path
+            p = urlparse (self.path)
+            if p.scheme or p.netloc or p.params or p.query or p.fragment:
+                logging.trace ("Invalid path: %s", self.path)
+                return
+            p = p.path
             logging.trace ("http from %s get %s", self.client_address, p)
             ret = [ self.common_start () ]
+            m = psplit_re.match (p)
+            if not m:
+                logging.trace ("Invalid path: %s", self.path)
+                return
             if p == "/":
                 ret.append (self.summary ())
-            elif p == "/routing":
-                ret.append (self.routing ())
-            elif p == "/mop":
-                ret.append (self.mop ())
+            elif m.group (1) == "routing":
+                ret.append (self.routing (m.group (2)))
+            elif m.group (1) == "mop":
+                ret.append (self.mop (m.group (2)))
             else:
                 self.send_error(404, "File not found")
                 return
@@ -68,20 +79,26 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             
     def common_start (self):
         return """<html><head>
-<title>DECnet/Python monitoring on {0.node.nodename}</title></head>
+<title>DECnet/Python monitoring on node {0.node.nodeid} ({0.node.nodename})</title></head>
 <body>
-<table><tr>
-<td><a href="/">Summary</td>
-<td><a href="/routing">Routing layer</td>
-<td><a href="/mop">MOP</td></table>
+<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+<td width=180 align=center><a href="/">Summary</td>
+<td width=180 align=center><a href="/routing">Routing layer</td>
+<td width=180 align=center><a href="/mop">MOP</td></table>
 """.format (self)
 
     def common_end (self):
         return "</body></html>\n"
     
-
     def summary (self):
         ret = list ()
-        ret.append (self.node.routing.html ("summary"))
+        ret.append (self.node.routing.html (None))
         # more...
         return "\n".join (ret)
+
+    def routing (self, what):
+        return self.node.routing.html (what)
+        
+    def mop (self, what):
+        return self.node.mop.html (what)
+        
