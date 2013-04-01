@@ -384,10 +384,17 @@ class _Router (Element):
         pass
 
     def html (self, what):
-        if not what:
-            what = "summary"
-        return """<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
-        <p>Node type: {0.node.routing.typename}</p>""".format (self, what)
+        if what == "overall":
+            whats = "summary"
+            hdr = ""
+        else:
+            whats = what or "summary"
+            hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+            <td width=180 align=center><a href="/routing">Summary</td>
+            <td width=180 align=center><a href="/routing/status">Status</td>
+            <td width=180 align=center><a href="/routing/internals">Internals</td></table>"""
+        return """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
+        <p>Node type: {0.node.routing.typename}</p>""".format (self, whats, hdr)
 
 class EndnodeRouting (_Router):
     """Routing entity for endnodes.
@@ -688,7 +695,7 @@ class L1Router (_Router, L1CirAdj):
                         ret.append (h)
             if not first:
                 ret.append ("</table>")
-        if what in ("summary", "status"):
+        if what in ("status", "internals"):
             ret.append ("<h3>Level 1 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
             first = True
             for i in range (self.maxnodes + 1):
@@ -797,7 +804,7 @@ class L2Router (L1Router, L2CirAdj):
         
     def html (self, what):
         ret = [ super ().html (what) ]
-        if what in ("summary", "status"):
+        if what in ("status", "internals"):
             ret.append ("<h3>Level 2 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
             first = True
             for i in range (1, self.maxarea + 1):
