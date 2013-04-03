@@ -77,6 +77,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.hellotime = config.t3 or 60
         self.t4 = self.hellotime * 3
         self.tiver = None
+        self.blksize = 0
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         self.initmsg = PtpInit (srcnode = parent.nodeid,
@@ -384,7 +385,8 @@ class PtpCircuit (statemachine.StateMachine):
     def html (self, what, first):
         if first:
             hdr = """<tr><th>Name</th><th>Cost</th>
-            <th>Neighbor</th><th>Hello time</th>
+            <th>Neighbor</th><th>Type</th>
+            <th>Hello time</th><th>Block size</th>
             <th>Listen time</th><th>Version</th>
             <th>State</th></tr>"""
         else:
@@ -393,9 +395,10 @@ class PtpCircuit (statemachine.StateMachine):
             neighbor = str (self.node.nodeinfo (self.nodeid))
         else:
             neighbor = ""
+        ntype = ntypestrings[self.ntype]
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
-        <td>{1}</td><td>{0.hellotime}</td>
+        <td>{1}</td><td>{2}</td><td>{0.hellotime}</td><td>{0.blksize}</td>
         <td>{0.t4}</td><td>{0.tiver}</td>
-        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor)
+        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype)
         return hdr + s
     

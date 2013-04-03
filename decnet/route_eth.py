@@ -104,9 +104,10 @@ class LanCircuit (timers.Timer):
             <th>Designated router</th></tr>\n"""
         else:
             hdr = ""
+        dr = self.node.nodeinfo (self.dr)
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{0.config.priority}</td><td>{0.hellotime}</td>
-        <td>{0.dr}</td></tr>\n""".format (self)
+        <td>{1}</td></tr>\n""".format (self, dr)
         return hdr + s
     
 class NiCacheEntry (timers.Timer):
@@ -243,7 +244,23 @@ class RoutingLanCircuit (LanCircuit):
         # Do it again to make sure
         self.sendhello (empty = True)
         time.sleep (0.1)
-        
+
+    def html (self, what, first):
+        if what != "adjacencies":
+            return super ().html (what, first)
+        ret = list ()
+        first = True
+        for a in self.adjacencies.values ():
+            if a.state == UP:
+                s = a.html ("status", first)
+                if s:
+                    ret.append (s)
+                    first = False
+        if ret:
+            ret.insert (0, "<table border=1 cellspacing=0 cellpadding=4>")
+            ret.append ("</table>")
+        return '\n'.join (ret)
+    
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
                  if a.ntype != ENDNODE and

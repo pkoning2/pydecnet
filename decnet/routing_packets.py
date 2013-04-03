@@ -13,6 +13,9 @@ L2ROUTER = 1
 L1ROUTER = 2
 ENDNODE = 3
 
+# Mapping from router type code to strings:
+ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
+
 class ShortData (packet.Packet):
     _layout = (( "bm",
                  ( "sfpd", 0, 3 ),

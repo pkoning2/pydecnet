@@ -78,7 +78,8 @@ class L1CirAdj (CirAdj):
             circ.cost[id] = INFCOST
             self.routing.route (id)
         else:
-            del self.routing.l1info[self]
+            if self.nodeid.area == self.routing.homearea:
+                del self.routing.l1info[self]
             self.routing.route (0, self.routing.maxnodes)
 
 class L2CirAdj (L1CirAdj):
@@ -128,6 +129,23 @@ class _Adjacency (Element, timers.Timer):
     def __str__ (self):
         return "{0.nodeid}".format (self)
 
+    def __format__ (self, fmt):
+        # A bit of a hack: "format" gives you a longer string than "str"
+        return "{0.circuit} {0.nodeid}".format (self)
+    
+    def html (self, what, first):
+        if first:
+            hdr = """<tr><th>Neighbor</th><th>Type</th><th>Block size</th>
+            <th>Priority</th><th>Listen time</th><th>Version</th></tr>"""
+        else:
+            hdr = ""
+        neighbor = str (self.node.nodeinfo (self.nodeid))
+        ntype = ntypestrings[self.ntype]
+        s = """<tr><td>{1}</td><td>{2}</td>
+        <td>{0.blksize}</td><td>{0.priority}</td><td>{0.t4}</td>
+        <td>{0.tiver}</td></tr>""".format (self, neighbor, ntype)
+        return hdr + s
+
     def __eq__ (self, other):
         if isinstance (other, self.__class__):
             return self.circuit == other.circuit and \
@@ -143,7 +161,12 @@ class _Adjacency (Element, timers.Timer):
         """
         if isinstance (item, timers.Timeout):
             self.down (reason = "listener_timeout")
-            
+
+    def down (self):
+        """Adjacency down -- stop listen timer
+        """
+        self.node.timers.stop (self)
+        
     def alive (self):
         """Mark this adjacency as alive -- restart its listen timeout.
         """
@@ -195,6 +218,7 @@ class L1Adjacency (L1CirAdj, _Adjacency):
             self.circuit.bea[self.nodeid.tid] = self
             
     def down (self, **kwargs):
+        _Adjacency.down (self)
         L1CirAdj.down (self, **kwargs)
         self.circuit.adjacency_down (self, **kwargs)
             
@@ -205,6 +229,11 @@ class L2Adjacency (L2CirAdj, L1Adjacency):
         L2CirAdj.__init__ (self, circuit)
         L1Adjacency.__init__ (self, circuit, hellomsg)
     
+    def down (self, **kwargs):
+        _Adjacency.down (self)
+        L2CirAdj.down (self, **kwargs)
+        self.circuit.adjacency_down (self, **kwargs)
+            
 class Circuit (Element):
     """Base class for all routing layer circuits.
     """
@@ -403,13 +432,13 @@ class EndnodeRouting (_Router):
     PtpCircuit = PtpEndnodeCircuit
     ntype = ENDNODE
     
-    def __init_ (self, parent, config):
+    def __init__ (self, parent, config):
         super ().__init__ (parent, config)
-        if len (parent.circuits) != 1:
+        if len (self.circuits) != 1:
             raise ValueError ("End node must have 1 circuit, found %d" % \
-                              len (parent.circuits))
+                              len (self.circuits))
         # Remember that one circuit for easier access
-        for c in parent.circuits.values ():
+        for c in self.circuits.values ():
             self.circuit = c
 
     def send (self, data, dest, rqr = False, tryhard = False):
@@ -475,7 +504,7 @@ class L1Router (_Router, L1CirAdj):
         _Router.__init__ (self, parent, config)
         L1CirAdj.__init__ (self, self)
         self.l1info = dict ()
-        self.adjacencies = dict ()
+        #self.adjacencies = dict ()
 
     # CirAdj.up calls this:
     def log_up (self):
@@ -593,6 +622,56 @@ class L1Router (_Router, L1CirAdj):
                         self.node.logevent (Event.reach_chg, nod,
                                             status = "unreachable")
 
+    def html_matrix (self, l2):
+        if l2:
+            start = 1
+            end = self.maxarea
+            routeinfodict = self.l2info
+            what = "Area"
+        else:
+            start = 0
+            end = self.maxnodes
+            routeinfodict = self.l1info
+            what = "Level 1"
+        ret = list ()
+        row = [ None ] * len (routeinfodict)
+        INF = ( INFHOPS, INFCOST )
+        rk1 = sorted ((k for k in routeinfodict.keys ()
+                       if isinstance (k, Circuit)), key = str)
+        rk2 = sorted ((k for k in routeinfodict.keys ()
+                       if isinstance (k, _Adjacency)), key = str)
+        rkeys = [ self ] + rk1 + rk2
+        first = True
+        for i in range (start, end + 1):
+            inf = True
+            for ri, rk in enumerate (rkeys):
+                r = routeinfodict[rk]
+                e = ( r.hops[i], r.cost[i] )
+                inf = inf and e >= INF
+                row[ri] = e
+            if inf:
+                # Skip over unreachable rows
+                continue
+            if first:
+                ret.append ("""<h3>{} routing matrix</h3>
+                <table border=1 cellspacing=0 cellpadding=4>
+                <tr><th>Dest</th>""".format (what))
+                for rk in rkeys:
+                    if rk is self:
+                        s = "Self"
+                    else:
+                        s = "{}".format (rk)
+                    ret.append ("<th colspan=2>{}</th>".format (s))
+                ret.append ("</tr>")
+                first = False
+            ret.append ("<tr><td>{}</td>".format (i))
+            for e in row:
+                ret.append ("<td>{0[0]}</td><td>{0[1]}</td>".format (e))
+            ret.append ("</tr>")
+        if not first:
+            ret.append ("</table>")
+        return '\n'.join (ret)
+    
     def route (self, start, end = None):
         self.doroute (start, end, l2 = False)
 
@@ -696,6 +775,13 @@ class L1Router (_Router, L1CirAdj):
             if not first:
                 ret.append ("</table>")
         if what in ("status", "internals"):
+            for c in self.circuits.values ():
+                if isinstance (c, self.LanCircuit):
+                    h = c.html ("adjacencies", True)
+                    if h:
+                        ret.append ("""<h3>Adjacencies on {}:</h3>
+                        <table border=1 cellspacing=0 cellpadding=4>""".format (c.name))
+                        ret.append (h)
             ret.append ("<h3>Level 1 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
             first = True
             for i in range (self.maxnodes + 1):
@@ -712,6 +798,8 @@ class L1Router (_Router, L1CirAdj):
                     ret.append ("""<tr><td>{}</td><td>{}</td>
                     <td>{}</td><td>{}</td></tr>""".format (name, hops, cost, adj))
             ret.append ("</table>")
+        if what == "internals":
+            ret.append (self.html_matrix (False))
         return '\n'.join (ret)
 
 class L2Router (L1Router, L2CirAdj):
@@ -817,6 +905,8 @@ class L2Router (L1Router, L2CirAdj):
                     ret.append ("""<tr><td>{}</td><td>{}</td>
                     <td>{}</td><td>{}</td></tr>""".format (i, hops, cost, adj))
             ret.append ("</table>")
+        if what == "internals":
+            ret.append (self.html_matrix (True))
         return '\n'.join (ret)
 
 class Update (Element, timers.Timer):

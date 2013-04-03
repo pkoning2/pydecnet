@@ -61,6 +61,9 @@ cp.add_argument ("--verification", default = "",
 cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
                  help = "Unix socket name for DECnet API")
+cp.add_argument ("--http-port", metavar = "S", default = 8000,
+                 type = int, choices = range (65536),
+                 help = "Port number for HTTP monitoring, 0 to disable")
 
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
