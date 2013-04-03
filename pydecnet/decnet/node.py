@@ -98,7 +98,8 @@ class Node (object):
         logging.debug ("Starting node %s", self.nodename)
         for m in self.startlist:
             c = getattr (self, m)
-            c.start ()
+            if c:
+                c.start ()
         if mainthread:
             self.mainloop ()
         else:
@@ -137,7 +138,8 @@ class Node (object):
         # Stop things in the reverse order they are started
         for m in reversed (self.startlist):
             c = getattr (self, m)
-            c.stop ()
+            if c:
+                c.stop ()
         self.timers.shutdown ()
         
     def register_api (self, command, handler, help = None):

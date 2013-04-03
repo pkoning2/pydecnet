@@ -113,7 +113,7 @@ class TimerWheel (Element, StopThread):
         item.remove ()
         self.wheel[pos].add (item)
         self.lock.release ()
-        #logging.debug ("Started %d second timeout for %s", timeout, item)
+        logging.trace ("Started %d second timeout for %s", timeout, item)
         
     def run (self):
         """Tick handler.
@@ -134,6 +134,7 @@ class TimerWheel (Element, StopThread):
                 item.remove ()
                 self.lock.release ()
                 if item is not qh:
+                    logging.trace ("Timeout for %s", item)
                     self.node.addwork (Timeout (item))
 
     def shutdown (self):
@@ -144,6 +145,7 @@ class TimerWheel (Element, StopThread):
         """
         if not isinstance (item, Timer):
             raise TypeError ("Timer item is not of Timer type")
+        logging.trace ("Stopped timeout for %s", item)
         self.lock.acquire ()
         item.remove ()
         self.lock.release ()

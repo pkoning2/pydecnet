@@ -13,18 +13,26 @@ import re
 from .common import *
 
 def Monitor (node, config):
-    tname = "{}.httpd".format (node.nodename)
-    logging.debug ("Initializing HTTP")
-    t = StopThread (target = http_thread, name = tname, args = (node, config))
+    try:
+        port = config.system.http_port
+    except AttributeError:
+        port = None
+    if port:
+        tname = "{}.httpd".format (node.nodename)
+        logging.debug ("Initializing HTTP")
+        t = StopThread (target = http_thread, name = tname,
+                        args = (node, config))
+    else:
+        logging.debug ("HTTP disabled")
+        t = None
     return t
 
-def start ():
-    logging.debug ("Starting HTTP")
-    t.daemon = True
-    t.start ()
-
 def http_thread (node, config):
-    server_address = ("", 8000)
+    try:
+        port = config.system.http_port
+    except AttributeError:
+        port = 8000
+    server_address = ("", port)
     httpd = DECnetMonitor (node, server_address, DECnetMonitorRequest)
     httpd.serve_forever ()
 
