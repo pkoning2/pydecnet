@@ -422,8 +422,11 @@ class _Router (Element):
             <td width=180 align=center><a href="/routing">Summary</td>
             <td width=180 align=center><a href="/routing/status">Status</td>
             <td width=180 align=center><a href="/routing/internals">Internals</td></table>"""
+        ntype = ntypestrings[self.ntype]
         return """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
-        <p>Node type: {0.node.routing.typename}</p>""".format (self, whats, hdr)
+        <p>Node type: {3}<br>
+        Routing version: {0.tiver}
+        </p>""".format (self, whats, hdr, ntype)
 
 class EndnodeRouting (_Router):
     """Routing entity for endnodes.

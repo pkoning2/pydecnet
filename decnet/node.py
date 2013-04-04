@@ -55,10 +55,7 @@ class Node (object):
         threading.current_thread ().name = self.nodename
         logging.debug ("Initializing node %s", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
-        try:
-            sock = config.system.api_socket
-        except AttributeError:
-            sock = DEFAPISOCKET
+        sock = config.system.api_socket
         self.api = apiserver.ApiServer (self, sock)
         self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()

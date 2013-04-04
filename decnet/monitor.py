@@ -13,10 +13,7 @@ import re
 from .common import *
 
 def Monitor (node, config):
-    try:
-        port = config.system.http_port
-    except AttributeError:
-        port = None
+    port = config.system.http_port
     if port:
         tname = "{}.httpd".format (node.nodename)
         logging.debug ("Initializing HTTP")
@@ -28,10 +25,7 @@ def Monitor (node, config):
     return t
 
 def http_thread (node, config):
-    try:
-        port = config.system.http_port
-    except AttributeError:
-        port = 8000
+    port = config.system.http_port
     server_address = ("", port)
     httpd = DECnetMonitor (node, server_address, DECnetMonitorRequest)
     httpd.serve_forever ()
