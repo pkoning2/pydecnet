@@ -6,23 +6,28 @@
 
 import io
 import os
+import sys
 import argparse
 import shlex
 import logging
 
 from .common import *
+from .apiserver import dnparser
 
-configparser = argparse.ArgumentParser (prog = "", add_help = False)
+configparser = dnparser (prog = "", add_help = False)
 configparser.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
 subparser = configparser.add_subparsers ()
-cmd_init = set ()
+coll_init = set ()
+single_init = set ()
 
 def config_cmd (name, help, collection = False):
     cp = subparser.add_parser (name, add_help = False)
     cp.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
     cp.set_defaults (collection = collection, attr = name)
     if collection:
-        cmd_init.add (name)
+        coll_init.add (name)
+    else:
+        single_init.add (name)
     return cp
 
 # Each of the config file entries is defined as a subparser, for a command
@@ -66,7 +71,7 @@ cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  help = "Port number for HTTP monitoring, 0 to disable")
 
 cp = config_cmd ("routing", "Routing layer configuration")
-cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
+cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
                  help = "Node address")
 cp.add_argument ("--type", metavar = "T", default = "l2router",
                  choices = ("l2router", "l1router", "endnode",
@@ -104,11 +109,17 @@ class Config (object):
         logging.debug ("Reading config %s", f.name)
         
         # First supply empty dicts for each collection config component
-        for name in cmd_init:
+        for name in coll_init:
             setattr (self, name, dict ())
+        # Also set defaults for non-collections:
+        for name in single_init:
+            p, msg = configparser.parse_args ([ name ])
+            if p:
+                setattr (self, name, p)
         self.scanconfig (f)
 
-    def scanconfig (self, f):
+    def scanconfig (self, f, nested = False):
+        ok = True
         for l in f:
             l = l.rstrip ("\n").strip ()
             if not l or l[0] == "#":
@@ -117,11 +128,30 @@ class Config (object):
                 # Indirect file, read it recursively.  The supplied file
                 # name is relative to the current file.
                 fn = os.path.join (os.path.dirname (f.name), l[1:])
-                self.scanconfig (open (fn, "rt"))
+                ok = self.scanconfig (open (fn, "rt"), True) and ok
                 continue
-            p = configparser.parse_args (shlex.split (l))
-            if p.collection:
-                getattr (self, p.attr)[p.name] = p
+            p, msg = configparser.parse_args (shlex.split (l))
+            if not p:
+                logging.error ("Config file parse error in %s:\n %s\n %s",
+                               f, msg, l)
+                ok = False
             else:
-                setattr (self, p.attr, p)
+                if p.collection:
+                    getattr (self, p.attr)[p.name] = p
+                else:
+                    setattr (self, p.attr, p)
         f.close ()
+        if not nested:
+            if not ok:
+                sys.exit (1)
+            # See if anything is missing
+            for name in single_init:
+                p = getattr (self, name, None)
+                if not p:
+                    logging.error ("Missing config element: %s", name)
+                    ok = False
+            if not ok:
+                sys.exit (1)
+        return ok
+        
+            

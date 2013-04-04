@@ -16,9 +16,8 @@ class Connection (Element, statemachine.StateMachine):
     pass
 
 class NSP (Element):
-    """The NSP Entity.  This owns all the connections.  It performs the
-    duties both of the ECL and the Session Control layer in DNA, since
-    those are closely coupled.
+    """The NSP Entity.  This owns all the connections.  It implements
+    the ECL (formerly NSP) layer of the DECnet Network Architecture.
     """
     def __init__ (self, parent, config):
         super ().__init__ (parent)
@@ -37,3 +36,23 @@ class NSP (Element):
             # Arriving packet delivered up from Routing.
             logging.trace ("NSP packet received from %s: %s",
                            item.src, item.packet)
+
+class Connection (Element):
+    free_ids = set (range (1, 4096))
+    
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        self.srcaddr = self.get_id ()
+
+    def __del__ (self):
+        self.ret_id (self.srcaddr)
+
+    @classmethod
+    def get_id (cls):
+        return cls.free_ids.pop ()
+
+    @classmethod
+    def ret_id (cls, id):
+        if id in cls.free_ids:
+            raise ValueError ("Freeing a free ID")
+        cls.free_ids.add (id)
