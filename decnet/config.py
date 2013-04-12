@@ -47,7 +47,7 @@ cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
 cp.add_argument ("--type", default = "Ethernet",
-                 choices = ("Ethernet", "SimhDMC"),
+                 choices = {"Ethernet", "SimhDMC"},
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")
@@ -74,8 +74,8 @@ cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
                  help = "Node address")
 cp.add_argument ("--type", metavar = "T", default = "l2router",
-                 choices = ("l2router", "l1router", "endnode",
-                            "phase3router", "phase3endnode", "phase2"))
+                 choices = {"l2router", "l1router", "endnode",
+                            "phase3router", "phase3endnode", "phase2"})
 cp.add_argument ("--maxhops", metavar = "Maxh", type = int, default = 16,
                  choices = range (1, 31), help = "Max L1 hops")
 cp.add_argument ("--maxcost", metavar = "Maxc", type = int, default = 128,
@@ -99,6 +99,8 @@ cp = config_cmd ("node", "DECnet node database", collection = True)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
                  help = "Node address")
 cp.add_argument ("name", type = nodename, help = "Node name")
+
+cp = config_cmd ("nsp", "NSP layer configuration")
 
 class Config (object):
     """Container for configuration data.

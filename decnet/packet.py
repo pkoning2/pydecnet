@@ -86,6 +86,9 @@ def process_layout (cls, layout):
     "I", "B", "EX": description is name and length.  For I and EX,
     length means the maximum length.
 
+    "SIGNED" is like "B" except that the value is interpreted as a
+    signed rather than an unsigned integer.
+
     "BS" is byte string, i.e., same as "I" but with the length
     implied.  This is only used inside TLV items, where the length is
     part of the prefix rather than the value.  DECnet specs show I
@@ -255,17 +258,15 @@ class Packet (metaclass = packet_encoding_meta):
 
     def __setattr__ (self, field, val):
         """Set an attribute.  If the attribute being set is the name
-        of a class attribute, the value being set must match that
-        class attribute's value.  This enforces fixed field values
-        when decoding incoming packets.
+        of a class attribute, and that attribute is not None, the value
+        being set must match that class attribute's value.  This enforces
+        fixed field values when decoding incoming packets.
         """
         try:
             super ().__setattr__ (field, val)
         except AttributeError:
             prev = getattr (self, field, None)
-            if prev is None:
-                raise
-            if prev != val:
+            if prev is not None and prev != val:
                 logging.debug ("Field %s required value mismatch, %s instead of %s",
                 field, val, prev)
                 raise Event (fmt_err)
@@ -334,16 +335,30 @@ class Packet (metaclass = packet_encoding_meta):
 
     def encode_b (self, field, flen):
         """Encode "field" as a binary field with length "flen".
-        The field value is assumed to be an integer.
+        The field value is assumed to be an unsigned integer.
         """
         return getattr (self, field).to_bytes (flen, LE)
 
     def decode_b (self, buf, field, flen):
         """Decode "field" from a binary field with length "flen".
-        The field is decoded to a little endian integer.  Returns the
-        remaining buffer.
+        The field is decoded to a little endian unsigned integer.  Returns 
+        the remaining buffer.
         """
-        setattr (self, field, int.from_bytes (buf[:flen], LE))
+        setattr (self, field, int.from_bytes (buf[:flen], LE, signed = True))
+        return buf[flen:]
+
+    def encode_signed (self, field, flen):
+        """Encode "field" as a binary field with length "flen".
+        The field value is assumed to be a signed integer.
+        """
+        return getattr (self, field).to_bytes (flen, LE)
+
+    def decode_signed (self, buf, field, flen):
+        """Decode "field" from a binary field with length "flen".
+        The field is decoded to a little endian signed integer.  Returns 
+        the remaining buffer.
+        """
+        setattr (self, field, int.from_bytes (buf[:flen], LE, signed = True))
         return buf[flen:]
 
     def encode_ctr (self, field, flen):
