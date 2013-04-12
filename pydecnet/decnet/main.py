@@ -8,6 +8,7 @@ import argparse
 import time
 import logging
 import threading
+import sys
 
 from . import common
 from . import config
@@ -18,7 +19,7 @@ TRACE = 2
 
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
-                       metavar = "FN", nargs = "+",
+                       metavar = "FN", nargs = "*",
                        help = "Configuration file")
 dnparser.add_argument ("-L", "--log-file", metavar = "FN",
                        help = "Log file (default: stderr)")
@@ -63,8 +64,12 @@ def main ():
             args = p.config_help, "-h"
         else:
             args = ( "-h", )
-        config.configparser.parse_args (args)
+        p, msg = config.configparser.parse_args (args)
+        print (msg)
         return
+    if not p.configfile:
+        print ("At least one config file argument must be specified")
+        sys.exit (1)
     logging.addLevelName (TRACE, "TRACE")
     logging.trace = trace
     logging.basicConfig (filename = p.log_file, filemode = "w",

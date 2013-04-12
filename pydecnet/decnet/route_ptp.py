@@ -147,6 +147,11 @@ class PtpCircuit (statemachine.StateMachine):
                 p2route = RouteHdr (buf)
                 buf = p2route.payload
                 hdr = packet.getbyte (buf)
+                if hdr & 0x83:
+                    # Invalid bits set, complain
+                    logging.debug ("Invalid msgflgs after Ph2 route hdr: %x",
+                                   hdr)
+                    return datalink.DlStatus (status = False)
             if hdr & 1:
                 # Routing control packet.  Figure out which one
                 code = (hdr >> 1) & 7
