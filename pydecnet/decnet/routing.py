@@ -79,7 +79,13 @@ class L1CirAdj (CirAdj):
             self.routing.route (id)
         else:
             if self.nodeid.area == self.routing.homearea:
-                del self.routing.l1info[self]
+                try:
+                    del self.routing.l1info[self]
+                except KeyError:
+                    # If this adjacency is current in INIT state,
+                    # it won't be in the l1info dict, so ignore any
+                    # exception resulting from that.
+                    pass
             self.routing.route (0, self.routing.maxnodes)
 
 class L2CirAdj (L1CirAdj):
@@ -100,7 +106,13 @@ class L2CirAdj (L1CirAdj):
     def down (self, **kwargs):
         L1CirAdj.down (self, **kwargs)
         if self.ntype == L2ROUTER:
-            del self.routing.l2info[self]
+            try:
+                del self.routing.l2info[self]
+            except KeyError:
+                # If this adjacency is current in INIT state,
+                # it won't be in the l2info dict, so ignore any
+                # exception resulting from that.
+                pass
             self.routing.aroute (0, self.routing.maxarea)
 
 class _Adjacency (Element, timers.Timer):
