@@ -228,6 +228,7 @@ class RoutingLanCircuit (LanCircuit):
         self.datalink.add_multicast (ALL_ROUTERS)
         self.adjacencies = dict ()
         self.isdr = False
+        self.drtimer = timers.CallbackTimer (self.becomedr, None)
         self.dr = None
         self.nr = config.nr
         self.prio = config.priority
@@ -239,6 +240,7 @@ class RoutingLanCircuit (LanCircuit):
         self.minrouterblk = ETHMTU
 
     def stop (self):
+        self.node.timers.stop (self.drtimer)
         self.sendhello (empty = True)
         time.sleep (0.1)
         # Do it again to make sure
@@ -372,9 +374,10 @@ class RoutingLanCircuit (LanCircuit):
                     # We're either not listed, or not two way.
                     logging.trace ("self not listed in received hello")
                     if a.state == UP:
-                        # Don't kill the adjacency in our state, but
-                        # do as far as the control layer is concerned.
-                        self._adj_down (a, reason = "dropped")
+                        a.down (reason = "dropped")
+                        # Put it back into the adjacencies dict because
+                        # a.down deleted it.
+                        self.adjacencies[id] = a
                         a.state = INIT
                         hellochange = True
                 # Update the DR state, if needed
@@ -395,28 +398,53 @@ class RoutingLanCircuit (LanCircuit):
             else:
                 logging.trace ("%s packet dropped, no adjacency",
                                item.__class__.__name__)
-                
-    def calcdr (self):
-        """Figure out who should be the designated router.  More precisely,
-        are we DR, or someone else?
+
+    def findbestdr (self):
+        """Return who should be designated router according to the current
+        set of known routers.  Returns self for local node, or the router
+        list entry otherwise.
         """
         routers = list (self.routers (False))
         if routers:
             # Look for the best remote router, if there are any
             dr = max (routers, key = sortkey)
         if not routers or self.drkey > sortkey (dr):
-            # Tag, we're it, but don't act on that for DRDELAY seconds.
-            if not self.isdr:
-                logging.debug ("Designated router is self")
-                self.isdr = True
-                self.dr = self.parent
-                self.holdoff = True
-                self.node.timers.start (self, DRDELAY)
+            return self
         else:
-            self.isdr = False
+            return dr
+            
+    def calcdr (self):
+        """Figure out who should be the designated router.  More precisely,
+        are we DR, or someone else?
+        """
+        dr = self.findbestdr ()
+        if dr is self:
+            # Tag, we're it, but don't act on that for DRDELAY seconds,
+            # and don't do it again if the DR timer is already running
+            if not self.isdr and not self.drtimer.islinked ():
+                logging.debug ("Designated router will be self, %d second delay",
+                               DRDELAY)
+                self.node.timers.start (self.drtimer, DRDELAY)
+        else:
+            if self.isdr:
+                self.isdr = False
+                self.newhello ()
             if self.dr != dr:
+                self.node.timers.stop (self.drtimer)
                 self.dr = dr
                 logging.debug ("Designated router is %s", dr.nodeid)
+
+    def becomedr (self, arg):
+        self.isdr = True
+        # See if this is still the right answer.  If yes, make it effective.
+        # If not, put that other conclusion into effect.
+        # Note we don't just call calcdr() right away because that does
+        # some more things and generates more messages for the first case.
+        if self.findbestdr () is self:
+            logging.debug ("Designated router is self")
+            self.newhello ()
+        else:
+            self.calcdr ()
             
     def newhello (self):
         """Hello content changed.  Send a new one right now, unless
@@ -432,7 +460,7 @@ class RoutingLanCircuit (LanCircuit):
         else:
             self.sendhello ()
 
-    def _adj_down (self, a, **kwargs):
+    def deladj (self, a, **kwargs):
         if a.state == UP:
             a.state = INIT
             a.down (**kwargs)
@@ -443,9 +471,6 @@ class RoutingLanCircuit (LanCircuit):
             self.minrouterblk = ETHMTU
             for r in self.routers ():
                 self.minrouterblk = min (self.minrouterblk, r.blksize)
-
-    def deladj (self, a, **kwargs):
-        self._adj_down (a, **kwargs)
         try:
             del self.adjacencies[a.nodeid]
         except KeyError:
