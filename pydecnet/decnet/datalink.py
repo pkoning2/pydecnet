@@ -522,7 +522,8 @@ class Ethernet (BcDatalink, StopThread):
             # Turn the interface on -- needed only on Mac OS
             if sys.platform == "darwin":
                 req = bytearray (sizeof_ifreq)
-                ifreq.pack_into (req, 0, self.dev.encode ("ascii"), 0)
+                devname = os.path.basename (self.dev)
+                ifreq.pack_into (req, 0, devname.encode ("ascii"), 0)
                 s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
                 ioctl (s, SIOCGIFFLAGS, req)
                 name, flags = ifreq.unpack_from (req)
