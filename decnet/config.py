@@ -101,6 +101,9 @@ cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
 cp.add_argument ("name", type = nodename, help = "Node name")
 
 cp = config_cmd ("nsp", "NSP layer configuration")
+cp.add_argument ("--max-connections", type = int, default = 4095,
+                 choices = { (1 << i) - 1 for i in range (8, 16) },
+                 help = "Maximum number of connections")
 
 class Config (object):
     """Container for configuration data.
