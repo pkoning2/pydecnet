@@ -5,6 +5,7 @@
 """
 
 import random
+from collections import deque
 
 from .common import *
 from .routing_packets import ShortData, LongData
@@ -181,7 +182,12 @@ class NSP (Element):
         super ().__init__ (parent)
         logging.debug ("Initializing NSP")
         self.connections = dict ()
-        self.freeconns = set (range (1, 65536))
+        self.config = config = config.nsp
+        c = self.maxconns = config.max_connections
+        c += 1
+        #self.freeconns = set (range (1, 65536))
+        self.freeconns = deque (i + random.randrange (0, 65536, c)
+                                for i in range (1, c))
         
     def start (self):
         logging.debug ("Starting NSP")
@@ -197,20 +203,17 @@ class NSP (Element):
                            item.src, item.packet)
 
     def get_id (self):
-        """Return a free connection ID.  Rather than implement the
-        sample algorithm in the NSP spec, which is not all that easy
-        to do, just find a random value that is not currently in use.
+        """Return a free connection ID, per the algorithm in the NSP spec.
+        Note that the Phase 2 spec mandates this (it's not just a suggestion)
+        for "intercept" node interoperability.
         """
         if not self.freeconns:
             return None
-        i = random.choice (self.freeconns)
-        self.freeconns.remove (i)
-        return i
+        return self.freeconns.popleft ()
 
     def ret_id (self, i):
-        if i in self.freeconns:
-            raise ValueError ("Freeing a free ID: %d" % i)
-        self.freeconns.add (i)
+        i = (i + self.maxconns + 1) & 0xffff
+        self.freeconns.append (i)
         
 class Connection (Element, statemachine.StateMachine):
     """An NSP connection object.
