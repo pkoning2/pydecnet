@@ -34,6 +34,8 @@ class DatalinkLayer (Element):
         self.circuits = dict ()
         for name, c in config.circuit.items ():
             kind = globals ()[c.type]
+            if not issubclass (kind, Datalink):
+                logging.exception ("Invalid datalink type %r", kind)
             kindname = kind.__name__
             try:
                 dl = kind (self, name, c)
@@ -198,7 +200,7 @@ class SimhDMC (PtpDatalink):
                            self.name)
         else:
             self.primary = True
-            self.host = host
+            self.host = socket.gethostbyname (host)
             logging.trace ("Simh DMC datalink %s initialized as primary",
                            self.name)
         self.portnum = int (port)
@@ -343,6 +345,131 @@ class SimhDMC (PtpDatalink):
             mlen = len (msg).to_bytes (2, "big")
             try:
                 self.socket.send (mlen + msg)
+            except socket.error:
+                self.disconnected ()
+            
+class Multinet (PtpDatalink):
+    """An implementation of the Multinet tunnel.  See multinet.c
+    in the DECnet/Linux "dnprogs" source code for an earlier implementation
+    that reasonably well describes how it works..
+
+    In a nutshell: this uses UDP datagrams.  Data packets are sent as
+    UDP datagrams, preceded by a four byte header consisting of a two
+    byte sequence number (little endian) plus two bytes of zero.
+    It's not clear that header is used by the receiver; it isn't in the
+    Linux code.  The data then follows that header with no other
+    processing.
+    
+    The --device config parameter is required.  The device argument
+    is "host" or "host:portnum"; if the port number is omitted the
+    default (700) is assumed.
+    """
+    def __init__ (self, owner, name, config):
+        self.tname = "{}.{}".format (owner.node.nodename, name)
+        self.rthread = None
+        super ().__init__ (owner, name, config)
+        self.config = config
+        hp = config.device.split (':')
+        host = hp[0]
+        if len (hp) == 1:
+            port = 700
+        else:
+            port = int (hp[1])
+        self.host = socket.gethostbyname (host)
+        self.portnum = port
+        logging.trace ("Multinet datalink %s initialized.", self.name)
+        self.seq = 0
+        self.status = OFF
+
+    def open (self):
+        # Open and close datalink are ignored, control is via the port
+        # (the higher layer's handle on the datalink entity)
+        pass
+
+    def close (self):
+        pass
+    
+    def port_open (self):
+        if self.status != OFF:
+            # Already open, ignore
+            return
+        self.rthread = StopThread (name = self.tname, target = self.run)
+        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
+                                     socket.IPPROTO_UDP)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.bind (("", self.portnum))
+        logging.trace ("Multinet %s bound to %d", self.name, self.portnum)
+        self.rthread.start ()
+
+    def port_close (self):
+        if self.status != OFF:
+            self.rthread.stop ()
+            self.rthread = None
+            self.status = OFF
+            try:
+                self.socket.close ()
+            except Exception:
+                pass
+            self.socket = None
+
+    def disconnected (self):
+        if self.status == RUN and self.port:
+            self.node.addwork (DlStatus (self.port.owner, status = False))
+        if self.status != OFF:
+            try:
+                self.socket.close ()
+            except Exception:
+                pass
+            self.socket = None
+        self.status = OFF
+
+    def run (self):
+        logging.trace ("Multinet datalink %s receive thread started", self.name)
+        sock = self.socket
+        if not sock:
+            return
+        sellist = [ sock.fileno () ]
+        # Tell the routing init layer that this datalink is running
+        self.status = RUN
+        if self.port:
+            self.node.addwork (DlStatus (self.port.owner, status = True))
+        while True:
+            # Look for traffic
+            try:
+                r, w, e = select.select (sellist, [], sellist, 1)
+            except select.error:
+                e = True
+            if (self.rthread and self.rthread.stopnow) or e:
+                self.disconnected ()                
+                return
+            if r:
+                try:
+                    msg, addr = sock.recvfrom (1500)
+                except socket.error:
+                    msg = None
+                host, port = addr
+                if host != self.host:
+                    # Not from peer, ignore
+                    return
+                if not msg or len (msg) < 4:
+                    self.disconnected ()
+                    return
+                # Check header?  For now just skip it.
+                msg = msg[4:]
+                logging.trace ("Received Multilink message len %d: %r",
+                               len (msg), msg)
+                if self.port:
+                    self.node.addwork (Received (self.port.owner, packet = msg))
+                else:
+                    logging.trace ("Message discarded, no port open")
+                    
+    def send (self, msg, dest = None):
+        if self.status == RUN:
+            msg = bytes (msg)
+            logging.trace ("Sending Multinet message len %d: %r", len (msg), msg)
+            hdr = self.seq.to_bytes (2, "little") + b"\000\000"
+            try:
+                self.socket.sendto (hdr + msg, (self.host, self.portnum))
             except socket.error:
                 self.disconnected ()
             

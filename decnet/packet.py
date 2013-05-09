@@ -167,10 +167,6 @@ class packet_encoding_meta (type):
     so they become valid instance attributes.
     """
     def __new__ (cls, name, bases, classdict):
-        # For the base class Packet, we do nothing special; the extra
-        # work only kicks in for its derived classes.
-        if name == "Packet":
-            return type.__new__ (cls, name, bases, classdict)
         layout = classdict.get ("_layout", None)
         if layout:
             # This class defines a layout.  It's either the packet layout
@@ -182,12 +178,12 @@ class packet_encoding_meta (type):
             # Any attributes defined as class attributes will not be
             # allowed as instance attributes.
             slots -= set (classdict)
-            # Add any extra slots requested by the class
-            addslots = classdict.get ("_addslots", None)
-            if addslots:
-                slots |= set (addslots)
         else:
             slots = set ()
+        # Add any extra slots requested by the class
+        addslots = classdict.get ("_addslots", None)
+        if addslots:
+            slots |= set (addslots)
         classdict["__slots__"] = slots
         result = type.__new__ (cls, name, bases, classdict)
         # Look for an existing _codetable.  If we find one, that means
@@ -208,8 +204,6 @@ class packet_encoding_meta (type):
             if baselayout:
                 layout = baselayout + layout
             result._codetable = layout
-        elif not baselayout:
-            raise AttributeError ("Required attribute 'layout' not defined in class '%s'" % name)
         return result
             
 class Packet (metaclass = packet_encoding_meta):
@@ -219,7 +213,7 @@ class Packet (metaclass = packet_encoding_meta):
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    __slots__ = { "src", "payload" }
+    _addslots = { "src", "payload" }
 
     @classmethod
     def allslots (cls):
@@ -242,6 +236,8 @@ class Packet (metaclass = packet_encoding_meta):
         initialize attributes of those names.
         """
         super ().__init__ ()
+        if not hasattr (self, "_codetable"):
+            raise AttributeError ("Required attribute '_layout' not defined in class '%s'" % self.__class__.__name__)
         if buf:
             self.decode (buf)
         else:
