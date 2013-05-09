@@ -13,9 +13,14 @@ from .events import *
 from . import packet
 from . import timers
 from . import statemachine
+from . import modulo
 
 # NSP packet layouts.  These cover the routing layer payload (or the
 # datalink layer payload, in the case of Phase II)
+
+# Sequence numbers are modulo 4096
+class Seq (modulo.Mod, mod = 4096):
+    _len = 2
 
 # Common header -- just the MSGFLG field, expanded into its subfields.
 class NspHdr (packet.Packet):
@@ -53,10 +58,11 @@ class NspHdr (packet.Packet):
         """
         v = getattr (self, field, None)
         if v is None:
+            # The relevant ack number attribute is not defined or is
+            # set to None -- skip this ack number field
             return b''
-        x &= 2
         m = (getattr (self, field + "_qual", 0) & 1) + x
-        v = (v & 4095) + (m << 12) + 0x8000
+        v = int (v) + (m << 12) + 0x8000
         return v.to_bytes (2, LE)
 
     def decode_optack (self, field, x):
@@ -71,7 +77,7 @@ class NspHdr (packet.Packet):
         v = int.from_bytes (buf[:2])
         if v & 0x8000:
             m = ((v >> 12) & 3) - x
-            v &= 4095
+            v = Seq (v)
             # Check that cross-channel is in the expected spot
             if m in (0, 1):
                 setattr (self, field, v)
@@ -88,7 +94,7 @@ class AckData (NspHdr):
     type = NspHdr.ACK
     subtype = NspHdr.ACK_DATA
     
-class AckInt (NspHdr):
+class AckOther (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),
                ( "b", "srcaddr", 2 ),
                ( "optack", "acknum", 0 ),
@@ -104,17 +110,14 @@ class AckConn (NspHdr):
 # Data messages start with the same stuff as ACK messages, so subclass
 # them that way.
 class DataSeg (AckData):
-    _layout = (( "b", "segnum", 2 ),)
+    _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
     subtype = 0
-    int_ls = 0
     
-class IntMsg (AckInt):
-    _layout = (( "b", "segnum", 2 ),)
+class IntMsg (AckOther):
+    _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
-    subtype = 0
-    int_ls = 1
-    int = 1
+    subtype = 3
 
 # Link Service message is a variation on interrupt message.
 class LinkSvcMsg (IntMsg):
@@ -122,7 +125,7 @@ class LinkSvcMsg (IntMsg):
                  ( "fcmod", 0, 2 ),
                  ( "fcval_int", 2, 3 )),
                ( "signed", "fcval", 1 ))
-    int = 0
+    subtype = 1
     # fcval_int values:
     DATA_REQ = 0
     INT_REQ = 1
@@ -134,26 +137,32 @@ class LinkSvcMsg (IntMsg):
 # Control messages.  0 (NOP) and 5 (Node init) are handled
 # in route_ptp since they are really datalink dependent routing
 # layer messages.
+
+# This is either Connect Initiate or Retransmitted Connect Initiate
+# depending on the subtype value.
 class ConnInit (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),
                ( "b", "srcaddr", 2 ),
-               ( "ex", "services", 1 ),
+               ( "bm",
+                 ( "mb1", 0, 2 ),
+                 ( "fcopt", 2, 2 ),
+                 ( "mbz", 4, 4 )),
                ( "ex", "info", 1 ),
                ( "b", "segsize", 2 ))
-    subtype = NspHdr.CI
+    type = NspHdr.CTL
+    #subtype = NspHdr.CI
+    #subtype = NspHdr.RCI
     dstaddr = 0
+    mb1 = 1
+    mbz = 0
     # Services:
     SVC_NONE = 0
-    SVC_SEG = 1 << 2    # Segment flow control
-    SVC_MSG = 2 << 2    # Message flow control
+    SVC_SEG = 1         # Segment flow control
+    SVC_MSG = 2         # Message flow control
     # Info:
     VER_PH3 = 0         # Phase 3 (NSP 3.2)
     VER_PH2 = 1         # Phase 2 (NSP 3.1)
     VER_PH4 = 2         # Phase 4 (NSP 4.0)
-
-class RetConnInit (ConnInit):
-    subtype = NspHdr.RCI
-    info = ConnInit.VER_PH4
 
 # Connect Confirm is very similar to Connect Confirm (the differences are
 # mainly in the session layer, which is just payload to us).
@@ -167,13 +176,62 @@ class DiscConf (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),
                ( "b", "srcaddr", 2 ),
                ( "b", "reason", 2 ))
+    type = NspHdr.CTL
     subtype = NspHdr.DC
+
+# Three reason codes are treated as specific packets in the NSP spec;
+# all others are in effect synonyms for disconnect initiate for Phase II
+# compatibility.  Define subclasses for the three here so we can use
+# those later.
+class NoRes (DiscConf):
+    reason = 1
+
+class DiscComp (DiscConf):
+    reason = 42
+
+class NoLink (DiscConf):
+    reason = 43
 
 # DI is like DC but it adds session control disconnect data
 class DiscInit (DiscConf):
     _layout = (( "i", "data_ctl", 16 ),)
     subtype = NspHdr.DI
-    
+
+# Mapping from packet type code (msgflg field) to packet class
+msgmap = { (c.type << 2) + (c.subtype << 4) : c
+           for c in ( AckData, AckOther, AckConn, ConnConf,
+                      DiscConf, DiscInit, IntMsg, LinkSvcMsg ) }
+# Put in Connect Init with its two msgflag values
+msgmap[(NspHdr.CTL << 2) + (NspHdr.CI << 4)] = ConnInit
+msgmap[(NspHdr.CTL << 2) + (NspHdr.RCI << 4)] = ConnInit
+# For data segments we put in all 4 combinations of bom/eom flags so
+# we can just do the message map without having to check for those cases
+# separately.
+for st in range (0, 4 << 5, 1 << 5):
+    msgmap[st] = DataSeg
+
+# Mapping from reason to specific Disconnect Confirm subclass
+dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
+
+class NSPNode (object):
+    """The remote node state needed by NSP.  This is a base class of
+    the Nodeinfo object, which is what node.nodeinfo() returns.
+    """
+    def __init__ (self):
+        # NSP specific node state -- see NSP 4.0.1 spec, table 6.
+        self.delay = 0
+        self.byt_rcv = 0
+        self.byt_xmt = 0
+        self.msg_rcv = 0
+        self.msg_xmt = 0
+        self.con_rcv = 0
+        self.con_xmt = 0
+        self.con_rej = 0
+        self.timeout = 0
+
+# Packet types that trigger No Link response if not mapped to a connection
+nolinkset = { ConnConf, DiscInit, DataSeg, IntMsg, LinkSvcMsg }
+
 class NSP (Element):
     """The NSP Entity.  This owns all the connections.  It implements
     the ECL (formerly NSP) layer of the DECnet Network Architecture.
@@ -181,13 +239,13 @@ class NSP (Element):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
         logging.debug ("Initializing NSP")
+        # Dictionary of connections indexed by local connection address
         self.connections = dict ()
+        # Ditto but indexed by node ID and remote connection address
+        self.rconnections = dict ()
         self.config = config = config.nsp
-        c = self.maxconns = config.max_connections
-        c += 1
-        #self.freeconns = set (range (1, 65536))
-        self.freeconns = deque (i + random.randrange (0, 65536, c)
-                                for i in range (1, c))
+        self.maxconns = config.max_connections
+        self.init_id ()
         
     def start (self):
         logging.debug ("Starting NSP")
@@ -198,10 +256,85 @@ class NSP (Element):
 
     def dispatch (self, item):
         if isinstance (item, Received):
-            # Arriving packet delivered up from Routing.
+            # Arriving packet delivered up from Routing.  Map the packet
+            # to a port (Connection object), see NSP 4.0.1 spec
+            # section 6.2 (receive dispatcher)
+            buf = item.packet
             logging.trace ("NSP packet received from %s: %s",
                            item.src, item.packet)
-
+            msgflg = packet.getbyte (buf)
+            try:
+                t = msgmap[msgflg]
+            except KeyError:
+                # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
+                logging.trace ("Unrecognized msgflg value %d, ignored", msgflg)
+                return
+            pkt = t (buf)
+            if t is DiscConf:
+                # Do a further lookup on disconnect confirm reason code
+                # (step 5)
+                try:
+                    t = dcmap[pkt.reason]
+                    pkt = t (buf)
+                except KeyError:
+                    # Other Disconnect Confirm, that's Phase II stuff...
+                    pass
+            if t is ConnInit:
+                # Step 4: if this is a returned CI, find the connection
+                # that sent it.
+                if item.rts:
+                    try:
+                        conn = self.connections[pkt.srcaddr]
+                    except KeyError:
+                        # Not there, must have been deleted.  Ignore.
+                        return
+                else:
+                    # Step 3: see if this is a retransmit, otherwise
+                    # map it onto a new Connection if available.
+                    cikey = (item.src, pkt.srcaddr)
+                    if cikey in self.rconnections:
+                        conn = self.rconnections[cikey]
+                    else:
+                        try:
+                            conn = Connection (self)
+                        except Exception:
+                            # Can't create another connection, send No Resources.
+                            nr = NoRes (srcaddr = pkt.dstaddr, dstaddr = 0)
+                            self.node.routing.send (nr, item.src)
+                            return
+                        conn.dstaddr = pkt.srcaddr
+                        conn.destnode = self.node.nodeinfo (item.src)
+                        self.rconnections[cikey] = conn
+            else:
+                # Step 6 or 7: look up via the local link address.
+                try:
+                    conn = self.connections[pkt.dstaddr]
+                except:
+                    # Not found, remember that
+                    conn = None
+                # If a connection is found and the state is not CI,
+                # and the packet is not Connect Ack, check the remote
+                # link address also
+                if conn and conn.state != conn.ci and t is not ConnAck:
+                    if conn.dstaddr != pkt.srcaddr:
+                        conn = None
+                # If any of these checks failed, send No Link if the packet
+                # type is one for which we do that.
+                if not conn:
+                    if t in nolinkset:
+                        nl = NoLink (srcaddr = pkt.dstaddr,
+                                     dstaddr = pkt.srcaddr)
+                        self.node.routing.send (nl, item.src)
+                    return
+            # Packet is mapped to a port, so process it there.
+            conn.dispatch (item)
+            
+    def init_id (self):
+        # Initialize the free connection ID list
+        c = self.maxconns + 1
+        self.freeconns = deque (i + random.randrange (0, 65536, c)
+                                for i in range (1, c))
+        
     def get_id (self):
         """Return a free connection ID, per the algorithm in the NSP spec.
         Note that the Phase 2 spec mandates this (it's not just a suggestion)
@@ -214,6 +347,103 @@ class NSP (Element):
     def ret_id (self, i):
         i = (i + self.maxconns + 1) & 0xffff
         self.freeconns.append (i)
+
+class txqentry (timers.Timer):
+    """An entry in the retransmit queue for a subchannel.
+    """
+    __slots__ = ("packet", "txtime", "channel", "tries", "seqnum")
+    def __init__ (self, packet, channel, seqnum):
+        super ().__init__ ()
+        self.packet = packet
+        self.seqnum = seqnum
+        self.channel = channel
+        self.tries = self.txtime = 0
+
+    def send (self):
+        if type (self.packet) is ConnInit:
+            if self.tries:
+                self.packet.subtype = NspHdr.RCI
+            else:
+                self.packet.subtype = NspHdr.CI
+        self.channel.node.timers.start (self, self.channel.acktimeout ())
+        self.tries += 1
+
+    def ack (self):
+        """Handle acknowledgment of packet.  Also used when the packet
+        is not going to be transmitted again for some other reason
+        (like connection abort).
+
+        Returns True if this is a packet for which then message flow control
+        request count is adjusted.
+        """
+        self.channel.node.timers.stop (self)
+        if self.txtime:
+            self.channel.parent.update_delay (self.txtime)
+        t = type (self.packet)
+        return t is IntMsg or (t is DataSeg and t.eom)
+        
+class Subchannel (Element, timers.Timer):
+    """A subchannel (data or other-data) within an NSP connection.  This
+    is where we keep the per-subchannel state: queues, flow control
+    parameters, sequence numbers, etc.
+
+    The timer base class is for the ack holdoff timer.
+    """
+    # Classes for associated packets
+    Ack = AckData
+    
+    def __init__ (self, parent):
+        Element.__init__ (self, parent)
+        timers.Timer.__init__ (self)
+        self.pending_ack = deque ()   # List of pending txqentry items
+        self.seqnum = Seq (1)         # Next transmitted sequence number
+        self.acknum = Seq (0)         # Outbound ack number
+        # The flow control parameters are remote flow control -- we don't
+        # do local flow control other than to request another interrupt
+        # each time we get one.  So there are no explicit local flow
+        # attributes.
+        self.reqnum = 0               # Count requested by remote
+        self.minreq = 0               # Lowest allowed value of minreq
+        self.xon = True               # Flow on/off switch
+        self.flow = ConnInit.SVC_NONE # Outbound flow control selected
+        self.ooo = dict ()            # Pending received out of order packets
+
+    def dispatch (self, item):
+        if isinstance (item, timers.Timeout):
+            # Send an explicit ack
+            ack = self.parent.makepacket (self.Ack, acknum = self.acknum,
+                                          acknum_qual = 0)
+            self.parent.send (ack)
+        else:
+            item.subchannel = self
+            self.parent.dispatch (item)
+
+    def ack (self, acknum):
+        """Handle a received ack on this subchannel.
+        """
+        firsttxq = self.pending_ack[0]
+        if acknum <= firsttqx.seqnum or acknum >= self.seqnum:
+            # Duplicate or out of range ack, ignore
+            return
+        while True:
+            acked = self.pending_ack.popleft ()
+            adj = (acked.ack () and self.flow == ConnInit.SVC_MSG) or \
+                  self.flow == ConnInit.SVC_SEG
+            self.reqnum -= adj
+            if acked.seqnum == acknum:
+                break
+            
+class Other_Subchannel (Subchannel):
+    Ack = AckOther
+
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        self.reqnum = 1               # Other data req count initially 1
+        # Interrupt flow control is different from data flow control, but
+        # the closest analog is message flow control because the count
+        # cannot be negative, and not every packet is subjected to control.
+        # (In this case, interrupts are but link service messages are not.)
+        self.flow = ConnInit.SVC_MSG
         
 class Connection (Element, statemachine.StateMachine):
     """An NSP connection object.
@@ -226,18 +456,14 @@ class Connection (Element, statemachine.StateMachine):
         self.srcaddr = srcaddr = self.parent.get_id ()
         if srcaddr is None:
             raise Exception ("Connection limit")
+        self.parent.connections[srcaddr] = self
         self.dstaddr = 0
-        self.ackdat = self.ackoth = 0
-        self.pending_dat = list ()
+        self.data = Subchannel ()
         # We use the optional "multiple other-data messages allowed at a time"
         # model, rather than the one at a time model that the NSP spec uses.
-        self.pending_oth = list ()
-        # These flow control variables describe the other end flow control;
-        # we don't use flow control (there isn't much point given how
-        # Python manages memory).
-        self.flowtype = None
-        self.req_dat = self.req_oth = 0
-        self.dat_on = True
+        # That makes the two subchannels look basically the same -- same data
+        # structures, same control machinery.
+        self.other = Other_Subchannel ()
         
         self.destnode = None
         # All done.  Add this connection to the dictionary of connections
@@ -246,4 +472,18 @@ class Connection (Element, statemachine.StateMachine):
         
     def __del__ (self):
         self.parent.ret_id (self.srcaddr)
+
+    def update_delay (self, txtime):
+        if txtime and self.destnode:
+            delta = time.time () - txtime
+            if self.destnode.delay:
+                pass
+            else:
+                self.destnode.delay = delta
+                
+    def makepacket (self, cls, **kwds):
+        return cls (srcaddr = self.srcaddr, dstaddr = self.dstaddr, **kwds)
+
+    def send (self, pkt):
+        pass
 

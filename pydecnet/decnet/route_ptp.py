@@ -297,7 +297,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.ph2 = self.tiver[0] == tiver_ph2[0]
                 if pkt.verif:
                     # Verification requested
-                    verif = self.verification
+                    verif = self.node.nodeinfo (self.nodeid).verif
                     if self.tiver == tiver_ph2:
                         vpkt = NodeVerify (password = verif)
                     else:

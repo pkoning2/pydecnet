@@ -19,13 +19,22 @@ from . import apiserver
 from . import nsp
 from . import monitor
 
-class Nodeinfo (object):
-    """A container for node database entries.
+class Nodeinfo (nsp.NSPNode):
+    """A container for node database entries.  This contains the attributes
+    needed by the various layers for remote node items -- for example, the
+    state and counters needed by NSP.  The argument is the node config entry.
     """
-    def __init__ (self, id, name):
-        self.nodeid = id
-        self.nodename = name
-
+    def __init__ (self, c, id = None):
+        super ().__init__ ()
+        if c:
+            self.nodeid = c.id
+            self.nodename = c.name
+            self.verif = c.verification
+        else:
+            self.nodeid = id
+            self.nodename = None
+            self.verif = ""
+            
     def __str__ (self):
         if self.nodename:
             return "{0.nodeid} ({0.nodename})".format (self)
@@ -48,7 +57,7 @@ class Node (object):
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
         for n in config.node.values ():
-            n = Nodeinfo (n.id, n.name)
+            n = Nodeinfo (n)
             self.nodeinfo_byname[n.nodename] = n
             self.nodeinfo_byid[n.nodeid] = n
         self.nodename = self.nodeinfo (self.nodeid).nodename
@@ -69,13 +78,20 @@ class Node (object):
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
         a name (a string) or an id (a number or Nodeid).
+
+        If the entry is not found and the lookup is by number, add a Nodeinfo
+        object to the dictionary for that number, with no name.  This implements
+        what we need for the NSP node database.
         """
         if isinstance (n, str):
             return self.nodeinfo_byname[n.upper ()]
         try:
             return self.nodeinfo_byid[n]
         except KeyError:
-            return Nodeinfo (n, "")
+            # No entry for this node ID; add one with no name
+            n = Nodeinfo (None, id)
+            self.nodeinfo_byid[n.nodeid] = n
+            return n
     
     def addwork (self, work, handler = None):
         """Add a work item (instance of a Work subclass) to the node's
@@ -151,27 +167,8 @@ class Node (object):
         """
         return self.api.register_api (command, handler, help)
 
-    def eventnode (self, id):
-        """Convert a node ID to a node argument for event logging.
-        """
-        try:
-            n = self.nodeinfo (id)
-            return NodeEntity (n.nodeid, n.nodename)
-        except KeyError:
-            return NodeEntity (id, None)
-
     def logevent (self, event, entity = None, **kwds):
         if not isinstance (event, Event):
             event = Event (event, entity, **kwds)
         event._local_node = self
         logging.info (event)
-
-class NodeEntity (object):
-    def __init__ (self, nodeid, nodename):
-        self.nodeid = nodeid
-        self.nodename = nodename
-
-    def __str__ (self):
-        if self.nodename:
-            return "{0.nodeid} ({0.nodename})".format (self)
-        return "{0.nodeid}".format (self)

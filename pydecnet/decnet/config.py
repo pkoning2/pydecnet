@@ -47,7 +47,7 @@ cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
 cp.add_argument ("--type", default = "Ethernet",
-                 choices = {"Ethernet", "SimhDMC"},
+                 choices = {"Ethernet", "SimhDMC", "Multinet"},
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")
@@ -99,6 +99,8 @@ cp = config_cmd ("node", "DECnet node database", collection = True)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
                  help = "Node address")
 cp.add_argument ("name", type = nodename, help = "Node name")
+cp.add_argument ("--verification",
+                 help = "Verification value to send to this node")
 
 cp = config_cmd ("nsp", "NSP layer configuration")
 cp.add_argument ("--max-connections", type = int, default = 4095,

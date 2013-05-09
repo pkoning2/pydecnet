@@ -196,12 +196,12 @@ class _Adjacency (Element, timers.Timer):
 
     def log_up (self, **kwargs):
         self.node.logevent (Event.adj_up, self.circuit,
-                            adjacent_node = self.node.eventnode (self.nodeid),
+                            adjacent_node = self.node.nodeinfo (self.nodeid),
                             **kwargs)
 
     def log_down (self, **kwargs):
         self.node.logevent (Event.adj_down, self.circuit,
-                            adjacent_node = self.node.eventnode (self.nodeid),
+                            adjacent_node = self.node.nodeinfo (self.nodeid),
                             **kwargs)
     
 class EndnodeAdjacency (CirAdj, _Adjacency):
@@ -556,7 +556,7 @@ class L1Router (_Router, L1CirAdj):
         if maxreach:
             self.node.logevent (Event.rout_upd_loss, adj.circuit,
                                 highest_address = maxreach,
-                                adjacent_node = self.node.eventnode (adj.nodeid))
+                                adjacent_node = self.node.nodeinfo (adj.nodeid))
         
     def dispatch (self, item):
         if isinstance (item, L1Routing):
@@ -629,7 +629,7 @@ class L1Router (_Router, L1CirAdj):
                 elif i:
                     # That check for 0 is there so reachability changes
                     # of "nearest L2 router" aren't logged.
-                    nod = self.node.eventnode (Nodeid (self.homearea, i))
+                    nod = self.node.nodeinfo (Nodeid (self.homearea, i))
                     if besta:
                         self.node.logevent (Event.reach_chg, nod,
                                             status = "reachable")
@@ -729,7 +729,8 @@ class L1Router (_Router, L1CirAdj):
         dest = pkt.dstnode
         if dest == self.nodeid:
             # Terminating packet - hand it to NSP
-            work = Received (self.node.nsp, packet = pkt, src = pkt.srcnode)
+            work = Received (self.node.nsp, packet = pkt, src = pkt.srcnode,
+                             rts = pkt.rts)
             self.node.addwork (work, self.node.nsp)
             return
         else:
