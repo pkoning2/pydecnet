@@ -17,6 +17,7 @@ ENDNODE = 3
 ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
 
 class ShortData (packet.Packet):
+    _addslots = { "payload" }
     _layout = (( "bm",
                  ( "sfpd", 0, 3 ),
                  ( "rqr", 3, 1 ),
@@ -33,6 +34,7 @@ class ShortData (packet.Packet):
     ie = 0    # "intra ethernet" -- for translation to/from long
 
 class LongData (packet.Packet):
+    _addslots = { "payload" }
     _layout = (( "bm",
                  ( "lfpd", 0, 3 ),
                  ( "rqr", 3, 1 ),
@@ -159,8 +161,7 @@ class L1Routing (CtlHdr):
     segtype = L1Segment
     lowid = 0
     
-    def validate (self):
-        segs = self.payload
+    def validate (self, segs):
         segslen = len (segs)
         if not segs or (segslen & 1):
             logging.debug ("Invalid routing packet payload")
@@ -177,8 +178,7 @@ class L1Routing (CtlHdr):
                            s, check)
             raise Event (adj_down, reason = "checksum_error")
 
-    def decode_segments (self):
-        data = self.payload[:-2]
+    def decode_segments (self, data):
         segments = [ ]
         while data:
             seg = self.segtype ()
@@ -187,9 +187,9 @@ class L1Routing (CtlHdr):
         return segments
             
     def decode (self, buf):
-        super ().decode (buf)
-        self.validate ()
-        self.segments = self.decode_segments ()
+        segs = super ().decode (buf)
+        self.validate (segs)
+        self.segments = self.decode_segments (segs[:-2])
 
     def encode_segments (self):
         return b''.join ([ bytes (s) for s in self.segments ])

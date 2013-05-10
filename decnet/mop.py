@@ -178,12 +178,14 @@ class ConsoleRelease (MopHdr):
     code = 15
 
 class ConsoleCommand (MopHdr):
+    _addslots = { "payload" }
     _layout = ( ( "bm",
                   ( "seq", 0, 1 ),
                   ( "break", 1, 1 ) ), )
     code = 17
 
 class ConsoleResponse (MopHdr):
+    _addslots = { "payload" }
     _layout = ( ( "bm",
                   ( "seq", 0, 1 ),
                   ( "cmd_lost", 1, 1 ),
@@ -198,12 +200,14 @@ class LoopFwd (packet.Packet):
                 ( Macaddr, "dest" ) )
 
 class LoopReply (packet.Packet):
+    _addslots = { "payload" }
     _layout = ( ( "b", "function", 2 ),
                 ( "b", "receipt", 2 ) )
 
 class LoopDirect (LoopSkip):
     """A direct (not assisted) loop packet, as originally sent.
     """
+    _addslots = { "payload" }
     _layout = ( ( "b", "fwd", 2 ),
                 ( Macaddr, "dest" ),
                 ( "b", "reply", 2 ),
