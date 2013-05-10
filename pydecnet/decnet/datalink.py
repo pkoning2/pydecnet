@@ -447,12 +447,12 @@ class Multinet (PtpDatalink):
                     msg, addr = sock.recvfrom (1500)
                 except socket.error:
                     msg = None
+                if not msg or len (msg) <= 4:
+                    self.disconnected ()
+                    return
                 host, port = addr
                 if host != self.host:
                     # Not from peer, ignore
-                    return
-                if not msg or len (msg) < 4:
-                    self.disconnected ()
                     return
                 # Check header?  For now just skip it.
                 msg = msg[4:]
@@ -464,12 +464,14 @@ class Multinet (PtpDatalink):
                     logging.trace ("Message discarded, no port open")
                     
     def send (self, msg, dest = None):
-        if self.status == RUN:
+        sock = self.socket
+        if sock and self.status == RUN:
             msg = bytes (msg)
             logging.trace ("Sending Multinet message len %d: %r", len (msg), msg)
             hdr = self.seq.to_bytes (2, "little") + b"\000\000"
+            self.seq += 1
             try:
-                self.socket.sendto (hdr + msg, (self.host, self.portnum))
+                sock.sendto (hdr + msg, (self.host, self.portnum))
             except socket.error:
                 self.disconnected ()
             

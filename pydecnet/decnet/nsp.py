@@ -110,18 +110,21 @@ class AckConn (NspHdr):
 # Data messages start with the same stuff as ACK messages, so subclass
 # them that way.
 class DataSeg (AckData):
+    _addslots = { "payload" }
     _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
     subtype = 0
     
 class IntMsg (AckOther):
+    _addslots = { "payload" }
     _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
     subtype = 3
 
 # Link Service message is a variation on interrupt message.
-class LinkSvcMsg (IntMsg):
-    _layout = (( "bm",
+class LinkSvcMsg (AckOther):
+    _layout = (( Seq, "segnum" ),
+               ( "bm",
                  ( "fcmod", 0, 2 ),
                  ( "fcval_int", 2, 3 )),
                ( "signed", "fcval", 1 ))
@@ -138,9 +141,8 @@ class LinkSvcMsg (IntMsg):
 # in route_ptp since they are really datalink dependent routing
 # layer messages.
 
-# This is either Connect Initiate or Retransmitted Connect Initiate
-# depending on the subtype value.
-class ConnInit (NspHdr):
+# Common parts of CI, RCI, and CC
+class ConnMsg (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),
                ( "b", "srcaddr", 2 ),
                ( "bm",
@@ -150,9 +152,6 @@ class ConnInit (NspHdr):
                ( "ex", "info", 1 ),
                ( "b", "segsize", 2 ))
     type = NspHdr.CTL
-    #subtype = NspHdr.CI
-    #subtype = NspHdr.RCI
-    dstaddr = 0
     mb1 = 1
     mbz = 0
     # Services:
@@ -164,10 +163,18 @@ class ConnInit (NspHdr):
     VER_PH2 = 1         # Phase 2 (NSP 3.1)
     VER_PH4 = 2         # Phase 4 (NSP 4.0)
 
+# This is either Connect Initiate or Retransmitted Connect Initiate
+# depending on the subtype value.
+class ConnInit (ConnMsg):
+    _addslots = { "payload" }
+    #subtype = NspHdr.CI
+    #subtype = NspHdr.RCI
+    dstaddr = 0
+    
 # Connect Confirm is very similar to Connect Confirm (the differences are
 # mainly in the session layer, which is just payload to us).
 # However, the scraddr is now non-zero.
-class ConnConf (ConnInit):
+class ConnConf (ConnMsg):
     _layout = (( "i", "data_ctl", 16 ),)    # CC payload is an I field
     subtype = NspHdr.CC
     srcaddr = None    # Cancel the fixed 0 in ConnInit

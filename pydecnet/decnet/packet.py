@@ -213,7 +213,7 @@ class Packet (metaclass = packet_encoding_meta):
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    _addslots = { "src", "payload" }
+    _addslots = { "src" }
 
     @classmethod
     def allslots (cls):
@@ -572,7 +572,11 @@ class Packet (metaclass = packet_encoding_meta):
         for e, d, args in codetable:
             buf = d (self, buf, *args)
         if not layout:
-            self.payload = buf
+            try:
+                self.payload = buf
+            except AttributeError:
+                # No payload attribute for this class or its bases, ignore
+                pass
         #logging.debug ("packet parse: %s", self.__dict__)
         return buf
 
