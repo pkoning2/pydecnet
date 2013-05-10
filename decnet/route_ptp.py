@@ -77,7 +77,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.hellotime = config.t3 or 60
         self.t4 = self.hellotime * 3
         self.tiver = None
-        self.blksize = 0
+        self.blksize = self.nodeid = 0
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         self.initmsg = PtpInit (srcnode = parent.nodeid,
@@ -102,7 +102,15 @@ class PtpCircuit (statemachine.StateMachine):
         self.state = self.ha
         self.start ()
         return self.ha
-    
+
+    def fmterr (self, pkt):
+        # Get the packet beginning, 16 bytes even though spec says max of 6
+        hdrb = bytes (pkt)[:16]
+        hdrs = ':'.join ([ "{:02X}".format (i) for i in hdrb ])
+        self.node.logevent (Event.fmt_err, self,
+                            adjacent_node = self.node.nodeinfo (self.nodeid),
+                            packet_beginning = hdrs)
+        
     def start (self):
         # Put in some dummy values until we hear from the neighbor
         self.ntype = ENDNODE
@@ -270,6 +278,7 @@ class PtpCircuit (statemachine.StateMachine):
                     self.t4 = self.t3 * T3MULT
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
+                        self.fmterr (pkt)
                         return self.restart ("bad ntype for phase 3")
                     if isinstance (pkt, PtpInit3):
                         # Neighbor is Phase 3, send it a Phase 3 init
@@ -314,6 +323,7 @@ class PtpCircuit (statemachine.StateMachine):
                 return self.ru
             else:
                 # Some unexpected message
+                self.fmterr (pkt)
                 return self.restart ("unexpected message")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
@@ -340,6 +350,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.up ()
                 return self.ru
             else:
+                self.fmterr (pkt)
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
@@ -368,8 +379,10 @@ class PtpCircuit (statemachine.StateMachine):
                 self.parent.dispatch (pkt)
             elif isinstance (pkt, PtpHello):
                 if not testdata_re.match (pkt.testdata):
+                    self.fmterr (pkt)
                     return self.restart ("invalid test data")
             else:
+                self.fmterr (pkt)
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
