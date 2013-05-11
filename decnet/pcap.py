@@ -7,37 +7,61 @@
 from ctypes import *
 import ctypes.util
 import socket
-
-AF_LINK = 18
+import sys
 
 PCAP_ERRBUF_SIZE = 256
 PCAP_MTU = 1518
 
 _pcaplib = None
 
-class sockaddr_dl (Structure):
-    _fields_ = (("sdl_len", c_ubyte),
-                ("sdl_family", c_ubyte),  # AF_LINK
-                ("sdl_index", c_ushort),  # if != 0, system given index for intf
-                ("sdl_type", c_ubyte),    # interface type 
-                ("sdl_nlen", c_ubyte),    # interface name length
-                ("sdl_alen", c_ubyte),    # link level address length
-                ("sdl_slen", c_ubyte),    # link layer selector length
-                ("sdl_data", c_ubyte * 12)) # Name and address
+if sys.platform == "linux":
+    AF_LINK = socket.AF_PACKET
 
-class sockaddr_in (Structure):
-    _fields_ = (("sin_len", c_ubyte),
-                ("sin_family", c_ubyte),  # AF_INET
-                ("sin_port", c_ushort),   # port number
-                ("sin_addr", c_ubyte * 4)) # IP address
+    class sockaddr_dl (Structure):
+        _fields_ = (("sdl_family", c_ushort), # AF_LINK
+                    ("sdl_index", c_ushort),  # if != 0, system given index for intf
+                    ("sdl_type", c_ushort),   # interface type 
+                    ("sdl_unknown", c_byte * 5), # some stuff I can't figure out
+                    ("sdl_alen", c_ubyte),    # link layer selector length
+                    ("sdl_data", c_ubyte * 12)) # Name and address
 
-class sockaddr_in6 (Structure):
-    _fields_ = (("sin6_len", c_ubyte),
-                ("sin6_family", c_ubyte),  # AF_INET6
-                ("sin6_port", c_ushort),   # port number
-                ("sin6_flowinfo", c_uint32), # Flow information
-                ("sin6_addr", c_ubyte * 16), # IPv6 address
-                ("sin6_scope_id", c_uint32)) # Scope zone index
+    class sockaddr_in (Structure):
+        _fields_ = (("sin_family", c_ushort), # AF_INET
+                    ("sin_port", c_ushort),   # port number
+                    ("sin_addr", c_ubyte * 4)) # IP address
+
+    class sockaddr_in6 (Structure):
+        _fields_ = (("sin6_family", c_ushort), # AF_INET6
+                    ("sin6_port", c_ushort),   # port number
+                    ("sin6_flowinfo", c_uint32), # Flow information
+                    ("sin6_addr", c_ubyte * 16), # IPv6 address
+                    ("sin6_scope_id", c_uint32)) # Scope zone index
+else:
+    AF_LINK = 18
+
+    class sockaddr_dl (Structure):
+        _fields_ = (("sdl_len", c_ubyte),
+                    ("sdl_family", c_ubyte),  # AF_LINK
+                    ("sdl_index", c_ushort),  # if != 0, system given index for intf
+                    ("sdl_type", c_ubyte),    # interface type 
+                    ("sdl_nlen", c_ubyte),    # interface name length
+                    ("sdl_alen", c_ubyte),    # link level address length
+                    ("sdl_slen", c_ubyte),    # link layer selector length
+                    ("sdl_data", c_ubyte * 12)) # Name and address
+
+    class sockaddr_in (Structure):
+        _fields_ = (("sin_len", c_ubyte),
+                    ("sin_family", c_ubyte),  # AF_INET
+                    ("sin_port", c_ushort),   # port number
+                    ("sin_addr", c_ubyte * 4)) # IP address
+
+    class sockaddr_in6 (Structure):
+        _fields_ = (("sin6_len", c_ubyte),
+                    ("sin6_family", c_ubyte),  # AF_INET6
+                    ("sin6_port", c_ushort),   # port number
+                    ("sin6_flowinfo", c_uint32), # Flow information
+                    ("sin6_addr", c_ubyte * 16), # IPv6 address
+                    ("sin6_scope_id", c_uint32)) # Scope zone index
 
 class sockaddr (Union):
     _fields_ = (("inet", sockaddr_in),
@@ -53,7 +77,10 @@ def format_sa (s):
         if af == socket.AF_INET6:
             return socket.inet_ntop (af, s.inet6.sin6_addr)
         if af == AF_LINK:
-            nlen = s.dl.sdl_nlen
+            if sys.platform == "linux":
+                nlen = 0
+            else:
+                nlen = s.dl.sdl_nlen
             alen = s.dl.sdl_alen
             addr = s.dl.sdl_data[nlen:nlen + alen]
             return ':'.join (["{:02x}".format (b) for b in addr])
