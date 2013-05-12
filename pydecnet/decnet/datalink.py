@@ -233,8 +233,13 @@ class SimhDMC (PtpDatalink):
                 self.status = OFF
                 return
         else:
-            self.socket.bind (("", self.portnum))
-            self.socket.listen (1)
+            try:
+                self.socket.bind (("", self.portnum))
+                self.socket.listen (1)
+            except (OSError, socket.error):
+                logging.trace ("SimDMC %s bind/listen failed", self.name)
+                self.status = OFF
+                return
             logging.trace ("SimDMC %s listen to %d active",
                            self.name, self.portnum)
         self.rthread.start ()
@@ -293,7 +298,11 @@ class SimhDMC (PtpDatalink):
                     return
                 if r:
                     break
-            sock, ainfo = sock.accept ()
+            try:
+                sock, ainfo = sock.accept ()
+            except (OSError, socket.error):
+                self.disconnected ()
+                return
             logging.trace ("Simh DMC %s connected", self.name)
             sellist = [ sock.fileno () ]
             self.socket = sock

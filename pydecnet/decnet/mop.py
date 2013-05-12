@@ -193,9 +193,11 @@ class ConsoleResponse (MopHdr):
     code = 19
 
 class LoopSkip (packet.Packet):
+    _addslots = { "payload" }
     _layout = ( ( "b", "skip", 2 ), )
     
 class LoopFwd (packet.Packet):
+    _addslots = { "payload" }
     _layout = ( ( "b", "function", 2 ),
                 ( Macaddr, "dest" ) )
 
@@ -207,7 +209,6 @@ class LoopReply (packet.Packet):
 class LoopDirect (LoopSkip):
     """A direct (not assisted) loop packet, as originally sent.
     """
-    _addslots = { "payload" }
     _layout = ( ( "b", "fwd", 2 ),
                 ( Macaddr, "dest" ),
                 ( "b", "reply", 2 ),
