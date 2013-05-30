@@ -383,6 +383,28 @@ class PtpCircuit (statemachine.StateMachine):
                     return self.restart ("invalid test data")
             else:
                 self.fmterr (pkt)
+                if not self.datalink.start_works and \
+                       isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
+                    # Unexpected init message from the other end.
+                    # If the datalink doesn't implement remote start
+                    # detection, that most likely means the other end
+                    # restarted for some reason.  If we do the
+                    # normal restart sequence, we'd be expecting (another)
+                    # init message, and we won't be getting one.  That
+                    # eventually gets sorted out but it takes quite a while.
+                    # So for this case, as a workaround, we declare the
+                    # circuit down, set the next state to DI, and
+                    # reprocess the message we just received.
+                    self.down ()            
+                    logging.trace ("%s restart due to init message, using init workaround", self.name)
+                    # Next 3 lines lifted from "HA" state handler
+                    self.t4 = self.hellotime * 3
+                    self.tiver = None
+                    self.node.timers.start (self, self.t4)
+                    # Fake a datalink up notification to generate init packet
+                    self.node.addwork (datalink.DlStatus (self, status = True))
+                    self.node.addwork (pkt, self)
+                    return self.ds
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
