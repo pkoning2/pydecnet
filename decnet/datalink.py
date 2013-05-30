@@ -157,7 +157,11 @@ class PtpDatalink (Datalink):
     """Base class for point to point datalinks.
     """
     port_class = PtpPort
-
+    # This attribute is True if datalink start obeys the required
+    # semantics, i.e., data link requirement #2 "Detection of remote startup"
+    # is implemented.
+    start_works = True
+    
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
         self.port = None
@@ -196,13 +200,13 @@ class SimhDMC (PtpDatalink):
         host, port = config.device.split (':')
         if host == "secondary":
             self.primary = False
-            logging.trace ("Simh DMC datalink %s initialized as secondary",
-                           self.name)
+            logging.trace ("Simh DMC datalink %s initialized as secondary, port %d",
+                           self.name, port)
         else:
             self.primary = True
             self.host = socket.gethostbyname (host)
-            logging.trace ("Simh DMC datalink %s initialized as primary",
-                           self.name)
+            logging.trace ("Simh DMC datalink %s initialized as primary to %s:%d",
+                           self.name, host, port)
         self.portnum = int (port)
         self.status = OFF
 
@@ -373,6 +377,15 @@ class Multinet (PtpDatalink):
     is "host" or "host:portnum"; if the port number is omitted the
     default (700) is assumed.
     """
+    # Since Multinet (or at least the subset implemented here) runs
+    # over UDP, it fails to meet many of the requirements the routing
+    # spec imposes on point to point datalinks.  In particular,
+    # there is no data link startup at the protocol level, so a remote
+    # datalink start is not visible.  The point to point datalink
+    # dependent sublayer can work around that to some extent, given
+    # that it is told to do so:
+    start_works = False
+    
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
         self.rthread = None
@@ -386,7 +399,8 @@ class Multinet (PtpDatalink):
             port = int (hp[1])
         self.host = socket.gethostbyname (host)
         self.portnum = port
-        logging.trace ("Multinet datalink %s initialized.", self.name)
+        logging.trace ("Multinet datalink %s initialized to %s:%d",
+                       self.name, host, port)
         self.seq = 0
         self.status = OFF
 
