@@ -385,9 +385,9 @@ class PtpCircuit (statemachine.StateMachine):
                 self.fmterr (pkt)
                 if not self.datalink.start_works and \
                        isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
-                    # Unexpected init message from the other end.
-                    # If the datalink doesn't implement remote start
-                    # detection, that most likely means the other end
+                    # Unexpected init message from the other end, on a
+                    # datalink that doesn't implement remote start
+                    # detection.  That most likely means the other end
                     # restarted for some reason.  If we do the
                     # normal restart sequence, we'd be expecting (another)
                     # init message, and we won't be getting one.  That
