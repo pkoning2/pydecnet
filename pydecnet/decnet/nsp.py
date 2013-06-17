@@ -20,6 +20,8 @@ from . import modulo
 
 # Sequence numbers are modulo 4096
 class Seq (modulo.Mod, mod = 4096):
+    """Sequence numbers for NSP -- integers modulo 2^12.
+    """
     _len = 2
 
 # Common header -- just the MSGFLG field, expanded into its subfields.
@@ -85,6 +87,18 @@ class NspHdr (packet.Packet):
                 return buf[2:]
         setattr (self, field, None)
         return buf
+
+# Note on classes for packet layouts:
+#
+# It is tempting at times to make packet type x a subclass of packet
+# type y, when x looks just like y but with some extra stuff, or with
+# a change in type code only.  IntMsg vs. LinkSvcMsg are an example
+# of the former, AckData vs. AckOther or DataSeg vs. IntMsg an example
+# of the latter.  This is typically not a good idea, because "isinstance"
+# will match an object of a subclass of the supplied class.  To keep
+# the actual message classes distinct, in the hierarchy below they are
+# almost always derived from a base class that is not in itself an
+# actual message class.
 
 class AckData (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),

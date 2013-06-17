@@ -17,7 +17,7 @@ LE = "little"
 # We need this ugliness because Python 3.2 has a bug in the memoryview
 # class: it acts like bytes except that indexing a single element yields
 # a length 1 memoryview, rather than an int.  Python 3.3 fixes this but
-# to avoid requiring 3.2, we use this workaround
+# to avoid requiring 3.3, we use this workaround
 
 if sys.hexversion >= 0x03030000:
     def getbyte (buf, off = 0):
@@ -239,7 +239,9 @@ class Packet (metaclass = packet_encoding_meta):
         if not hasattr (self, "_codetable"):
             raise AttributeError ("Required attribute '_layout' not defined in class '%s'" % self.__class__.__name__)
         if buf:
-            self.decode (buf)
+            buf = self.decode (buf)
+            if buf and not hasattr (self, "_payload"):
+                logging.debug ("Unexpected data after parse: %s", buf)
         else:
             if copy:
                 for attr in self.allslots ():
@@ -340,14 +342,14 @@ class Packet (metaclass = packet_encoding_meta):
         The field is decoded to a little endian unsigned integer.  Returns 
         the remaining buffer.
         """
-        setattr (self, field, int.from_bytes (buf[:flen], LE, signed = True))
+        setattr (self, field, int.from_bytes (buf[:flen], LE))
         return buf[flen:]
 
     def encode_signed (self, field, flen):
         """Encode "field" as a binary field with length "flen".
         The field value is assumed to be a signed integer.
         """
-        return getattr (self, field).to_bytes (flen, LE)
+        return getattr (self, field).to_bytes (flen, LE, signed = True)
 
     def decode_signed (self, buf, field, flen):
         """Decode "field" from a binary field with length "flen".
@@ -396,7 +398,7 @@ class Packet (metaclass = packet_encoding_meta):
     def decode_bm (self, buf, flen, elements):
         """Decode a bitmap field.  "elements" is a sequence of
         triples: name, starting bit position, bit count.  The fields
-        are decoded as integers.  Returns the remaining buffer.
+        are decoded as unsigned integers.  Returns the remaining buffer.
         """
         field = int.from_bytes (buf[:flen], LE)
         for name, start, bits in elements:
@@ -406,7 +408,7 @@ class Packet (metaclass = packet_encoding_meta):
 
     def encode_ex (self, field, maxlen):
         """Encode "field" as an extensible field with max length "maxlen".
-        The field value is assumed to be an integer.
+        The field value is assumed to be an unsigned integer.
         """
         val = getattr (self, field)
         retval = [ ]
@@ -421,7 +423,8 @@ class Packet (metaclass = packet_encoding_meta):
         
     def decode_ex (self, buf, field, maxlen):
         """Decode "field" as an extensible field with max length "maxlen".
-        The field is decoded as an integer.  Returns the remaining buffer.
+        The field is decoded as an unsigned integer.
+        Returns the remaining buffer.
         """
         val = 0
         for i in range (maxlen):
@@ -575,7 +578,9 @@ class Packet (metaclass = packet_encoding_meta):
             try:
                 self.payload = buf
             except AttributeError:
-                # No payload attribute for this class or its bases, ignore
+                # No payload attribute for this class or its bases,
+                # that's ok.  It might mean that we don't expect
+                # extra data, but that's up to the caller to sort out.
                 pass
         #logging.debug ("packet parse: %s", self.__dict__)
         return buf
