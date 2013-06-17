@@ -47,7 +47,7 @@ cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
 cp.add_argument ("--type", default = "Ethernet",
-                 choices = {"Ethernet", "SimhDMC", "Multinet"},
+                 choices = {"Ethernet", "SimhDMC", "Multinet", "GRE"},
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")

@@ -19,6 +19,59 @@ import random
 from .common import *
 from . import pcap
 
+class HostAddress (object):
+    """A class for handling host addresses, including periodic refreshing
+    of name lookup information.  Thanks to Rob Jarratt for the idea, in
+    a note on the hecnet list.
+    """
+    def __init__ (self, name, interval = 3600):
+        """Initialize a HostAddress object for the supplied name, which
+        will be looked up now and re-checked every "interval" seconds.
+        The default check interval is one hour.
+        """
+        self.name = name
+        self.interval = interval
+        self.lookup ()
+
+    def lookup (self, pref = None):
+        """Look up the name in DNS.  Return one of the IP addresses
+        for the name.  If "pref" is supplied, return that value if it
+        is still one of the valid addresses for the name.
+        """
+        alist = socket.gethostbyname_ex (self.name)[2]
+        self.aset = frozenset (alist)
+        self.next_check = time.time () + self.interval
+        if pref and pref in self.aset:
+            self._addr = pref
+        else:
+            self._addr = random.choice (alist)
+        return self.addr
+
+    def valid (self, addr):
+        """Verify that the supplied address is a valid address for
+        the host, i.e., that it is in the set of IP addresses we found
+        at the last lookup.
+        """
+        self.check_interval ()
+        return addr in self.aset
+
+    def check_interval (self):
+        """Do another check, if needed.  If so, do another DNS lookup
+        and select an address from among the set of addresses found.
+        If the currently selected address is still valid, keep that one;
+        otherwise pick a random one.
+        """
+        if time.time () > self.next_check:
+            self.lookup (self._addr)
+
+    @property
+    def addr (self):
+        """Return the currently chosen address to use when sending to
+        this host.
+        """
+        self.check_interval ()
+        return self._addr
+        
 class DatalinkLayer (Element):
     """The datalink layer.  This is mainly a container for the individual
     datalink circuits.
@@ -188,25 +241,28 @@ class SimhDMC (PtpDatalink):
     data prefixed by the packet length, as a two byte network order
     (big endian) integer.  There is no support for Maintenance mode.
 
-    The --device config parameter is required.  The device argument
-    is either "host:portnum" or "secondary:portnum", the former for
-    primary mode.
+    The --device config parameter is required.  The device argument is
+    either "host:portnum" or "host:portnum:secondary", the former for
+    primary mode.  For secondary mode, where connections are inbound,
+    the host name/address is used to verify incoming connection addresses.
     """
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
         self.rthread = None
         super ().__init__ (owner, name, config)
         self.config = config
-        host, port = config.device.split (':')
-        if host == "secondary":
-            self.primary = False
-            logging.trace ("Simh DMC datalink %s initialized as secondary, port %d",
-                           self.name, port)
+        host, port, *sec = config.device.split (':')
+        if sec:
+            if sec[0] == "secondary":
+                self.primary = False
+            else:
+                raise RuntimeError ("Invalid device string %s" % config.device)
         else:
             self.primary = True
-            self.host = socket.gethostbyname (host)
-            logging.trace ("Simh DMC datalink %s initialized as primary to %s:%d",
-                           self.name, host, port)
+        self.host = HostAddress (host)
+        logging.trace ("Simh DMC datalink %s initialized as %s to %s:%d",
+                       self.name, ("secondary", "primary")[self.primary],
+                       host, port)
         self.portnum = int (port)
         self.status = OFF
 
@@ -226,14 +282,19 @@ class SimhDMC (PtpDatalink):
         self.status = INIT
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Refresh the name to address mapping.  This isn't needed for the
+        # initial open but we want this for a subsequent one, because
+        # a restart of the circuit might well have been caused by an
+        # address change of the other end.
+        self.host.lookup ()
         if self.primary:
             try:
-                self.socket.connect ((self.host, self.portnum))
+                self.socket.connect ((self.host.addr, self.portnum))
                 logging.trace ("SimDMC %s connect to %s %d in progress",
-                               self.name, self.host, self.portnum)
+                               self.name, self.host.addr, self.portnum)
             except socket.error:
                 logging.trace ("SimDMC %s connect to %s %d rejected",
-                               self.name, self.host, self.portnum)
+                               self.name, self.host.addr, self.portnum)
                 self.status = OFF
                 return
         else:
@@ -302,11 +363,17 @@ class SimhDMC (PtpDatalink):
                     return
                 if r:
                     break
-            try:
-                sock, ainfo = sock.accept ()
-            except (OSError, socket.error):
-                self.disconnected ()
-                return
+                try:
+                    sock, ainfo = sock.accept ()
+                    host, port = ainfo
+                    if not self.host.valid (host):
+                        # If the connect is from someplace we don't want
+                        logging.trace ("Simh DMC %s connect received from unexpected address %s", self.name, host)
+                        sock.close ()
+                        continue
+                except (OSError, socket.error):
+                    self.disconnected ()
+                    return
             logging.trace ("Simh DMC %s connected", self.name)
             sellist = [ sock.fileno () ]
             self.socket = sock
@@ -397,7 +464,7 @@ class Multinet (PtpDatalink):
             port = 700
         else:
             port = int (hp[1])
-        self.host = socket.gethostbyname (host)
+        self.host = HostAddress (host)
         self.portnum = port
         logging.trace ("Multinet datalink %s initialized to %s:%d",
                        self.name, host, port)
@@ -474,9 +541,9 @@ class Multinet (PtpDatalink):
                     self.disconnected ()
                     return
                 host, port = addr
-                if host != self.host:
+                if not self.host.valid (host):
                     # Not from peer, ignore
-                    return
+                    continue
                 # Check header?  For now just skip it.
                 msg = msg[4:]
                 logging.trace ("Received Multilink message len %d: %r",
@@ -494,7 +561,7 @@ class Multinet (PtpDatalink):
             hdr = self.seq.to_bytes (2, "little") + b"\000\000"
             self.seq += 1
             try:
-                sock.sendto (hdr + msg, (self.host, self.portnum))
+                sock.sendto (hdr + msg, (self.host.addr, self.portnum))
             except socket.error:
                 self.disconnected ()
             
@@ -777,3 +844,137 @@ class Ethernet (BcDatalink, StopThread):
             self.node.addwork (Received (port.owner,
                                          src = src, packet = packet))
                 
+greflags = bytes (2)
+
+class GREPort (BcPort):
+    """DEC Ethernet port class for GRE-encapsulated Ethernet.
+    """
+    def __init__ (self, datalink, owner, proto, pad = True):
+        super ().__init__ (datalink, owner, proto)
+        self.pad = pad
+        f = self.frame = bytearray (1504)
+        f[0:2] = greflags
+        f[2:4] = self.proto
+                
+    def send (self, msg, dest):
+        """Send an "Ethernet" frame to the specified address.  Since GRE
+        is point to point, the address is ignored.
+        """
+        l = len (msg)
+        logging.trace ("Sending %d byte %s packet", l, msg.__class__.__name__)
+        f = self.frame
+        if self.pad:
+            if l > 1498:
+                raise ValueError ("Ethernet packet too long")
+            f[4] = l & 0xff
+            f[5] = l >> 8
+            f[6:6 + l] = msg
+            l += 6
+        else:
+            if l > 1500:
+                raise ValueError ("Ethernet packet too long")
+            f[4:4 + l] = msg
+            l += 4
+        # We don't do padding, since GRE doesn't require it (it isn't
+        # real Ethernet and doesn't have minimum frame lenghts)
+        self.parent.send_frame (memoryview (f)[:l])
+
+GREPROTO = 47
+class GRE (BcDatalink, StopThread):
+    """DEC Ethernet datalink tunneled over GRE encapsulation.
+
+    The --device parameter is required.  Its value is the remote host
+    address or name.  The GRE protocol id (47) is assumed and hardwired.
+    """
+    port_class = GREPort
+    
+    def __init__ (self, owner, name, config):
+        tname = "{}.{}".format (owner.node.nodename, name)
+        StopThread.__init__ (self, name = tname)
+        BcDatalink.__init__ (self, owner, name, config)
+        self.host = HostAddress (config.device)
+        
+    def open (self):
+        # Create the socket and start receive thread.  Note that we do not
+        # set the HDRINCL option, so transmitted packets have their IP
+        # header generated by the kernel.  (But received packets appear
+        # with an IP header on the front, what fun...)
+        self.socket = socket.socket (socket.AF_INET, socket.SOCK_RAW, GREPROTO)
+        self.start ()
+        
+    def close (self):
+        self.stop ()
+        self.socket.close ()
+        self.socket = None
+        
+    def create_port (self, owner, proto, pad = True):
+        return super ().create_port (owner, proto, pad)
+
+    def send_frame (self, buf):
+        """Send an GRE-encapsulated Ethernet frame.  Ignore any errors,
+        because that's the DECnet way.
+        """
+        try:
+            self.socket.sendto (buf, (self.host.addr, GREPROTO))
+        except IOError:
+            pass
+        
+    def run (self):
+        logging.trace ("GRE datalink %s receive thread started", self.name)
+        sock = self.socket
+        if not sock:
+            return
+        sellist = [ sock.fileno () ]
+        while True:
+            if self.stopnow:
+                break
+            try:
+                r, w, x = select.select (sellist, [], sellist, 1)
+            except select.error:
+                x = True
+            if x:
+                logging.trace ("Error on socket for %s", self.name)
+                return
+            if r:
+                try:
+                    msg, addr = sock.recvfrom (1504)
+                except socket.error:
+                    msg = None
+                if not msg or len (msg) <= 4:
+                    continue
+                host, port = addr
+                if not self.host.valid (host):
+                    # Not from peer, ignore
+                    continue
+                # Skip past the IP header
+                ver, hlen = divmod (msg[0], 16)
+                if ver != 4:
+                    # Sorry, we only support IPv4 for now
+                    continue
+                pos = 4 * hlen
+                logging.trace ("Received GRE message len %d: %r",
+                               len (msg), msg)
+                if msg[pos:pos + 2] != greflags:
+                    # Unexpected flags or version in header, ignore
+                    return
+                proto = msg[pos + 2:pos + 4]
+                try:
+                    port = self.ports[proto]
+                except KeyError:
+                    # No protocol type match, ignore msg
+                    self.unk_dest += 1
+                    return
+                plen = len (msg) - (pos + 4)
+                port.bytes_recd += plen
+                port.pkts_recd += 1
+                if port.pad:
+                    plen2 = msg[pos + 4] + (msg[pos + 5] << 8)
+                    if plen < plen2:
+                        logging.debug ("On %s, msg length field %d inconsistent with msg length %d",
+                                       self.name, plen2, plen)
+                        return
+                    msg = memoryview (msg)[pos + 6:pos + 6 + plen2]
+                else:
+                    msg = memoryview (msg)[pos + 4:]
+                self.node.addwork (Received (port.owner,
+                                             src = None, packet = msg))

@@ -389,7 +389,15 @@ class RoutingLanCircuit (LanCircuit):
         elif isinstance (item, packet.Packet):
             # Some other packet type.  Pass it up, but only if it is for
             # an adjacency that is in the UP state
-            a = self.adjacencies.get (Nodeid (item.src), None)
+            if item.src:
+                a = self.adjacencies.get (Nodeid (item.src), None)
+            else:
+                # GRE, which is an Ethernet-style datalink but point to
+                # point, doesn't pass up a source address (it doesn't have
+                # any).  So pick up the first adjacency.
+                a = None
+                for a in self.adjacencies.values ():
+                    break
             if a and a.state == UP:
                 item.src = a
                 logging.trace ("Routing LAN message received from %s: %s",
