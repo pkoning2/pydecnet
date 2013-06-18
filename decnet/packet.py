@@ -240,7 +240,7 @@ class Packet (metaclass = packet_encoding_meta):
             raise AttributeError ("Required attribute '_layout' not defined in class '%s'" % self.__class__.__name__)
         if buf:
             buf = self.decode (buf)
-            if buf and not hasattr (self, "_payload"):
+            if buf and not hasattr (self, "payload"):
                 logging.debug ("Unexpected data for %s after parse: %s",
                                self.__class__.__name__, buf)
         else:
