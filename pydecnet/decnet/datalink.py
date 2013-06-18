@@ -260,10 +260,10 @@ class SimhDMC (PtpDatalink):
         else:
             self.primary = True
         self.host = HostAddress (host)
+        self.portnum = int (port)
         logging.trace ("Simh DMC datalink %s initialized as %s to %s:%d",
                        self.name, ("secondary", "primary")[self.primary],
-                       host, port)
-        self.portnum = int (port)
+                       host, self.portnum)
         self.status = OFF
 
     def open (self):
@@ -361,16 +361,17 @@ class SimhDMC (PtpDatalink):
                 if (self.rthread and self.rthread.stopnow) or e:
                     self.disconnected ()
                     return
-                if r:
-                    break
+                if not r:
+                    continue
                 try:
                     sock, ainfo = sock.accept ()
                     host, port = ainfo
-                    if not self.host.valid (host):
-                        # If the connect is from someplace we don't want
-                        logging.trace ("Simh DMC %s connect received from unexpected address %s", self.name, host)
-                        sock.close ()
-                        continue
+                    if self.host.valid (host):
+                        # Good connection, stop looking
+                        break
+                    # If the connect is from someplace we don't want
+                    logging.trace ("Simh DMC %s connect received from unexpected address %s", self.name, host)
+                    sock.close ()
                 except (OSError, socket.error):
                     self.disconnected ()
                     return
