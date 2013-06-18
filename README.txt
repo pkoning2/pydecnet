@@ -39,7 +39,27 @@ decnet.pcap pure Python wrapper is used instead.
 
 Project status:
 
-As of 2/21/2013, datalink and MOP support are in place, as well as a
-lot of foundation work for the remainder.  The first small bits of
-routing layer are appearing.  Apart from sending and receiving MOP and
-Ethernet loopback protocol, nothing else works yet.
+As of 6/18/2013, the following are implemented and at least somewhat
+tested: 
+- Data links: LAN and point to point frameworks, Ethernet (via pcap
+and, on Mac OS, via TAP); GRE encapsulation of Ethernet; SIMH DMC-11
+emulation; Multinet over UDP (not recommended due to the fact that
+this protocol grossly violates the DECnet specifications).
+- MOP on Ethernet, including console carrier (but not counters
+request)
+- Routing layer: endnode, level 1, level 2 (area router).  Phase IV
+has been tested; Phase III is implemented but not tested.  Phase II is
+partially implemented.
+- NSP: just the first few bits of packet parsing.
+- Simple monitoring via HTTP.
+- An API framework accessed via a Unix domain socket.  At the moment
+the only facility available this way is a MOP Console Carrier client.
+- Other infrastructure: simple event logging tied into the Python
+logging module.  Configuration file handling somewhat like the DECnet
+"permanent database" but with syntax similar to Unix commands.
+
+To do:
+- Documentation.
+- NSP, Session layer, selected application protocols.
+- DECnet socket API.
+- Control (not just monitoring) via HTTP.
