@@ -295,9 +295,11 @@ class PtpL1Circuit (route_ptp.PtpCircuit, L1CirAdj, L1Circuit):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
         L1Circuit.__init__ (self, parent, name, datalink, config)
         L1CirAdj.__init__ (self, self)
-        self.update = Update (self, self.routing.config.t1,
-                              self.routing.minhops, self.routing.mincost,
-                              L1Routing)
+        # Use the circuit override of t1 if specified, else the
+        # exec setting of t1
+        t1 = config.t1 or self.routing.config.t1
+        self.update = Update (self, t1, self.routing.minhops,
+                              self.routing.mincost, L1Routing)
         
 class PtpL2Circuit (PtpL1Circuit, L2CirAdj, L2Circuit):
     """Point to point circuit on an area router.  
@@ -306,9 +308,11 @@ class PtpL2Circuit (PtpL1Circuit, L2CirAdj, L2Circuit):
         PtpL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
         L2CirAdj.__init__ (self, self)
-        self.aupdate = Update (self, self.routing.config.t1,
-                               self.routing.aminhops, self.routing.amincost,
-                               L2Routing)
+        # Use the circuit override of t1 if specified, else the
+        # exec setting of t1
+        t1 = config.t1 or self.routing.config.t1
+        self.aupdate = Update (self, t1, self.routing.aminhops,
+                               self.routing.amincost, L2Routing)
 
 # The LAN circuits have the analogous base classes.  Note that the routing
 # versions still have a CirAdj base class -- that is used to store the
@@ -342,9 +346,11 @@ class LanL1Circuit (route_eth.RoutingLanCircuit, L1CirAdj, L1Circuit):
                                               datalink, config)
         # Vector of broadcast endnode adjacencies, indexed by Tid
         self.bea = [ None ] * (self.routing.maxnodes + 1)
-        self.update = Update (self, self.routing.config.bct1,
-                              self.routing.minhops, self.routing.mincost,
-                              L1Routing)
+        # Use the circuit override of t1 if specified, else the
+        # exec setting of bct1
+        t1 = config.t1 or self.routing.config.bct1
+        self.update = Update (self, t1, self.routing.minhops,
+                              self.routing.mincost, L1Routing)
 
 class LanL2Circuit (LanL1Circuit, L2CirAdj, L2Circuit):
     """LAN circuit on an area router.
@@ -356,9 +362,11 @@ class LanL2Circuit (LanL1Circuit, L2CirAdj, L2Circuit):
         LanL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
         L2CirAdj.__init__ (self, self)
-        self.aupdate = Update (self, self.routing.config.bct1,
-                               self.routing.aminhops, self.routing.amincost,
-                               L2Routing)
+        # Use the circuit override of t1 if specified, else the
+        # exec setting of bct1
+        t1 = config.t1 or self.routing.config.bct1
+        self.aupdate = Update (self, t1, self.routing.aminhops,
+                               self.routing.amincost, L2Routing)
         
 class _Router (Element):
     """The routing layer.  Mainly this is the parent of a number of control

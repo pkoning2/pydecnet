@@ -41,6 +41,8 @@ cp.add_argument ("name", help = "Circuit name", type = circname)
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (1..25, default 1)",
                  choices = range (1, 26), default = 1)
+cp.add_argument ("--t1", type = int, 
+                 help = "Background routing message interval (overrides exec setting)")
 cp.add_argument ("--t3", type = int,
                  help = "Hello interval (default = 10 for LAN else 60)")
 cp.add_argument ("--console", const = bytes (8), metavar = "V",
