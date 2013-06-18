@@ -121,7 +121,10 @@ class Nodeid (int):
                 raise ValueError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
         if a == 0:
-            if n < 1 or n > 255:
+            if n < 1 or n > 1023:
+                # Note we check for 1023, not 255, because DECnet/E Phase IV
+                # sometimes sends bogus Phase III format addresses in
+                # point to point hello messages when it isn't supposed to.
                 raise ValueError ("Invalid node ID %s" % s)
         else:
             if 1 <= a <= 63 and 1 <= n <= 1023:
