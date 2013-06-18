@@ -59,6 +59,7 @@ cp.add_argument ("--random-address", action = "store_true", default = False,
 # of routers has to fit in a field of the router hello message that can at
 # most hold 33.7 (!) entries.
 cp.add_argument ("--nr", type = int, choices = range (34),
+                 metavar = "{1..33}",
                  help = "Maximum routers on this LAN", default = 10)
 cp.add_argument ("--priority", metavar = "P", type = int, choices = range (128),
                  default = 64, help = "Designated router priority")
@@ -99,7 +100,7 @@ cp.add_argument ("--bct1", type = int, default = 10,
 
 cp = config_cmd ("node", "DECnet node database", collection = True)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
-                 help = "Node address")
+                 metavar = "id", help = "Node address")
 cp.add_argument ("name", type = nodename, help = "Node name")
 cp.add_argument ("--verification",
                  help = "Verification value to send to this node")
