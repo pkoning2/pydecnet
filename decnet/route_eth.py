@@ -430,8 +430,8 @@ class RoutingLanCircuit (LanCircuit):
             # Tag, we're it, but don't act on that for DRDELAY seconds,
             # and don't do it again if the DR timer is already running
             if not self.isdr and not self.drtimer.islinked ():
-                logging.debug ("Designated router will be self, %d second delay",
-                               DRDELAY)
+                logging.debug ("Designated router on %s will be self, %d second delay",
+                               self.name, DRDELAY)
                 self.node.timers.start (self.drtimer, DRDELAY)
         else:
             if self.isdr:
@@ -440,7 +440,8 @@ class RoutingLanCircuit (LanCircuit):
             if self.dr != dr:
                 self.node.timers.stop (self.drtimer)
                 self.dr = dr
-                logging.debug ("Designated router is %s", dr.nodeid)
+                logging.debug ("Designated router on %s is %s",
+                               self.name, dr.nodeid)
 
     def becomedr (self, arg):
         self.isdr = True
@@ -449,7 +450,7 @@ class RoutingLanCircuit (LanCircuit):
         # Note we don't just call calcdr() right away because that does
         # some more things and generates more messages for the first case.
         if self.findbestdr () is self:
-            logging.debug ("Designated router is self")
+            logging.debug ("Designated router on %s is self", self.name)
             self.newhello ()
         else:
             self.calcdr ()
