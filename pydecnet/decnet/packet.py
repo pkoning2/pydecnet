@@ -241,7 +241,8 @@ class Packet (metaclass = packet_encoding_meta):
         if buf:
             buf = self.decode (buf)
             if buf and not hasattr (self, "_payload"):
-                logging.debug ("Unexpected data after parse: %s", buf)
+                logging.debug ("Unexpected data for %s after parse: %s",
+                               self.__class__.__name__, buf)
         else:
             if copy:
                 for attr in self.allslots ():
