@@ -39,7 +39,7 @@ def config_cmd (name, help, collection = False):
 cp = config_cmd ("circuit", "Circuit configuration", collection = True)
 cp.add_argument ("name", help = "Circuit name", type = circname)
 cp.add_argument ("--cost", type = int, metavar = "N",
-                 help = "Circuit cost (1..25, default 1)",
+                 help = "Circuit cost (range 1..25, default 1)",
                  choices = range (1, 26), default = 1)
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval (overrides exec setting)")
@@ -58,13 +58,12 @@ cp.add_argument ("--random-address", action = "store_true", default = False,
 # The spec says the valid range is 0..255 but that is wrong, because the list
 # of routers has to fit in a field of the router hello message that can at
 # most hold 33.7 (!) entries.
-cp.add_argument ("--nr", type = int, choices = range (34),
-                 metavar = "{1..33}",
-                 help = "Maximum routers on this LAN", default = 10)
-cp.add_argument ("--priority", metavar = "P", type = int, choices = range (128),
-                 default = 64, help = "Designated router priority")
-cp.add_argument ("--verification", default = "",
-                 help = "Point to point verification value to send")
+cp.add_argument ("--nr", type = int, choices = range (1, 34), metavar = "N",
+                 help = "Maximum routers on this LAN (range 1..33)",
+                 default = 10)
+cp.add_argument ("--priority", metavar = "P", type = int,
+                 choices = range (128), default = 64,
+                 help = "Designated router priority (range 0..127)")
 
 cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
@@ -80,19 +79,23 @@ cp.add_argument ("--type", metavar = "T", default = "l2router",
                  choices = {"l2router", "l1router", "endnode",
                             "phase3router", "phase3endnode", "phase2"})
 cp.add_argument ("--maxhops", metavar = "Maxh", type = int, default = 16,
-                 choices = range (1, 31), help = "Max L1 hops")
+                 choices = range (1, 31), help = "Max L1 hops (range 1..30)")
 cp.add_argument ("--maxcost", metavar = "Maxc", type = int, default = 128,
-                 choices = range (1, 1023), help = "Max L1 cost")
+                 choices = range (1, 1023),
+                 help = "Max L1 cost (range 1..1022)")
 cp.add_argument ("--amaxhops", metavar = "AMaxh", type = int, default = 16,
-                 choices = range (1, 31), help = "Max L2 hops")
+                 choices = range (1, 31), help = "Max L2 hops (range 1..30)")
 cp.add_argument ("--amaxcost", metavar = "AMaxc", type = int, default = 128,
-                 choices = range (1, 1023), help = "Max L2 cost")
+                 choices = range (1, 1023),
+                 help = "Max L2 cost (range 1..1022)")
 cp.add_argument ("--maxvisits", metavar = "Maxv", type = int, default = 32,
-                 choices = range (1, 64), help = "Max visits")
+                 choices = range (1, 64), help = "Max visits (range 1..63)")
 cp.add_argument ("--maxnodes", metavar = "NN", type = int, default = 1023,
-                 choices = range (1, 1024), help = "Max node number in area")
+                 choices = range (1, 1024),
+                 help = "Max node number in area (range 1..1023)")
 cp.add_argument ("--maxarea", metavar = "NA", type = int, default = 63,
-                 choices = range (1, 64), help = "Max area number")
+                 choices = range (1, 64),
+                 help = "Max area number (range 1..63)")
 cp.add_argument ("--t1", type = int, default = 600,
                  help = "Non-LAN background routing message interval")
 cp.add_argument ("--bct1", type = int, default = 10,
