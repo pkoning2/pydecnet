@@ -5,3 +5,5 @@ include samples/pydecnet.conf
 include pydecnet
 recursive-include decnet *.py
 recursive-include samples *.py
+recursive-include doc *
+recursive-exclude doc *~
