@@ -1,0 +1,6 @@
+PyDECnet is a conventional pure Python module together with a top
+level script ("pydecnet").  To install it, extract the source tarball,
+and invoke setup.py:
+
+    python3 setup.py install
+
