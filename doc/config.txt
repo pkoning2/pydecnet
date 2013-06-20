@@ -1,0 +1,205 @@
+PyDECnet uses a configuration file to describe the DECnet node (or
+nodes) it implements.  This file is somewhat analogous to the DECnet
+configuration database described in the DNA Network Management
+architecture specification.
+
+The configuration file is a text file; each line in the file is
+formatted somewhat like a Unix shell command line.  Comment lines have
+a "#" in column 1; these and blank lines are ignored.
+
+Lines beginning with "@" are include file references.  The file name
+follows the @ sign.  That file is read at this point and processed as
+if its text were included in the top level config file.  Includes may
+be nested to any level that does not overflow the Python stack.
+
+At startup, PyDECnet reads the config file named in the command line,
+and any includes mentioned.  After the config file has been fully
+parsed, execution begins provided no errors were found during config
+file reading.
+
+Each config file line resembles a Unix command invocation:
+
+     component --switch swarg --switch2 cmdarg cmdarg2
+
+for example:
+
+    circuit eth-1 --device en1 --cost 3
+
+The components roughly correspond to those listed in the DECnet
+architecture specifications, and many of the switch names are taken
+from the names of configuration variables in those specifications.
+
+The supported components, switches, and arguments are described in
+detail below.  Switches are always optional.  Command arguments may be
+required or optional, as described below.
+
+Component "system"
+
+This optional component specifies some top level settings for
+PyDECnet.  These do not directly correspond to any DNA component.  The
+switches are:
+
+--api-socket: requires a file name argument.  This file name will be
+used to create a Unix domain socket that implements the PyDECnet API.
+The file must not exist at startup.  On exit, PyDECnet will delete the
+socket.  Default is "decnetsocket".
+
+--http-port: requires an integer argument in the range 1 to 65535.
+This specifies the port number on which PyDECnet provides HTTP based
+monitoring.  Default is 8000.
+
+Component "routing"
+
+This required component describes the DNA Routing layer.  Many of the
+parameters correspond to those mentioned in the DNA Routing
+specification, generally by the same name.  Please refer to that
+specification for a full description.  Note that some DNA Routing
+layer parameters are not used by PyDECnet; for example, some are used
+to implement size limitations on tables where PyDECnet has no need to
+limit those tables.
+
+Argument: node ID.  The "routing" entry requires the node address of
+this node as argument.  The node address has the usual form, either an
+integer, or a dotted pair.
+
+--type: Routing layer type, one of "l2router", "l1router", "endnode",
+"phase3router", "phase3endnode", "phase2".  Default is "l2router".
+
+--maxhops: Maximum number of hops on the path to a node within the
+area before that node is considered unreachable.  Argument is an
+integer in the range 1..30, default is 16.
+
+--maxcost: Maximum path cost to a node within the area before that
+node is considered unreachable.  Argument is an integer in the range
+1..1022, default is 128.
+
+--amaxhops: Maximum number of hops on the path to an area before that
+area is considered unreachable.  Argument is an integer in the range
+1..30, default is 16.
+
+--amaxcost: Maximum path cost to an area before that area is
+considered unreachable.  Argument is an integer in the range 1..1022,
+default is 128.
+
+--maxvisits: Maximum number of hops a packet may visit before it is
+considered undeliverable.  Argument is an integer in the range 1..63,
+default is 32.
+
+--maxnodes:  Maximum node number in the area.  Argument is an integer
+in the range 1..1023, default is 1023.  
+
+--maxarea: Maximum area number.  Argument is an integer in the range
+1..63, default is 63.
+
+--t1: Background routing message transmission interval, in seconds,
+for point to point circuits.  Argument is an integer, default is 600
+(i.e., 10 minutes).
+
+--bct1: Background routing message transmission interval, in seconds,
+for LAN circuits.  Argument is an integer, default is 10.
+
+Component "node":
+
+This config line defines an entry in the node database, i.e., a
+mapping between node ID and node name.  These are all optional (it is
+valid to have no names defined).
+
+Arguments: id name.  Node ID is a node address either as an integer or
+a dotted pair.  Name is the node name, which must conform to DECnet
+node name rules (1 to 6 characters, alphanumeric, at least one
+letter).  The name may be supplied in either case but is converted to
+upper case.
+
+--verification: Verification value to send to this node, if it is a
+neighbor on a point to point circuit and requests verification.  The
+value is a string.  If this argument is omitted and the node requests
+verification, the circuit initialization handshake will fail.
+
+Component "circuit":
+
+This config line defines a circuit.  End nodes must have exactly one
+circuit (since DNA requires this for Phase III or Phase IV end
+nodes).  Routers and Phase II nodes must have at least one circuit.
+There is no specific upper bound on the number of circuits (PyDECnet
+will support any number until you run out of Python memory or
+execution becomes too slow).
+
+Argument: name.  This is the name by which the circuit is referenced
+internally.  It has no particular significance but must be unique; it
+is converted to upper case.  There is a DECnet convention that circuit
+names consist of a device name, hyphen, and unit number, for example
+ETH-0.  
+
+--type: Circuit type.  One of "Ethernet", "SimhDMC", "Multinet",
+"GRE".  Default is Ethernet.  Ethernet and GRE are "LAN" type
+circuits, SimDMC and Multinet are point to point type circuits.
+
+--device: Device name or connection data.  Defaults to the circuit
+name.  The meaning of this string depends on the circuit type:
+
+    Ethernet: either a device name on the host OS for a LAN interface
+    accessed with PCAP, or "tap:name" for an Ethernet device name
+    accessed with TUN/TAP.
+
+    SimhDMC: either host:port or host:port:secondary.  The first form
+    defines a primary mode DMC-11 emulation connection: the host and
+    port are the TCP endpoint address for the remote end.  The second
+    form defines a secondary mode connection: the port number is the
+    TCP port on which to listen for connections, and the host is the
+    remote endpoint from which the connection must come.  Refer to the
+    SIMH user manual for more details on DMC-11 emulation.  (Note that
+    the way the addresses are specified is different and somewhat
+    simplere here than it is in the SIMH configuration file.)
+
+    Multinet: either host or host:port.  This specifies a Multinet
+    over UDP circuit to the specified host.  In the first form, the
+    port number is 700 (the default); in the second, the port number
+    is the specified value.  See below for "Multinet considerations".
+
+    GRE: host.  This specifies GRE encapsulation to the specified
+    host.  The IP protocol type is always 47 (the assigned value for
+    the GRE protocol).
+
+--cost: Circuit cost.  Argument is an integer in the range 1..25,
+default is 1.  
+
+--t1: Background routing message interval override.  Argument is an
+integer.  Default is the routing setting of t1 or bct1, depending on
+what type of circuit this is.  In DNA, the background routing message
+interval is an executor parameter (it depends on circuit type but not
+on the specific circuit).  In PyDECnet, it may sometimes make sense to
+set a different value for a specific circuit.  For example, the
+routing parameter t1 defaults to 600 (10 minutes) which is a sensible
+default for conforming point to point circuits, but Multinet should
+use a much lower value.
+
+--t3: Hello interval.  Argument is an integer, specifying a time in
+seconds.  Default is 10 for LAN circuits, 60 for point to point
+circuits.
+
+--random-address: This switch applies only to circuits of type
+Ethernet.  If omitted, PyDECnet obtains the circuit's MAC address from
+the host.  If supplied, a random 46 bit value prefixed by 01 (for
+"individual address" and "locally administered") is used.  This
+address appears in MOP Sysid messages as the "hardware address".
+
+--nr: Number of adjacenct routers.  Argument is an integer in the
+range 1 to 33.  This value specifies how many other routers may be
+present on this Ehternet.  Note that the DNA spec says this is a
+number in the range 1..255, but this is wrong: the list of adjacent
+routers appears in the Router Hello message, and the size limit of
+that field in the message implies a limit of 33 routers.  
+
+--priority: Designated router priority.  Argument is an integer in the
+range 0 to 127, default is 64.
+
+Component "nsp"
+
+This component defines the NSP (also called ECL) layer of DNA.
+
+--max-connections: Specifies the total number of connections that may
+terminate at this node.  Allowed values are 255, 511, 1023, 2047,
+4095, 8191, 16383, 32767.  For an explanation why, see the Phase II
+specification, specifically the section discussing "intercept"
+operation. 
+
