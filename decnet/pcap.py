@@ -139,6 +139,8 @@ def _findlib ():
         _pcaplib.pcap_findalldevs.restype = c_int
         _pcaplib.pcap_freealldevs.argtypes = (p_pcap_if_t,)
         _pcaplib.pcap_freealldevs.restype = None
+        _pcaplib.pcap_fileno.argtypes = (c_void_p,)
+        _pcaplib.pcap_fileno.restype = c_int        
 
 class _pcap (object):
     """This class exists simply to match the naming conventions
@@ -211,7 +213,15 @@ class pcapObject (object):
         if self.pcap:
             _pcaplib.pcap_close (self.pcap)
             self.pcap = None
-            
+
+    def fileno (self):
+        """Return the file descriptor number for this capture, or -1 if none.
+        """
+        if self.pcap:
+            return _pcaplib.pcap_fileno (self.pcap)
+        else:
+            return -1
+        
     def open_live (self, name, mtu = PCAP_MTU, promisc = False, timeout = 0):
         """Open a live data stream.
         """
