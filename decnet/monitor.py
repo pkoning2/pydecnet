@@ -13,10 +13,9 @@ import re
 from .common import *
 
 def Monitor (node, config):
-    port = config.system.http_port
-    if port:
+    if config.system.http_port or config.system.https_port:
         tname = "{}.httpd".format (node.nodename)
-        logging.debug ("Initializing HTTP")
+        logging.debug ("Initializing HTTP server")
         t = StopThread (target = http_thread, name = tname,
                         args = (node, config))
     else:
@@ -34,6 +33,7 @@ class DECnetMonitor (http.server.HTTPServer):
     def __init__ (self, node, addr, rclass):
         self.node = node
         super ().__init__ (addr, rclass)
+        dont_close (self.socket)
 
 psplit_re = re.compile (r"/([^/\s]*)(?:/(\S*))?")
 class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):

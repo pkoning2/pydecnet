@@ -238,6 +238,7 @@ class ApiServer (Element, socketserver.ThreadingUnixStreamServer):
         self.daemon_threads = True
         socketserver.ThreadingUnixStreamServer.__init__ (self, name, ApiRequest,
                                                          bind_and_activate = False)
+        dont_close (self.socket)
         self.socketname = name
         # It might seem redundant to have a parser per node rather than
         # a single global variable.  Two reasons for doing it that way:
