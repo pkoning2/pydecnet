@@ -71,6 +71,9 @@ cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
 cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  type = int, choices = range (65536),
                  help = "Port number for HTTP monitoring, 0 to disable")
+cp.add_argument ("--https-port", metavar = "S", default = 8001,
+                 type = int, choices = range (65536),
+                 help = "Port number for HTTPS monitoring/control, 0 to disable")
 
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
@@ -109,8 +112,10 @@ cp.add_argument ("--verification",
                  help = "Verification value to send to this node")
 
 cp = config_cmd ("nsp", "NSP layer configuration")
+# The choices are given as a list not a set so they will be shown
+# in order in the help string:
 cp.add_argument ("--max-connections", type = int, default = 4095,
-                 choices = { (1 << i) - 1 for i in range (8, 16) },
+                 choices = [ (1 << i) - 1 for i in range (8, 16) ],
                  help = "Maximum number of connections")
 
 class Config (object):

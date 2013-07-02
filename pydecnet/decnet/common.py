@@ -44,6 +44,11 @@ class bytes (builtins.bytes):
                 pass
         return builtins.bytes.__new__ (cls, o, *args)
 
+# List of file descriptors to keep open if we run as daemon
+files_preserve = list ()
+def dont_close (f):
+    files_preserve.append (f)
+    
 class Element (object):
     """Element is the base class for most classes that define DECnet
     components.  The elements of a node form a tree, whose root is
