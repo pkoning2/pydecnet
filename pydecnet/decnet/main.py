@@ -4,12 +4,21 @@
 
 """
 
-import argparse
+import sys
+if sys.version_info[0] < 3:
+    print ("PyDECnet requires Python 3.2 or later")
+    sys.exit (1)
+
+try:
+    import argparse
+except ImportError:
+    print ("PyDECnet requires Python 3.2 or later")
+    sys.exit (1)
+    
 import time
 import logging
 import logging.handlers
 import threading
-import sys
 import os
 from daemon import DaemonContext
 
@@ -39,7 +48,7 @@ dnparser.add_argument ("-e", "--log-level", default = "INFO",
                        metavar = "LV",
                        choices = ("TRACE", "DEBUG", "INFO",
                                   "WARNING", "ERROR"),
-                       help = "Log level (default: WARNING)")
+                       help = "Log level (default: INFO)")
 dnparser.add_argument ("-k", "--keep", type = int, default = 0,
                        help = """Number of log files to keep with nightly
 rotation.  Requires a log file name to be specified.""")
@@ -47,7 +56,7 @@ dnparser.add_argument ("-V", "--version", action = "version",
                        version = common.DNVERSION)
 dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        nargs = "?", const = "",
-                       help = "Show config file help (for CMD if given)")
+                       help = "Show configuration file help (for CMD if given)")
 
 # This one is like the one in the "logging" module but with the
 # decimal comma corrected to a decimal point.
