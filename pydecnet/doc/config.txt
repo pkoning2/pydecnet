@@ -1,5 +1,5 @@
-PyDECnet uses a configuration file to describe the DECnet node (or
-nodes) it implements.  This file is somewhat analogous to the DECnet
+PyDECnet uses a configuration file to describe the DECnet node it
+implements.  This file is somewhat analogous to the DECnet
 configuration database described in the DNA Network Management
 architecture specification.
 
@@ -12,10 +12,12 @@ follows the @ sign.  That file is read at this point and processed as
 if its text were included in the top level config file.  Includes may
 be nested to any level that does not overflow the Python stack.
 
-At startup, PyDECnet reads the config file named in the command line,
-and any includes mentioned.  After the config file has been fully
-parsed, execution begins provided no errors were found during config
-file reading.
+At startup, PyDECnet reads the config file(s) named in the command
+line, and any includes mentioned.  After the config file has been
+fully parsed, execution begins provided no errors were found during
+config file reading.  Each top level config file defines a single
+node, so a typical invocation (one config file argument) runs a single
+node.
 
 Each config file line resembles a Unix command invocation:
 
@@ -132,7 +134,9 @@ ETH-0.
 
 --type: Circuit type.  One of "Ethernet", "SimhDMC", "Multinet",
 "GRE".  Default is Ethernet.  Ethernet and GRE are "LAN" type
-circuits, SimDMC and Multinet are point to point type circuits.
+circuits, SimDMC and Multinet are point to point type circuits.  Note
+that Multinet does not work well (defective protocol design, there's
+nothing the implementation can do about that) and is not recommended.
 
 --device: Device name or connection data.  Defaults to the circuit
 name.  The meaning of this string depends on the circuit type:

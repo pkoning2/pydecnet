@@ -87,7 +87,9 @@ optional arguments:
 
 At least one configuration file argument must be supplied.  Each
 configuration file corresponds to a PyDECnet node to be run, so a
-typical invocation will have a single configuration file.
+typical invocation will have a single configuration file.  Refer to
+the documentation in "config.txt" for a full explanation of the format
+of a configuration file.
 
 By default, PyDECnet runs in the foreground.  If --daemon is supplied,
 it runs as a daemon.  In that case, a log file name must be supplied
