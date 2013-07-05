@@ -38,7 +38,11 @@ class HostAddress (object):
         for the name.  If "pref" is supplied, return that value if it
         is still one of the valid addresses for the name.
         """
-        alist = socket.gethostbyname_ex (self.name)[2]
+        try:
+            alist = socket.gethostbyname_ex (self.name)[2]
+        except socket.gaierror:
+            # Error in name resolution.  Return pref as the fallback
+            return pref
         self.aset = frozenset (alist)
         self.next_check = time.time () + self.interval
         if pref and pref in self.aset:
