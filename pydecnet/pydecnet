@@ -3,6 +3,11 @@
 """Main program for DECnet node.
 """
 
+import sys
+if sys.version_info[0] < 3:
+    print ("PyDECnet requires Python 3.2 or later")
+    sys.exit (1)
+
 import decnet.main
 
 decnet.main.main ()
