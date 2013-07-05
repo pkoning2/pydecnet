@@ -1,6 +1,10 @@
+PyDECnet requires Python 3.2 or later.
+
 PyDECnet is a conventional pure Python module together with a top
 level script ("pydecnet").  To install it, extract the source tarball,
 and invoke setup.py:
 
-    python3 setup.py install
+    python3.2 setup.py install
 
+Substitute another python if appropriate; Python 3.2 is the minimum
+supported version.

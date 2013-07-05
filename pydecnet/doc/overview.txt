@@ -1,0 +1,102 @@
+PyDECnet is an implementation of the Digital Network Architecture
+(commonly called "DECnet") implemented as a pure Python module.  It
+requires Python 3.2 or later.
+
+Standards compliance
+
+PyDECnet implements the Phase IV architecture, the last version
+actually published by Digital.  Note that it was the intent of the DNA
+architecture team for all versions to be published, this was actually
+never done for the several updates to Phase IV that were designed, nor
+for the Phase IV ("DECnet/OSI") specifications.
+
+PyDECnet was implemented from the published specifications, as a pure
+Python module.  It implements DECnet routing, both level 1 and level 2
+(area) routing.  It also implements other aspects of DNA, specifically
+the MOP (Maintenance Operations) protocols.
+
+Supported datalinks
+
+Supported datalinks include Ethernet, the DMC-11 emulation implemented
+in SIMH after V2.9, "Multinet" encapsulation of point to point
+datalink messages over UDP, and GRE encapsulation of Ethernet
+packets.  
+
+Note that Multinet encapsulation is not recommended because it
+violates the DNA specification badly enough that it is extremely
+unreliable except in the most ideal circumstances.  GRE and SIMH DMC
+mode, on the other hand, comply with the specification, work well, and
+are suitable for connecting PyDECnet nodes with other DNA
+implementations via the Internet.
+
+Major components
+
+PyDECnet contains the following major components:
+
+- DNA layers:
+  - Datalink
+  - MOP
+  - Routing
+  - NSP
+  - Session Control
+  - Network Management
+  - Applications
+    - File transfer
+    - NML
+    - Mirror
+- API for MOP and Session Control
+- HTTP(S) based monitoring interface
+
+(Note that NSP and the layers above are not yet implemented)
+
+The API allows external processes to access protocol services in
+PyDECnet, via a Unix domain socket.  Several sample API clients are
+provided in the "samples" directory.  A library to use this API to
+implement a socket style interface is planned.
+
+Multiple node support
+
+In typical use, a PyDECnet invocation starts a single DNA node.  For
+testing, multiple nodes may be started by a single invocation.  The
+main advantage of doing so is that there is a single logging stream,
+so the entire sequence of events in the test configuration will show
+up, in correct order, in that log.
+
+Usage
+
+pydecnet [-h] [-d] [--pid-file FN] [-L FN] [-e LV] [-k KEEP] [-V]
+         [-H [CMD]]
+         [CFN [CFN ...]]
+
+positional arguments:
+  CFN                   Configuration file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d, --daemon          Run as daemon. Requires a log file name to be
+                        specified.
+  --pid-file FN         PID file (default: /var/run/pydecnet.pid)
+  -L FN, --log-file FN  Log file (default: log to stderr)
+  -e LV, --log-level LV
+                        Log level (default: INFO)
+  -k KEEP, --keep KEEP  Number of log files to keep with nightly rotation.
+                        Requires a log file name to be specified.
+  -V, --version         show program's version number and exit
+  -H [CMD], --config-help [CMD]
+                        Show configuration file help (for CMD if given)
+
+At least one configuration file argument must be supplied.  Each
+configuration file corresponds to a PyDECnet node to be run, so a
+typical invocation will have a single configuration file.
+
+By default, PyDECnet runs in the foreground.  If --daemon is supplied,
+it runs as a daemon.  In that case, a log file name must be supplied
+because stderr is no longer open.
+
+Logging uses the standard Python "logging" module.  DNA events are
+logged via the logging module as well, with logging level INFO and
+text formatted as documented in the DNA Network Management
+specification.  
+
+The -H switch can be used to get usage information for each type of
+entry defined for the configuration files.
