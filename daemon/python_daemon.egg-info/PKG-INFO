@@ -1,4 +1,4 @@
-Metadata-Version: 1.0
+Metadata-Version: 1.1
 Name: python-daemon
 Version: 1.5.5
 Summary: Library to implement a well-behaved Unix daemon process.
@@ -17,12 +17,12 @@ Description: This library implements the well-behaved daemon specification of
         
         Simple example of usage::
         
-        import daemon
+            import daemon
         
-        from spam import do_main_program
+            from spam import do_main_program
         
-        with daemon.DaemonContext():
-        do_main_program()
+            with daemon.DaemonContext():
+                do_main_program()
         
         Customisation of the steps to become a daemon is available by
         setting options on the `DaemonContext` instance; see the

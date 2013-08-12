@@ -2,6 +2,7 @@ ChangeLog
 LICENSE.GPL-2
 LICENSE.PSF-2
 MANIFEST.in
+setup.cfg
 setup.py
 daemon/__init__.py
 daemon/daemon.py

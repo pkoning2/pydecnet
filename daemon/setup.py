@@ -24,7 +24,7 @@ version = main_module.version
 
 short_description, long_description = (
     textwrap.dedent(d).strip()
-    for d in main_module.__doc__.split(u'\n\n', 1)
+    for d in main_module.__doc__.split('\n\n', 1)
     )
 
 
@@ -49,7 +49,7 @@ setup(
     author_email=version.author_email,
     description=short_description,
     license=version.license,
-    keywords=u"daemon fork unix".split(),
+    keywords="daemon fork unix".split(),
     url=main_module._url,
     long_description=long_description,
     classifiers=[
