@@ -5,7 +5,6 @@
 """
 
 from abc import abstractmethod, ABCMeta
-#import pcap
 import time
 import logging
 import os
