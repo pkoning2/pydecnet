@@ -170,7 +170,7 @@ class SysId (MopHdr):
                   5 : "FDDI",
                   6 : "Token-passing Ring (IEEE 802.5)",
                   11 : "Token-passing Bus (IEEE 802.4)",
-                  12 : "Z~LAN 4000: Zenith 4 Megabit/second broadband CSMA/CD LAN", }
+                  12 : "Z-LAN 4000: Zenith 4 Megabit/second broadband CSMA/CD LAN", }
     processors = { 1 : "PDP-11 (UNIBUS)",
                    2 : "Communication Server",
                    3 : "Professional" }
