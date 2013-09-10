@@ -1,4 +1,11 @@
+Prerequisites
+
 PyDECnet requires Python 3.2 or later.
+
+Apart from standard Python modules, it requires the python-daemon
+module.  The "rcexpect" sample program also requires pexpect.
+
+Installation
 
 PyDECnet is a conventional pure Python module together with a top
 level script ("pydecnet").  To install it, extract the source tarball,
