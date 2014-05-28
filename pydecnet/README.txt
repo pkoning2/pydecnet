@@ -1,3 +1,16 @@
+****************************************************************
+
+This is a work in progress, rather imcomplete at present.
+
+Please feel free to use it.  Don't be surprised about problems.  If
+you use this, please let me know; in particular bug reports would be
+appreciated, but if it happens to work well I'd like to hear about
+that as well.
+
+		Paul Koning, paulkoning@comcast.net
+
+****************************************************************
+
 PyDECnet is a pure Python implementation of the DECnet protocol
 stack.  It can be used to implement a DECnet router or end node, and
 provides a number of application protocols as well as an API that can
