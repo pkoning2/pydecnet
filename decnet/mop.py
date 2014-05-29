@@ -350,8 +350,7 @@ class Mop (Element):
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
-            if isinstance (dl, datalink.BcDatalink) and \
-                   not isinstance (dl, datalink.GRE):
+            if dl.use_mop:
                 try:
                     self.circuits[name] = MopCircuit (self, name, dl, c)
                     logging.debug ("Initialized MOP circuit %s", name)

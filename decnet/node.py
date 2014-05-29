@@ -13,6 +13,7 @@ from .common import *
 from .events import *
 from . import timers
 from . import datalink
+from . import datalinks    # All the datalinks we know
 from . import mop
 from . import routing
 from . import apiserver
