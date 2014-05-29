@@ -4,6 +4,9 @@
 
 """
 
+import select
+import socket
+
 from .common import *
 from . import datalink
 
@@ -56,7 +59,7 @@ class GRE (datalink.BcDatalink, StopThread):
         tname = "{}.{}".format (owner.node.nodename, name)
         StopThread.__init__ (self, name = tname)
         datalink.BcDatalink.__init__ (self, owner, name, config)
-        self.host = HostAddress (config.device)
+        self.host = datalink.HostAddress (config.device)
         
     def open (self):
         # Create the socket and start receive thread.  Note that we do not
