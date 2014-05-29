@@ -9,8 +9,6 @@ import time
 import logging
 import os
 import sys
-import select
-from fcntl import *
 import struct
 import socket
 import random
@@ -92,7 +90,7 @@ class DatalinkLayer (Element):
             try:
                 kind = datalinks[c.type]
             except KeyError:
-                logging.exception ("Invalid datalink type %r", kind)
+                logging.error ("Invalid datalink type %r", kind)
                 continue
             kindname = kind.__name__
             try:

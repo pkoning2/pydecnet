@@ -13,6 +13,8 @@ import logging
 
 from .common import *
 from .apiserver import dnparser
+from . import datalink
+from . import datalinks    # All the datalinks we know
 
 configparser = dnparser (prog = "", add_help = False)
 configparser.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
@@ -48,8 +50,8 @@ cp.add_argument ("--t3", type = int,
 cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
-cp.add_argument ("--type", default = "Ethernet",
-                 choices = {"Ethernet", "SimhDMC", "Multinet", "GRE"},
+datalinks = sorted ([ d.__name__ for d in datalink.Datalink.leafclasses () ])
+cp.add_argument ("--type", default = "Ethernet", choices = datalinks,
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
                  help = "Device or connection string (default: same as name)")

@@ -4,9 +4,13 @@
 
 """
 
+import select
+import socket
+
+from .common import *
 from . import datalink
 
-# SimDMC link states
+# SimhDMC link states
 OFF = 0
 INIT = 1
 RUN = 2
@@ -42,9 +46,9 @@ class SimhDMC (datalink.PtpDatalink):
                 raise RuntimeError ("Invalid device string %s" % config.device)
         else:
             self.primary = True
-        self.host = HostAddress (host)
+        self.host = datalink.HostAddress (host)
         self.portnum = int (port)
-        logging.trace ("Simh DMC datalink %s initialized as %s to %s:%d",
+        logging.trace ("SimhDMC datalink %s initialized as %s to %s:%d",
                        self.name, ("secondary", "primary")[self.primary],
                        host, self.portnum)
         self.status = OFF
@@ -74,10 +78,10 @@ class SimhDMC (datalink.PtpDatalink):
         if self.primary:
             try:
                 self.socket.connect ((self.host.addr, self.portnum))
-                logging.trace ("SimDMC %s connect to %s %d in progress",
+                logging.trace ("SimhDMC %s connect to %s %d in progress",
                                self.name, self.host.addr, self.portnum)
             except socket.error:
-                logging.trace ("SimDMC %s connect to %s %d rejected",
+                logging.trace ("SimhDMC %s connect to %s %d rejected",
                                self.name, self.host.addr, self.portnum)
                 self.status = OFF
                 return
@@ -86,10 +90,10 @@ class SimhDMC (datalink.PtpDatalink):
                 self.socket.bind (("", self.portnum))
                 self.socket.listen (1)
             except (OSError, socket.error):
-                logging.trace ("SimDMC %s bind/listen failed", self.name)
+                logging.trace ("SimhDMC %s bind/listen failed", self.name)
                 self.status = OFF
                 return
-            logging.trace ("SimDMC %s listen to %d active",
+            logging.trace ("SimhDMC %s listen to %d active",
                            self.name, self.portnum)
         self.rthread.start ()
 
@@ -106,7 +110,8 @@ class SimhDMC (datalink.PtpDatalink):
 
     def disconnected (self):
         if self.status == RUN and self.port:
-            self.node.addwork (DlStatus (self.port.owner, status = False))
+            self.node.addwork (datalink.DlStatus (self.port.owner,
+                                                  status = False))
         if self.status != OFF:
             try:
                 self.socket.close ()
@@ -116,7 +121,7 @@ class SimhDMC (datalink.PtpDatalink):
         self.status = OFF
 
     def run (self):
-        logging.trace ("Simh DMC datalink %s receive thread started", self.name)
+        logging.trace ("SimhDMC datalink %s receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -133,7 +138,7 @@ class SimhDMC (datalink.PtpDatalink):
                     self.disconnected ()
                     return
                 if w:
-                    logging.trace ("Simh DMC %s connected", self.name)
+                    logging.trace ("SimhDMC %s connected", self.name)
                     break
         else:
             # Wait for an incoming connection.
@@ -154,18 +159,22 @@ class SimhDMC (datalink.PtpDatalink):
                         # Good connection, stop looking
                         break
                     # If the connect is from someplace we don't want
-                    logging.trace ("Simh DMC %s connect received from unexpected address %s", self.name, host)
+                    logging.trace ("SimhDMC %s connect received from unexpected address %s", self.name, host)
                     sock.close ()
                 except (OSError, socket.error):
                     self.disconnected ()
                     return
-            logging.trace ("Simh DMC %s connected", self.name)
+            logging.trace ("SimhDMC %s connected", self.name)
+            # Stop listening:
+            self.socket.close ()
+            # The socket we care about now is the data socket
             sellist = [ sock.fileno () ]
             self.socket = sock
         # Tell the routing init layer that this datalink is running
         self.status = RUN
         if self.port:
-            self.node.addwork (DlStatus (self.port.owner, status = True))
+            self.node.addwork (datalink.DlStatus (self.port.owner,
+                                                  status = True))
         while True:
             # All connected.
             try:
@@ -191,7 +200,10 @@ class SimhDMC (datalink.PtpDatalink):
                 bc = int.from_bytes (bc, "big")
                 msg = b''
                 while len (msg) < bc:
-                    m = sock.recv (bc - len (msg))
+                    try:
+                        m = sock.recv (bc - len (msg))
+                    except socket.error:
+                        m = None
                     if not m:
                         self.disconnected ()
                         return

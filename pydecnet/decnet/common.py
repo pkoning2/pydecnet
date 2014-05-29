@@ -274,4 +274,6 @@ class StopThread (threading.Thread):
                 if self.is_alive ():
                     logging.error ("Thread %s failed to stop after 10 seconds",
                                    self.name)
+                else:
+                    logging.trace ("Thread %s stopped", self.name)
 
