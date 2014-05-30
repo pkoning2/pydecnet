@@ -80,9 +80,10 @@ cp.add_argument ("--https-port", metavar = "S", default = 8001,
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
                  help = "Node address")
-cp.add_argument ("--type", metavar = "T", default = "l2router",
-                 choices = {"l2router", "l1router", "endnode",
-                            "phase3router", "phase3endnode", "phase2"})
+cp.add_argument ("--type", default = "l2router",
+                 choices = sorted ([ "l2router", "l1router", "endnode",
+                                     "phase3router", "phase3endnode",
+                                     "phase2" ]))
 cp.add_argument ("--maxhops", metavar = "Maxh", type = int, default = 16,
                  choices = range (1, 31), help = "Max L1 hops (range 1..30)")
 cp.add_argument ("--maxcost", metavar = "Maxc", type = int, default = 128,
