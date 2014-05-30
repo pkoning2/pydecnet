@@ -2,14 +2,12 @@
 
 """Multinet over UDP "datalink" implementation.
 
-Since Multinet (or at least the subset implemented here) runs
-over UDP, it fails to meet many of the requirements the routing
-spec imposes on point to point datalinks.  In particular,
-there is no data link startup at the protocol level, so a remote
-datalink start is not visible.  The point to point datalink
-dependent sublayer can work around that to some extent, given
-that it is told to do so, by having "start_works" set to False in
-the class.
+When Multinet is run over UDP, it fails to meet many of the
+requirements the routing spec imposes on point to point datalinks.  In
+particular, there is no data link startup at the protocol level, so a
+remote datalink start is not visible.  The point to point datalink
+dependent sublayer can work around that to some extent, given that it
+is told to do so, by having"start_works" set to False in the port object.
 """
 
 import re
