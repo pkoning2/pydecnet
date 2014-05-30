@@ -21,6 +21,9 @@ from . import datalink
 OFF = 0
 RUN = 2
 
+class MultinetPort (PtpPort):
+    start_works = False
+
 dev_re = re.compile (r"(.+?):(\d*)(:connect|:listen)?$")
 
 class Multinet (datalink.PtpDatalink):
@@ -44,8 +47,8 @@ class Multinet (datalink.PtpDatalink):
     the active end of a TCP connection, ":listen" for the passive
     end of a TCP connection, or neither for UDP mode.
     """
-    start_works = False
-
+    port_class = MultinetPort
+    
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
         self.rthread = None
