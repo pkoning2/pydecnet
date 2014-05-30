@@ -1,8 +1,8 @@
 #!
 
-"""Multinet over UDP "datalink" implementation.
+"""Multinet over TCP or UDP "datalink" implementation.
 
-When Multinet is run over UDP, it fails to meet many of the
+Multinet, even when run over TCP, fails to meet many of the
 requirements the routing spec imposes on point to point datalinks.  In
 particular, there is no data link startup at the protocol level, so a
 remote datalink start is not visible.  The point to point datalink
@@ -44,6 +44,8 @@ class Multinet (datalink.PtpDatalink):
     the active end of a TCP connection, ":listen" for the passive
     end of a TCP connection, or neither for UDP mode.
     """
+    start_works = False
+
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
         self.rthread = None
