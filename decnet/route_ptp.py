@@ -307,6 +307,9 @@ class PtpCircuit (statemachine.StateMachine):
                 if pkt.verif:
                     # Verification requested
                     verif = self.node.nodeinfo (self.nodeid).verif
+                    if not verif:
+                        logging.trace ("%s verification requested but not set, attempting null string", self.name)
+                        verif = ""
                     if self.tiver == tiver_ph2:
                         vpkt = NodeVerify (password = verif)
                     else:
