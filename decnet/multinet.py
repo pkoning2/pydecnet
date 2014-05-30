@@ -21,7 +21,7 @@ from . import datalink
 OFF = 0
 RUN = 2
 
-class MultinetPort (PtpPort):
+class MultinetPort (datalink.PtpPort):
     start_works = False
 
 dev_re = re.compile (r"(.+?):(\d*)(:connect|:listen)?$")

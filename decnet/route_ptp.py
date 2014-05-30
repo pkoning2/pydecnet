@@ -139,6 +139,9 @@ class PtpCircuit (statemachine.StateMachine):
                 logging.debug ("Null routing layer packet received on %s",
                                self.name)
                 return datalink.DlStatus (status = False)
+            if isinstance (buf, packet.Packet):
+                # If we already parsed this, don't do it again
+                return True
             hdr = packet.getbyte (buf)
             if hdr & 0x80:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
@@ -406,7 +409,7 @@ class PtpCircuit (statemachine.StateMachine):
                     self.node.timers.start (self, self.t4)
                     # Fake a datalink up notification to generate init packet
                     self.node.addwork (datalink.DlStatus (self, status = True))
-                    self.node.addwork (pkt, self)
+                    self.node.addwork (Received (self, packet = pkt))
                     return self.ds
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
