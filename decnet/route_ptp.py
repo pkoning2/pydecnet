@@ -386,7 +386,7 @@ class PtpCircuit (statemachine.StateMachine):
                     return self.restart ("invalid test data")
             else:
                 self.fmterr (pkt)
-                if not self.datalink.datalink.start_works and \
+                if not self.datalink.start_works and \
                        isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
                     # Unexpected init message from the other end, on a
                     # datalink that doesn't implement remote start
