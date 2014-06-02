@@ -120,8 +120,13 @@ class PtpCircuit (statemachine.StateMachine):
     def stop (self):
         self.node.addwork (Shutdown (self))
 
-    def send (self, pkt):
+    def send (self, pkt, dstnode, tryhard = False):
+        # Note that the function signature must match that of
+        # EndnodeLanCircuit.send.
         if self.state == self.ru:
+            if dstnode != self.nodeid:
+                logging.debug ("Sending packet %s to wrong address %s (expected %s)", pkt, dstnode, self.nodeid)
+                return
             if isinstance (pkt, LongData):
                 pkt = ShortData (copy = pkt, payload = pkt.payload)
             self.datalink.send (pkt)
