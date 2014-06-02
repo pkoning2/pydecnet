@@ -211,6 +211,8 @@ class SimhDMC (datalink.PtpDatalink):
                 logging.trace ("Received DMC message len %d: %r",
                                len (msg), msg)
                 if self.port:
+                    self.bytes_recv += len (msg)
+                    self.pkts_recv += 1
                     self.node.addwork (Received (self.port.owner, packet = msg))
                 else:
                     logging.trace ("Message discarded, no port open")
@@ -220,6 +222,8 @@ class SimhDMC (datalink.PtpDatalink):
             msg = bytes (msg)
             logging.trace ("Sending DMC message len %d: %r", len (msg), msg)
             mlen = len (msg).to_bytes (2, "big")
+            self.bytes_sent += len (msg)
+            self.pkts_sent += 1
             try:
                 self.socket.send (mlen + msg)
             except socket.error:

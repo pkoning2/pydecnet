@@ -52,6 +52,8 @@ class EthPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[14:14 + l] = msg
             l += 14
+        self.bytes_sent += l
+        self.pkts_sent += 1
         # Always send packet padded to min of 60 if need be, whether
         # pad mode is specified or not.
         if l < 60:
@@ -192,10 +194,10 @@ class Ethernet (datalink.BcDatalink, StopThread):
         dest = packet[:6]
         if dest in port.destfilter:
             if dest[0] & 1:
-                self.mcbytes_recd += plen
-                self.mcpkts_recd += 1
-            port.bytes_recd += plen
-            port.pkts_recd += 1
+                self.mcbytes_recv += plen
+                self.mcpkts_recv += 1
+            port.bytes_recv += plen
+            port.pkts_recv += 1
             src = Macaddr (packet[6:12])
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
@@ -206,6 +208,8 @@ class Ethernet (datalink.BcDatalink, StopThread):
                 packet = memoryview (packet)[16:16 + plen2]
             else:
                 packet = memoryview (packet)[14:]
+            self.bytes_recv += len (packet)
+            self.pkts_recv += 1
             self.node.addwork (Received (port.owner,
                                          src = src, packet = packet))
                 

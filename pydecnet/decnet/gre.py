@@ -41,6 +41,8 @@ class GREPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[4:4 + l] = msg
             l += 4
+        self.bytes_sent += l
+        self.pkts_sent += 1
         # We don't do padding, since GRE doesn't require it (it isn't
         # real Ethernet and doesn't have minimum frame lenghts)
         self.parent.send_frame (memoryview (f)[:l])
@@ -133,8 +135,8 @@ class GRE (datalink.BcDatalink, StopThread):
                     self.unk_dest += 1
                     return
                 plen = len (msg) - (pos + 4)
-                port.bytes_recd += plen
-                port.pkts_recd += 1
+                port.bytes_recv += plen
+                port.pkts_recv += 1
                 if port.pad:
                     plen2 = msg[pos + 4] + (msg[pos + 5] << 8)
                     if plen < plen2:
@@ -144,5 +146,7 @@ class GRE (datalink.BcDatalink, StopThread):
                     msg = memoryview (msg)[pos + 6:pos + 6 + plen2]
                 else:
                     msg = memoryview (msg)[pos + 4:]
+                self.bytes_recv += len (msg)
+                self.pkts_recv += 1
                 self.node.addwork (Received (port.owner,
                                              src = None, packet = msg))
