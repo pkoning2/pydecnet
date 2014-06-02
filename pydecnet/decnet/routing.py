@@ -482,13 +482,14 @@ class EndnodeRouting (_Router):
         pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
-        self.c.send (pkt, dest, tryhard)
+        logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
+        self.circuit.send (pkt, dest, tryhard)
 
     def dispatch (self, item):
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
                 work = Received (self.node.nsp, packet = item,
-                                 src = item.srcnode)
+                                 src = item.srcnode, rts = item.rts)
                 self.node.addwork (work, self.node.nsp)
 
     def html (self, what):

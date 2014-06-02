@@ -324,10 +324,8 @@ class NSP (Element):
                             # Can't create another connection, send
                             # No Resources.
                             nr = NoRes (srcaddr = 0, dstaddr = pkt.srcaddr)
-                            self.node.routing.send (nr, item.src)
+                            self.routing.send (nr, item.src)
                             return
-                        conn.dstaddr = pkt.srcaddr
-                        conn.destnode = self.node.nodeinfo (item.src)
                         self.rconnections[cikey] = conn
             else:
                 # Step 6 or 7: look up via the local link address.
@@ -339,7 +337,7 @@ class NSP (Element):
                 # If a connection is found and the state is not CI,
                 # and the packet is not Connect Ack, check the remote
                 # link address also
-                if conn and conn.state != conn.ci and t is not ConnAck:
+                if conn and conn.state != conn.ci and t is not AckConn:
                     if conn.dstaddr != pkt.srcaddr:
                         conn = None
                 # If any of these checks failed, send No Link if the packet
@@ -350,7 +348,10 @@ class NSP (Element):
                                      dstaddr = pkt.srcaddr)
                         self.node.routing.send (nl, item.src)
                     return
-            # Packet is mapped to a port, so process it there.
+            # Packet is mapped to a port, so process it there.  Change
+            # the packet attribute in the work item to match the outcome
+            # of the parse done above
+            item.packet = pkt
             conn.dispatch (item)
             
     def init_id (self):
@@ -429,7 +430,7 @@ class Subchannel (Element, timers.Timer):
         self.reqnum = 0               # Count requested by remote
         self.minreq = 0               # Lowest allowed value of minreq
         self.xon = True               # Flow on/off switch
-        self.flow = ConnInit.SVC_NONE # Outbound flow control selected
+        self.flow = ConnMsg.SVC_NONE  # Outbound flow control selected
         self.ooo = dict ()            # Pending received out of order packets
 
     def dispatch (self, item):
@@ -451,8 +452,8 @@ class Subchannel (Element, timers.Timer):
             return
         while True:
             acked = self.pending_ack.popleft ()
-            adj = (acked.ack () and self.flow == ConnInit.SVC_MSG) or \
-                  self.flow == ConnInit.SVC_SEG
+            adj = (acked.ack () and self.flow == ConnMsg.SVC_MSG) or \
+                  self.flow == ConnMsg.SVC_SEG
             self.reqnum -= adj
             if acked.seqnum == acknum:
                 break
@@ -467,7 +468,7 @@ class Other_Subchannel (Subchannel):
         # the closest analog is message flow control because the count
         # cannot be negative, and not every packet is subjected to control.
         # (In this case, interrupts are but link service messages are not.)
-        self.flow = ConnInit.SVC_MSG
+        self.flow = ConnMsg.SVC_MSG
         
 class Connection (Element, statemachine.StateMachine):
     """An NSP connection object.
@@ -482,12 +483,12 @@ class Connection (Element, statemachine.StateMachine):
             raise Exception ("Connection limit")
         self.parent.connections[srcaddr] = self
         self.dstaddr = 0
-        self.data = Subchannel ()
+        self.data = Subchannel (self)
         # We use the optional "multiple other-data messages allowed at a time"
         # model, rather than the one at a time model that the NSP spec uses.
         # That makes the two subchannels look basically the same -- same data
         # structures, same control machinery.
-        self.other = Other_Subchannel ()
+        self.other = Other_Subchannel (self)
         
         self.destnode = None
         # All done.  Add this connection to the dictionary of connections
@@ -510,5 +511,33 @@ class Connection (Element, statemachine.StateMachine):
         return cls (srcaddr = self.srcaddr, dstaddr = self.dstaddr, **kwds)
 
     def send (self, pkt):
-        pass
+        self.parent.routing.send (pkt, self.dest)
 
+    def s0 (self, item):
+        """Initial state.  We come here to handle a request for a new
+        connection, either inbound or outbound.
+        """
+        if isinstance (item, Received):
+            pkt = item.packet
+            logging.trace ("Processing %s in connection %s", pkt, self)
+            # Inbound connection.  Save relevant state about the remote
+            # node, and send the payload up to session control.
+            self.dest = item.src
+            self.destnode = self.parent.node.nodeinfo (self.dest)
+            self.dstaddr = pkt.srcaddr
+            self.nspver = pkt.info
+            self.data.flow = pkt.fcopt
+            self.segsize = pkt.segsize   # or own if lower, but do we have one?
+            if self.nspver != ConnMsg.VER_PH2:
+                # If phase 3 or later, send CA
+                ca = self.makepacket (AckConn)
+                self.send (ca)
+            # Send the packet up to Session Control
+            # TODO
+            return self.cr
+        #elif isinstance (item, SomeRequest):
+        #    # TODO: process outbound connection
+
+    def cr (self, item):
+        """Connect Received state.
+        """
