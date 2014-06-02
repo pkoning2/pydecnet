@@ -264,6 +264,7 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, timers.Timeout):
             # Process timeout
+            self.init_fail += 1
             return self.restart ("timeout")
         elif isinstance (item, Received):
             # Process received packet
@@ -276,12 +277,14 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
+                        self.init_fail += 1
                         return self.restart ("bad ntype")
                 else:
                     self.t4 = self.t3 * T3MULT
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
                         self.fmterr (pkt)
+                        self.init_fail += 1
                         return self.restart ("bad ntype for phase 3")
                     if isinstance (pkt, PtpInit3):
                         # Neighbor is Phase 3, send it a Phase 3 init
@@ -330,9 +333,11 @@ class PtpCircuit (statemachine.StateMachine):
             else:
                 # Some unexpected message
                 self.fmterr (pkt)
+                self.init_fail += 1
                 return self.restart ("unexpected message")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
+            self.init_fail += 1
             return self.restart ("datalink status")
         elif isinstance (item, Shutdown):
             # operator "stop" command
@@ -344,6 +349,7 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, timers.Timeout):
             # Process timeout
+            self.init_fail += 1
             return self.restart ("timeout")
         elif isinstance (item, Received):
             # Process received packet
@@ -357,9 +363,11 @@ class PtpCircuit (statemachine.StateMachine):
                 return self.ru
             else:
                 self.fmterr (pkt)
+                self.init_fail += 1
                 return self.restart ("unexpected packet")
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
+            self.init_fail += 1
             return self.restart ("datalink status")
         elif isinstance (item, Shutdown):
             # operator "stop" command

@@ -200,6 +200,7 @@ class _Adjacency (Element, timers.Timer):
                             **kwargs)
 
     def log_down (self, **kwargs):
+        self.circuit.adj_down += 1
         self.node.logevent (Event.adj_down, self.circuit,
                             adjacent_node = self.node.nodeinfo (self.nodeid),
                             **kwargs)
@@ -254,11 +255,18 @@ class Circuit (Element):
         self.routing = parent
         self.name = name
         self.config = config
+        # A subset of the counters defined by the architecture
+        # We use the datalink (which is actually a Port) counter start time
+        self.term_recv = self.orig_sent = 0
+        self.trans_recv = self.trans_sent = 0
+        #self.term_cong = self.trans_cong = 0    # congestion loss, needed?
+        self.cir_down = self.adj_down = self.init_fail = 0
 
     def log_up (self, **kwargs):
         self.node.logevent (Event.circ_up, self, **kwargs)
 
     def log_down (self, **kwargs):
+        self.cir_down += 1
         self.node.logevent (Event.circ_down, self, **kwargs)
     
 class L1Circuit (Circuit):
@@ -441,6 +449,7 @@ class _Router (Element):
             hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
             <td width=180 align=center><a href="/routing">Summary</td>
             <td width=180 align=center><a href="/routing/status">Status</td>
+            <td width=180 align=center><a href="/routing/counters">Counters</td>
             <td width=180 align=center><a href="/routing/internals">Internals</td></table>"""
         ntype = ntypestrings[self.ntype]
         return """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
@@ -472,7 +481,7 @@ class EndnodeRouting (_Router):
         """
         pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
-                        payload = data)
+                        payload = data, src = None)
         self.c.send (pkt, dest, tryhard)
 
     def dispatch (self, item):
@@ -730,13 +739,24 @@ class L1Router (_Router, L1CirAdj):
         """
         pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
-                        payload = data)
+                        payload = data, src = None)
         self.forward (pkt)
         
     def forward (self, pkt):
+        """Send a data packet to where it should go next.  "pkt" is the
+        packet object to send.  For received packets, "pkt.src" is the
+        adjacency on which it was received; for originating packets,
+        "pkt.src" is None.
+        """
         dest = pkt.dstnode
+        srcadj = pkt.src
         if dest == self.nodeid:
             # Terminating packet - hand it to NSP
+            if srcadj:
+                # Note that local packets (originating here and terminating
+                # here as well) are not counted since there isn't any circuit
+                # on which to count them.
+                pkt.src.circuit.term_recv += 1
             work = Received (self.node.nsp, packet = pkt, src = pkt.srcnode,
                              rts = pkt.rts)
             self.node.addwork (work, self.node.nsp)
@@ -746,20 +766,26 @@ class L1Router (_Router, L1CirAdj):
             if a:
                 # Destination is reachable.  Send it, unless
                 # we're at the visit limit
-                srcadj = pkt.src
+                limit = self.maxvisits
                 if srcadj:
                     # Forwarding (as opposed to originating)
                     pkt.visit += 1
                     if srcadj.circuit != a.circuit:
                         # Mark "not intra-Ethernet"
                         pkt.ie = 0
-                    limit = self.maxvisits
                     if pkt.rts:
                         limit *= 2
-                    if pkt.visit <= limit:
-                        # Visit limit still ok, send it and exit
-                        a.send (pkt)
-                        return
+                if pkt.visit <= limit:
+                    # Visit limit still ok, send it and exit
+                    if srcadj:
+                        srcadj.circuit.trans_recv += 1
+                        a.circuit.trans_sent += 1
+                    else:
+                        a.circuit.orig_sent += 1
+                    logging.trace ("Sending %d byte packet to %s: %s",
+                       len (pkt), a, pkt)
+                    a.send (pkt)
+                    return
             # If we get to this point, we could not forward the packet,
             # for one of two reasons: not reachable, or too many visits.
             # Return to sender if requested and not already underway,
@@ -796,6 +822,27 @@ class L1Router (_Router, L1CirAdj):
                             else:
                                 ret.append ("<h3>Point to point circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
                         ret.append (h)
+                        if what == "counters":
+                            ctr = "\n".join ([ """<tr><td colspan=2 />
+                            <td colspan=2>{0}</td>
+                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c, f))
+                                             for fl, f in
+                                             (("Terminating packets received", "term_recv"),
+                                              ("Originating packets sent", "orig_sent"),
+                                              ("Transit packets received", "trans_recv"),
+                                              ("Transit packets sent", "trans_sent"),
+                                              ("Circuit down", "cir_down"),
+                                              ("Adjacency down", "adj_down"),
+                                              ("Initialization failure", "init_fail")) ])
+                            ctr += "\n".join ([ """<tr><td colspan=2 />
+                            <td colspan=2>{0}</td>
+                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c.datalink.parent, f))
+                                             for fl, f in
+                                             (("Bytes received", "bytes_recv"),
+                                              ("Bytes sent", "bytes_sent"),
+                                              ("Data blocks received", "pkts_recv"),
+                                              ("Data blocks sent", "pkts_sent")) ])
+                            ret.append (ctr)
             if not first:
                 ret.append ("</table>")
         if what in ("status", "internals"):

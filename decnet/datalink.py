@@ -27,6 +27,8 @@ class HostAddress (object):
         """
         self.name = name
         self.interval = interval
+        self.next_check = 0
+        self._addr = None
         self.lookup ()
 
     def lookup (self, pref = None):
@@ -207,10 +209,6 @@ class PtpPort (Port):
     """
     def __init__ (self, datalink, owner, proto = None):
         super ().__init__ (datalink, owner)
-        # A subset of the counters defined by the architecture
-        self.ctr_zero_time = time.time ()
-        self.bytes_sent = self.pkts_sent = 0
-        self.bytes_recd = self.pkts_recd = 0
 
     def open (self):
         self.parent.port_open ()
@@ -235,6 +233,10 @@ class PtpDatalink (Datalink):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
         self.port = None
+        # A subset of the counters defined by the architecture
+        self.ctr_zero_time = time.time ()
+        self.bytes_sent = self.pkts_sent = 0
+        self.bytes_recv = self.pkts_recv = 0
         
     def create_port (self, owner, proto = None, *args):
         port = super ().create_port (owner, proto, *args)
@@ -258,8 +260,8 @@ class BcDatalink (Datalink):
         self.ctr_zero_time = time.time ()
         # The traffic counters are derived from the per-port counters
         #self.bytes_sent = self.pkts_sent = 0
-        #self.bytes_recd = seld.pkts_recd = 0
-        self.mcbytes_recd = self.mcpkts_recd = 0
+        #self.bytes_recv = seld.pkts_recv = 0
+        self.mcbytes_recv = self.mcpkts_recv = 0
         self.unk_dest = 0
 
     @property
@@ -267,16 +269,16 @@ class BcDatalink (Datalink):
         return self.combine ("bytes_sent")
     
     @property
-    def bytes_recd (self):
-        return self.combine ("bytes_recd")
+    def bytes_recv (self):
+        return self.combine ("bytes_recv")
     
     @property
     def pkts_sent (self):
         return self.combine ("pkts_sent")
     
     @property
-    def pkts_recd (self):
-        return self.combine ("pkts_recd")
+    def pkts_recv (self):
+        return self.combine ("pkts_recv")
 
     def combine (self, attr):
         return sum (getattr (v, attr) for v in self.ports.values ())
@@ -313,7 +315,7 @@ class BcPort (Port):
         # A subset of the counters defined by the architecture
         self.ctr_zero_time = time.time ()
         self.bytes_sent = self.pkts_sent = 0
-        self.bytes_recd = self.pkts_recd = 0
+        self.bytes_recv = self.pkts_recv = 0
         
     def add_multicast (self, addr):
         addr = Macaddr (addr)

@@ -22,6 +22,9 @@ OFF = 0
 RUN = 2
 
 class MultinetPort (datalink.PtpPort):
+    """Multinet is exactly like generic point to point except that the
+    spurious start message workaround needs to be turned on.
+    """
     start_works = False
 
 dev_re = re.compile (r"(.+?):(\d*)(:connect|:listen)?$")
@@ -262,6 +265,8 @@ class Multinet (datalink.PtpDatalink):
                 logging.trace ("Received Multilink message len %d: %r",
                                len (msg), msg)
                 if self.port:
+                    self.bytes_recv += len (msg)
+                    self.pkts_recv += 1
                     self.node.addwork (Received (self.port.owner, packet = msg))
                 else:
                     logging.trace ("Message discarded, no port open")
@@ -273,6 +278,8 @@ class Multinet (datalink.PtpDatalink):
             mlen = len (msg)
             logging.trace ("Sending Multinet message len %d: %r",
                            mlen, msg)
+            self.bytes_sent += mlen
+            self.pkts_sent += 1
             if self.mode:
                 # TCP mode
                 hdr = mlen.to_bytes (2, "little") + b"\000\000"

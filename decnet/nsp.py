@@ -185,7 +185,7 @@ class ConnInit (ConnMsg):
     #subtype = NspHdr.RCI
     dstaddr = 0
     
-# Connect Confirm is very similar to Connect Confirm (the differences are
+# Connect Confirm is very similar to Connect Init (the differences are
 # mainly in the session layer, which is just payload to us).
 # However, the scraddr is now non-zero.
 class ConnConf (ConnMsg):
@@ -228,8 +228,8 @@ msgmap[(NspHdr.CTL << 2) + (NspHdr.RCI << 4)] = ConnInit
 # For data segments we put in all 4 combinations of bom/eom flags so
 # we can just do the message map without having to check for those cases
 # separately.
-for st in range (0, 4 << 5, 1 << 5):
-    msgmap[st] = DataSeg
+for st in range (4):
+    msgmap[NspHdr.DATA + (st << 5)] = DataSeg
 
 # Mapping from reason to specific Disconnect Confirm subclass
 dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
@@ -280,7 +280,7 @@ class NSP (Element):
             # Arriving packet delivered up from Routing.  Map the packet
             # to a port (Connection object), see NSP 4.0.1 spec
             # section 6.2 (receive dispatcher)
-            buf = item.packet
+            buf = item.packet.payload
             logging.trace ("NSP packet received from %s: %s",
                            item.src, item.packet)
             msgflg = packet.getbyte (buf)
@@ -298,8 +298,10 @@ class NSP (Element):
                     t = dcmap[pkt.reason]
                     pkt = t (buf)
                 except KeyError:
-                    # Other Disconnect Confirm, that's Phase II stuff...
-                    pass
+                    # Other Disconnect Confirm, that's Phase II stuff.
+                    # Handle it as a Disconnect Initiate
+                    t = DiscInit
+                    pkt = t (buf)
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
@@ -319,8 +321,9 @@ class NSP (Element):
                         try:
                             conn = Connection (self)
                         except Exception:
-                            # Can't create another connection, send No Resources.
-                            nr = NoRes (srcaddr = pkt.dstaddr, dstaddr = 0)
+                            # Can't create another connection, send
+                            # No Resources.
+                            nr = NoRes (srcaddr = 0, dstaddr = pkt.srcaddr)
                             self.node.routing.send (nr, item.src)
                             return
                         conn.dstaddr = pkt.srcaddr
@@ -330,7 +333,7 @@ class NSP (Element):
                 # Step 6 or 7: look up via the local link address.
                 try:
                     conn = self.connections[pkt.dstaddr]
-                except:
+                except KeyError:
                     # Not found, remember that
                     conn = None
                 # If a connection is found and the state is not CI,
@@ -394,7 +397,7 @@ class txqentry (timers.Timer):
         is not going to be transmitted again for some other reason
         (like connection abort).
 
-        Returns True if this is a packet for which then message flow control
+        Returns True if this is a packet for which the message flow control
         request count is adjusted.
         """
         self.channel.node.timers.stop (self)
@@ -498,6 +501,7 @@ class Connection (Element, statemachine.StateMachine):
         if txtime and self.destnode:
             delta = time.time () - txtime
             if self.destnode.delay:
+                # TODO: weighted average
                 pass
             else:
                 self.destnode.delay = delta
