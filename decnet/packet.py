@@ -11,6 +11,7 @@ import logging
 import time
 
 from .common import *
+from .events import Event
 
 LE = "little"
 
@@ -265,11 +266,14 @@ class Packet (metaclass = packet_encoding_meta):
             super ().__setattr__ (field, val)
         except AttributeError:
             prev = getattr (self, field, None)
-            if prev is not None and prev != val:
-                logging.debug ("Field %s required value mismatch, %s instead of %s",
-                field, val, prev)
-                raise Event (fmt_err)
-                
+            if prev is not None:
+                if prev != val:
+                    logging.debug ("Field %s required value mismatch, %s instead of %s",
+                    field, val, prev)
+                    raise Event (Event.fmt_err)
+            else:
+                raise
+            
     def encode_res (self, flen):
         """Encode a reserved field.
         """
@@ -306,7 +310,7 @@ class Packet (metaclass = packet_encoding_meta):
         vl = len (val)
         if vl > maxlen:
             logging.debug ("Value too long for %d byte field", maxlen)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         return vl.to_bytes (1, LE) + val
 
     def decode_i (self, buf, field, maxlen):
@@ -321,14 +325,14 @@ class Packet (metaclass = packet_encoding_meta):
         flen = getbyte (buf)
         if flen < 0:
             logging.debug ("Image field with negative length %d" , flen)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         elif flen > maxlen:
             logging.debug ("Image field longer than max length %d", maxlen)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         v = buf[1:flen + 1]
         if len (v) != flen:
             logging.debug ("Not %d bytes left for image field", flen)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         setattr (self, field, v)
         return buf[flen + 1:]
 
@@ -392,7 +396,7 @@ class Packet (metaclass = packet_encoding_meta):
             if val >> bits:
                 logging.debug ("Field %s value %d too large for %d bit field",
                                name, val, bits)
-                raise Event (fmt_err)
+                raise Event (Event.fmt_err)
             field |= val << start
         return field.to_bytes (flen, LE)
 
@@ -419,7 +423,7 @@ class Packet (metaclass = packet_encoding_meta):
         retval.append (val.to_bytes (1, LE))
         if len (retval) > maxlen:
             logging.debug ("Extensible field is longer than %d bytes", maxlen)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         return b''.join (retval)
         
     def decode_ex (self, buf, field, maxlen):
@@ -435,7 +439,7 @@ class Packet (metaclass = packet_encoding_meta):
                 break
             if i == maxlen - 1:
                 logging.debug ("Extensible field longer than %d", maxlen)
-                raise Event (fmt_err)
+                raise Event (Event.fmt_err)
         setattr (self, field, val)
         return buf[i + 1:]
 
@@ -487,14 +491,14 @@ class Packet (metaclass = packet_encoding_meta):
             left = blen - pos
             if left < tlen + llen:
                 logging.debug ("Incomplete TLV at end of buffer")
-                raise Event (fmt_err)
+                raise Event (Event.fmt_err)
             tag = int.from_bytes (buf[pos:pos + tlen], LE)
             pos += tlen + llen
             vlen = int.from_bytes (buf[pos - llen:pos], LE)
             if pos + vlen > blen:
                 logging.debug ("TLV %d Value field extends beyond end of buffer",
                                tag)
-                raise Event (fmt_err)
+                raise Event (Event.fmt_err)
             try:
                 e, d, fieldargs = codedict[tag]
             except KeyError:
@@ -503,12 +507,12 @@ class Packet (metaclass = packet_encoding_meta):
                                         ( "field%d" % tag, 255 ) )
                 else:
                     logging.debug ("Unknown TLV tag %d", tag)
-                    raise Event (fmt_err)
+                    raise Event (Event.fmt_err)
             buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
             if buf2:
                 logging.debug ("TLV %d Value field not fully parsed, left = %d",
                                tag, len (buf2))
-                raise Event (fmt_err)
+                raise Event (Event.fmt_err)
             pos += vlen
             
     def encode (self, layout = None):
