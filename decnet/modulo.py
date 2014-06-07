@@ -14,7 +14,16 @@ class _mod_meta (type):
     def __new__ (cls, name, bases, classdict, mod = None):
         classdict["modulus"] = mod
         if mod:
-            classdict["maxdelta"] = (mod - 1) // 2
+            q, r = divmod (mod, 2)
+            if r:
+                undef = None
+            else:
+                undef = q
+                q -= 1
+            classdict["maxdelta"] = q
+            classdict["undef"] = undef
+        classdict["__slots__"] = ()
+        classdict["__doc__"] = "Integers conforming to sequence number arithmetic per RFC 1982, modulo {}".format (mod)
         return type.__new__ (cls, name, bases, classdict)
             
     def __init__ (cls, *args, **kwds):
@@ -32,10 +41,14 @@ class Mod (int, metaclass = _mod_meta):
 
     def __lt__ (self, other):
         delta = (int (other) - int (self)) % self.modulus
+        if delta == self.undef:
+            return NotImplemented
         return delta <= self.maxdelta
 
     def __gt__ (self, other):
         delta = (int (self) - int (other)) % self.modulus
+        if delta == self.undef:
+            return NotImplemented
         return delta <= self.maxdelta
 
     def __le__ (self, other):
