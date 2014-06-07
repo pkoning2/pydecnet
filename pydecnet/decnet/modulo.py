@@ -12,8 +12,11 @@ class _mod_meta (type):
     "mod" keyword when defining subclasses of "Mod".
     """
     def __new__ (cls, name, bases, classdict, mod = None):
-        classdict["modulus"] = mod
-        if mod:
+        if not mod:
+            if bases != ( int, ):
+                raise TypeError ("No modulus defined for class %s" % name)
+        else:
+            classdict["modulus"] = mod
             q, r = divmod (mod, 2)
             if r:
                 undef = None
@@ -22,8 +25,10 @@ class _mod_meta (type):
                 q -= 1
             classdict["maxdelta"] = q
             classdict["undef"] = undef
+            classdict["__doc__"] = "Integers conforming to sequence number " \
+                                   "arithmetic per RFC 1982, " \
+                                   "modulo {}".format (mod)
         classdict["__slots__"] = ()
-        classdict["__doc__"] = "Integers conforming to sequence number arithmetic per RFC 1982, modulo {}".format (mod)
         return type.__new__ (cls, name, bases, classdict)
             
     def __init__ (cls, *args, **kwds):
@@ -33,8 +38,8 @@ class Mod (int, metaclass = _mod_meta):
     """Modular arithmetic, specifically sequence number arithmetic.
     """
     def __new__ (cls, val):
-        if cls.modulus is None:
-            raise TypeError ("No modulus defined for class %s" % cls.__name__)
+        if not hasattr (cls, "modulus"):
+            raise TypeError ("Can't instantiate object of class %s" % cls.__name__)
         if 0 <= val < cls.modulus:
             return int.__new__ (cls, val)
         raise OverflowError
