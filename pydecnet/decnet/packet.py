@@ -207,6 +207,8 @@ class packet_encoding_meta (type):
             result._codetable = layout
         return result
             
+class ReadOnlyError (AttributeError): "Attempt to change a read-only attribute"
+
 class Packet (metaclass = packet_encoding_meta):
     """Base class for DECnet packets.
 
@@ -268,9 +270,9 @@ class Packet (metaclass = packet_encoding_meta):
             prev = getattr (self, field, None)
             if prev is not None:
                 if prev != val:
-                    logging.debug ("Field %s required value mismatch, %s instead of %s",
-                    field, val, prev)
-                    raise Event (Event.fmt_err)
+                    raise ReadOnlyError ("Cannot change attribute {} " \
+                                         "from {} to {}" \
+                                         .format (field, val, prev)) from None
             else:
                 raise
             
@@ -578,7 +580,11 @@ class Packet (metaclass = packet_encoding_meta):
         """
         codetable = layout or self._codetable
         for e, d, args in codetable:
-            buf = d (self, buf, *args)
+            try:
+                buf = d (self, buf, *args)
+            except ReadOnlyError:
+                logging.debug ("Field required value mismatch")
+                raise Event (Event.fmt_err) from None
         if not layout:
             try:
                 self.payload = buf
