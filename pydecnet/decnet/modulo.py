@@ -36,6 +36,12 @@ class _mod_meta (type):
     
 class Mod (int, metaclass = _mod_meta):
     """Modular arithmetic, specifically sequence number arithmetic.
+
+    Comparisons are done according to the rules of sequence number
+    arithmetic, when both operands are instances of this class, and
+    the moduli is the same.  If the moduli are different, the values
+    are not ordered.  If one is a plain (not modular) int, comparison
+    is done as plain ints.
     """
     def __new__ (cls, val):
         if not hasattr (cls, "modulus"):
@@ -44,23 +50,48 @@ class Mod (int, metaclass = _mod_meta):
             return int.__new__ (cls, val)
         raise OverflowError
 
+    def _comparable (self, other):
+        return self.modulus == other.modulus
+        
     def __lt__ (self, other):
+        if not hasattr (other, "modulus"):
+            return int (self) < other
+        if not self._comparable (other):
+            return NotImplemented
+        delta = (int (other) - int (self)) % self.modulus
+        if delta == self.undef:
+            return NotImplemented
+        return 0 < delta <= self.maxdelta
+
+    def __le__ (self, other):
+        if not hasattr (other, "modulus"):
+            return int (self) <= other
+        if not self._comparable (other):
+            return NotImplemented
         delta = (int (other) - int (self)) % self.modulus
         if delta == self.undef:
             return NotImplemented
         return delta <= self.maxdelta
 
     def __gt__ (self, other):
+        if not hasattr (other, "modulus"):
+            return int (self) > other
+        if not self._comparable (other):
+            return NotImplemented
+        delta = (int (self) - int (other)) % self.modulus
+        if delta == self.undef:
+            return NotImplemented
+        return 0 < delta <= self.maxdelta
+
+    def __ge__ (self, other):
+        if not hasattr (other, "modulus"):
+            return int (self) >= other
+        if not self._comparable (other):
+            return NotImplemented
         delta = (int (self) - int (other)) % self.modulus
         if delta == self.undef:
             return NotImplemented
         return delta <= self.maxdelta
-
-    def __le__ (self, other):
-        return not self > other
-
-    def __ge__ (self, other):
-        return not self < other
 
     def __add__ (self, other):
         return self.__class__ ((int (self) + int (other)) % self.modulus)
