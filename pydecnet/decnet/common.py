@@ -114,12 +114,16 @@ class Nodeid (int):
                 a = 0
             else:
                 a = int (a)
+                if a == 0:
+                    raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         elif isinstance (s, int):
             if id2 is None:
                 n = s
                 a = 0
             else:
                 a, n = s, id2
+                if a == 0:
+                    raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         elif isinstance (s, Macaddr):
             if s[:4] != HIORD:
                 raise ValueError ("Invalid DECnet Mac address %s" % s)
@@ -130,6 +134,8 @@ class Nodeid (int):
             if len (s) != 2:
                 raise ValueError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
+            if a == 0:
+                raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         if a == 0:
             if n < 1 or n > 1023:
                 # Note we check for 1023, not 255, because DECnet/E Phase IV
