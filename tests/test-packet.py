@@ -9,6 +9,7 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
 from decnet import packet
 from decnet import events
+from decnet.common import Nodeid
 
 class alltypes (packet.Packet):
     _layout = (( "bm",
@@ -21,11 +22,12 @@ class alltypes (packet.Packet):
                ( "signed", "sint", 2 ),
                ( "bv", "byte5", 5 ),
                ( "res", 1 ),
-               ( "b", "int4", 4 ))
+               ( "b", "int4", 4 ),
+               ( Nodeid, "node" ))
 class allpayload (alltypes): _addslots = { "payload" }
 
 testdata = b"\025\001\006abcdef\001\000\000\001\000\000\200\003" \
-           b"\012\377bytesX\001\001\000\000"
+           b"\012\377bytesX\001\001\000\000\003\004"
 # In the above, X is the value for the one-byte "res" (reserved) field,
 # which is don't care on decode but 0 on encode.  So construct the
 # output we expect for encode:
@@ -44,10 +46,11 @@ class alltlv (packet.Packet):
                    8 : ( "signed", "sint", 2 ),
                    9 : ( "bv", "byte5", 5 ),
                    10: ( "b", "int4", 4 ),
-                   11: ( "bs", "bytestring", 50 ) }))
+                   11: ( "bs", "bytestring", 50 ),
+                   12: ( Nodeid, "node" ) }))
 
 tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
-          b"\012\004\004\001\000\000"
+          b"\012\004\004\001\000\000\014\002\003\004"
 
 class TestPacket (unittest.TestCase):
     def test_abc (self):
@@ -97,6 +100,7 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.sint, -246)
         self.assertEqual (a.byte5, b"bytes")
         self.assertEqual (a.int4, 257)
+        self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2)
         
     def test_payload (self):
@@ -111,6 +115,7 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.sint, -246)
         self.assertEqual (a.byte5, b"bytes")
         self.assertEqual (a.int4, 257)
+        self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (a.payload, b"payload")
         self.assertEqual (bytes (a), testdata2 + b"payload")
         with self.assertRaises (ValueError):
@@ -130,6 +135,7 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.sint, -246)
         self.assertEqual (a.byte5, b"bytes")
         self.assertEqual (a.int4, 257)
+        self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2.replace (b"abcdef", b"foobar"))
         with self.assertRaises (events.Event) as e:
             constimage (testdata)
@@ -142,6 +148,7 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.int4, 260)
         self.assertEqual (a.image, b"abcd")
         self.assertEqual (a.bytestring, b"four score and seven")
+        self.assertEqual (a.node, Nodeid (1, 3))
         self.assertFalse (hasattr (a, "bit1"))
         self.assertFalse (hasattr (a, "bit2"))
         self.assertFalse (hasattr (a, "bit6"))
