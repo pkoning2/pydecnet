@@ -45,9 +45,9 @@ def proc_layoutelem (cls, e):
             except AttributeError:
                 raise TypeError ("Invalid type code %s" % code) from None
         else:
-            if not hasattr (cls, "_len"):
+            if not hasattr (code, "_len"):
                 raise TypeError ("Field type code is class %s without length"
-                                 % cls.__name__)
+                                 % code.__name__)
             enc = getattr (cls, "encode_type")
             dec = getattr (cls, "decode_type")
             # Argument list should have one entry (the attribute name).
