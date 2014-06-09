@@ -15,26 +15,17 @@ from .events import Event
 
 LE = "little"
 
-# We need this ugliness because Python 3.2 has a bug in the memoryview
-# class: it acts like bytes except that indexing a single element yields
-# a length 1 memoryview, rather than an int.  Python 3.3 fixes this but
-# to avoid requiring 3.3, we use this workaround
-
-if sys.hexversion >= 0x03030000:
-    def getbyte (buf, off = 0):
-        return buf[off]
-else:
-    _getbyte = struct.Struct ("<B")
-    def getbyte (buf, off = 0):
-        return _getbyte.unpack_from (buf, off)[0]
-
 maxint = [ (1 << (8 * i)) - 1 for i in range (9) ]
 
 try:
     int.from_bytes
 except AttributeError:
-    raise ImportError ("Python 3.2 or later required")
+    raise ImportError ("Python 3.3 or later required")
 
+# Checking for a bug in Python <= 3.2
+if type (memoryview (b"ab")[0]) is not int:
+    raise ImportError ("Python 3.3 or later required")
+    
 def proc_layoutelem (cls, e):
     code, *args = e
     if isinstance (code, str):
@@ -48,9 +39,15 @@ def proc_layoutelem (cls, e):
                  ( tlen, llen, wild, codedict ) ]
     else:
         if isinstance (code, str):
-            enc = getattr (cls, "encode_%s" % code)
-            dec = getattr (cls, "decode_%s" % code)
+            try:
+                enc = getattr (cls, "encode_%s" % code)
+                dec = getattr (cls, "decode_%s" % code)
+            except AttributeError:
+                raise TypeError ("Invalid type code %s" % code) from None
         else:
+            if not hasattr (cls, "_len"):
+                raise TypeError ("Field type code is class %s without length"
+                                 % cls.__name__)
             enc = getattr (cls, "encode_type")
             dec = getattr (cls, "decode_type")
             # Argument list should have one entry (the attribute name).
@@ -150,7 +147,10 @@ def process_slots (layout):
     """
     slots = set ()
     for e in layout:
-        slots |= (proc_slotelem (e))
+        newslots = proc_slotelem (e)
+        if newslots - slots != newslots:
+            raise TypeError ("Duplicate field in layout")
+        slots |= newslots
     return slots
 
 class packet_encoding_meta (type):
@@ -177,8 +177,15 @@ class packet_encoding_meta (type):
             # the __slots__ class variable.
             slots = process_slots (layout)
             # Any attributes defined as class attributes will not be
-            # allowed as instance attributes.
+            # created as instance attributes.
             slots -= set (classdict)
+            # See if there is an attempt to redefine previous fields
+            for c in bases:
+                try:
+                    if slots - c.__slots__ != slots:
+                        raise TypeError ("Layout redefines field from base class")
+                except AttributeError:
+                    pass
         else:
             slots = set ()
         # Add any extra slots requested by the class
@@ -205,6 +212,10 @@ class packet_encoding_meta (type):
             if baselayout:
                 layout = baselayout + layout
             result._codetable = layout
+        elif bases and not baselayout:
+            # No layout -- ok if this is the Packet abstract base class
+            raise TypeError ("Required attribute '_layout' "\
+                             " not defined in class '%s'" % name)
         return result
             
 class ReadOnlyError (AttributeError): "Attempt to change a read-only attribute"
@@ -238,14 +249,15 @@ class Packet (metaclass = packet_encoding_meta):
         In either case, if other keyword arguments are supplied, they
         initialize attributes of those names.
         """
+        if not hasattr (self.__class__, "_codetable"):
+            raise TypeError ("Can't instantiate object of "\
+                             "class %s" % self.__class__.__name__)
         super ().__init__ ()
-        if not hasattr (self, "_codetable"):
-            raise AttributeError ("Required attribute '_layout' not defined in class '%s'" % self.__class__.__name__)
         if buf:
             buf = self.decode (buf)
             if buf and not hasattr (self, "payload"):
-                logging.debug ("Unexpected data for %s after parse: %s",
-                               self.__class__.__name__, buf)
+                raise ValueError ("Unexpected data for %s after parse: %s" %
+                                  (self.__class__.__name__, buf))
         else:
             if copy:
                 for attr in self.allslots ():
@@ -266,7 +278,7 @@ class Packet (metaclass = packet_encoding_meta):
         """
         try:
             super ().__setattr__ (field, val)
-        except AttributeError:
+        except AttributeError as a:
             prev = getattr (self, field, None)
             if prev is not None:
                 if prev != val:
@@ -324,7 +336,7 @@ class Packet (metaclass = packet_encoding_meta):
         # buf is bytes, but a length one bytes if buf is memoryview.
         # More precisely, it work that way in Python 3.2 and before;
         # this bug is fixed in Python 3.3.
-        flen = getbyte (buf)
+        flen = buf[0]
         if flen < 0:
             logging.debug ("Image field with negative length %d" , flen)
             raise Event (Event.fmt_err)
@@ -509,7 +521,7 @@ class Packet (metaclass = packet_encoding_meta):
                                         ( "field%d" % tag, 255 ) )
                 else:
                     logging.debug ("Unknown TLV tag %d", tag)
-                    raise Event (Event.fmt_err)
+                    raise Event (Event.fmt_err) from None
             buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
             if buf2:
                 logging.debug ("TLV %d Value field not fully parsed, left = %d",
@@ -575,8 +587,8 @@ class Packet (metaclass = packet_encoding_meta):
         is processed separately.
 
         If any layout fields have values set in the packet class, those
-        values are required values and mismatches will generate an
-        AttributeError exception.
+        values are required values and mismatches will raise an Event
+        with event code fmt_err (format error).
         """
         codetable = layout or self._codetable
         for e, d, args in codetable:
