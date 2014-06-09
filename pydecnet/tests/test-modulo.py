@@ -13,6 +13,10 @@ class mod15 (modulo.Mod, mod = 15): pass
 class mod16 (modulo.Mod, mod = 16): pass
 
 class TestModulo (unittest.TestCase):
+    def test_abc (self):
+        with self.assertRaises (TypeError):
+            b = modulo.Mod (1)
+
     def test_init (self):
         # Test various init cases
         a = mod16 (1)

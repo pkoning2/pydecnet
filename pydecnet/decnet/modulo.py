@@ -45,7 +45,8 @@ class Mod (int, metaclass = _mod_meta):
     """
     def __new__ (cls, val):
         if not hasattr (cls, "modulus"):
-            raise TypeError ("Can't instantiate object of class %s" % cls.__name__)
+            raise TypeError ("Can't instantiate object of " \
+                             "class %s" % cls.__name__)
         if 0 <= val < cls.modulus:
             return int.__new__ (cls, val)
         raise OverflowError
