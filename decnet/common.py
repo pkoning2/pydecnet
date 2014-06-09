@@ -30,8 +30,9 @@ DRDELAY = 5
 INFHOPS = 31
 INFCOST = 1023
 
-MTU = 576
+MTU = 576                # Max NPDU size
 ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
+MSS = MTU - 13           # Max TSDU size
 
 # Make a version of "bytes" that pays attention to __bytes__ even
 # if the argument is an int.
@@ -120,7 +121,11 @@ class Nodeid (int):
             else:
                 a, n = s, id2
         elif isinstance (s, Macaddr):
-            return int.__new__ (cls, int.from_bytes (s[4:], "little"))
+            if s[:4] != HIORD:
+                raise ValueError ("Invalid DECnet Mac address %s" % s)
+            a, n = divmod (int.from_bytes (s[4:], "little"), 1024)
+            if a == 0:
+                raise ValueError ("Invalid DECnet Mac address %s" % s)
         else:
             if len (s) != 2:
                 raise ValueError ("Invalid node ID %s" % s)
@@ -147,7 +152,10 @@ class Nodeid (int):
         return int (self) & 1023
 
     def split (self):
-        return divmod (self, 1024)
+        return divmod (int (self), 1024)
+
+    def __divmod__ (self, other):
+        return divmod (int (self), other)
     
     def __str__ (self):
         a, t = self.split ()
