@@ -36,7 +36,8 @@ class TestEth (unittest.TestCase):
         self.lpatch.start ()
         self.ppatch.start ()
         ethernet.pcap._pcap.error = Exception ("Pcap test error")
-        self.pd = ethernet.pcap.pcapObject.return_value.dispatch
+        self.pcap = ethernet.pcap.pcapObject.return_value
+        self.pd = self.pcap.dispatch
         self.pd.return_value = 0
         self.pd.side_effect = wait1
         self.eth = ethernet.Ethernet (tnode, "eth-0", tconfig)
@@ -121,6 +122,32 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.eth.bytes_recv, 128)
         self.assertEqual (self.lport.bytes_recv, 64)
         self.assertEqual (self.rport.bytes_recv, 64)
+
+    def test_xmit (self):
+        self.rport = self.eth.create_port (tnode, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.lport = self.eth.create_port (tnode, LOOPPROTO, False)
+        self.rport.send (b"four score and seven years ago",
+                         Macaddr (Nodeid (1, 42)))
+        inject = self.pcap.inject.call_args
+        self.assertIsNotNone (inject)
+        b = bytes (inject[0][0])
+        expected = b"\xaa\x00\x04\x00\x2a\x04\xaa\x00\x04\x00\x03\x04" \
+                   b"\x60\x03\x1e\x00four score and seven years ago"
+        self.assertEqual (b[:len (expected)], expected)
+        self.assertEqual (self.eth.bytes_sent, 46)
+        self.assertEqual (self.lport.bytes_sent, 0)
+        self.assertEqual (self.rport.bytes_sent, 46)
+        self.lport.send (b"four score and seven years ago",
+                         Macaddr (Nodeid (1, 43)))
+        inject = self.pcap.inject.call_args
+        b = bytes (inject[0][0])
+        expected = b"\xaa\x00\x04\x00\x2b\x04\x02\x03\x04\x05\x06\x07" \
+                   b"\x90\x00four score and seven years ago"
+        self.assertEqual (b[:len (expected)], expected)
+        self.assertEqual (self.eth.bytes_sent, 90)
+        self.assertEqual (self.lport.bytes_sent, 44)
+        self.assertEqual (self.rport.bytes_sent, 46)
         
 if __name__ == "__main__":
     unittest.main ()
