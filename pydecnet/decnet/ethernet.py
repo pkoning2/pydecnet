@@ -208,8 +208,8 @@ class Ethernet (datalink.BcDatalink, StopThread):
                 packet = memoryview (packet)[16:16 + plen2]
             else:
                 packet = memoryview (packet)[14:]
-            self.bytes_recv += len (packet)
-            self.pkts_recv += 1
             self.node.addwork (Received (port.owner,
                                          src = src, packet = packet))
-                
+        else:
+            # No address filter match, ignore packet
+            self.unk_dest += 1
