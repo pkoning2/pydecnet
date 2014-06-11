@@ -6,7 +6,6 @@ import sys
 import os
 import io
 import time
-import logging
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
@@ -15,8 +14,14 @@ from decnet import config
 from decnet import ethernet
 from decnet.common import Nodeid
 
-config.logging.error = unittest.mock.Mock ()
+def setUpModule ():
+    global lpatch
+    lpatch = unittest.mock.patch ("decnet.config.logging")
+    lpatch.start ()
 
+def tearDownModule ():
+    lpatch.stop ()
+    
 def errmsg ():
     if not config.logging.error.called:
         return None
