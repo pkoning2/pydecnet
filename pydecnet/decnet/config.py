@@ -120,6 +120,11 @@ cp = config_cmd ("nsp", "NSP layer configuration")
 cp.add_argument ("--max-connections", type = int, default = 4095,
                  choices = [ (1 << i) - 1 for i in range (8, 16) ],
                  help = "Maximum number of connections")
+cp.add_argument ("--nsp-weight", type = int, default = 3,
+                 choices = range (256),
+                 help = "NSP round trip averaging weight (range 0..255)")
+cp.add_argument ("--nsp-delay", type = float, default = 2.0,
+                 help = "NSP round trip delay factor (range 1..15.94)")
 
 class Config (object):
     """Container for configuration data.

@@ -303,6 +303,7 @@ class EndnodeHello (CtlHdr):
     hiid = HIORD
     ntype = ENDNODE
 
+tiver_ph2 = Version (0, 0, 0)
 tiver_ph3 = Version (1, 3, 0)
 tiver_ph4 = Version (2, 0, 0)
 

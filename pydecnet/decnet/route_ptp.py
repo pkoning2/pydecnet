@@ -17,7 +17,6 @@ from . import statemachine
 # These are too obscure for others to care about so we define them here
 # rather than in routing_packets.
 
-tiver_ph2 = Version (0, 0, 0)
 nspver_ph2 = Version (3, 1, 0)
 
 class NodeInit (packet.Packet):
@@ -49,6 +48,11 @@ class NodeVerify (packet.Packet):
                ( "b", "password", 8 ))
     msgflag = 0x58
     starttype = 2
+
+class NopMsg (packet.Packet):
+    _addslots = { "payload" }
+    _layout = (( "b", "msgflag", 1 ),)
+    msgflag = 0x08
     
 class Start (Work):
     """A work item that says "start the circuit".
@@ -80,15 +84,33 @@ class PtpCircuit (statemachine.StateMachine):
         self.blksize = self.nodeid = 0
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
-        self.initmsg = PtpInit (srcnode = parent.nodeid,
-                                ntype = parent.ntype,
-                                timer = self.hellotime,
-                                tiver = tiver_ph4,
-                                verif = 0,
-                                blksize = MTU,
-                                reserved = b'')
-        self.hellomsg = PtpHello (srcnode = parent.nodeid,
-                                  testdata = b'\252' * 10)
+        if parent.tiver == tiver_ph2:
+            self.initmsg = NodeInit (srcnode = parent.tid,
+                                     nodename = parent.name,
+                                     verif = 0,
+                                     routver = tiver_ph2,
+                                     commver = nspver_ph2,
+                                     blksize = MTU, nspsize = MTU,
+                                     sysver = "DECnet/Python")
+            self.hellomsg = NopMsg (payload = b'\252' * 10)
+        else:
+            if parent.tiver == tiver_ph3:
+                self.initmsg = PtpInit3 (srcnode = parent.nodeid.tid,
+                                        ntype = parent.ntype,
+                                        tiver = parent.tiver,
+                                        verif = 0,
+                                        blksize = MTU,
+                                        reserved = b'')
+            else:
+                self.initmsg = PtpInit (srcnode = parent.nodeid,
+                                        ntype = parent.ntype,
+                                        timer = self.hellotime,
+                                        tiver = parent.tiver,
+                                        verif = 0,
+                                        blksize = MTU,
+                                        reserved = b'')
+            self.hellomsg = PtpHello (srcnode = parent.nodeid,
+                                      testdata = b'\252' * 10)
 
     def __str__ (self):
         return "{0.name}".format (self)
@@ -124,10 +146,18 @@ class PtpCircuit (statemachine.StateMachine):
         # Note that the function signature must match that of
         # EndnodeLanCircuit.send.
         if self.state == self.ru:
-            if dstnode != self.nodeid:
+            if self.rphase < 4:
+                # Neighbor is Phase 3 or older, so we have its address
+                # as an 8-bit value.  Force destination address to
+                # the old size.
+                dstnode = NodeId (0, dstnode.tid)
+                pkt.dstnode = dstnode
+            if self.ntype in (ENDNODE, PHASE2) and dstnode != self.nodeid:
                 logging.debug ("Sending packet %s to wrong address %s (expected %s)", pkt, dstnode, self.nodeid)
                 return
-            if isinstance (pkt, LongData):
+            if self.ntype == PHASE2:
+                pkt = pkt.payload
+            elif isinstance (pkt, LongData):
                 pkt = ShortData (copy = pkt, payload = pkt.payload)
             self.datalink.send (pkt)
             
@@ -148,7 +178,7 @@ class PtpCircuit (statemachine.StateMachine):
                 # If we already parsed this, don't do it again
                 return True
             hdr = packet.getbyte (buf)
-            if hdr & 0x80:
+            if (hdr & 0x80) != 0 and self.node.phase > 3:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
                 buf = buf[pad & 0x7f:]
@@ -168,8 +198,9 @@ class PtpCircuit (statemachine.StateMachine):
                     logging.debug ("Invalid msgflgs after Ph2 route hdr: %x",
                                    hdr)
                     return datalink.DlStatus (status = False)
-            if hdr & 1:
-                # Routing control packet.  Figure out which one
+                logging.trace ("Phase II packet with route header: %s", p2route)
+            if (hdr & 1) != 0 and self.node.phase > 2:
+                # Routing (phase 3 or 4) control packet.  Figure out which one
                 code = (hdr >> 1) & 7
                 if code:
                     # Not init
@@ -180,22 +211,31 @@ class PtpCircuit (statemachine.StateMachine):
                                        code, self.name)
                         return datalink.DlStatus (status = False)
                 else:
+                    # Init message type depends on major version number.
                     mver = packet.getbyte (buf, 6)
                     if mver == tiver_ph3[0]:
                         # Phase 3
+                        phase = 3
                         work.packet = PtpInit3 (buf)
                     elif mver == tiver_ph4[0]:
+                        phase = 4
                         work.packet = PtpInit (buf)
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version %d", mver)
                         return datalink.DlStatus (status = False)
                     else:
+                        logging.trace ("Ignoring high version init %d", mver)
                         return False    # Too high, ignore it
+                    if phase > self.node.phase:
+                        logging.trace ("Ignoring init higher than our phase")
+                        return False
             else:
                 code = hdr & 7
-                if code == 6:
+                if self.node.phase > 3 and code == 6:
+                    # Long data is not expected, but it is accepted
+                    # just for grins (and because the phase 4 spec allows it).
                     work.packet = LongData (buf, src = None)
-                elif code == 2:
+                elif self.node.phase > 2 and code == 2:
                     work.packet = ShortData (buf, src = None)
                 elif (code & 3) == 0:
                     # Phase 2 packet.  Figure out what exactly.
@@ -212,11 +252,10 @@ class PtpCircuit (statemachine.StateMachine):
                                 logging.debug ("Unknown Phase 2 control packet %x from %s",
                                                code, self.name)
                                 return datalink.DlStatus (status = False)
-                        elif hdr == 8:
-                            return False    # NOP packet, ignore
                     else:
-                        # Phase 2 data packet -- send to NSP
-                        pass
+                        # Phase 2 data packet, don't set a specific packet
+                        # type, it will be handled in NSP
+                        return True
                 else:
                     logging.debug ("Unknown routing packet %d from %s",
                                    code, self.name)
@@ -258,7 +297,7 @@ class PtpCircuit (statemachine.StateMachine):
         """Set our own node id as source node in the supplied packet,
         in the correct form depending on the neighbor's version.
         """
-        if self.ph4:
+        if self.rphase == 4:
             pkt.srcnode = self.parent.nodeid
         else:
             pkt.srcnode = self.parent.tid
@@ -274,64 +313,98 @@ class PtpCircuit (statemachine.StateMachine):
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
-            if isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
-                # Point to point init message. 
+            if isinstance (pkt, NodeInit):
+                # Phase 2 neighbor
+                if self.node.phase > 2:
+                    # We're phase 3 or up, send a Phase II init
+                    initmsg = self.initmsg = NodeInit (srcnode = self.parent.tid,
+                                                       nodename = self.parent.name,
+                                                       verif = self.initmsg.verif,
+                                                       routver = tiver_ph2,
+                                                       commver = nspver_ph2,
+                                                       blksize = MTU,
+                                                       nspsize = MTU,
+                                                       sysver = "DECnet/Python")
+
+                    self.datalink.send (initmsg)
+                    self.rphase = 2
+                    self.ntype = PHASE2
+                    self.blksize = self.minrouterblk = pkt.blksize
+                    self.nodeid = pkt.srcnode
+                    self.tiver = pkt.tiver
+                    if pkt.verif:
+                        # Verification requested
+                        verif = self.node.nodeinfo (self.nodeid).verif
+                        if not verif:
+                            logging.trace ("%s verification requested but not set, attempting null string", self.name)
+                            verif = ""
+                        vpkt = NodeVerify (password = verif)
+                        self.setsrc (vpkt)
+                        self.datalink.send (vpkt)
+                    # If we requested verification, wait for that.
+                    if self.initmsg.verif:
+                        return self.rv
+                    self.node.timers.start (self.hellotimer, self.hellotime)
+                    self.up ()
+                    return self.ru
+            elif isinstance (pkt, (PtpInit, PtpInit3)):
                 if isinstance (pkt, PtpInit):
-                    # Phase 4
+                    # Phase 4 neighbor
+                    if self.node.phase < 4:
+                        # If we're phase 3 or below, ignore phase 4 init
+                        logging.trace ("Ignoring phase 4 init")
+                        return
                     self.t4 = pkt.timer * T3MULT
+                    self.rphase = 4
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
                         self.init_fail += 1
                         return self.restart ("bad ntype")
+                    self.nodeid = pkt.srcnode
                 else:
+                    # Phase 3
+                    if self.node.phase < 3:
+                        # If we're phase 2, ignore phase 3 init
+                        logging.trace ("Ignoring phase3 init")
+                        return
                     self.t4 = self.t3 * T3MULT
+                    self.rphase = 3
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
                         self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart ("bad ntype for phase 3")
-                    if isinstance (pkt, PtpInit3):
-                        # Neighbor is Phase 3, send it a Phase 3 init
-                        ntype = parent.ntype
+                    if self.node.phase > 3:
+                        # We're phase 4 and neighbor is Phase 3,
+                        # send it a Phase 3 init.  (If we're phase 3, we
+                        # already sent that init.)
+                        ntype = self.parent.ntype
                         if ntype == L2ROUTER:
                             ntype = L1ROUTER
-                        initmsg = PtpInit3 (srcnode = parent.tid,
+                        initmsg = PtpInit3 (srcnode = self.parent.tid,
                                             ntype = ntype,
                                             tiver = tiver_ph3,
                                             verif = self.initmsg.verif,
                                             blksize = MTU)
-                    else:
-                        initmsg = NodeInit (srcnode = parent.tid,
-                                            nodename = parent.name,
-                                            verif = self.initmsg.verif,
-                                            routver = tiver_ph2,
-                                            commver = Version (3, 1, 0),
-                                            blksize = MTU)
-                    self.datalink.send (initmsg)
+                        self.datalink.send (initmsg)
+                    self.nodeid = NodeId (self.parent.homearea, pkt.srcnode.tid)
                 self.ntype = pkt.ntype
                 self.blksize = self.minrouterblk = pkt.blksize
-                self.nodeid = pkt.srcnode
                 self.tiver = pkt.tiver
-                self.ph4 = self.tiver[0] == tiver_ph4[0]
-                self.ph2 = self.tiver[0] == tiver_ph2[0]
                 if pkt.verif:
                     # Verification requested
                     verif = self.node.nodeinfo (self.nodeid).verif
                     if not verif:
                         logging.trace ("%s verification requested but not set, attempting null string", self.name)
                         verif = ""
-                    if self.tiver == tiver_ph2:
-                        vpkt = NodeVerify (password = verif)
-                    else:
-                        vpkt = PtpVerify (fcnval = verif)
+                    vpkt = PtpVerify (fcnval = verif)
                     self.setsrc (vpkt)
                     self.datalink.send (vpkt)
                 # If we requested verification, wait for that.
                 if self.initmsg.verif:
                     return self.rv
-                if not self.ph2:
-                    self.node.timers.start (self, self.t4)
+                self.node.timers.start (self, self.t4)
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
@@ -359,13 +432,17 @@ class PtpCircuit (statemachine.StateMachine):
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
-            if isinstance (pkt, PtpVerify):
+            if isinstance (pkt, PtpVerify) and self.rphase > 2:
                 # todo: check verification value
-                if not self.ph2:
-                    self.node.timers.start (self, self.t4)
+                self.node.timers.start (self, self.t4)
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
+            elif isinstance (pkt, NodeVerify) and self.rphase == 2:
+                # todo: check verification value
+                self.node.timers.start (self.hellotimer, self.hellotime)
+                self.up ()
+                return self.ru                
             else:
                 self.fmterr (pkt)
                 self.init_fail += 1
@@ -386,17 +463,42 @@ class PtpCircuit (statemachine.StateMachine):
             # Process listen timeout
             return self.restart ("timeout")
         elif isinstance (item, Received):
-            # Process received packet.  Always restart the listen timer.
-            if not self.ph2:
+            if self.rphase == 2:
+                # Process received packet from Phase II node.
+                if not isinstance (pkt, packet.Packet):
+                    # Data packet (not something we matched as a packet
+                    # type we know).  Give it to NSP.  Wrap it in a
+                    # ShortData object for consistency, but note that
+                    # there is no routing header so the attributes that
+                    # normally relate to routing header fields are
+                    # made up here instead.
+                    # TODO: handle intercept mode operation.
+                    pkt = ShortData (dstnode = self.parent.nodeid,
+                                     srcnode = self.nodeid, rts = 0, visit = 1,
+                                     payload = pkt.packet, src = self)
+                    logging.trace ("Phase II data packet to routing: %s", pkt)
+                    self.parent.dispatch (pkt)
+                    return
+            # Process received packet.  Restart the listen timer if not phase 2.
+            if self.rphase > 2:
                 self.node.timers.start (self, self.t4)
             pkt = item.packet
-            if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)):
+            if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
+               and self.rphase > 2:
                 logging.trace ("%s data packet to routing: %s", self.name, pkt)
                 # Note that just the packet is dispatched, not the work
                 # item we received that wraps it.
+                if self.rphase < 4 and self.node.phase == 4:
+                    # Running phase 4 but neighbor is older, supply
+                    # our area number into source and destination addresses.
+                    self.srcnode = NodeId (self.parent.homearea,
+                                           self.srcnode.tid)
+                    if isinstance (pkt, ShortData):
+                        self.dstnode = NodeId (self.parent.homearea,
+                                               self.dstnode.tid)
                 pkt.src = self
                 self.parent.dispatch (pkt)
-            elif isinstance (pkt, PtpHello):
+            elif isinstance (pkt, PtpHello) and self.node.phase > 2:
                 if not testdata_re.match (pkt.testdata):
                     self.fmterr (pkt)
                     return self.restart ("invalid test data")

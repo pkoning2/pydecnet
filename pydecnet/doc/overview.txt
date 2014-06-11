@@ -1,6 +1,6 @@
 PyDECnet is an implementation of the Digital Network Architecture
 (commonly called "DECnet") implemented as a pure Python module.  It
-requires Python 3.2 or later.
+requires Python 3.3 or later.
 
 Standards compliance
 
@@ -18,16 +18,17 @@ the MOP (Maintenance Operations) protocols.
 Supported datalinks
 
 Supported datalinks include Ethernet, the DMC-11 emulation implemented
-in SIMH after V2.9, "Multinet" encapsulation of point to point
-datalink messages over UDP, and GRE encapsulation of Ethernet
-packets.  
+in SIMH V3.9, "Multinet" encapsulation of point to point datalink
+messages over UDP or TCP, and GRE encapsulation of Ethernet packets.
 
-Note that Multinet encapsulation is not recommended because it
-violates the DNA specification badly enough that it is extremely
-unreliable except in the most ideal circumstances.  GRE and SIMH DMC
-mode, on the other hand, comply with the specification, work well, and
-are suitable for connecting PyDECnet nodes with other DNA
-implementations via the Internet.
+Note that Multinet encapsulation over UDP is not recommended because
+it violates the DNA specification badly enough that it is extremely
+unreliable except in the most ideal circumstances.  Multinet over TCP
+and SIMH DMC mode, on the other hand, comply with the specification,
+work well, and are suitable for connecting PyDECnet nodes with other
+DNA implementations via the Internet.  GRE is also architecturally
+sound, but because it emulates an Ethernet it should only be used on
+low loss connections.
 
 Major components
 
