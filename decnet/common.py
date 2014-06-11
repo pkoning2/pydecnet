@@ -103,6 +103,10 @@ class Nodeid (int):
     """
     _len = 2
     def __new__ (cls, s, id2 = None):
+        """Create a Nodeid from a string, an integer, a pair of integers,
+        a Mac address, or anything that can be converted to a byte string
+        of length 2.
+        """
         if isinstance (s, str):
             m = _nodeid_re.match (s)
             if not m:
@@ -131,6 +135,7 @@ class Nodeid (int):
             if a == 0:
                 raise ValueError ("Invalid DECnet Mac address %s" % s)
         else:
+            s = bytes (s)
             if len (s) != 2:
                 raise ValueError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
@@ -189,12 +194,17 @@ class Macaddr (bytes):
             bl = _mac_re.split (s)
             if len (bl) != 6:
                 if _nodeid_re.match (s):
-                    s = HIORD + bytes (Nodeid (s))
+                    s = Nodeid (s)
+                    if not s.area:
+                        raise ValueError ("Invalid MAC address string %s" % s)
+                    s = HIORD + bytes (s)
                 else:
                     raise ValueError ("Invalid MAC address string %s" % s)
             else:
                 s = bytes (int (f, 16) for f in bl)
         elif isinstance (s, Nodeid):
+            if not s.area:
+                raise ValueError ("Invalid Node ID %s for MAC address" % s)
             s = HIORD + bytes (s)
         else:
             s = bytes (s)
@@ -245,7 +255,7 @@ def scan_ver (s):
         v = s.encode ("latin-1", "ignore")
         l = len (v)
         if l > 8:
-            raise ValueEror ("Verification string %s too long" % s)
+            raise ValueError ("Verification string %s too long" % s)
         if l < 8:
             v += bytes (8 - l)
     return v

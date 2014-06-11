@@ -498,6 +498,55 @@ class EndnodeRouting (_Router):
         ret.append (self.circuit.html (what, True))
         ret.append ("</table>")
         return '\n'.join (ret)
+
+class Phase3EndnodeRouting (EndnodeRouting):
+    """Routing entity for Phase III endnodes.
+    """
+    LanCircuit = None    # not supported
+
+    def send (self, data, dest, rqr = False, tryhard = False):
+        """Send NSP data to the given destination.  rqr is True to
+        request return to sender (done for CI messages).  tryhard is
+        ignored in Phase III.
+        """
+        pkt = ShortData (rqr = rqr, dstnode = dest,
+                         srcnode = self.tid, visit = 0,
+                         payload = data, src = None)
+        logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
+        self.circuit.send (pkt, dest, tryhard)
+
+class Phase2Routing (_Router):
+    """Routing entity for Phase II node.
+    """
+    LanCircuit = None
+    PtpCircuit = PtpEndnodeCircuit
+    ntype = PHASE2
+    
+    def send (self, pkt, dest, rqr = False, tryhard = False):
+        """Send NSP packet to the given destination. rqr and
+        tryhard are ignored in Phase II.
+        Note that intercept support is TBS.
+        """
+        for c in self.circuits.values ():
+            if c.state == c.ru and dest == c.nodeid:
+                # Destination matches this circuit's neighbor, send
+                logging.trace ("Sending %d byte packet to %s: %s",
+                               len (pkt), c, pkt)
+                c.send (pkt, dest, False)
+                return
+        logging.trace ("%s unreachable: %s", dest, data)
+
+    def dispatch (self, item):
+        if isinstance (item, Received):
+            item.rts = False
+            self.node.addwork (item, self.node.nsp)
+
+    def html (self, what):
+        ret = [ super ().html (what) ]
+        ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
+        ret.append (self.circuit.html (what, True))
+        ret.append ("</table>")
+        return '\n'.join (ret)
     
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
@@ -524,7 +573,8 @@ class L1Router (_Router, L1CirAdj):
     PtpCircuit = PtpL1Circuit
     ntype = L1ROUTER
     attached = False    # Set on L2 router, needed by check
-
+    firstnode = 0       # For routing table display
+    
     def __init__ (self, parent, config):
         # These are needed by various constructors so grab them first
         rconfig = config.routing
@@ -729,6 +779,9 @@ class L1Router (_Router, L1CirAdj):
         """
         area, tid = dest.split ()
         if area != self.homearea:
+            if self.tiver != tiver_ph4:
+                # Not Phase IV, so out of area is unreachable
+                return None
             tid = 0
         return self.oadj[tid]
 
@@ -856,7 +909,7 @@ class L1Router (_Router, L1CirAdj):
                         ret.append (h)
             ret.append ("<h3>Level 1 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
             first = True
-            for i in range (self.maxnodes + 1):
+            for i in range (self.firstnode, self.maxnodes + 1):
                 if self.oadj[i]:
                     if i:
                         name = str (self.node.nodeinfo (Nodeid (self.homearea, i)))
@@ -874,6 +927,12 @@ class L1Router (_Router, L1CirAdj):
             ret.append (self.html_matrix (False))
         return '\n'.join (ret)
 
+class Phase3Router (L1Router):
+    """Routing entity for Phase III routers.
+    """
+    LanCircuit = None
+    firstnode = 1       # For routing table display
+    
 class L2Router (L1Router, L2CirAdj):
     """Routing entity for level 2 (area) routers
     """
@@ -1054,6 +1113,8 @@ class Update (Element, timers.Timer):
         minhops = self.minhops
         mincost = self.mincost
         pkt = self.pkttype
+        if pkt == L1Routing and not self.routing.ph4:
+            pkt = PhaseIIIRouting
         seg = pkt.segtype
         if seg:
             # Phase 4 (segmented) format
@@ -1116,10 +1177,10 @@ class Update (Element, timers.Timer):
 
 nodetypes = { "l1router" : L1Router,
               "l2router" : L2Router,
-              "endnode" : EndnodeRouting }
-              #"phase3router" : P3Router,
-              #"phase3endnode" : P3EndnodeRouting,
-              #"phase2" : P2Routing }
+              "endnode" : EndnodeRouting,
+              "phase3router" : Phase3Router,
+              "phase3endnode" : Phase3EndnodeRouting,
+              "phase2" : Phase2Routing }
 
 def Router (parent, config):
     """Factory function for routing layer instance.  Returns an instance

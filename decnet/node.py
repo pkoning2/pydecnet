@@ -40,7 +40,13 @@ class Nodeinfo (nsp.NSPNode):
         if self.nodename:
             return "{0.nodeid} ({0.nodename})".format (self)
         return "{0.nodeid}".format (self)
-        
+
+# A mapping from router node type to DECnet Phase number.  We need this
+# in a number of layers so we'll keep the answer in the Node object.
+phases = { "l2router" : 4, "l1router" : 4, "endnode" : 4,
+           "phase3router" : 3, "phase3endnode" : 3,
+           "phase2" : 2 }
+
 class Node (object):
     """A Node object is the outermost container for all the other objects
     that make up a DECnet node.  Typically there is one Node object, but
@@ -53,7 +59,12 @@ class Node (object):
     def __init__ (self, config):
         self.node = self
         self.config = config
-        self.nodeid = config.routing.id
+        self.phase = phases[config.routing.type]
+        if self.phase == 4:
+            self.nodeid = config.routing.id
+        else:
+            # Not phase IV, so make sure node ID is an old style (8 bit) value
+            self.nodeid = NodeId (0, config.routing.id.tid)
         # Build node lookup dictionaries
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
@@ -70,7 +81,8 @@ class Node (object):
         self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()
 
-        # We now have a node.  Create its child entities in the appropriate order
+        # We now have a node.
+        # Create its child entities in the appropriate order.
         self.datalink = datalink.DatalinkLayer (self, config)
         self.mop = mop.Mop (self, config)
         self.routing = routing.Router (self, config)

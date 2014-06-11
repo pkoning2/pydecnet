@@ -12,7 +12,6 @@ from .routing_packets import *
 from .events import *
 from . import datalink
 from . import timers
-from .route_ptp import ShortData
 
 # Some well known Ethernet addresses
 ALL_ROUTERS = Macaddr ("AB-00-00-03-00-00")
@@ -29,6 +28,9 @@ class LanCircuit (timers.Timer):
     "datalink" (the datalink layer object for this circuit), and "config"
     (the config parameters for the circuit).
     """
+    ph4 = True
+    ph2 = False
+    
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
         self.hellotime = config.t3 or 10
@@ -84,6 +86,8 @@ class LanCircuit (timers.Timer):
                 if code == 6:
                     work = LongData (buf, src = work.src)
                 elif code == 2:
+                    # Short data is not expected, but it is accepted
+                    # just for grins (and because the spec allows it).
                     work = ShortData (buf, src = work.src)
                 else:
                     logging.debug ("Unknown routing packet %d from %s",
