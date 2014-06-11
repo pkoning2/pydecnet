@@ -5,15 +5,20 @@ import unittest
 import sys
 import os
 import time
-import logging
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
 from decnet import timers
 
-logging.trace = unittest.mock.Mock ()
+def setUpModule ():
+    global lpatch
+    lpatch = unittest.mock.patch ("decnet.timers.logging")
+    lpatch.start ()
 
+def tearDownModule ():
+    lpatch.stop ()
+    
 class TNode (object):
     def addwork (self, work):
         work.dispatch ()
