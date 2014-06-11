@@ -146,7 +146,5 @@ class GRE (datalink.BcDatalink, StopThread):
                     msg = memoryview (msg)[pos + 6:pos + 6 + plen2]
                 else:
                     msg = memoryview (msg)[pos + 4:]
-                self.bytes_recv += len (msg)
-                self.pkts_recv += 1
                 self.node.addwork (Received (port.owner,
                                              src = None, packet = msg))
