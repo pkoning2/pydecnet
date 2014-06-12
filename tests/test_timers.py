@@ -13,7 +13,7 @@ from decnet import timers
 
 def setUpModule ():
     global lpatch
-    lpatch = unittest.mock.patch ("decnet.timers.logging")
+    lpatch = unittest.mock.patch ("decnet.timers.logging", autospec = True)
     lpatch.start ()
 
 def tearDownModule ():

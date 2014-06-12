@@ -13,7 +13,7 @@ from decnet import common
 
 def setUpModule ():
     global lpatch
-    lpatch = unittest.mock.patch ("decnet.common.logging")
+    lpatch = unittest.mock.patch ("decnet.common.logging", autospec = True)
     lpatch.start ()
 
 def tearDownModule ():
