@@ -31,8 +31,10 @@ def wait1 (x, fun):
         
 class TestEth (unittest.TestCase):
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.ethernet.logging")
-        self.ppatch = unittest.mock.patch ("decnet.ethernet.pcap")
+        self.lpatch = unittest.mock.patch ("decnet.ethernet.logging",
+                                           autospec = True)
+        self.ppatch = unittest.mock.patch ("decnet.ethernet.pcap",
+                                           autospec = True)
         self.lpatch.start ()
         self.ppatch.start ()
         ethernet.pcap._pcap.error = Exception ("Pcap test error")
@@ -83,18 +85,67 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 64)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00\040\000four score and seven years ago")
-        self.assertEqual (self.eth.unk_dest, 1)
+        self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 64)
         self.assertEqual (self.lport.bytes_recv, 0)
         self.assertEqual (self.rport.bytes_recv, 64)
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00\040\000four score and seven years ago")
-        self.assertEqual (self.eth.unk_dest, 1)
+        self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 128)
         self.assertEqual (self.lport.bytes_recv, 64)
         self.assertEqual (self.rport.bytes_recv, 64)
+        
+    def test_addrfilter (self):
+        self.rport = self.eth.create_port (tnode, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 64)
+        self.assertEqual (self.rport.bytes_recv, 64)
+        # Multicast and mistmatch
+        self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 64)
+        self.assertEqual (self.rport.bytes_recv, 64)
+        # Unicast mismatch (hardware address, but not this port address
+        self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 64)
+        self.assertEqual (self.rport.bytes_recv, 64)
+        
+    def test_promisc (self):
+        self.rport = self.eth.create_port (tnode, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.set_promiscuous (True)
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 64)
+        self.assertEqual (self.rport.bytes_recv, 64)
+        # Multicast and mistmatch
+        self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv,64)
+        self.assertEqual (self.eth.bytes_recv, 128)
+        self.assertEqual (self.rport.bytes_recv, 128)
+        # Unicast mismatch (hardware address, but not this port address
+        self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03\040\000four score and seven years ago")
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 64)
+        self.assertEqual (self.eth.bytes_recv, 192)
+        self.assertEqual (self.rport.bytes_recv, 192)
         
     def test_rcvmc (self):
         self.rport = self.eth.create_port (tnode, ROUTINGPROTO)
@@ -110,14 +161,14 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 64)
         self.postPacket (b"\xab\x00\x00\x00\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00\040\000four score and seven years ago")
-        self.assertEqual (self.eth.unk_dest, 1)
+        self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 64)
         self.assertEqual (self.eth.bytes_recv, 64)
         self.assertEqual (self.lport.bytes_recv, 0)
         self.assertEqual (self.rport.bytes_recv, 64)
         self.postPacket (b"\xcf\x00\x00\x00\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00\040\000four score and seven years ago")
-        self.assertEqual (self.eth.unk_dest, 1)
+        self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 128)
         self.assertEqual (self.eth.bytes_recv, 128)
         self.assertEqual (self.lport.bytes_recv, 64)
