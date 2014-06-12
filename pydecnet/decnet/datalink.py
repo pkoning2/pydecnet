@@ -294,6 +294,16 @@ class BcDatalink (Datalink):
     
 # Broadcast datalink port
 
+
+class _Any (object):
+    """Emulates a container that contains everything -- set this as
+    the address filter to be promiscuous.
+    """
+    def __contains__ (self, other):
+        return True
+
+_any = _Any ()
+
 class BcPort (Port):
     """Base class for a broadcast (LAN) datalink port.  A port
     describes an upper layer's use of the datalink, specifically
@@ -304,7 +314,8 @@ class BcPort (Port):
         super ().__init__ (datalink, owner)
         self.macaddr = datalink.hwaddr
         self.multicast = set ()
-        self.destfilter = set ((self.macaddr, ))
+        self.promisc = False
+        self._update_filter ()
         if isinstance (proto, int):
             proto = proto.to_bytes (2, "big")
         else:
@@ -316,19 +327,30 @@ class BcPort (Port):
         self.ctr_zero_time = time.time ()
         self.bytes_sent = self.pkts_sent = 0
         self.bytes_recv = self.pkts_recv = 0
+
+    def _update_filter (self):
+        if self.promisc:
+            self.destfilter = _any
+        else:
+            self.destfilter = set ((self.macaddr, )) | self.multicast
+        
+    def set_promiscuous (self, promisc = True):
+        """Set (default) or clear (promisc = False) promiscuous mode.
+        """
+        self.promisc = promisc
+        self._update_filter ()
         
     def add_multicast (self, addr):
         addr = Macaddr (addr)
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
-        self.destfilter.add (addr)
+        self._update_filter ()
         
     def remove_multicast (self, addr):
         self.multicast.remove (addr)
-        self.destfilter.remove (addr)
+        self._update_filter ()
 
     def set_macaddr (self, addr):
         self.macaddr = addr
-        self.destfilter = set (self.multicast)
-        self.destfilter.add (addr)
+        self._update_filter ()
