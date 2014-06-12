@@ -19,9 +19,11 @@ DEFAPISOCKET = "decnetsocket"
 
 # Important constants
 
+MOPDLPROTO   = 0x6002
 MOPCONSPROTO = 0x6002
 ROUTINGPROTO = 0x6003
-LOOPPROTO = 0x9000
+LATPROTO     = 0x6004   # used by bridge
+LOOPPROTO    = 0x9000
 HIORD = b"\xaa\x00\x04\x00"
 T2 = 1
 T3MULT = 2
@@ -140,7 +142,7 @@ class Nodeid (int):
                 raise ValueError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
             if a == 0:
-                raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
+                pass #raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         if a == 0:
             if n < 1 or n > 1023:
                 # Note we check for 1023, not 255, because DECnet/E Phase IV
