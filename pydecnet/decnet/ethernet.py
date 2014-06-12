@@ -192,6 +192,8 @@ class Ethernet (datalink.BcDatalink, StopThread):
             self.unk_dest += 1
             return
         dest = packet[:6]
+        # Note that we don't count packets that fail the address
+        # filter, otherwise we'd count lots of stuff for others.
         if dest in port.destfilter:
             if dest[0] & 1:
                 self.mcbytes_recv += plen
@@ -210,6 +212,3 @@ class Ethernet (datalink.BcDatalink, StopThread):
                 packet = memoryview (packet)[14:]
             self.node.addwork (Received (port.owner,
                                          src = src, packet = packet))
-        else:
-            # No address filter match, ignore packet
-            self.unk_dest += 1

@@ -62,12 +62,12 @@ class LanCircuit (timers.Timer):
                 logging.debug ("Null routing layer packet received on %s",
                                self.name)
                 return
-            hdr = packet.getbyte (buf)
+            hdr = buf[0]
             if hdr & 0x80:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
                 buf = buf[pad & 0x7f:]
-                hdr = packet.getbyte (buf)
+                hdr = buf[0]
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
                                    self.name)
