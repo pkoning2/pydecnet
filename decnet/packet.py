@@ -595,7 +595,10 @@ class Packet (metaclass = packet_encoding_meta):
             try:
                 buf = d (self, buf, *args)
             except ReadOnlyError:
-                logging.debug ("Field required value mismatch")
+                logging.debug ("Field required value mismatch: %s", args)
+                raise Event (Event.fmt_err) from None
+            except ValueError:
+                logging.debug ("Invalid field value: %s", args)
                 raise Event (Event.fmt_err) from None
         if not layout:
             try:

@@ -177,12 +177,12 @@ class PtpCircuit (statemachine.StateMachine):
             if isinstance (buf, packet.Packet):
                 # If we already parsed this, don't do it again
                 return True
-            hdr = packet.getbyte (buf)
+            hdr = buf[0]
             if (hdr & 0x80) != 0 and self.node.phase > 3:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
                 buf = buf[pad & 0x7f:]
-                hdr = packet.getbyte (buf)
+                hdr = buf[0]
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
                                    self.name)
@@ -192,7 +192,7 @@ class PtpCircuit (statemachine.StateMachine):
                 # Phase 2 routing header
                 p2route = RouteHdr (buf)
                 buf = p2route.payload
-                hdr = packet.getbyte (buf)
+                hdr = buf[0]
                 if hdr & 0x83:
                     # Invalid bits set, complain
                     logging.debug ("Invalid msgflgs after Ph2 route hdr: %x",
@@ -212,7 +212,7 @@ class PtpCircuit (statemachine.StateMachine):
                         return datalink.DlStatus (status = False)
                 else:
                     # Init message type depends on major version number.
-                    mver = packet.getbyte (buf, 6)
+                    mver = buf[6]
                     if mver == tiver_ph3[0]:
                         # Phase 3
                         phase = 3
@@ -243,7 +243,7 @@ class PtpCircuit (statemachine.StateMachine):
                         # Control packet
                         if hdr == 0x58:
                             # Node init or node verification
-                            code = packet.getbyte (buf, 1)
+                            code = buf[1]
                             if code == 1:
                                 work.packet = NodeInit (buf)
                             elif code == 2:

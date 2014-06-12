@@ -203,7 +203,7 @@ class SysId (MopHdr):
         special values -1 and -2 are accepted in the first byte,
         and string values are taken to be text strings.
         """
-        flen = packet.getbyte (buf)
+        flen = buf[0]
         if flen < -2:
             logging.debug ("Image field with negative length %d", flen)
             raise Event (fmt_err)

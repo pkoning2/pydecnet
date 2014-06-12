@@ -292,7 +292,7 @@ class NSP (Element):
             buf = item.packet.payload
             logging.trace ("NSP packet received from %s: %s",
                            item.src, item.packet)
-            msgflg = packet.getbyte (buf)
+            msgflg = buf[0]
             try:
                 t = msgmap[msgflg]
             except KeyError:
@@ -319,7 +319,7 @@ class NSP (Element):
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
-                if item.dstaddr != 0:
+                if pkt.dstaddr != 0:
                     logging.trace ("CI with nonzero dstaddr")
                     # FIXME: this needs to log the message in the right format
                     self.node.logevent (Event.inv_msg, buf, item.srcnode)
@@ -781,7 +781,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         """Send a work item to Session Control.
         """
         item.src = self
-        self.node.addwork (item, self.node.session)
+        #self.node.addwork (item, self.node.session)
         
     def update_delay (self, txtime):
         if txtime and self.destnode:
@@ -800,13 +800,19 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         return 5
     
     def makepacket (self, cls, **kwds):
-        return cls (srcaddr = self.srcaddr, dstaddr = self.dstaddr, **kwds)
-
+        pkt = cls (dstaddr = self.dstaddr, **kwds)
+        # Connect Ack doesn't have a source address, so handle that separately
+        try:
+            pkt.srcaddr = self.srcaddr
+        except AttributeError:
+            pass
+        return pkt
+    
     def sendmsg (self, pkt):
         self.parent.routing.send (pkt, self.dest)
 
     def validate (self, item):
-        logging.trace ("Processing %s in connection %s", pkt, self)
+        logging.trace ("Processing %s in connection %s", item, self)
         return True
     
     def s0 (self, item):
