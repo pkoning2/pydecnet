@@ -86,6 +86,11 @@ class TestGre (unittest.TestCase):
         self.assertEqual (self.gre.bytes_recv, 62)
         self.assertEqual (self.lport.bytes_recv, 30)
         self.assertEqual (self.rport.bytes_recv, 32)
+        self.postPacket (b"\x00\x00\x91\x00four score and seven years ago")
+        self.assertEqual (self.gre.unk_dest, 1)
+        self.assertEqual (self.gre.bytes_recv, 62)
+        self.assertEqual (self.lport.bytes_recv, 30)
+        self.assertEqual (self.rport.bytes_recv, 32)
 
     def test_xmit (self):
         self.rport = self.gre.create_port (tnode, ROUTINGPROTO)
