@@ -13,7 +13,7 @@ from decnet import common
 
 def setUpModule ():
     global lpatch
-    lpatch = unittest.mock.patch ("decnet.common.logging", autospec = True)
+    lpatch = unittest.mock.patch ("decnet.common.logging")
     lpatch.start ()
 
 def tearDownModule ():
@@ -76,10 +76,11 @@ class TestNodeid (unittest.TestCase):
         n = common.Nodeid (b"\003\004")
         self.assertEqual (n.area, 1)
         self.assertEqual (n.tid, 3)
+        n = common.Nodeid (b"\003\000")
+        self.assertEqual (n.area, 0)
+        self.assertEqual (n.tid, 3)
         with self.assertRaises (ValueError):
             common.Nodeid (b"\000\004")
-        with self.assertRaises (ValueError):
-            common.Nodeid (b"\003\000")
 
 class TestMacaddr (unittest.TestCase):
     def test_newstr (self):
