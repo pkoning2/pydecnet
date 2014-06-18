@@ -197,7 +197,9 @@ class DlStatus (Work):
     """Notification of some sort of datalink event.  Attribute is
     "status".  The status attribute is True for up, False for down.
     """
-
+    def __str__ (self):
+        return "DLStatus: %s" % self.status
+    
 # Point to point port
 
 class PtpPort (Port):

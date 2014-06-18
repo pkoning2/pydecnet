@@ -85,6 +85,9 @@ class Work (object):
     def dispatch (self):
         self.owner.dispatch (self)
 
+    def __str__ (self):
+        return "Work item: %s" % self.__class__.__name__
+
 # Some common work item classes
 
 class Shutdown (Work):
@@ -98,6 +101,11 @@ class Received (Work):
     it would be the MAC address, for Routing layer notifications it
     is the source node address).
     """
+    def __str__ (self):
+        try:
+            return "Received from %s: %s" % (self.src, self.packet)
+        except AttributeError:
+            return "Received: %s" % self.packet
 
 _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
