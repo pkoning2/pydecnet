@@ -13,6 +13,7 @@ is told to do so, by having"start_works" set to False in the port object.
 import re
 import select
 import socket
+import logging
 
 from .common import *
 from . import datalink
@@ -27,7 +28,7 @@ class MultinetPort (datalink.PtpPort):
     """
     start_works = False
 
-dev_re = re.compile (r"(.+?):(\d*)(:connect|:listen)?$")
+dev_re = re.compile (r"(.+?):(\d*)(?:(:connect)|(:listen)|(:\d+))?$")
 
 class Multinet (datalink.PtpDatalink):
     """An implementation of the Multinet tunnel.  See multinet.c
@@ -48,7 +49,9 @@ class Multinet (datalink.PtpDatalink):
     is "host" or "host:portnum"; if the port number is omitted the
     default (700) is assumed.  That is followed by ":connect" for
     the active end of a TCP connection, ":listen" for the passive
-    end of a TCP connection, or neither for UDP mode.
+    end of a TCP connection, or neither for UDP mode where local and
+    remote port numbers are the same, or the local port number if
+    they do not match.
     """
     port_class = MultinetPort
     
@@ -62,16 +65,16 @@ class Multinet (datalink.PtpDatalink):
             logging.error ("Invalid --device value for Multinet datalink %s",
                            self.name)
             raise ValueError
-        host, port, mode = m.groups ()
+        host, port, cmode, lmode, lport = m.groups ()
         if port:
             port = int (port)
         else:
             port = 700
         self.host = datalink.HostAddress (host)
-        self.portnum = port
-        self.mode = mode
-        if mode:
-            mode = "TCP " + mode[1:]
+        self.portnum = self.lport = port
+        self.mode = lmode or cmode
+        if self.mode:
+            mode = "TCP " + self.mode[1:]
             self.start_works = True
         else:
             mode = "UDP"
@@ -79,6 +82,8 @@ class Multinet (datalink.PtpDatalink):
             # work around the fact that Multinet in UDP mode violates
             # most of the point to point datalink requirements.
             self.start_works = False
+            if lport:
+                self.lport = int (lport[1:])
         logging.trace ("Multinet datalink %s initialized to %s:%d, %s",
                        self.name, host, port, mode)
         self.seq = 0
@@ -104,35 +109,6 @@ class Multinet (datalink.PtpDatalink):
                                          socket.IPPROTO_UDP)
         dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if self.mode == ":connect":
-            try:
-                self.socket.connect ((self.host.addr, self.portnum))
-                logging.trace ("Multinet %s connect to %s %d in progress",
-                               self.name, self.host.addr, self.portnum)
-            except socket.error:
-                logging.trace ("Multinet %s connect to %s %d rejected",
-                               self.name, self.host.addr, self.portnum)
-                self.status = OFF
-                return
-        else:
-            try:
-                self.socket.bind (("", self.portnum))
-            except (OSError, socket.error):
-                logging.trace ("Multinet %s bind failed", self.name)
-                self.status = OFF
-                return
-            if self.mode:
-                try:
-                    self.socket.listen (1)
-                except (OSError, socket.error):
-                    logging.trace ("Multinet %s listen failed", self.name)
-                    self.status = OFF
-                    return
-                logging.trace ("Multinet %s listen to %d active",
-                               self.name, self.portnum)
-            else:
-                logging.trace ("Multinet %s (UDP) bound to %d",
-                               self.name, self.portnum)
         self.rthread.start ()
 
     def port_close (self):
@@ -165,6 +141,16 @@ class Multinet (datalink.PtpDatalink):
             return
         sellist = [ sock.fileno () ]
         if self.mode == ":connect":
+            # Connect to the remote host
+            try:
+                self.socket.connect ((self.host.addr, self.portnum))
+                logging.trace ("Multinet %s connect to %s %d in progress",
+                               self.name, self.host.addr, self.portnum)
+            except socket.error:
+                logging.trace ("Multinet %s connect to %s %d rejected",
+                               self.name, self.host.addr, self.portnum)
+                self.disconnected ()
+                return            
             # Wait for the socket to become writable, that means
             # the connection has gone through
             while True:
@@ -178,36 +164,58 @@ class Multinet (datalink.PtpDatalink):
                 if w:
                     logging.trace ("Multinet %s connected", self.name)
                     break
-        elif self.mode == ":listen":
-            # Wait for an incoming connection.
-            while True:
+        else:
+            # Listen or UDP mode
+            try:
+                self.socket.bind (("", self.lport))
+            except (OSError, socket.error):
+                logging.trace ("Multinet %s bind %d failed",
+                               self.name, self.lport)
+                self.disconnected ()
+                return
+            if self.mode:
+                # Listen mode, Wait for an incoming connection.
                 try:
-                    r, w, e = select.select (sellist, [], sellist, 1)
-                except select.error:
-                    e = True
-                if (self.rthread and self.rthread.stopnow) or e:
-                    self.disconnected ()
-                    return
-                if not r:
-                    continue
-                try:
-                    sock, ainfo = sock.accept ()
-                    host, port = ainfo
-                    if self.host.valid (host):
-                        # Good connection, stop looking
-                        break
-                    # If the connect is from someplace we don't want
-                    logging.trace ("Multinet %s connect received from unexpected address %s", self.name, host)
-                    sock.close ()
+                    self.socket.listen (1)
                 except (OSError, socket.error):
+                    logging.trace ("Multinet %s listen failed", self.name)
                     self.disconnected ()
                     return
-            logging.trace ("Multinet %s connected", self.name)
-            # Stop listening:
-            self.socket.close ()
-            # The socket we care about now is the data socket
-            sellist = [ sock.fileno () ]
-            self.socket = sock
+                logging.trace ("Multinet %s listen to %d active",
+                               self.name, self.lport)
+                while True:
+                    try:
+                        r, w, e = select.select (sellist, [], sellist, 1)
+                    except select.error:
+                        e = True
+                    if (self.rthread and self.rthread.stopnow) or e:
+                        self.disconnected ()
+                        return
+                    if not r:
+                        continue
+                    try:
+                        sock, ainfo = sock.accept ()
+                        host, port = ainfo
+                        if self.host.valid (host):
+                            # Good connection, stop looking
+                            break
+                        # If the connect is from someplace we don't want
+                        logging.trace ("Multinet %s connect received from " \
+                                       "unexpected address %s",
+                                       self.name, host)
+                        sock.close ()
+                    except (OSError, socket.error):
+                        self.disconnected ()
+                        return
+                logging.trace ("Multinet %s connected", self.name)
+                # Stop listening:
+                self.socket.close ()
+                # The socket we care about now is the data socket
+                sellist = [ sock.fileno () ]
+                self.socket = sock
+            else:
+                logging.trace ("Multinet %s (UDP) bound to %d",
+                               self.name, self.lport)
         # Tell the routing init layer that this datalink is running
         self.status = RUN
         if self.port:
