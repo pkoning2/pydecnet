@@ -5,7 +5,6 @@ import unittest
 import sys
 import os
 import time
-import logging
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
@@ -13,7 +12,6 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet import ethernet
 from decnet.common import *
 
-logging.trace = unittest.mock.Mock ()
 tnode = unittest.mock.Mock ()
 tnode.node = tnode
 

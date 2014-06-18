@@ -5,7 +5,6 @@ import unittest
 import sys
 import os
 import time
-import logging
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
@@ -13,7 +12,6 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet import gre
 from decnet.common import *
 
-logging.trace = unittest.mock.Mock ()
 tnode = unittest.mock.Mock ()
 tnode.node = tnode
 
@@ -74,7 +72,6 @@ class TestGre (unittest.TestCase):
         
     def test_rcvdemux (self):
         self.rport = self.gre.create_port (tnode, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
         self.lport = self.gre.create_port (tnode, LOOPPROTO, False)
         self.postPacket (b"\x00\x00\x60\x03\036\000four score and seven years ago")
         self.assertEqual (self.gre.unk_dest, 0)
@@ -94,10 +91,8 @@ class TestGre (unittest.TestCase):
 
     def test_xmit (self):
         self.rport = self.gre.create_port (tnode, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
         self.lport = self.gre.create_port (tnode, LOOPPROTO, False)
-        self.rport.send (b"four score and seven years ago",
-                         Macaddr (Nodeid (1, 42)))
+        self.rport.send (b"four score and seven years ago", None)
         data = self.sock.sendto.call_args
         self.assertIsNotNone (data)
         a, k = data
@@ -109,8 +104,7 @@ class TestGre (unittest.TestCase):
         self.assertEqual (self.gre.bytes_sent, 36)
         self.assertEqual (self.lport.bytes_sent, 0)
         self.assertEqual (self.rport.bytes_sent, 36)
-        self.lport.send (b"four score and seven years ago",
-                         Macaddr (Nodeid (1, 43)))
+        self.lport.send (b"four score and seven years ago", None)
         data = self.sock.sendto.call_args
         a, k = data
         b, addr = a
