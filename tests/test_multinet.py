@@ -12,6 +12,7 @@ import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
+from decnet import datalink
 from decnet import multinet
 from decnet.common import *
 
@@ -25,26 +26,8 @@ def load_tests (loader, tests, pattern):
             suite.addTests (tests)
     return suite
 
-tnode = unittest.mock.Mock ()
-tnode.node = tnode
-
 def trace (fmt, *args):
     print ("trace:", fmt % args)
-
-packet = None
-def wait1 (*args):
-    time.sleep (0.1)
-    return (bool (packet), False, False)
-
-def waitw (*args):
-    time.sleep (0.1)
-    return (False, True, False)
-    
-def delivertcp (l):
-    global packet
-    p = packet[:l]
-    packet = packet[l:]
-    return p
 
 class MultinetBase (unittest.TestCase):
     testsdu = b"four score and seven years ago"
@@ -53,8 +36,10 @@ class MultinetBase (unittest.TestCase):
         self.lpatch = unittest.mock.patch ("decnet.multinet.logging")
         self.lpatch.start ()
         #multinet.logging.trace.side_effect = trace
-        self.mult = multinet.Multinet (tnode, "multinet-0", self.tconfig)
-        self.rport = self.mult.create_port (tnode)
+        self.tnode = unittest.mock.Mock ()
+        self.tnode.node = self.tnode
+        self.mult = multinet.Multinet (self.tnode, "multinet-0", self.tconfig)
+        self.rport = self.mult.create_port (self.tnode)
         
     def tearDown (self):
         thread = self.mult.rthread
@@ -88,10 +73,25 @@ class MultinetBase (unittest.TestCase):
         self.assertEqual (b, expected)
         self.assertEqual (self.mult.bytes_sent, 2 * len (self.testsdu))
 
+    def lastwork (self, calls):
+        self.assertEqual (self.tnode.addwork.call_count, calls)
+        a, k = self.tnode.addwork.call_args
+        w = a[0]
+        self.assertIsInstance (w, Work)
+        return w
+
+    def assertUp (self):
+        w = self.lastwork (1)
+        self.assertIsInstance (w, datalink.DlStatus)
+        self.assertTrue (w.status)
+        
     def test_rcv1 (self):
         pdu = self.pdu (0, self.testsdu)
         self.sendpdu (pdu)
         time.sleep (0.1)
+        w = self.lastwork (2)
+        b = w.packet
+        self.assertEqual (b, self.testsdu)
         self.assertEqual (self.mult.bytes_recv, 30)        
 
 class TestMultinetUDP (MultinetBase):
@@ -105,6 +105,7 @@ class TestMultinetUDP (MultinetBase):
         self.socket.bind (("", 6666))
         self.rport.open ()
         time.sleep (0.1)
+        self.assertUp ()
 
     def tearDown (self):
         self.socket.close ()
@@ -139,6 +140,13 @@ class MultinetTCPbase (MultinetBase):
         b = self.socket.recv (plen)
         return hdr + b
 
+    def test_disconnect (self):
+        self.socket.close ()
+        time.sleep (0.1)
+        w = self.lastwork (2)
+        self.assertIsInstance (w, datalink.DlStatus)
+        self.assertFalse (w.status)
+        
 class TestMultinetTCPconnect (MultinetTCPbase):
     def setUp (self):
         self.tconfig = unittest.mock.Mock ()
@@ -153,6 +161,8 @@ class TestMultinetTCPconnect (MultinetTCPbase):
         self.assertEqual (ainfo[0], "127.0.0.1")
         self.socket.close ()
         self.socket = sock
+        time.sleep (0.1)
+        self.assertUp ()        
 
 class TestMultinetTCPlisten (MultinetTCPbase):
     def setUp (self):
@@ -165,6 +175,7 @@ class TestMultinetTCPlisten (MultinetTCPbase):
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.connect (("127.0.0.1", 6666))
         time.sleep (0.1)
+        self.assertUp ()
 
 if __name__ == "__main__":
     unittest.main ()
