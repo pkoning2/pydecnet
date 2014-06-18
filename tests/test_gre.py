@@ -18,6 +18,9 @@ tnode.node = tnode
 tconfig = unittest.mock.Mock ()
 tconfig.device = "127.0.0.1"
 
+def trace (fmt, *args):
+    print ("trace:", fmt % args)
+
 dest = ("127.0.0.1", 47)
 
 packet = None
@@ -33,14 +36,13 @@ def deliver (len):
 
 class TestGre (unittest.TestCase):
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.gre.logging",
-                                           autospec = True)
-        self.spatch = unittest.mock.patch ("decnet.gre.socket",autospec = True)
-        self.selpatch = unittest.mock.patch ("decnet.gre.select.select",
-                                             autospec = True)
+        self.lpatch = unittest.mock.patch ("decnet.gre.logging")
+        self.spatch = unittest.mock.patch ("decnet.gre.socket")
+        self.selpatch = unittest.mock.patch ("decnet.gre.select.select")
         self.lpatch.start ()
         self.spatch.start ()
         self.selpatch.start ()
+        #gre.logging.trace.side_effect = trace
         gre.select.select.side_effect = wait1
         self.sock = gre.socket.socket.return_value
         self.sock.fileno.return_value = 42
@@ -49,7 +51,12 @@ class TestGre (unittest.TestCase):
         self.gre.open ()
         
     def tearDown (self):
-        self.gre.stop (wait = True)
+        self.gre.close ()
+        for i in range (15):
+            time.sleep (0.1)
+            if not self.gre.is_alive ():
+                break
+        self.assertFalse (self.gre.is_alive ())
         self.lpatch.stop ()
         self.spatch.stop ()
         self.selpatch.stop ()

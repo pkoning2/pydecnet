@@ -12,6 +12,9 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet import ethernet
 from decnet.common import *
 
+def trace (fmt, *args):
+    print ("trace:", fmt % args)
+
 tnode = unittest.mock.Mock ()
 tnode.node = tnode
 
@@ -29,12 +32,11 @@ def wait1 (x, fun):
         
 class TestEth (unittest.TestCase):
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.ethernet.logging",
-                                           autospec = True)
-        self.ppatch = unittest.mock.patch ("decnet.ethernet.pcap",
-                                           autospec = True)
+        self.lpatch = unittest.mock.patch ("decnet.ethernet.logging")
+        self.ppatch = unittest.mock.patch ("decnet.ethernet.pcap")
         self.lpatch.start ()
         self.ppatch.start ()
+        #ethernet.logging.trace.side_effect = trace
         ethernet.pcap._pcap.error = Exception ("Pcap test error")
         self.pcap = ethernet.pcap.pcapObject.return_value
         self.pd = self.pcap.dispatch
@@ -45,7 +47,12 @@ class TestEth (unittest.TestCase):
         self.eth.open ()
         
     def tearDown (self):
-        self.eth.stop (wait = True)
+        self.eth.close ()
+        for i in range (15):
+            time.sleep (0.1)
+            if not self.eth.is_alive ():
+                break
+        self.assertFalse (self.eth.is_alive ())
         self.lpatch.stop ()
         self.ppatch.stop ()
 
