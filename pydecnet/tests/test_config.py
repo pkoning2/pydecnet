@@ -16,7 +16,7 @@ from decnet.common import Nodeid
 
 def setUpModule ():
     global lpatch
-    lpatch = unittest.mock.patch ("decnet.config.logging", autospec = True)
+    lpatch = unittest.mock.patch ("decnet.config.logging")
     lpatch.start ()
 
 def tearDownModule ():

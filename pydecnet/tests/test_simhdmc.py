@@ -38,11 +38,11 @@ class SimhDMCBase (unittest.TestCase):
         #simdmc.logging.trace.side_effect = trace
         self.tnode = unittest.mock.Mock ()
         self.tnode.node = self.tnode
-        self.mult = simdmc.SimhDMC (self.tnode, "dmc-0", self.tconfig)
-        self.rport = self.mult.create_port (self.tnode)
+        self.dmc = simdmc.SimhDMC (self.tnode, "dmc-0", self.tconfig)
+        self.rport = self.dmc.create_port (self.tnode)
         
     def tearDown (self):
-        thread = self.mult.rthread
+        thread = self.dmc.rthread
         self.rport.close ()
         for i in range (15):
             time.sleep (0.1)
@@ -50,7 +50,7 @@ class SimhDMCBase (unittest.TestCase):
                 break
         self.assertFalse (thread.is_alive ())
         self.socket.close ()
-        self.mult.close ()
+        self.dmc.close ()
         self.lpatch.stop ()
 
     def receivedata (self):
@@ -79,13 +79,13 @@ class SimhDMCBase (unittest.TestCase):
         self.rport.send (self.testsdu, None)
         b = self.receivedata ()
         self.assertEqual (b, expected)
-        self.assertEqual (self.mult.bytes_sent, len (self.testsdu))
+        self.assertEqual (self.dmc.bytes_sent, len (self.testsdu))
         # and another
         expected = self.pdu (1, self.testsdu)
         self.rport.send (self.testsdu, None)
         b = self.receivedata ()
         self.assertEqual (b, expected)
-        self.assertEqual (self.mult.bytes_sent, 2 * len (self.testsdu))
+        self.assertEqual (self.dmc.bytes_sent, 2 * len (self.testsdu))
 
     def lastwork (self, calls):
         self.assertEqual (self.tnode.addwork.call_count, calls)
@@ -106,7 +106,7 @@ class SimhDMCBase (unittest.TestCase):
         w = self.lastwork (2)
         b = w.packet
         self.assertEqual (b, self.testsdu)
-        self.assertEqual (self.mult.bytes_recv, 30)        
+        self.assertEqual (self.dmc.bytes_recv, 30)        
 
     def test_disconnect (self):
         self.socket.close ()
