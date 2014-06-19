@@ -126,23 +126,26 @@ class GRE (datalink.BcDatalink, StopThread):
                                len (msg), msg)
                 if msg[pos:pos + 2] != greflags:
                     # Unexpected flags or version in header, ignore
-                    return
+                    logging.debug ("On %s, unexpected header %s",
+                                   self.name, msg[pos:pos + 2])
+                    continue
                 proto = msg[pos + 2:pos + 4]
                 try:
                     port = self.ports[proto]
                 except KeyError:
                     # No protocol type match, ignore msg
                     self.unk_dest += 1
-                    return
+                    continue
                 plen = len (msg) - (pos + 4)
                 port.bytes_recv += plen
                 port.pkts_recv += 1
                 if port.pad:
                     plen2 = msg[pos + 4] + (msg[pos + 5] << 8)
                     if plen < plen2:
-                        logging.debug ("On %s, msg length field %d inconsistent with msg length %d",
+                        logging.debug ("On %s, msg length field %d " \
+                                       "inconsistent with msg length %d",
                                        self.name, plen2, plen)
-                        return
+                        continue
                     msg = memoryview (msg)[pos + 6:pos + 6 + plen2]
                 else:
                     msg = memoryview (msg)[pos + 4:]
