@@ -5,6 +5,9 @@ import unittest
 import sys
 import os
 import time
+import random
+import queue
+
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
@@ -19,14 +22,12 @@ tconfig = unittest.mock.Mock ()
 tconfig.device = None
 tconfig.random_address = False
 
-packet = None
-def wait1 (x, fun):
-    time.sleep (0.1)
-    global packet
-    if packet:
-        fun (len (packet), packet, 0)
-        packet = None
-        
+random.seed (999)
+def randpkt (minlen, maxlen):
+    plen = random.randrange (minlen, maxlen + 1)
+    i = random.getrandbits (plen * 8)
+    return i.to_bytes (plen, "little")
+
 class TestEth (unittest.TestCase):
     tdata = b"four score and seven years ago"
     
@@ -40,7 +41,8 @@ class TestEth (unittest.TestCase):
         self.pcap = ethernet.pcap.pcapObject.return_value
         self.pd = self.pcap.dispatch
         self.pd.return_value = 0
-        self.pd.side_effect = wait1
+        self.pd.side_effect = self.pdispatch
+        self.pq = queue.Queue ()
         self.tnode = unittest.mock.Mock ()
         self.tnode.node = self.tnode
         self.eth = ethernet.Ethernet (self.tnode, "eth-0", tconfig)
@@ -57,16 +59,20 @@ class TestEth (unittest.TestCase):
         self.lpatch.stop ()
         self.ppatch.stop ()
 
+    def pdispatch (self, n, fun):
+        try:
+            pkt = self.pq.get (timeout = 1)
+            fun (len (pkt), pkt, 0)
+            self.pq.task_done ()
+            return 1
+        except queue.Empty:
+            return 0
+        
     def postPacket (self, pkt):
-        global packet
         if len (pkt) < 60:
             pkt += bytes (60 - len (pkt))
-        packet = pkt
-        for i in range (10):
-            time.sleep (0.1)
-            if not packet:
-                break
-        self.assertIsNone (packet, "Packet was not picked up")
+        self.pq.put (pkt)
+        self.pq.join ()
         
     def lastwork (self, calls):
         self.assertEqual (self.tnode.addwork.call_count, calls)
@@ -261,6 +267,41 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.eth.bytes_sent, 90)
         self.assertEqual (self.lport.bytes_sent, 44)
         self.assertEqual (self.rport.bytes_sent, 46)
+        
+    def test_randpdu (self):
+        rcirc = self.circ ()
+        self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (pkt)
+
+    def test_randproto (self):
+        rcirc = self.circ ()
+        self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04"
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (hdr + pkt)
+
+    def test_randpkt (self):
+        hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04\x60\x03"
+        rcirc = self.circ ()
+        self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (hdr + pkt)
+
+    def test_randpayload (self):
+        hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04\x60\x03"
+        rcirc = self.circ ()
+        self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        for i in range (100):
+            pkt = randpkt (10, 1498)
+            self.postPacket (hdr + self.lelen (pkt) + pkt)
         
 if __name__ == "__main__":
     unittest.main ()
