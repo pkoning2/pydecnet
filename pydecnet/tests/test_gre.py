@@ -15,19 +15,16 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet import gre
 from decnet.common import *
 
-random.seed (999)
 
 tconfig = unittest.mock.Mock ()
 tconfig.device = "127.0.0.1"
-
-def debug (fmt, *args):
-    print ("debug:", fmt % args)
 
 def trace (fmt, *args):
     print ("trace:", fmt % args)
 
 dest = ("127.0.0.1", 47)
 
+random.seed (999)
 def randpkt (minlen, maxlen):
     plen = random.randrange (minlen, maxlen + 1)
     i = random.getrandbits (plen * 8)
@@ -48,7 +45,6 @@ class TestGre (unittest.TestCase):
         self.spatch.start ()
         self.selpatch.start ()
         self.pq = queue.Queue ()
-        #gre.logging.debug.side_effect = debug
         #gre.logging.trace.side_effect = trace
         gre.select.select.side_effect = self.mselect
         self.tnode = unittest.mock.Mock ()
