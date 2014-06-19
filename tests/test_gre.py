@@ -5,6 +5,9 @@ import unittest
 import sys
 import os
 import time
+import random
+import queue
+
 import unittest.mock
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
@@ -12,24 +15,23 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet import gre
 from decnet.common import *
 
+random.seed (999)
+
 tconfig = unittest.mock.Mock ()
 tconfig.device = "127.0.0.1"
+
+def debug (fmt, *args):
+    print ("debug:", fmt % args)
 
 def trace (fmt, *args):
     print ("trace:", fmt % args)
 
 dest = ("127.0.0.1", 47)
 
-packet = None
-def wait1 (*args):
-    time.sleep (0.1)
-    return (bool (packet), False, False)
-    
-def deliver (len):
-    global packet
-    p = packet
-    packet = None
-    return b'\x45' + bytes (19) + p, dest
+def randpkt (minlen, maxlen):
+    plen = random.randrange (minlen, maxlen + 1)
+    i = random.getrandbits (plen * 8)
+    return i.to_bytes (plen, "little")
 
 class TestGre (unittest.TestCase):
     tdata = b"four score and seven years ago"
@@ -45,22 +47,18 @@ class TestGre (unittest.TestCase):
         self.lpatch.start ()
         self.spatch.start ()
         self.selpatch.start ()
+        self.pq = queue.Queue ()
+        #gre.logging.debug.side_effect = debug
         #gre.logging.trace.side_effect = trace
-        gre.select.select.side_effect = wait1
+        gre.select.select.side_effect = self.mselect
         self.tnode = unittest.mock.Mock ()
         self.tnode.node = self.tnode
         self.sock = gre.socket.socket.return_value
         self.sock.fileno.return_value = 42
-        self.sock.recvfrom.side_effect = deliver
+        self.sock.recvfrom.side_effect = self.deliver
         self.gre = gre.GRE (self.tnode, "gre-0", tconfig)
         self.gre.open ()
 
-    def circ (self):
-        c = unittest.mock.Mock ()
-        c.parent = self.tnode
-        c.node = self.tnode
-        return c
-    
     def tearDown (self):
         self.gre.close ()
         for i in range (15):
@@ -72,6 +70,25 @@ class TestGre (unittest.TestCase):
         self.spatch.stop ()
         self.selpatch.stop ()
 
+    def circ (self):
+        c = unittest.mock.Mock ()
+        c.parent = self.tnode
+        c.node = self.tnode
+        return c
+    
+    def mselect (self, *args):
+        try:
+            self.pkt = self.pq.get (timeout = 1)
+            return (True, False, False)
+        except queue.Empty:
+            return (False, False, False)
+            
+    def deliver (self, len):
+        p = self.pkt
+        self.pkt = None
+        self.pq.task_done ()
+        return b'\x45' + bytes (19) + p, dest
+
     def lastwork (self, calls):
         self.assertEqual (self.tnode.addwork.call_count, calls)
         a, k = self.tnode.addwork.call_args
@@ -80,14 +97,9 @@ class TestGre (unittest.TestCase):
         return w
 
     def postPacket (self, pkt):
-        global packet
-        packet = pkt
-        for i in range (10):
-            time.sleep (0.1)
-            if not packet:
-                break
-        self.assertIsNone (packet, "Packet was not picked up")
-
+        self.pq.put (pkt)
+        self.pq.join ()
+        
     def lelen (self, d):
         return len (d).to_bytes (2, "little")
     
@@ -158,6 +170,36 @@ class TestGre (unittest.TestCase):
         self.assertEqual (self.gre.bytes_sent, 70)
         self.assertEqual (self.lport.bytes_sent, 34)
         self.assertEqual (self.rport.bytes_sent, 36)
+
+    def test_randpdu (self):
+        rcirc = self.circ ()
+        self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (pkt)
+
+    def test_randproto (self):
+        rcirc = self.circ ()
+        self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (gre.greflags + pkt)
+
+    def test_randpkt (self):
+        hdr = b"\x00\x00\x60\x03"
+        rcirc = self.circ ()
+        self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (hdr + pkt)
+
+    def test_randpayload (self):
+        hdr = b"\x00\x00\x60\x03"
+        rcirc = self.circ ()
+        self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
+        for i in range (100):
+            pkt = randpkt (10, 1500)
+            self.postPacket (hdr + self.lelen (pkt) + pkt)
         
 if __name__ == "__main__":
     unittest.main ()
