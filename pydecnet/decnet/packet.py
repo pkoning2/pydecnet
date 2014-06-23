@@ -299,9 +299,11 @@ class Packet (metaclass = packet_encoding_meta):
         return buf[flen:]
 
     def encode_type (self, field, t):
-        """Encode a given type.  Note that the type argument is not used.
+        """Encode a given type.
         """
-        val = getattr (self, field)
+        val = getattr (self, field, None)
+        if val is None:
+            val = t ()    # Make a default object of that type, if possible
         return bytes (val)
 
     def decode_type (self, buf, field, t):
@@ -318,7 +320,7 @@ class Packet (metaclass = packet_encoding_meta):
         encoding.  If the value is too large, packet format error is
         signalled.
         """
-        val = getattr (self, field)
+        val = getattr (self, field, b"")
         if isinstance (val, str):
             val = bytes (val, "latin-1", "ignore")
         vl = len (val)
@@ -332,15 +334,8 @@ class Packet (metaclass = packet_encoding_meta):
         If the field is too large, packet format error is signalled.
         Returns the remaining buffer.
         """
-        # This doesn't just pick up buf[0] because that's an int if
-        # buf is bytes, but a length one bytes if buf is memoryview.
-        # More precisely, it work that way in Python 3.2 and before;
-        # this bug is fixed in Python 3.3.
         flen = buf[0]
-        if flen < 0:
-            logging.debug ("Image field with negative length %d" , flen)
-            raise Event (Event.fmt_err)
-        elif flen > maxlen:
+        if flen > maxlen:
             logging.debug ("Image field longer than max length %d", maxlen)
             raise Event (Event.fmt_err)
         v = buf[1:flen + 1]
@@ -354,7 +349,7 @@ class Packet (metaclass = packet_encoding_meta):
         """Encode "field" as a binary field with length "flen".
         The field value is assumed to be an unsigned integer.
         """
-        return getattr (self, field).to_bytes (flen, LE)
+        return getattr (self, field, 0).to_bytes (flen, LE)
 
     def decode_b (self, buf, field, flen):
         """Decode "field" from a binary field with length "flen".
@@ -368,7 +363,7 @@ class Packet (metaclass = packet_encoding_meta):
         """Encode "field" as a binary field with length "flen".
         The field value is assumed to be a signed integer.
         """
-        return getattr (self, field).to_bytes (flen, LE, signed = True)
+        return getattr (self, field, 0).to_bytes (flen, LE, signed = True)
 
     def decode_signed (self, buf, field, flen):
         """Decode "field" from a binary field with length "flen".
@@ -384,7 +379,7 @@ class Packet (metaclass = packet_encoding_meta):
         same as "b" except that values too large for the field
         are capped at the max.
         """
-        return min (getattr (self, field), maxint[flen]).to_bytes (flen, LE)
+        return min (getattr (self, field, 0), maxint[flen]).to_bytes (flen, LE)
 
     decode_ctr = decode_b
 
@@ -394,7 +389,7 @@ class Packet (metaclass = packet_encoding_meta):
         be encoded This is the same as "ctr" except that we first convert
         the start time to a delta time.
         """
-        delta = int (time.time () - getattr (self, field))
+        delta = int (time.time () - getattr (self, field, 0))
         return min (delta, maxint[flen]).to_bytes (flen, LE)
 
     decode_deltat = decode_b
@@ -405,7 +400,6 @@ class Packet (metaclass = packet_encoding_meta):
         """
         field = 0
         for name, start, bits in elements:
-            # For fields not defined in the object, substitute zero
             val = getattr (self, name, 0)
             if val >> bits:
                 logging.debug ("Field %s value %d too large for %d bit field",
@@ -429,7 +423,7 @@ class Packet (metaclass = packet_encoding_meta):
         """Encode "field" as an extensible field with max length "maxlen".
         The field value is assumed to be an unsigned integer.
         """
-        val = getattr (self, field)
+        val = getattr (self, field, 0)
         retval = [ ]
         while val >> 7:
             retval.append (((val & 0x7f) | 0x80).to_bytes (1, LE))
@@ -458,14 +452,14 @@ class Packet (metaclass = packet_encoding_meta):
         return buf[i + 1:]
 
     def encode_bs (self, field, flen):
-        return bytes (getattr (self, field))
+        return bytes (getattr (self, field, b""))
 
     def decode_bs (self, buf, field, flen):
         setattr (self, field, bytes (buf))
         return b""
     
     def encode_bv (self, field, flen):
-        return bytes (getattr (self, field))
+        retval = bytes (getattr (self, field, b""))
         l = len (retval)
         if l < flen:
             retval += bytes (flen - l)
@@ -485,7 +479,7 @@ class Packet (metaclass = packet_encoding_meta):
                 field = True
             else:
                 field = getattr (self, fieldargs[0], None)
-            if field:
+            if field is not None:
                 retval.append (k.to_bytes (tlen, LE))
                 field = e (self, *fieldargs)
                 retval.append (len (field).to_bytes (llen, LE))
@@ -537,6 +531,14 @@ class Packet (metaclass = packet_encoding_meta):
         otherwise the class layout table is used.   Also, in that
         case, if there is a "payload" attribute, that data is added
         to the end of the encoded data.
+
+        For every field category except those defined by a type (class),
+        the default value is supplied if the corresponding attribute does
+        not exist in the packet object.  The default is 0 for numeric
+        data and empty string for strings.  For fields defined by a type,
+        the default is given by the type constructor with no arguments,
+        if that constructor is permitted; otherwise, such a field cannot
+        be defaulted.
         """
         codetable = layout or self._codetable
         data = [ ]
