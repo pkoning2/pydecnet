@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-import unittest
+import unittest, unittest.mock
 
 import sys
 import os
+import logging
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
@@ -53,6 +54,15 @@ tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
           b"\012\004\004\001\000\000\014\002\003\004"
 
 class TestPacket (unittest.TestCase):
+    def setUp (self):
+        logging.exception = unittest.mock.Mock ()
+
+    def tearDown (self):
+        l = logging.exception.call_args_list
+        if l:
+            print (l)
+        self.assertEqual (logging.exception.call_count, 0)
+        
     def test_abc (self):
         # Can't instantiate the Packet base class
         with self.assertRaises (TypeError):
@@ -88,8 +98,8 @@ class TestPacket (unittest.TestCase):
             class foo (packet.Packet):
                 _layout = ( (int, "name"),)
 
-    def test_alltypes (self):
-        # Test encode and decode of every non-TLV field type
+    def test_alltypes_d (self):
+        # Test decode of every non-TLV field type
         a = alltypes (testdata)
         self.assertEqual (a.bit1, 1)
         self.assertEqual (a.bit2, 2)
@@ -102,7 +112,24 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.int4, 257)
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2)
-        
+
+    def test_alltypes_e (self):
+        a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18,
+                      image = b"defghi", int6 = 32767,
+                      extended = 12, sint = -2,
+                      byte5 = b"hound", int4 = 511,
+                      node = Nodeid (2, 2))
+        b = bytes (a)
+        self.assertEqual (b, b"\x95\000\006defghi\377\177\000\000\000\000"
+                          b"\014\376\377hound\000\377\001\000\000\002\010")
+
+    def test_alltypes_def (self):
+        a = alltypes (node = Nodeid (1))    # Default what can be
+        b = bytes (a)
+        self.assertEqual (b, b"\000\000\000\000\000\000\000\000\000"
+                          b"\000\000\000\000\000\000\000\000\000"
+                          b"\000\000\000\000\001\000")
+
     def test_payload (self):
         # Test layout with payload (whatever is left over, if permitted)
         a = allpayload (testdata + b"payload")
