@@ -206,7 +206,7 @@ class test_p3routing (routingmsg):
     def test_decodebad (self):
         s = PhaseIIIRouting ()
         with self.assertRaises (events.Event) as e:
-            s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x89")
+            s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x06\x88")
         self.assertEqual (e.exception.event, events.Event.adj_down)
         self.assertEqual (e.exception.reason, "checksum_error")
 
@@ -219,27 +219,81 @@ class test_p3routing (routingmsg):
         
 class test_l1routing (routingmsg):
     def test_decode (self):
-        s = PhaseIIIRouting ()
+        s = L1Routing ()
         s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0d\x88")
         self.assertEqual (s.srcnode, 3)
-        self.assertEqual (s.segments, [ RouteSegEntry (cost = 1023, hops = 31),
-                                        RouteSegEntry (cost = 6, hops = 2) ])
-        self.assertEqual (list (s.entries (self.circ)), [ (1, (32, 1028)),
-                                                          (2, (3, 11)) ])
+        e = [ L1Segment (count = 2, startid = 5,
+                         entries = [ RouteSegEntry (cost = 1023, hops = 31),
+                                     RouteSegEntry (cost = 6, hops = 2) ]) ]
+        self.assertEqual (s.segments, e)
+        self.assertEqual (list (s.entries (self.circ)), [ (5, (32, 1028)),
+                                                          (6, (3, 11)) ])
 
     def test_decodebad (self):
-        s = PhaseIIIRouting ()
+        s = L1Routing ()
         with self.assertRaises (events.Event) as e:
-            s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x89")
+            s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0c\x88")
         self.assertEqual (e.exception.event, events.Event.adj_down)
         self.assertEqual (e.exception.reason, "checksum_error")
 
+    def test_decodebadseg (self):
+        s = L1Routing ()
+        # Segment entry count 0
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x07\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
+        self.assertEqual (e.exception.event, events.Event.fmt_err)
+        # Segment start id out of range
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x07\x03\x00\x00\x02\x00\x00\x04\xff\x7f\x06\x08\x08\x8c")
+        self.assertEqual (e.exception.event, events.Event.fmt_err)
+
     def test_encode (self):
-        s = PhaseIIIRouting (srcnode = Nodeid (4),
-                             segments = [ RouteSegEntry (cost = 5, hops = 1),
-                                          RouteSegEntry (cost = 99, hops = 5) ])
+        segs = [ L1Segment (count = 2, startid = 3,
+                            entries = [ RouteSegEntry (cost = 5, hops = 1),
+                                        RouteSegEntry (cost = 99, hops = 5) ]) ]
+        s = L1Routing (srcnode = Nodeid (4), segments = segs)
         b = s.encode ()
-        self.assertEqual (b, b"\x07\x04\x00\x00\x05\x04\x63\x14\x68\x18")
+        self.assertEqual (b, b"\x07\x04\x00\x00\x02\x00\x03\x00"
+                          b"\x05\x04\x63\x14\x6e\x18")
+        
+class test_l2routing (routingmsg):
+    def test_decode (self):
+        s = L2Routing ()
+        s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0d\x88")
+        self.assertEqual (s.srcnode, 3)
+        e = [ L2Segment (count = 2, startid = 5,
+                         entries = [ RouteSegEntry (cost = 1023, hops = 31),
+                                     RouteSegEntry (cost = 6, hops = 2) ]) ]
+        self.assertEqual (s.segments, e)
+        self.assertEqual (list (s.entries (self.circ)), [ (5, (32, 1028)),
+                                                          (6, (3, 11)) ])
+
+    def test_decodebad (self):
+        s = L2Routing ()
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0c\x88")
+        self.assertEqual (e.exception.event, events.Event.adj_down)
+        self.assertEqual (e.exception.reason, "checksum_error")
+
+    def test_decodebadseg (self):
+        s = L2Routing ()
+        # Segment entry count 0
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x09\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
+        self.assertEqual (e.exception.event, events.Event.fmt_err)
+        # Segment start id out of range
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x09\x03\x00\x00\x02\x00\x3f\x00\xff\x7f\x06\x08\x47\x88")
+        self.assertEqual (e.exception.event, events.Event.fmt_err)
+
+    def test_encode (self):
+        segs = [ L2Segment (count = 2, startid = 3,
+                            entries = [ RouteSegEntry (cost = 5, hops = 1),
+                                        RouteSegEntry (cost = 99, hops = 5) ]) ]
+        s = L2Routing (srcnode = Nodeid (4), segments = segs)
+        b = s.encode ()
+        self.assertEqual (b, b"\x09\x04\x00\x00\x02\x00\x03\x00"
+                          b"\x05\x04\x63\x14\x6e\x18")
         
 if __name__ == "__main__":
     unittest.main ()

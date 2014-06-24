@@ -116,7 +116,7 @@ class L1Segment (packet.Packet):
     _addslots = { "entries" }
 
     def validate (self):
-        if self.count + self.startid > 1024:
+        if self.count + self.startid > 1024 or self.count == 0:
             logging.debug ("Invalid L1 segment, start %d, count %d",
                            self.startid, self.count)
             raise Event (Event.fmt_err)
@@ -145,7 +145,8 @@ class L2Segment (L1Segment):
     its L1 name ("startid") instead.
     """
     def validate (self):
-        if self.count + self.startid > 64 or self.startid == 0:
+        if self.count + self.startid > 64 or \
+               self.startid == 0 or self.count == 0:
             logging.debug ("Invalid L2 segment, start %d, count %d",
                            self.startid, self.count)
             raise Event (Event.fmt_err)
