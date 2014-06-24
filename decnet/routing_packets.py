@@ -5,6 +5,7 @@
 """
 
 from .common import *
+from .events import Event
 from . import packet
 
 # Router type codes (basically those used in NICE):
@@ -118,7 +119,7 @@ class L1Segment (packet.Packet):
         if self.count + self.startid > 1024:
             logging.debug ("Invalid L1 segment, start %d, count %d",
                            self.startid, self.count)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         
     def decode (self, buf):
         data = super ().decode (buf)
@@ -147,7 +148,7 @@ class L2Segment (L1Segment):
         if self.count + self.startid > 64 or self.startid == 0:
             logging.debug ("Invalid L1 segment, start %d, count %d",
                            self.startid, self.count)
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
     
 class L1Routing (CtlHdr):
     """A Level 1 routing message.  It consists of a header,
@@ -165,7 +166,7 @@ class L1Routing (CtlHdr):
         segslen = len (segs)
         if not segs or (segslen & 1):
             logging.debug ("Invalid routing packet payload")
-            raise Event (fmt_err)
+            raise Event (Event.fmt_err)
         s = self.initchecksum
         for i in range (0, segslen - 2, 2):
             s += int.from_bytes (segs[i:i + 2], packet.LE)
@@ -176,7 +177,7 @@ class L1Routing (CtlHdr):
         if s != check:
             logging.debug ("Routing packet checksum error (%04x not %04x)",
                            s, check)
-            raise Event (adj_down, reason = "checksum_error")
+            raise Event (Event.adj_down, reason = "checksum_error")
 
     def decode_segments (self, data):
         segments = [ ]
@@ -236,9 +237,8 @@ class PhaseIIIRouting (L1Routing):
     segtype = None
     lowid = 1
     
-    def decode_segments (self):
+    def decode_segments (self, data):
         id = 1
-        data = self.payload[:-2]
         entries = [ ]
         while data:
             e = RouteSegEntry ()
