@@ -622,3 +622,9 @@ class Packet (metaclass = packet_encoding_meta):
         return "{}({})".format (self.__class__.__name__, ", ".join (ret))
 
     __repr__ = __str__
+
+    def __eq__ (self, other):
+        return bytes (self) == bytes (other)
+
+    def __ne__ (self, other):
+        return bytes (self) != bytes (other)
