@@ -217,5 +217,29 @@ class test_p3routing (routingmsg):
         b = s.encode ()
         self.assertEqual (b, b"\x07\x04\x00\x00\x05\x04\x63\x14\x68\x18")
         
+class test_l1routing (routingmsg):
+    def test_decode (self):
+        s = PhaseIIIRouting ()
+        s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0d\x88")
+        self.assertEqual (s.srcnode, 3)
+        self.assertEqual (s.segments, [ RouteSegEntry (cost = 1023, hops = 31),
+                                        RouteSegEntry (cost = 6, hops = 2) ])
+        self.assertEqual (list (s.entries (self.circ)), [ (1, (32, 1028)),
+                                                          (2, (3, 11)) ])
+
+    def test_decodebad (self):
+        s = PhaseIIIRouting ()
+        with self.assertRaises (events.Event) as e:
+            s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x89")
+        self.assertEqual (e.exception.event, events.Event.adj_down)
+        self.assertEqual (e.exception.reason, "checksum_error")
+
+    def test_encode (self):
+        s = PhaseIIIRouting (srcnode = Nodeid (4),
+                             segments = [ RouteSegEntry (cost = 5, hops = 1),
+                                          RouteSegEntry (cost = 99, hops = 5) ])
+        b = s.encode ()
+        self.assertEqual (b, b"\x07\x04\x00\x00\x05\x04\x63\x14\x68\x18")
+        
 if __name__ == "__main__":
     unittest.main ()
