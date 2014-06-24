@@ -1168,10 +1168,11 @@ class Update (Element, timers.Timer):
         else:
             # Phase 3 (not segmented) format
             p = pkt (srcnode = self.node.nodeid)
-            p.entries = list ()
+            p.segments = list ()
             for i in range (1, len (minhops)):
                 srm[i] = 0
-                p.append (RouteSegEntry (cost = mincost[i], hops = minhops[i]))
+                p.segments.append (RouteSegEntry (cost = mincost[i],
+                                                  hops = minhops[i]))
             ret = [ p ]
         return ret
 
