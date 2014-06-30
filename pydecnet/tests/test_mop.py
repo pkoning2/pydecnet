@@ -50,7 +50,7 @@ class TestMop (unittest.TestCase):
         self.tnode = unittest.mock.Mock ()
         self.tnode.node = self.tnode
         self.dl = unittest.mock.Mock ()
-        self.dl.__class__ = datalink.BcDatalink
+        self.dl.use_mop = True
         self.cp = unittest.mock.Mock ()
         self.dl.create_port.return_value = self.cp
         
