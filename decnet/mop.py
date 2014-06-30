@@ -437,19 +437,21 @@ class MopCircuit (Element):
         self.carrier_client = self.carrier_server = None
         
     def start (self):
-        logging.debug ("Starting mop for %s %s",
-                       self.datalink.__class__.__name__, self.name)
-        if isinstance (self.datalink, datalink.BcDatalink):
-            # Do the following only on LANs
+        if self.datalink.use_mop:
+            # Do this only on datalinks where we want MOP (Ethernet, basically)
+            logging.debug ("Starting mop for %s %s",
+                           self.datalink.__class__.__name__, self.name)
             self.loophandler = LoopHandler (self, self.datalink)
             # The various MOP console handlers share a port, so we'll
             # own it and dispatch received traffic.
-            self.consport = consport = self.datalink.create_port (self, MOPCONSPROTO)
+            consport = self.datalink.create_port (self, MOPCONSPROTO)
+            self.consport = consport
             consport.add_multicast (CONSMC)
             self.sysid = SysIdHandler (self, consport)
             self.carrier_client = CarrierClient (self, consport)
             if self.config.console:
-                self.carrier_server = CarrierServer (self, consport, self.config)
+                self.carrier_server = CarrierServer (self, consport,
+                                                     self.config)
             else:
                 self.carrier_server = None
 
