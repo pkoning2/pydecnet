@@ -294,6 +294,53 @@ class test_l2routing (routingmsg):
         b = s.encode ()
         self.assertEqual (b, b"\x09\x04\x00\x00\x02\x00\x03\x00"
                           b"\x05\x04\x63\x14\x6e\x18")
+
+class test_ph2init (rptest):
+    def test_decode (self):
+        s = NodeInit ()
+        s.decode (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
+                  b"\x00\x00\x00\x03\x01\x00\x00")
+        self.assertEqual (s.srcnode, 7)
+        self.assertEqual (s.nodename, b"TEST")
+        self.assertEqual (s.int, 0)
+        self.assertEqual (s.verif, 0)
+        self.assertEqual (s.rint, 0)
+        self.assertEqual (s.blksize, 516)
+        self.assertEqual (s.nspsize, 513)
+        self.assertEqual (s.maxlnks, 64)
+        self.assertEqual (s.commver, nspver_ph2)
+        self.assertEqual (s.sysver, b"")
+
+    def test_encode (self):
+        s = NodeInit (srcnode = 17, nodename = b"FOO", verif = 1, maxlnks = 128,
+                      blksize = 516, nspsize = 511,
+                      routver = tiver_ph2, commver = nspver_ph2,
+                      sysver = b"TESTING")
+        b = bytes (s)
+        self.assertEqual (b, b"\x58\x01\x11\x03FOO\x00\x01\x04\x02\xff\x01"
+                          b"\x80\x00\x00\x00\x00\x03\x01\x00\x07TESTING")
+        
+class test_ph2verify (rptest):
+    def test_decode (self):
+        s = NodeVerify ()
+        s.decode (b"\x58\x02\x00PASSWORD")
+        self.assertEqual (s.password, b"PASSWORD")
+
+    def test_encode (self):
+        s = NodeVerify (password = b"TESTING")
+        b = bytes (s)
+        self.assertEqual (b, b"\x58\x02\x00TESTING\x00")
+        
+class test_ph2nop (rptest):
+    def test_decode (self):
+        s = NopMsg ()
+        s.decode (b"\x08TESTDATA")
+        self.assertEqual (s.payload, b"TESTDATA")
+
+    def test_encode (self):
+        s = NopMsg (payload = b"TESTING")
+        b = bytes (s)
+        self.assertEqual (b, b"\x08TESTING")
         
 if __name__ == "__main__":
     unittest.main ()
