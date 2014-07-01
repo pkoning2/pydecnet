@@ -14,6 +14,11 @@ L2ROUTER = 1
 L1ROUTER = 2
 ENDNODE = 3
 
+tiver_ph2 = Version (0, 0, 0)
+tiver_ph3 = Version (1, 3, 0)
+tiver_ph4 = Version (2, 0, 0)
+nspver_ph2 = Version (3, 1, 0)
+
 # Mapping from router type code to strings:
 ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
 
@@ -304,10 +309,41 @@ class EndnodeHello (CtlHdr):
     hiid = HIORD
     ntype = ENDNODE
 
-tiver_ph2 = Version (0, 0, 0)
-tiver_ph3 = Version (1, 3, 0)
-tiver_ph4 = Version (2, 0, 0)
+class NodeInit (packet.Packet):
+    _layout = (( "b", "msgflag", 1 ),
+               ( "b", "starttype", 1 ),
+               ( "ex", "srcnode", 2 ),
+               ( "i", "nodename", 6 ),
+               ( "bm",
+                 ( "int", 0, 3 )),
+               ( "bm",
+                 ( "verif", 0, 1 ),
+                 ( "rint", 1, 2 )),
+               ( "b", "blksize", 2 ),
+               ( "b", "nspsize", 2 ),
+               ( "b", "maxlnks", 2 ),
+               ( Version, "routver" ),
+               ( Version, "commver" ),
+               ( "i", "sysver", 32 ))
+    msgflag = 0x58
+    starttype = 1
+    # These two are field of Phase 3/4 messages, but are implied here.
+    ntype = ENDNODE
+    tiver = tiver_ph2
 
+class NodeVerify (packet.Packet):
+    _layout = (( "b", "msgflag", 1 ),
+               # Yes, the spec says this is 2 bytes even though it's 1 in Init
+               ( "b", "starttype", 2 ),
+               ( "bv", "password", 8 ))
+    msgflag = 0x58
+    starttype = 2
+
+class NopMsg (packet.Packet):
+    _addslots = { "payload" }
+    _layout = (( "b", "msgflag", 1 ),)
+    msgflag = 0x08
+    
 # Regexp used to validate "testdata" field.
 testdata_re = re.compile (b"^\252*$")
     

@@ -14,46 +14,6 @@ from . import datalink
 from . import timers
 from . import statemachine
 
-# These are too obscure for others to care about so we define them here
-# rather than in routing_packets.
-
-nspver_ph2 = Version (3, 1, 0)
-
-class NodeInit (packet.Packet):
-    _layout = (( "b", "msgflag", 1 ),
-               ( "b", "starttype", 1 ),
-               ( "ex", "srcnode", 2 ),
-               ( "i", "nodename", 6 ),
-               ( "bm",
-                 ( "int", 0, 3 )),
-               ( "bm",
-                 ( "verif", 0, 1 ),
-                 ( "rint", 1, 2 )),
-               ( "b", "blksize", 2 ),
-               ( "b", "nspsize", 2 ),
-               ( "b", "maxlnks", 2 ),
-               ( Version, "routver" ),
-               ( Version, "commver" ),
-               ( "i", "sysver", 32 ))
-    msgflag = 0x58
-    starttype = 1
-    # These two are field of Phase 3/4 messages, but are implied here.
-    ntype = ENDNODE
-    tiver = tiver_ph2
-
-class NodeVerify (packet.Packet):
-    _layout = (( "b", "msgflag", 1 ),
-               # Yes, the spec says this is 2 bytes even though it's 1 in Init
-               ( "b", "starttype", 2 ),
-               ( "b", "password", 8 ))
-    msgflag = 0x58
-    starttype = 2
-
-class NopMsg (packet.Packet):
-    _addslots = { "payload" }
-    _layout = (( "b", "msgflag", 1 ),)
-    msgflag = 0x08
-    
 class Start (Work):
     """A work item that says "start the circuit".
     """
@@ -78,13 +38,15 @@ class PtpCircuit (statemachine.StateMachine):
     """
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
+        self.node = parent.node
+        self.name = name
         self.hellotime = config.t3 or 60
         self.t4 = self.hellotime * 3
         self.tiver = None
         self.blksize = self.nodeid = 0
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
-        if parent.tiver == tiver_ph2:
+        if self.node.phase == 2:
             self.initmsg = NodeInit (srcnode = parent.tid,
                                      nodename = parent.name,
                                      verif = 0,
@@ -94,8 +56,8 @@ class PtpCircuit (statemachine.StateMachine):
                                      sysver = "DECnet/Python")
             self.hellomsg = NopMsg (payload = b'\252' * 10)
         else:
-            if parent.tiver == tiver_ph3:
-                self.initmsg = PtpInit3 (srcnode = parent.nodeid.tid,
+            if self.node.phase == 3:
+                self.initmsg = PtpInit3 (srcnode = parent.tid,
                                         ntype = parent.ntype,
                                         tiver = parent.tiver,
                                         verif = 0,
@@ -317,15 +279,15 @@ class PtpCircuit (statemachine.StateMachine):
                 # Phase 2 neighbor
                 if self.node.phase > 2:
                     # We're phase 3 or up, send a Phase II init
-                    initmsg = self.initmsg = NodeInit (srcnode = self.parent.tid,
-                                                       nodename = self.parent.name,
-                                                       verif = self.initmsg.verif,
-                                                       routver = tiver_ph2,
-                                                       commver = nspver_ph2,
-                                                       blksize = MTU,
-                                                       nspsize = MTU,
-                                                       sysver = "DECnet/Python")
-
+                    initmsg = NodeInit (srcnode = self.parent.tid,
+                                        nodename = self.parent.name,
+                                        verif = self.initmsg.verif,
+                                        routver = tiver_ph2,
+                                        commver = nspver_ph2,
+                                        blksize = MTU,
+                                        nspsize = MTU,
+                                        sysver = "DECnet/Python")
+                    self.initmsg = initmsg
                     self.datalink.send (initmsg)
                     self.rphase = 2
                     self.ntype = PHASE2
