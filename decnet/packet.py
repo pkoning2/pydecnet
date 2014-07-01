@@ -304,6 +304,8 @@ class Packet (metaclass = packet_encoding_meta):
         val = getattr (self, field, None)
         if val is None:
             val = t ()    # Make a default object of that type, if possible
+        elif not isinstance (val, t):
+            val = t (val)
         return bytes (val)
 
     def decode_type (self, buf, field, t):
