@@ -343,7 +343,14 @@ class NopMsg (packet.Packet):
     _addslots = { "payload" }
     _layout = (( "b", "msgflag", 1 ),)
     msgflag = 0x08
-    
+
+# Phase 2 routing header
+class RouteHdr (packet.Packet):
+    _addslots = { "payload" }
+    _layout = (( "b", "msgflag", 1 ),
+               ( "i", "dstnode", 6 ),
+               ( "i", "srcnode", 6 ))
+               
 # Regexp used to validate "testdata" field.
 testdata_re = re.compile (b"^\252*$")
     
