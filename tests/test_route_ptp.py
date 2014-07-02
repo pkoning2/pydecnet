@@ -15,6 +15,7 @@ from decnet import datalink
 from decnet import events
 from decnet.common import Nodeid, Version, Macaddr
 from decnet.timers import Timeout
+from decnet.node import Nodeinfo
 
 # Custom testcase loader to load only Test* classes, not base classes
 # that are not in themselves a complete test.
@@ -33,6 +34,7 @@ def debug (fmt, *args):
     print ("debug:", fmt % args)
 
 random.seed (999)
+rcount = 5000
 def randpkt (minlen, maxlen):
     plen = random.randrange (minlen, maxlen + 1)
     i = random.getrandbits (plen * 8)
@@ -60,6 +62,9 @@ class rtest (unittest.TestCase):
             self.tnode.nodeid = Nodeid (5)
         self.tnode.homearea, self.tnode.tid = self.tnode.nodeid.split ()
         self.tnode.addwork.side_effect = t_addwork
+        self.info = Nodeinfo (None, self.tnode.nodeid)
+        self.info.verif = b"VERIF"
+        self.tnode.nodeinfo.return_value = self.info
         self.dl = unittest.mock.Mock ()
         self.cp = unittest.mock.Mock ()
         self.dl.create_port.return_value = self.cp
@@ -115,7 +120,7 @@ class test_ph2 (rtest):
     tiver = tiver_ph2
     ntype = PHASE2
     
-    def test_noverify (self):
+    def startup (self):
         p = self.lastsent (1)
         self.assertIsInstance (p, NodeInit)
         self.assertEqual (p.nodename, b"TEST")
@@ -128,6 +133,9 @@ class test_ph2 (rtest):
         self.assertEqual (self.c.up.call_count, 1)
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.nodeid, Nodeid (66))
+
+    def test_noverify (self):
+        self.startup ()
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -142,6 +150,23 @@ class test_ph2 (rtest):
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
 
+    def test_verify (self):
+        p = self.lastsent (1)
+        self.assertIsInstance (p, NodeInit)
+        self.assertEqual (p.nodename, b"TEST")
+        self.assertEqual (p.srcnode, 5)
+        self.assertEqual (p.verif, 0)
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x01\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.rphase, 2)
+        self.assertEqual (self.c.nodeid, Nodeid (66))
+        v = self.lastsent (2)
+        self.assertIsInstance (v, NodeVerify)
+        self.assertEqual (bytes (v), b"\x58\x02\x00VERIF\x00\x00\x00")
+        
     def test_ph3 (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
@@ -157,17 +182,21 @@ class test_ph2 (rtest):
     def test_rnd (self):
         self.c.restart = unittest.mock.Mock ()
         self.c.restart.return_value = None
-        for i in range (1000):
+        for i in range (rcount):
             pkt = randpkt (10, 1500)
             self.c.dispatch (Received (owner = self.c, src = self.c,
                                        packet = pkt))
+        
+    def test_rndrun (self):
+        self.startup ()
+        self.test_rnd ()
         
 class test_ph3 (rtest):
     phase = 3
     tiver = tiver_ph3
     ntype = L1ROUTER
     
-    def test_noverify (self):
+    def startup (self):
         p = self.lastsent (1)
         self.assertIsInstance (p, PtpInit3)
         self.assertEqual (p.srcnode, 5)
@@ -178,6 +207,9 @@ class test_ph3 (rtest):
         self.assertEqual (self.c.up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.nodeid, Nodeid (2))
+
+    def test_noverify (self):
+        self.startup ()
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -195,6 +227,22 @@ class test_ph3 (rtest):
         self.c.dispatch (Timeout (owner = self.c))
         self.assertState ("ha")
         self.assertEqual (self.c.down.call_count, 1)
+
+    def test_verify (self):
+        p = self.lastsent (1)
+        self.assertIsInstance (p, PtpInit3)
+        self.assertEqual (p.srcnode, 5)
+        self.assertEqual (p.verif, 0)
+        pkt = b"\x01\x02\x00\x06\x10\x02\x01\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.rphase, 3)
+        self.assertEqual (self.c.nodeid, Nodeid (2))
+        v = self.lastsent (2)
+        self.assertIsInstance (v, PtpVerify)
+        self.assertEqual (v.srcnode, Nodeid (5))
+        self.assertEqual (v.fcnval, b"VERIF")
 
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -232,17 +280,21 @@ class test_ph3 (rtest):
     def test_rnd (self):
         self.c.restart = unittest.mock.Mock ()
         self.c.restart.return_value = None
-        for i in range (1000):
+        for i in range (rcount):
             pkt = randpkt (10, 1500)
             self.c.dispatch (Received (owner = self.c, src = self.c,
                                        packet = pkt))
+
+    def test_rndrun (self):
+        self.startup ()
+        self.test_rnd ()
         
 class test_ph4 (rtest):
     phase = 4
     tiver = tiver_ph4
     ntype = L2ROUTER
     
-    def test_noverify (self):
+    def startup (self):
         p = self.lastsent (1)
         self.assertIsInstance (p, PtpInit)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
@@ -253,6 +305,9 @@ class test_ph4 (rtest):
         self.assertEqual (self.c.up.call_count, 1)
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+
+    def test_noverify (self):
+        self.startup ()
         pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -271,6 +326,22 @@ class test_ph4 (rtest):
         self.assertState ("ha")
         self.assertEqual (self.c.down.call_count, 1)
         
+    def test_verify (self):
+        p = self.lastsent (1)
+        self.assertIsInstance (p, PtpInit)
+        self.assertEqual (p.srcnode, Nodeid (1, 5))
+        self.assertEqual (p.verif, 0)
+        pkt = b"\x01\x02\x04\x06\x10\x02\x02\x00\x00\x10\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.rphase, 4)
+        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        v = self.lastsent (2)
+        self.assertIsInstance (v, PtpVerify)
+        self.assertEqual (v.srcnode, Nodeid (1, 5))
+        self.assertEqual (v.fcnval, b"VERIF")
+
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
@@ -333,11 +404,14 @@ class test_ph4 (rtest):
     def test_rnd (self):
         self.c.restart = unittest.mock.Mock ()
         self.c.restart.return_value = None
-        for i in range (1000):
+        for i in range (rcount):
             pkt = randpkt (10, 1500)
             self.c.dispatch (Received (owner = self.c, src = self.c,
                                        packet = pkt))
-        self.assertState ("ri")
+        
+    def test_rndrun (self):
+        self.startup ()
+        self.test_rnd ()
         
 if __name__ == "__main__":
     unittest.main ()
