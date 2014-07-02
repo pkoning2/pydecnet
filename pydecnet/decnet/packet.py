@@ -337,6 +337,9 @@ class Packet (metaclass = packet_encoding_meta):
         If the field is too large, packet format error is signalled.
         Returns the remaining buffer.
         """
+        if not buf:
+            logging.debug ("No data left for image field")
+            raise Event (Event.fmt_err)
         flen = buf[0]
         if flen > maxlen:
             logging.debug ("Image field longer than max length %d", maxlen)
