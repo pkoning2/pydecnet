@@ -187,6 +187,10 @@ class PtpCircuit (statemachine.StateMachine):
                         return datalink.DlStatus (self, status = False)
                 else:
                     # Init message type depends on major version number.
+                    if len (buf) < 7:
+                        logging.debug ("Init message is too short: %d",
+                                       len (buf))
+                        return datalink.DlStatus (self, status = False)
                     mver = buf[6]
                     if mver == tiver_ph3[0]:
                         # Phase 3
@@ -348,7 +352,6 @@ class PtpCircuit (statemachine.StateMachine):
                         logging.trace ("%s verification requested but not set, attempting null string", self.name)
                         verif = ""
                     vpkt = NodeVerify (password = verif)
-                    self.setsrc (vpkt)
                     self.datalink.send (vpkt)
                 # If we requested verification, wait for that.
                 if self.initmsg.verif:
