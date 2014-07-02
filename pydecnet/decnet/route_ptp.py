@@ -289,26 +289,26 @@ class PtpCircuit (statemachine.StateMachine):
                                         sysver = "DECnet/Python")
                     self.initmsg = initmsg
                     self.datalink.send (initmsg)
-                    self.rphase = 2
-                    self.ntype = PHASE2
-                    self.blksize = self.minrouterblk = pkt.blksize
-                    self.nodeid = pkt.srcnode
-                    self.tiver = pkt.tiver
-                    if pkt.verif:
-                        # Verification requested
-                        verif = self.node.nodeinfo (self.nodeid).verif
-                        if not verif:
-                            logging.trace ("%s verification requested but not set, attempting null string", self.name)
-                            verif = ""
-                        vpkt = NodeVerify (password = verif)
-                        self.setsrc (vpkt)
-                        self.datalink.send (vpkt)
-                    # If we requested verification, wait for that.
-                    if self.initmsg.verif:
-                        return self.rv
-                    self.node.timers.start (self.hellotimer, self.hellotime)
-                    self.up ()
-                    return self.ru
+                self.rphase = 2
+                self.ntype = PHASE2
+                self.blksize = self.minrouterblk = pkt.blksize
+                self.nodeid = pkt.srcnode
+                self.tiver = pkt.tiver
+                if pkt.verif:
+                    # Verification requested
+                    verif = self.node.nodeinfo (self.nodeid).verif
+                    if not verif:
+                        logging.trace ("%s verification requested but not set, attempting null string", self.name)
+                        verif = ""
+                    vpkt = NodeVerify (password = verif)
+                    self.setsrc (vpkt)
+                    self.datalink.send (vpkt)
+                # If we requested verification, wait for that.
+                if self.initmsg.verif:
+                    return self.rv
+                self.node.timers.start (self.hellotimer, self.hellotime)
+                self.up ()
+                return self.ru
             elif isinstance (pkt, (PtpInit, PtpInit3)):
                 if isinstance (pkt, PtpInit):
                     # Phase 4 neighbor
@@ -427,7 +427,7 @@ class PtpCircuit (statemachine.StateMachine):
         elif isinstance (item, Received):
             if self.rphase == 2:
                 # Process received packet from Phase II node.
-                if not isinstance (pkt, packet.Packet):
+                if not isinstance (item.packet, packet.Packet):
                     # Data packet (not something we matched as a packet
                     # type we know).  Give it to NSP.  Wrap it in a
                     # ShortData object for consistency, but note that
@@ -437,7 +437,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # TODO: handle intercept mode operation.
                     pkt = ShortData (dstnode = self.parent.nodeid,
                                      srcnode = self.nodeid, rts = 0, visit = 1,
-                                     payload = pkt.packet, src = self)
+                                     payload = item.packet, src = self)
                     logging.trace ("Phase II data packet to routing: %s", pkt)
                     self.parent.dispatch (pkt)
                     return

@@ -48,9 +48,6 @@ class rtest (unittest.TestCase):
         self.tnode.node = self.tnode
         self.tnode.nodeid = Nodeid (1, 5)
         self.tnode.homearea, self.tnode.tid = self.tnode.nodeid.split ()
-        self.tnode.ntype = L2ROUTER
-        self.tnode.tiver = tiver_ph4
-        self.tnode.phase = 4
         self.tnode.addwork.side_effect = t_addwork
         self.dl = unittest.mock.Mock ()
         self.cp = unittest.mock.Mock ()
@@ -58,9 +55,23 @@ class rtest (unittest.TestCase):
         self.config = unittest.mock.Mock ()
         self.config.t3 = 10
         self.config.cost = 1
+        self.tnode.phase = self.phase
+        self.tnode.tiver = self.tiver
+        self.tnode.ntype = self.ntype
+        self.tnode.name = b"TEST"
+        self.c = route_ptp.PtpCircuit (self.tnode, "ptp-0", self.dl, self.config)
+        self.c.up = unittest.mock.Mock ()
+        self.c.down = unittest.mock.Mock ()
+        self.c.parent = self.tnode
+        self.c.start ()
+        self.assertState ("ds")
+        self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
+        self.assertState ("ri")
         
     def tearDown (self):
         self.c.stop ()
+        self.assertState ("ha")
+        self.assertEqual (self.c.up.call_count, self.c.down.call_count)
         self.lpatch.stop ()
         self.spatch.stop ()
 
@@ -71,50 +82,64 @@ class rtest (unittest.TestCase):
         self.assertIsInstance (w, packet.Packet)
         return w
 
+    def lastup (self, calls):
+        self.assertEqual (self.tnode.dispatch.call_count, calls)
+        a, k = self.tnode.dispatch.call_args
+        w = a[0]
+        self.assertIsInstance (w, packet.Packet)
+        return w
+
     def pad (self, d):
         if len (d) < 46:
             d += bytes (46 - len (d))
         return d
+
+    def assertState (self, name):
+        self.assertEqual (self.c.state.__name__, name, "Circuit state")
     
 class test_ph2 (rtest):
+    phase = 2
+    tiver = tiver_ph2
+    ntype = PHASE2
+    
     def test_noverify (self):
-        self.tnode.phase = 2
-        self.tnode.tiver = tiver_ph2
-        self.tnode.ntype = PHASE2
-        self.tnode.name = b"TEST"
-        self.c = route_ptp.PtpCircuit (self.tnode, "ptp-0", self.dl, self.config)
-        self.c.start ()
-        self.assertEqual (self.c.state, self.c.ds)
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
-        self.assertEqual (self.c.state, self.c.ri)
         p = self.lastsent (1)
         self.assertIsInstance (p, NodeInit)
         self.assertEqual (p.nodename, b"TEST")
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
-
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.assertEqual (self.c.up.call_count, 1)
+        pkt = b"0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastup (1)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.srcnode, Nodeid (66))
+        self.assertEqual (spkt.dstnode, self.tnode.nodeid)
+        self.assertEqual (spkt.visit, 1)
+        
 class test_ph3 (rtest):
+    phase = 3
+    tiver = tiver_ph3
+    ntype = L1ROUTER
+    
     def test_noverify (self):
-        self.tnode.phase = 3
-        self.tnode.tiver = tiver_ph3
-        self.tnode.ntype = L1ROUTER
-        self.c = route_ptp.PtpCircuit (self.tnode, "ptp-0", self.dl, self.config)
-        self.c.start ()
-        self.assertEqual (self.c.state, self.c.ds)
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
-        self.assertEqual (self.c.state, self.c.ri)
         p = self.lastsent (1)
         self.assertIsInstance (p, PtpInit3)
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
 
 class test_ph4 (rtest):
+    phase = 4
+    tiver = tiver_ph4
+    ntype = L2ROUTER
+    
     def test_noverify (self):
-        self.c = route_ptp.PtpCircuit (self.tnode, "ptp-0", self.dl, self.config)
-        self.c.start ()
-        self.assertEqual (self.c.state, self.c.ds)
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
-        self.assertEqual (self.c.state, self.c.ri)
         p = self.lastsent (1)
         self.assertIsInstance (p, PtpInit)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
