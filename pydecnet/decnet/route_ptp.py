@@ -54,7 +54,6 @@ class PtpCircuit (statemachine.StateMachine):
                                      commver = nspver_ph2,
                                      blksize = MTU, nspsize = MTU,
                                      sysver = "DECnet/Python")
-            self.hellomsg = NopMsg (payload = b'\252' * 10)
         else:
             if self.node.phase == 3:
                 self.initmsg = PtpInit3 (srcnode = parent.tid,
@@ -71,8 +70,6 @@ class PtpCircuit (statemachine.StateMachine):
                                         verif = 0,
                                         blksize = MTU,
                                         reserved = b'')
-            self.hellomsg = PtpHello (srcnode = parent.nodeid,
-                                      testdata = b'\252' * 10)
 
     def __str__ (self):
         return "{0.name}".format (self)
@@ -112,7 +109,7 @@ class PtpCircuit (statemachine.StateMachine):
                 # Neighbor is Phase 3 or older, so we have its address
                 # as an 8-bit value.  Force destination address to
                 # the old size.
-                dstnode = NodeId (0, dstnode.tid)
+                dstnode = Nodeid (0, dstnode.tid)
                 pkt.dstnode = dstnode
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.nodeid:
                 logging.debug ("Sending packet %s to wrong address %s (expected %s)", pkt, dstnode, self.nodeid)
@@ -135,7 +132,7 @@ class PtpCircuit (statemachine.StateMachine):
             if not buf:
                 logging.debug ("Null routing layer packet received on %s",
                                self.name)
-                return datalink.DlStatus (status = False)
+                return datalink.DlStatus (self, status = False)
             if isinstance (buf, packet.Packet):
                 # If we already parsed this, don't do it again
                 return True
@@ -148,7 +145,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
                                    self.name)
-                    return datalink.DlStatus (status = False)
+                    return datalink.DlStatus (self, status = False)
             p2route = None
             if (hdr & 0xf3) == 0x42:
                 # Phase 2 routing header
@@ -159,7 +156,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # Invalid bits set, complain
                     logging.debug ("Invalid msgflgs after Ph2 route hdr: %x",
                                    hdr)
-                    return datalink.DlStatus (status = False)
+                    return datalink.DlStatus (self, status = False)
                 logging.trace ("Phase II packet with route header: %s", p2route)
             if (hdr & 1) != 0 and self.node.phase > 2:
                 # Routing (phase 3 or 4) control packet.  Figure out which one
@@ -171,7 +168,7 @@ class PtpCircuit (statemachine.StateMachine):
                     except KeyError:
                         logging.debug ("Unknown routing control packet %d from %s",
                                        code, self.name)
-                        return datalink.DlStatus (status = False)
+                        return datalink.DlStatus (self, status = False)
                 else:
                     # Init message type depends on major version number.
                     mver = buf[6]
@@ -184,7 +181,7 @@ class PtpCircuit (statemachine.StateMachine):
                         work.packet = PtpInit (buf)
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version %d", mver)
-                        return datalink.DlStatus (status = False)
+                        return datalink.DlStatus (self, status = False)
                     else:
                         logging.trace ("Ignoring high version init %d", mver)
                         return False    # Too high, ignore it
@@ -213,7 +210,7 @@ class PtpCircuit (statemachine.StateMachine):
                             else:
                                 logging.debug ("Unknown Phase 2 control packet %x from %s",
                                                code, self.name)
-                                return datalink.DlStatus (status = False)
+                                return datalink.DlStatus (self, status = False)
                     else:
                         # Phase 2 data packet, don't set a specific packet
                         # type, it will be handled in NSP
@@ -221,7 +218,10 @@ class PtpCircuit (statemachine.StateMachine):
                 else:
                     logging.debug ("Unknown routing packet %d from %s",
                                    code, self.name)
-                    return datalink.DlStatus (status = False)
+                    if code == 1:
+                        # Phase 3/4 init message on phase 2 node, ignore
+                        return False
+                    return datalink.DlStatus (self, status = False)
         return True
                 
     def ha (self, item):
@@ -290,9 +290,14 @@ class PtpCircuit (statemachine.StateMachine):
                     self.initmsg = initmsg
                     self.datalink.send (initmsg)
                 self.rphase = 2
+                self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
                 self.blksize = self.minrouterblk = pkt.blksize
-                self.nodeid = pkt.srcnode
+                if self.node.phase == 4:
+                    self.nodeid = Nodeid (self.parent.homearea,
+                                          pkt.srcnode)
+                else:
+                    self.nodeid = Nodeid (pkt.srcnode)
                 self.tiver = pkt.tiver
                 if pkt.verif:
                     # Verification requested
@@ -318,6 +323,8 @@ class PtpCircuit (statemachine.StateMachine):
                         return
                     self.t4 = pkt.timer * T3MULT
                     self.rphase = 4
+                    self.hellomsg = PtpHello (srcnode = self.parent.nodeid,
+                                              testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
@@ -332,6 +339,8 @@ class PtpCircuit (statemachine.StateMachine):
                         return
                     self.t4 = self.t3 * T3MULT
                     self.rphase = 3
+                    self.hellomsg = PtpHello (srcnode = self.parent.tid,
+                                              testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
                         self.fmterr (pkt)
@@ -350,7 +359,11 @@ class PtpCircuit (statemachine.StateMachine):
                                             verif = self.initmsg.verif,
                                             blksize = MTU)
                         self.datalink.send (initmsg)
-                    self.nodeid = NodeId (self.parent.homearea, pkt.srcnode.tid)
+                    if self.node.phase == 4:
+                        self.nodeid = Nodeid (self.parent.homearea,
+                                              pkt.srcnode.tid)
+                    else:
+                        self.nodeid = Nodeid (pkt.srcnode.tid)
                 self.ntype = pkt.ntype
                 self.blksize = self.minrouterblk = pkt.blksize
                 self.tiver = pkt.tiver
@@ -453,11 +466,11 @@ class PtpCircuit (statemachine.StateMachine):
                 if self.rphase < 4 and self.node.phase == 4:
                     # Running phase 4 but neighbor is older, supply
                     # our area number into source and destination addresses.
-                    self.srcnode = NodeId (self.parent.homearea,
-                                           self.srcnode.tid)
+                    pkt.srcnode = Nodeid (self.parent.homearea,
+                                          pkt.srcnode.tid)
                     if isinstance (pkt, ShortData):
-                        self.dstnode = NodeId (self.parent.homearea,
-                                               self.dstnode.tid)
+                        pkt.dstnode = Nodeid (self.parent.homearea,
+                                              pkt.dstnode.tid)
                 pkt.src = self
                 self.parent.dispatch (pkt)
             elif isinstance (pkt, PtpHello) and self.node.phase > 2:
