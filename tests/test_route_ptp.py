@@ -241,6 +241,9 @@ class test_ph4 (rtest):
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
         self.assertRegex (p.testdata, b"^\252+$")
+        self.c.dispatch (Timeout (owner = self.c))
+        self.assertState ("ha")
+        self.assertEqual (self.c.down.call_count, 1)
         
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
