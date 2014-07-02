@@ -140,7 +140,12 @@ class PtpCircuit (statemachine.StateMachine):
             if (hdr & 0x80) != 0 and self.node.phase > 3:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
-                buf = buf[pad & 0x7f:]
+                pad = hdr & 0x7f
+                if pad >= len (buf):
+                    logging.debug ("Padding exceeds packet length on %s",
+                                   self.name)
+                    return datalink.DlStatus (self, status = False)
+                buf = buf[hdr & 0x7f:]
                 hdr = buf[0]
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
@@ -149,7 +154,13 @@ class PtpCircuit (statemachine.StateMachine):
             p2route = None
             if (hdr & 0xf3) == 0x42:
                 # Phase 2 routing header
-                p2route = RouteHdr (buf)
+                try:
+                    p2route = RouteHdr (buf)
+                except Event as e:
+                    # If parsing the packet raises an Event
+                    # exception, log that event and take down the circuit
+                    self.node.logevent (e)
+                    return datalink.DlStatus (self, status = False)
                 buf = p2route.payload
                 hdr = buf[0]
                 if hdr & 0x83:
@@ -169,16 +180,29 @@ class PtpCircuit (statemachine.StateMachine):
                         logging.debug ("Unknown routing control packet %d from %s",
                                        code, self.name)
                         return datalink.DlStatus (self, status = False)
+                    except Event as e:
+                        # If parsing the packet raises an Event
+                        # exception, log that event and take down the circuit
+                        self.node.logevent (e)
+                        return datalink.DlStatus (self, status = False)
                 else:
                     # Init message type depends on major version number.
                     mver = buf[6]
                     if mver == tiver_ph3[0]:
                         # Phase 3
                         phase = 3
-                        work.packet = PtpInit3 (buf)
+                        try:
+                            work.packet = PtpInit3 (buf)
+                        except Event as e:
+                            self.node.logevent (e)
+                            return datalink.DlStatus (self, status = False)
                     elif mver == tiver_ph4[0]:
                         phase = 4
-                        work.packet = PtpInit (buf)
+                        try:
+                            work.packet = PtpInit (buf)
+                        except Event as e:
+                            self.node.logevent (e)
+                            return datalink.DlStatus (self, status = False)
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version %d", mver)
                         return datalink.DlStatus (self, status = False)
@@ -193,9 +217,17 @@ class PtpCircuit (statemachine.StateMachine):
                 if self.node.phase > 3 and code == 6:
                     # Long data is not expected, but it is accepted
                     # just for grins (and because the phase 4 spec allows it).
-                    work.packet = LongData (buf, src = None)
+                    try:
+                        work.packet = LongData (buf, src = None)
+                    except Event as e:
+                        self.node.logevent (e)
+                        return datalink.DlStatus (self, status = False)
                 elif self.node.phase > 2 and code == 2:
-                    work.packet = ShortData (buf, src = None)
+                    try:
+                        work.packet = ShortData (buf, src = None)
+                    except Event as e:
+                        self.node.logevent (e)
+                        return datalink.DlStatus (self, status = False)
                 elif (code & 3) == 0:
                     # Phase 2 packet.  Figure out what exactly.
                     if (hdr & 0x0f) == 8:
@@ -204,9 +236,19 @@ class PtpCircuit (statemachine.StateMachine):
                             # Node init or node verification
                             code = buf[1]
                             if code == 1:
-                                work.packet = NodeInit (buf)
+                                try:
+                                    work.packet = NodeInit (buf)
+                                except Event as e:
+                                    self.node.logevent (e)
+                                    return datalink.DlStatus (self,
+                                                              status = False)
                             elif code == 2:
-                                work.packet = NodeVerify (buf)
+                                try:
+                                    work.packet = NodeVerify (buf)
+                                except Event as e:
+                                    self.node.logevent (e)
+                                    return datalink.DlStatus (self,
+                                                              status = False)
                             else:
                                 logging.debug ("Unknown Phase 2 control packet %x from %s",
                                                code, self.name)
