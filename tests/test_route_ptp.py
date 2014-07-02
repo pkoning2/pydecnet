@@ -5,6 +5,7 @@ import unittest, unittest.mock
 import sys
 import os
 import logging
+import random
 
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
@@ -30,6 +31,12 @@ def trace (fmt, *args):
 
 def debug (fmt, *args):
     print ("debug:", fmt % args)
+
+random.seed (999)
+def randpkt (minlen, maxlen):
+    plen = random.randrange (minlen, maxlen + 1)
+    i = random.getrandbits (plen * 8)
+    return i.to_bytes (plen, "little")
 
 def t_addwork (work, handler = None):
     if handler is not None:
@@ -146,6 +153,14 @@ class test_ph2 (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ri")
         self.lastsent (1)
+
+    def test_rnd (self):
+        self.c.restart = unittest.mock.Mock ()
+        self.c.restart.return_value = None
+        for i in range (1000):
+            pkt = randpkt (10, 1500)
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt))
         
 class test_ph3 (rtest):
     phase = 3
@@ -177,6 +192,9 @@ class test_ph3 (rtest):
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
         self.assertRegex (p.testdata, b"^\252+$")
+        self.c.dispatch (Timeout (owner = self.c))
+        self.assertState ("ha")
+        self.assertEqual (self.c.down.call_count, 1)
 
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -210,6 +228,14 @@ class test_ph3 (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ri")
         self.lastsent (1)
+        
+    def test_rnd (self):
+        self.c.restart = unittest.mock.Mock ()
+        self.c.restart.return_value = None
+        for i in range (1000):
+            pkt = randpkt (10, 1500)
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt))
         
 class test_ph4 (rtest):
     phase = 4
@@ -298,5 +324,20 @@ class test_ph4 (rtest):
         self.assertEqual (p.srcnode, Nodeid (5))
         self.assertRegex (p.testdata, b"^\252+$")
 
+    def test_phx (self):
+        pkt = b"\x01\x02\x00\x02\x10\x02\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ri")
+        self.lastsent (1)
+        
+    def test_rnd (self):
+        self.c.restart = unittest.mock.Mock ()
+        self.c.restart.return_value = None
+        for i in range (1000):
+            pkt = randpkt (10, 1500)
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt))
+        self.assertState ("ri")
+        
 if __name__ == "__main__":
     unittest.main ()
