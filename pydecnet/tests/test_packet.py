@@ -145,8 +145,9 @@ class TestPacket (unittest.TestCase):
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (a.payload, b"payload")
         self.assertEqual (bytes (a), testdata2 + b"payload")
-        with self.assertRaises (ValueError):
+        with self.assertRaises (events.Event) as e:
             alltypes (testdata + b"x")
+        self.assertEqual (e.exception.event, events.Event.fmt_err)
 
     def test_constfield (self):
         # Value defined in class is constant field
