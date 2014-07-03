@@ -44,12 +44,13 @@ class PtpCircuit (statemachine.StateMachine):
         self.t4 = self.hellotime * 3
         self.tiver = None
         self.blksize = self.nodeid = 0
+        self.verif = config.verify
         self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         if self.node.phase == 2:
             self.initmsg = NodeInit (srcnode = parent.tid,
                                      nodename = parent.name,
-                                     verif = 0,
+                                     verif = self.verif,
                                      routver = tiver_ph2,
                                      commver = nspver_ph2,
                                      blksize = MTU, nspsize = MTU,
@@ -59,7 +60,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.initmsg = PtpInit3 (srcnode = parent.tid,
                                         ntype = parent.ntype,
                                         tiver = parent.tiver,
-                                        verif = 0,
+                                        verif = self.verif,
                                         blksize = MTU,
                                         reserved = b'')
             else:
@@ -67,7 +68,7 @@ class PtpCircuit (statemachine.StateMachine):
                                         ntype = parent.ntype,
                                         timer = self.hellotime,
                                         tiver = parent.tiver,
-                                        verif = 0,
+                                        verif = self.verif,
                                         blksize = MTU,
                                         reserved = b'')
 
@@ -238,7 +239,10 @@ class PtpCircuit (statemachine.StateMachine):
                         # Control packet
                         if hdr == 0x58:
                             # Node init or node verification
-                            code = buf[1]
+                            if len (buf) > 2:
+                                code = buf[1]
+                            else:
+                                code = 0
                             if code == 1:
                                 try:
                                     work.packet = NodeInit (buf)
@@ -347,7 +351,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.tiver = pkt.tiver
                 if pkt.verif:
                     # Verification requested
-                    verif = self.node.nodeinfo (self.nodeid).verif
+                    verif = self.node.nodeinfo (self.nodeid).overif
                     if not verif:
                         logging.trace ("%s verification requested but not set, attempting null string", self.name)
                         verif = ""
@@ -414,10 +418,11 @@ class PtpCircuit (statemachine.StateMachine):
                 self.tiver = pkt.tiver
                 if pkt.verif:
                     # Verification requested
-                    verif = self.node.nodeinfo (self.nodeid).verif
+                    verif = self.node.nodeinfo (self.nodeid).overif
                     if not verif:
-                        logging.trace ("%s verification requested but not set, attempting null string", self.name)
-                        verif = ""
+                        logging.trace ("%s verification requested but not set,"
+                                       " attempting null string", self.name)
+                        verif = b""
                     vpkt = PtpVerify (fcnval = verif)
                     self.setsrc (vpkt)
                     self.datalink.send (vpkt)
@@ -448,18 +453,45 @@ class PtpCircuit (statemachine.StateMachine):
         if isinstance (item, timers.Timeout):
             # Process timeout
             self.init_fail += 1
-            return self.restart ("timeout")
+            self.node.logevent (Event.ver_rej, self,
+                                node = self.node.nodeinfo (self.nodeid),
+                                reason = "verification_timeout")
+            return self.restart ("verification timeout")
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
+            verif = self.node.nodeinfo (self.nodeid).iverif
+            if not verif:
+                logging.debug ("%s verification required but not set",
+                               self.name)
+                self.node.logevent (Event.ver_rej, self,
+                                    node = self.node.nodeinfo (self.nodeid),
+                                    reason = "verification_required")
+                self.init_fail += 1
+                return self.restart ("verification reject")
             if isinstance (pkt, PtpVerify) and self.rphase > 2:
-                # todo: check verification value
+                if pkt.fcnval != verif:
+                    logging.debug ("%s verification value mismatch",
+                                   self.name)
+                    self.node.logevent (Event.ver_rej, self,
+                                        node = self.node.nodeinfo (self.nodeid),
+                                        reason = "invalid_verification")
+                    self.init_fail += 1
+                    return self.restart ("verification reject")
                 self.node.timers.start (self, self.t4)
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             elif isinstance (pkt, NodeVerify) and self.rphase == 2:
-                # todo: check verification value
+                verif = (verif + bytes (7))[:8]
+                if pkt.password != verif:
+                    logging.debug ("%s verification value mismatch",
+                                   self.name)
+                    self.node.logevent (Event.ver_rej, self,
+                                        node = self.node.nodeinfo (self.nodeid),
+                                        reason = "invalid_verification")
+                    self.init_fail += 1
+                    return self.restart ("verification reject")
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru                
