@@ -112,10 +112,15 @@ node name rules (1 to 6 characters, alphanumeric, at least one
 letter).  The name may be supplied in either case but is converted to
 upper case.
 
---verification: Verification value to send to this node, if it is a
-neighbor on a point to point circuit and requests verification.  The
-value is a string.  If this argument is omitted and the node requests
-verification, the circuit initialization handshake will fail.
+--inbound-verification: Verification value required from this node, if
+it is the neighbor on a point to point circuit which has --verify
+specified to require inbound verification.
+
+--outbound-verification: Verification value to send to this node, if
+it is the neighbor on a point to point circuit and requests
+verification.  The value is a string.  If this argument is omitted and
+the node requests verification, a null string is sent (which may or
+may not be accepted by the remote node).
 
 Component "circuit":
 
@@ -196,6 +201,13 @@ that field in the message implies a limit of 33 routers.
 
 --priority: Designated router priority.  Argument is an integer in the
 range 0 to 127, default is 64.
+
+--verify: if supplied, verification is required during circuit
+initialization.  This is applicable only for point to point circuits.
+The remote node must supply a verification value that matches the
+--inbound-verification switch value for that node in the node list.
+If it doesn't match, or if no inbound verification value is defined
+for the remote node, initialization is rejected.
 
 Component "nsp"
 
