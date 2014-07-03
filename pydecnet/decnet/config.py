@@ -66,6 +66,8 @@ cp.add_argument ("--nr", type = int, choices = range (1, 34), metavar = "N",
 cp.add_argument ("--priority", metavar = "P", type = int,
                  choices = range (128), default = 64,
                  help = "Designated router priority (range 0..127)")
+cp.add_argument ("--verify", action = "store_true", default = False,
+                 help = "Require routing verification (point to point only)")
 
 cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
@@ -111,8 +113,10 @@ cp = config_cmd ("node", "DECnet node database", collection = True)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
                  metavar = "id", help = "Node address")
 cp.add_argument ("name", type = nodename, help = "Node name")
-cp.add_argument ("--verification",
+cp.add_argument ("--outbound-verification", default = None,
                  help = "Verification value to send to this node")
+cp.add_argument ("--inbound-verification", default = None,
+                 help = "Verification value to require from this node")
 
 cp = config_cmd ("nsp", "NSP layer configuration")
 # The choices are given as a list not a set so they will be shown

@@ -30,11 +30,13 @@ class Nodeinfo (nsp.NSPNode):
         if c:
             self.nodeid = c.id
             self.nodename = c.name
-            self.verif = c.verification
+            self.overif = c.outbound_verification
+            self.iverif = c.inbound_verification
         else:
             self.nodeid = id
             self.nodename = None
-            self.verif = ""
+            self.overif = None
+            self.iverif = None
             
     def __str__ (self):
         if self.nodename:

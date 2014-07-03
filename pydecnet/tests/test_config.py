@@ -59,6 +59,7 @@ class TestCircuit (Logchecker):
         self.assertEqual (cc.type, "Ethernet")
         self.assertIsNone (cc.device)
         self.assertFalse (cc.random_address)
+        self.assertFalse (cc.verify)
         self.assertEqual (cc.nr, 10)
         self.assertEqual (cc.priority, 64)
         cc = c.circuit["TEST-1"]
@@ -77,7 +78,7 @@ class TestCircuit (Logchecker):
         c = self.ctest ("circuit test-0 --cost 2 --t1 5 --t3 15 " \
                         "--console 'abcdef' --type GRE " \
                         "--device foo --random-address --nr 15 " \
-                        "--priority 12")
+                        "--priority 12 --verify")
         cc = c.circuit["TEST-0"]
         self.assertEqual (cc.cost, 2)
         self.assertEqual (cc.t1, 5)
@@ -86,6 +87,7 @@ class TestCircuit (Logchecker):
         self.assertEqual (cc.type, "GRE")
         self.assertEqual (cc.device, "foo")
         self.assertTrue (cc.random_address)
+        self.assertTrue (cc.verify)
         self.assertEqual (cc.nr, 15)
         self.assertEqual (cc.priority, 12)
 
@@ -201,14 +203,16 @@ class TestNode (Logchecker):
         c = self.ctest ("node 1.2 foo")
         cc = c.node["FOO"]
         self.assertEqual (cc.id, Nodeid (1, 2))
-        self.assertIsNone (cc.verification)
+        self.assertIsNone (cc.inbound_verification)
+        self.assertIsNone (cc.outbound_verification)
         self.assertEqual (set (c.node), { "FOO" })
 
     def test_allargs (self):
-        c = self.ctest ("node 4.2 foo --verification bar")
+        c = self.ctest ("node 4.2 foo --inbound-verification bar --out baz")
         cc = c.node["FOO"]
         self.assertEqual (cc.id, Nodeid (4, 2))
-        self.assertEqual (cc.verification, "bar")
+        self.assertEqual (cc.inbound_verification, "bar")
+        self.assertEqual (cc.outbound_verification, "baz")
 
     def test_errors (self):
         self.checkerr ("node", "arguments are required")
