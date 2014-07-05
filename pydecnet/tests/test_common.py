@@ -1,25 +1,9 @@
 #!/usr/bin/env python3
 
-import unittest
-
-import sys
-import os
-import time
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
-
+from tests.dntest import *
 from decnet import common
 
-def setUpModule ():
-    global lpatch
-    lpatch = unittest.mock.patch ("decnet.common.logging")
-    lpatch.start ()
-
-def tearDownModule ():
-    lpatch.stop ()
-    
-class TestNodeid (unittest.TestCase):
+class TestNodeid (DnTest):
     def test_newstr (self):
         n = common.Nodeid ("1.24")
         self.assertEqual (n.area, 1)
@@ -82,7 +66,7 @@ class TestNodeid (unittest.TestCase):
         with self.assertRaises (ValueError):
             common.Nodeid (b"\000\004")
 
-class TestMacaddr (unittest.TestCase):
+class TestMacaddr (DnTest):
     def test_newstr (self):
         a = common.Macaddr ("01-02-03-04-05-06")
         b = common.Macaddr ("1:2:3:4:5:6")
@@ -112,7 +96,7 @@ class tthread (common.StopThread):
         while not self.stopnow:
             time.sleep (0.1)
 
-class TestThread (unittest.TestCase):
+class TestThread (DnTest):
     def test_stopthread (self):
         t = tthread ()
         t.start ()

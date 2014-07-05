@@ -1,24 +1,9 @@
 #!/usr/bin/env python3
 
-import unittest
-
-import sys
-import os
-import time
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
+from tests.dntest import *
 
 from decnet import timers
 
-def setUpModule ():
-    global lpatch
-    lpatch = unittest.mock.patch ("decnet.timers.logging")
-    lpatch.start ()
-
-def tearDownModule ():
-    lpatch.stop ()
-    
 class TNode (object):
     def addwork (self, work):
         work.dispatch ()
@@ -31,7 +16,7 @@ class TTimer (timers.Timer):
     def dispatch (self, item):
         self.fired = time.time ()
         
-class TestTimer (unittest.TestCase):
+class TestTimer (DnTest):
     def test_wheel1 (self):
         wheel = timers.TimerWheel (tnode, 0.1, 400)
         t = TTimer ()

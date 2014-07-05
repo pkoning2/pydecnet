@@ -1,45 +1,19 @@
 #!/usr/bin/env python3
 
-import unittest
+from tests.dntest import *
 
-import sys
-import os
-import time
 import socket
 import select
 
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
-
 from decnet import datalink
 from decnet import multinet
-from decnet.common import *
 
-# Custom testcase loader to load only Test* classes, not base classes
-# that are not in themselves a complete test.
-def load_tests (loader, tests, pattern):
-    suite = unittest.TestSuite ()
-    for k, v in globals().items():
-        if type (v) is type and k.startswith ("Test"):
-            tests = loader.loadTestsFromTestCase (v)
-            suite.addTests (tests)
-    return suite
-
-def trace (fmt, *args):
-    print ("trace:", fmt % args)
-
-class MultinetBase (unittest.TestCase):
+class MultinetBase (DnTest):
     testsdu = b"four score and seven years ago"
-    
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.multinet.logging")
-        self.lpatch.start ()
-        #multinet.logging.trace.side_effect = trace
-        self.tnode = unittest.mock.Mock ()
-        self.tnode.node = self.tnode
-        self.mult = multinet.Multinet (self.tnode, "multinet-0", self.tconfig)
-        self.rport = self.mult.create_port (self.tnode)
+        super ().setUp ()
+        self.mult = multinet.Multinet (self.node, "multinet-0", self.tconfig)
+        self.rport = self.mult.create_port (self.node)
         
     def tearDown (self):
         thread = self.mult.rthread
@@ -50,7 +24,7 @@ class MultinetBase (unittest.TestCase):
                 break
         self.assertFalse (thread.is_alive ())
         self.mult.close ()
-        self.lpatch.stop ()
+        super ().tearDown ()
 
     def receivedata (self):
         sellist = [ self.socket.fileno () ]
@@ -74,8 +48,8 @@ class MultinetBase (unittest.TestCase):
         self.assertEqual (self.mult.bytes_sent, 2 * len (self.testsdu))
 
     def lastwork (self, calls):
-        self.assertEqual (self.tnode.addwork.call_count, calls)
-        a, k = self.tnode.addwork.call_args
+        self.assertEqual (self.node.addwork.call_count, calls)
+        a, k = self.node.addwork.call_args
         w = a[0]
         self.assertIsInstance (w, Work)
         return w

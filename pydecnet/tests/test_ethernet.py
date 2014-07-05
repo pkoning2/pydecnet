@@ -1,51 +1,29 @@
 #!/usr/bin/env python3
 
-import unittest
+from tests.dntest import *
 
-import sys
-import os
-import time
-import random
 import queue
 
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
-
 from decnet import ethernet
-from decnet.common import *
-
-def trace (fmt, *args):
-    print ("trace:", fmt % args)
 
 tconfig = unittest.mock.Mock ()
 tconfig.device = None
 tconfig.random_address = False
 
-random.seed (999)
-def randpkt (minlen, maxlen):
-    plen = random.randrange (minlen, maxlen + 1)
-    i = random.getrandbits (plen * 8)
-    return i.to_bytes (plen, "little")
-
-class TestEth (unittest.TestCase):
+class TestEth (DnTest):
     tdata = b"four score and seven years ago"
     
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.ethernet.logging")
+        super ().setUp ()
         self.ppatch = unittest.mock.patch ("decnet.ethernet.pcap")
-        self.lpatch.start ()
         self.ppatch.start ()
-        #ethernet.logging.trace.side_effect = trace
         ethernet.pcap._pcap.error = Exception ("Pcap test error")
         self.pcap = ethernet.pcap.pcapObject.return_value
         self.pd = self.pcap.dispatch
         self.pd.return_value = 0
         self.pd.side_effect = self.pdispatch
         self.pq = queue.Queue ()
-        self.tnode = unittest.mock.Mock ()
-        self.tnode.node = self.tnode
-        self.eth = ethernet.Ethernet (self.tnode, "eth-0", tconfig)
+        self.eth = ethernet.Ethernet (self.node, "eth-0", tconfig)
         self.eth.hwaddr = Macaddr ("02-03-04-05-06-07")
         self.eth.open ()
         
@@ -56,9 +34,9 @@ class TestEth (unittest.TestCase):
             if not self.eth.is_alive ():
                 break
         self.assertFalse (self.eth.is_alive ())
-        self.lpatch.stop ()
         self.ppatch.stop ()
-
+        super ().tearDown ()
+        
     def pdispatch (self, n, fun):
         try:
             pkt = self.pq.get (timeout = 1)
@@ -74,17 +52,10 @@ class TestEth (unittest.TestCase):
         self.pq.put (pkt)
         self.pq.join ()
         
-    def lastwork (self, calls):
-        self.assertEqual (self.tnode.addwork.call_count, calls)
-        a, k = self.tnode.addwork.call_args
-        w = a[0]
-        self.assertIsInstance (w, Received)
-        return w
-
     def circ (self):
         c = unittest.mock.Mock ()
-        c.parent = self.tnode
-        c.node = self.tnode
+        c.parent = self.node
+        c.node = self.node
         return c
     
     def lelen (self, d):
@@ -101,7 +72,7 @@ class TestEth (unittest.TestCase):
         self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastreceived (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -117,7 +88,7 @@ class TestEth (unittest.TestCase):
         self.lport = self.eth.create_port (lcirc, LOOPPROTO, False)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastreceived (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -127,7 +98,7 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 60)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        self.lastwork (1)
+        self.lastreceived (1)
         self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 60)
@@ -135,7 +106,7 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 60)
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastreceived (2)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
         self.assertEqual (self.eth.unk_dest, 0)
@@ -150,7 +121,7 @@ class TestEth (unittest.TestCase):
         self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastreceived (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -160,7 +131,7 @@ class TestEth (unittest.TestCase):
         # Multicast and mismatch
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        self.lastwork (1)
+        self.lastreceived (1)
         self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 60)
@@ -168,7 +139,7 @@ class TestEth (unittest.TestCase):
         # Unicast mismatch (hardware address, but not this port address
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        self.lastwork (1)
+        self.lastreceived (1)
         self.assertEqual (self.eth.unk_dest, 0)
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 60)
@@ -181,7 +152,7 @@ class TestEth (unittest.TestCase):
         self.rport.set_promiscuous (True)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastreceived (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -191,7 +162,7 @@ class TestEth (unittest.TestCase):
         # Multicast and mistmatch
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastreceived (2)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -201,7 +172,7 @@ class TestEth (unittest.TestCase):
         # Unicast mismatch (hardware address, but not this port address
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (3)
+        w = self.lastreceived (3)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -218,7 +189,7 @@ class TestEth (unittest.TestCase):
         self.lport.add_multicast (Macaddr ("CF-00-00-00-00-00"))
         self.postPacket (b"\xab\x00\x00\x03\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastreceived (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.unk_dest, 0)
@@ -235,7 +206,7 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 60)
         self.postPacket (b"\xcf\x00\x00\x00\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastreceived (2)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
         self.assertEqual (self.eth.unk_dest, 0)
@@ -245,9 +216,9 @@ class TestEth (unittest.TestCase):
         self.assertEqual (self.rport.bytes_recv, 60)
 
     def test_xmit (self):
-        self.rport = self.eth.create_port (self.tnode, ROUTINGPROTO)
+        self.rport = self.eth.create_port (self.node, ROUTINGPROTO)
         self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
-        self.lport = self.eth.create_port (self.tnode, LOOPPROTO, False)
+        self.lport = self.eth.create_port (self.node, LOOPPROTO, False)
         self.rport.send (self.tdata, Macaddr (Nodeid (1, 42)))
         inject = self.pcap.inject.call_args
         self.assertIsNotNone (inject)

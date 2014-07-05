@@ -2,69 +2,29 @@
 
 """MOP protocol layer unit tests"""
 
-import unittest
+from tests.dntest import *
 
-import sys
-import os
-import time
-import random
 import queue
-
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
 from decnet import mop
 from decnet import packet
 from decnet import timers
 from decnet import datalink
-from decnet.common import *
 from decnet.apiserver import ApiRequest
-
-def trace (fmt, *args):
-    print ("trace:", fmt % args)
-
-def debug (fmt, *args):
-    print ("debug:", fmt % args)
 
 tconfig = unittest.mock.Mock ()
 tconfig.device = None
 
-random.seed (999)
-def randpkt (minlen, maxlen):
-    plen = random.randrange (minlen, maxlen + 1)
-    i = random.getrandbits (plen * 8)
-    return i.to_bytes (plen, "little")
-
-class TestMop (unittest.TestCase):
+class TestMop (DnTest):
     tdata = b"four score and seven years ago"
     
     def setUp (self):
-        self.lpatch = unittest.mock.patch ("decnet.mop.logging")
-        self.spatch = unittest.mock.patch ("decnet.mop.statemachine.logging")
-        self.lpatch.start ()
-        self.spatch.start ()
-        #mop.logging.trace.side_effect = trace
-        #mop.statemachine.logging.trace.side_effect = trace
-        #mop.logging.debug.side_effect = debug
-        self.tnode = unittest.mock.Mock ()
-        self.tnode.node = self.tnode
+        super ().setUp ()
         self.dl = unittest.mock.Mock ()
         self.dl.use_mop = True
         self.cp = unittest.mock.Mock ()
         self.dl.create_port.return_value = self.cp
         
-    def tearDown (self):
-        self.lpatch.stop ()
-        self.spatch.stop ()
-
-    def lastsent (self, calls):
-        self.assertEqual (self.cp.send.call_count, calls)
-        a, k = self.cp.send.call_args
-        w = a[0]
-        self.assertIsInstance (w, packet.Packet)
-        return w
-
     def lelen (self, d):
         return len (d).to_bytes (2, "little")
 
@@ -74,30 +34,30 @@ class TestMop (unittest.TestCase):
         return d
     
     def test_periodic_sysid (self):
-        c = mop.MopCircuit (self.tnode, "mop-0", self.dl, tconfig)
+        c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
         send = self.cp.send
         s = c.sysid
         s.dispatch (timers.Timeout (s))
-        sysid = self.lastsent (1)
+        sysid = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")
         self.assertEqual (sysid.receipt, 0)
         
     def test_reqid (self):
-        c = mop.MopCircuit (self.tnode, "mop-0", self.dl, tconfig)
+        c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
         send = self.cp.send
         w = datalink.Received (owner = c, src = Macaddr (b"foobar"),
                                packet = b"\x05\x00\x02\x00")
         c.dispatch (w)
-        sysid = self.lastsent (1)
+        sysid = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")
         self.assertEqual (sysid.receipt, 2)
 
     def test_recsysid (self):
-        c = mop.MopCircuit (self.tnode, "mop-0", self.dl, tconfig)
+        c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
         send = self.cp.send
         macid = Macaddr (b"Foobar")
