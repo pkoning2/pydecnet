@@ -1,18 +1,13 @@
 #!/usr/bin/env python3
 
-import unittest
-
-import sys
-import os
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
+from tests.dntest import *
 
 from decnet import modulo
 
 class mod15 (modulo.Mod, mod = 15): pass
 class mod16 (modulo.Mod, mod = 16): pass
 
-class TestModulo (unittest.TestCase):
+class TestModulo (DnTest):
     def test_abc (self):
         with self.assertRaises (TypeError):
             b = modulo.Mod (1)

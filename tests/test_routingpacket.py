@@ -1,33 +1,16 @@
 #!/usr/bin/env python3
 
-import unittest, unittest.mock
-
-import sys
-import os
-import logging
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
-
+from tests.dntest import *
 from decnet.routing_packets import *
-from decnet import events
-from decnet.common import Nodeid, Version, Macaddr
 
-# Custom testcase loader to load only Test* classes, not base classes
-# that are not in themselves a complete test.
-def load_tests (loader, tests, pattern):
-    suite = unittest.TestSuite ()
-    for k, v in globals().items():
-        if type (v) is type and k.startswith ("test_"):
-            tests = loader.loadTestsFromTestCase (v)
-            suite.addTests (tests)
-    return suite
-
-class rptest (unittest.TestCase):
+class rptest (DnTest):
     def setUp (self):
+        super ().setUp ()
         logging.exception = unittest.mock.Mock ()
 
     def tearDown (self):
         self.assertEqual (logging.exception.call_count, 0)
+        super ().tearDown ()
         
 class test_shortdata (rptest):
     def test_decode (self):

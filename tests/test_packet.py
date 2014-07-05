@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 
-import unittest, unittest.mock
-
-import sys
-import os
-import logging
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
+from tests.dntest import *
 
 from decnet import packet
-from decnet import events
-from decnet.common import Nodeid
 
 class alltypes (packet.Packet):
     _layout = (( "bm",
@@ -53,7 +45,7 @@ class alltlv (packet.Packet):
 tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
           b"\012\004\004\001\000\000\014\002\003\004"
 
-class TestPacket (unittest.TestCase):
+class TestPacket (DnTest):
     def setUp (self):
         logging.exception = unittest.mock.Mock ()
 

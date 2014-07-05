@@ -1,34 +1,18 @@
 #!/usr/bin/env python3
 
-import unittest
-
-import sys
-import os
+from tests.dntest import *
 import io
-import time
-import unittest.mock
-
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
 from decnet import config
 from decnet import ethernet
-from decnet.common import Nodeid
 
-def setUpModule ():
-    global lpatch
-    lpatch = unittest.mock.patch ("decnet.config.logging")
-    lpatch.start ()
-
-def tearDownModule ():
-    lpatch.stop ()
-    
 def errmsg ():
     if not config.logging.error.called:
         return None
     args, kwargs = config.logging.error.call_args
     return args[2]
 
-class Logchecker (unittest.TestCase):
+class Logchecker (DnTest):
     def ctest (self, s):
         # Supply a config file which has the given entries, plus
         # enough other stuff to keep Config happy.
