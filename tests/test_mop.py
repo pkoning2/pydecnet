@@ -34,11 +34,11 @@ class TestMop (DnTest):
         send = self.cp.send
         s = c.sysid
         s.dispatch (timers.Timeout (s))
-        sysid = self.lastsent (self.cp, 1)
+        sysid, dest = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")
         self.assertEqual (sysid.receipt, 0)
-        
+        self.assertEqual (dest, Macaddr ("AB-00-00-02-00-00"))
     def test_reqid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
@@ -46,11 +46,12 @@ class TestMop (DnTest):
         w = datalink.Received (owner = c, src = Macaddr (b"foobar"),
                                packet = b"\x05\x00\x02\x00")
         c.dispatch (w)
-        sysid = self.lastsent (self.cp, 1)
+        sysid, dest = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")
         self.assertEqual (sysid.receipt, 2)
-
+        self.assertEqual (dest, Macaddr (b"foobar"))
+        
     def test_recsysid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
