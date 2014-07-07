@@ -164,6 +164,11 @@ class EndnodeLanCircuit (LanCircuit):
         self.datalink.add_multicast (ALL_ENDNODES)
         self.dr = None
         self.prevhops = dict ()
+
+    def dr_down (self):
+        # Called from the common routing code when an adjacency down
+        # occurs (e.g., adjacency listen timeout).
+        self.dr = None
         
     def sendhello (self):
         self.lasthello = time.time ()
@@ -226,7 +231,7 @@ class EndnodeLanCircuit (LanCircuit):
             self.cache_expire (dstnode)
         else:
             try:
-                prev = self.prevhops[dstnode]
+                prev = self.prevhops[dstnode].prevhop
                 self.datalink.send (pkt, prev)
                 return
             except KeyError:

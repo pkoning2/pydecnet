@@ -75,9 +75,13 @@ class DnTest (unittest.TestCase):
     def lastsent (self, port, calls):
         self.assertEqual (port.send.call_count, calls)
         a, k = port.send.call_args
-        w = a[0]
+        if len (a) > 1:
+            w, dest = a
+        else:
+            w = a[0]
+            dest = None
         self.assertIsInstance (w, packet.Packet)
-        return w
+        return w, dest
 
     def lastreceived (self, calls):
         self.assertEqual (self.node.addwork.call_count, calls)

@@ -89,7 +89,7 @@ class L1CirAdj (CirAdj):
             self.routing.route (0, self.routing.maxnodes)
 
 class L2CirAdj (L1CirAdj):
-    """The additional adjacency/cicuit common behavior for an area router.
+    """The additional adjacency/circuit common behavior for an area router.
     """
     def __init__ (self, circuit):
         L1CirAdj.__init__ (self, circuit)
@@ -215,6 +215,10 @@ class EndnodeAdjacency (CirAdj, _Adjacency):
         _Adjacency.__init__ (self, circuit, hellomsg)
         self.up ()
 
+    def down (self, **kwargs):
+        _Adjacency.down (self)
+        self.circuit.dr_down ()
+        
 class L1Adjacency (L1CirAdj, _Adjacency):
     """Adjacency class as used on level 1 routers.
     """
