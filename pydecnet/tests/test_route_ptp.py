@@ -12,7 +12,7 @@ from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 
 rcount = 5000
-rmin = 1
+rmin = 0
 rmax = 30
     
 class rtest (DnTest):

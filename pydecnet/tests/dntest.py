@@ -33,6 +33,8 @@ def load_tests (loader, tests, pattern):
 random.seed (999)
 def randpkt (minlen, maxlen):
     plen = random.randrange (minlen, maxlen + 1)
+    if not plen:
+        return b""
     i = random.getrandbits (plen * 8)
     return i.to_bytes (plen, "little")
 
