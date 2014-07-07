@@ -66,11 +66,6 @@ class rtest (DnTest):
             self.assertEqual (self.c.up.call_count, self.c.down.call_count)
         super ().tearDown ()
 
-    def pad (self, d):
-        if len (d) < 46:
-            d += bytes (46 - len (d))
-        return d
-
     def assertState (self, name):
         self.assertEqual (self.c.state.__name__, name, "Circuit state")
     
@@ -287,6 +282,16 @@ class test_ph4 (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (1)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        # ditto but with padding
+        pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (2)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -685,19 +690,106 @@ class test_ph4restart (rtest):
         self.dispatch ()
         self.assertState ("ds")
         
-    def test_dlinit (self):
+    def test_init (self):
         self.startup ()
-        pkt = b"\x01\x02\x00\x02\x10\x02\x02\x00\x00\x20\x00\x00"
+        pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
         
-    def test_dlinit_workaround (self):
+    def test_init3 (self):
+        self.startup ()
+        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
+        
+    def test_init2 (self):
+        self.startup ()
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
+        
+    def test_init_workaround (self):
         self.cp.start_works = False
         self.startup ()
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.dispatch ()
         self.assertState ("ru")
+        self.assertEqual (self.c.rphase, 4)
+        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+
+    def test_init3_workaround (self):
+        self.cp.start_works = False
+        self.startup ()
+        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.dispatch ()
+        self.assertState ("ru")
+        self.assertEqual (self.c.rphase, 3)
+        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+
+    def test_init2_workaround (self):
+        self.cp.start_works = False
+        self.startup ()
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.dispatch ()
+        self.assertState ("ru")
+        self.assertEqual (self.c.rphase, 2)
+        self.assertEqual (self.c.nodeid, Nodeid (1, 66))
+
+    def test_ri_restart (self):
+        pkt = b"\x03\x02\x04\x06IVERIF"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
+
+class test_ph4restart_rv (rtest):
+    phase = 4
+    tiver = tiver_ph4
+    ntype = L2ROUTER
+    verify = True
+
+    def tearDown (self):
+        super ().tearDown (updown = False)
+
+    def startup (self):
+        p = self.lastsent (self.cp, 1)
+        self.assertIsInstance (p, PtpInit)
+        self.assertEqual (p.srcnode, Nodeid (1, 5))
+        self.assertEqual (p.verif, 1)
+        pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("rv")
+        self.assertEqual (self.c.rphase, 4)
+        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+
+    def test_dlrestart (self):
+        self.startup ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c, status = False))
+        self.assertState ("ha")
+        self.dispatch ()
+        self.assertState ("ds")
+        
+    def test_init (self):
+        self.startup ()
+        pkt = b"\x01\x02\x00\x02\x10\x02\x02\x00\x00\x20\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
+        
+    def test_init3 (self):
+        self.startup ()
+        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
+        
+    def test_init2 (self):
+        self.startup ()
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ha")
         
 if __name__ == "__main__":
     unittest.main ()

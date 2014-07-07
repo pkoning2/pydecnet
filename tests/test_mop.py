@@ -28,11 +28,6 @@ class TestMop (DnTest):
     def lelen (self, d):
         return len (d).to_bytes (2, "little")
 
-    def pad (self, d):
-        if len (d) < 46:
-            d += bytes (46 - len (d))
-        return d
-    
     def test_periodic_sysid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
