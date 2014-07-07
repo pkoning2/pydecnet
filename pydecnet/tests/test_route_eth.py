@@ -11,10 +11,10 @@ from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 
 rcount = 5000
-rmin = 1
-rmax = 30
+rmin = 0
+rmax = 40
     
-class etest (DnTest):
+class lantest (DnTest):
     def setUp (self):
         super ().setUp ()
         self.node.nodeid = Nodeid (1, 5)
@@ -28,6 +28,7 @@ class etest (DnTest):
         self.config.t3 = 10
         self.config.cost = 1
         self.node.ntype = self.ntype
+        self.node.tiver = tiver_ph4
         self.node.name = b"TEST"
         self.c = route_eth.EndnodeLanCircuit (self.node, "lan-0",
                                               self.dl, self.config)
@@ -36,12 +37,11 @@ class etest (DnTest):
         self.c.parent = self.node
         self.c.node = self.node
         self.c.t3 = 15
+        self.c.name = "lan-0"
         self.c.start ()
-        #self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
         
     def tearDown (self):
         self.c.stop ()
-        #self.assertEqual (self.c.up.call_count, self.c.down.call_count)
         super ().tearDown ()
 
     def pad (self, d):
@@ -57,11 +57,141 @@ class etest (DnTest):
             work.owner = handler
         work.dispatch ()
 
+class etest (lantest):
+    def setUp (self):
+        super ().setUp ()
+        self.c.Adjacency = unittest.mock.Mock ()
+        self.c.Adjacency.side_effect = self.__class__.makeadj
+        p = self.lastsent (self.cp, 1)
+        self.assertIsInstance (p, EndnodeHello)
+        self.assertEqual (p.id, Nodeid (1, 5))
+        self.assertEqual (p.tiver, tiver_ph4)
+        self.assertEqual (p.blksize, ETHMTU)
+        self.assertEqual (p.timer, 10)
+        self.assertRegex (p.testdata, b"^\252+$")
+        self.assertEqual (p.neighbor, NULLID)
+
+    def makeadj (self, item):
+        self.adj = unittest.mock.Mock ()
+        self.adj.macid = Macaddr (item.id)
+        return self.adj
+    
 class test_end (etest):
     ntype = ENDNODE
 
-    def test_one (self):
-        pass
-    
+    def test_hello (self):
+        self.c.dr = unittest.mock.Mock ()
+        self.c.dr.macid = Macaddr ("02:01:04:02:03:09")
+        self.c.dispatch (Timeout (owner = self.c))
+        p = self.lastsent (self.cp, 2)
+        self.assertIsInstance (p, EndnodeHello)
+        self.assertEqual (p.neighbor, Macaddr ("02:01:04:02:03:09"))
+        
+    def test_dr (self):
+        self.assertIsNone (self.c.dr)
+        # out of area hello
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x08\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertIsNone (self.c.dr)
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (self.c.dr.macid, Macaddr ("aa:00:04:00:02:04"))
+        # Note that change of DR doesn't generate a new endnode hello,
+        # so do a hello timer expiration to get one.
+        self.c.dispatch (Timeout (owner = self.c))
+        p = self.lastsent (self.cp, 2)
+        self.assertIsInstance (p, EndnodeHello)
+        self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
+
+    def test_shortdata (self):
+        pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (1)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        self.assertEqual (len (self.c.prevhops), 1)
+        self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
+                          Macaddr (Nodeid (1, 2)))
+        # ditto but with padding
+        pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:07:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (2)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        # Check that the previous hop cache was updated
+        self.assertEqual (len (self.c.prevhops), 1)
+        self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
+                          Macaddr (Nodeid (1, 7)))
+
+    def test_longdata (self):
+        pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (1)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        self.assertEqual (len (self.c.prevhops), 1)
+        self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
+                          Macaddr (Nodeid (1, 2)))
+        # ditto but with padding
+        pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x02\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:07:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (2)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 2))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        self.assertEqual (len (self.c.prevhops), 2)
+        self.assertEqual (self.c.prevhops[Nodeid (2, 2)].prevhop,
+                          Macaddr (Nodeid (1, 7)))
+        # Original entry should be untouched
+        self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
+                          Macaddr (Nodeid (1, 2)))
+        # Expire a cache entry
+        self.c.prevhops[Nodeid (2, 2)].dispatch (Timeout (self.c))
+        # Only the other entry should remain
+        self.assertEqual (len (self.c.prevhops), 1)
+        self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
+                          Macaddr (Nodeid (1, 2)))
+        
+
+    def test_rnd (self):
+        for i in range (rcount):
+            pkt = randpkt (rmin, rmax)
+            self.c.dispatch (Received (owner = self.c,
+                                       src = Macaddr ("aa:00:04:00:02:04"),
+                                       packet = pkt))
+        
 if __name__ == "__main__":
     unittest.main ()
