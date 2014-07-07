@@ -27,11 +27,11 @@ class lantest (DnTest):
         self.config = unittest.mock.Mock ()
         self.config.t3 = 10
         self.config.cost = 1
+        self.config.priority = 32
         self.node.ntype = self.ntype
         self.node.tiver = tiver_ph4
         self.node.name = b"TEST"
-        self.c = route_eth.EndnodeLanCircuit (self.node, "lan-0",
-                                              self.dl, self.config)
+        self.c = self.ctype (self.node, "lan-0", self.dl, self.config)
         self.c.up = unittest.mock.Mock ()
         self.c.down = unittest.mock.Mock ()
         self.c.parent = self.node
@@ -52,7 +52,10 @@ class lantest (DnTest):
             work.owner = handler
         work.dispatch ()
 
-class etest (lantest):
+class test_end (lantest):
+    ntype = ENDNODE
+    ctype = route_eth.EndnodeLanCircuit
+    
     def setUp (self):
         super ().setUp ()
         self.c.Adjacency = unittest.mock.Mock ()
@@ -68,14 +71,10 @@ class etest (lantest):
         self.assertEqual (p.neighbor, NULLID)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         
-
     def makeadj (self, item):
         self.adj = unittest.mock.Mock ()
         self.adj.macid = Macaddr (item.id)
         return self.adj
-    
-class test_end (etest):
-    ntype = ENDNODE
 
     def test_dr (self):
         self.assertIsNone (self.c.dr)
@@ -245,6 +244,425 @@ class test_end (etest):
             self.c.dispatch (Received (owner = self.c,
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
+
+class t_RoutingLanCircuit (route_eth.RoutingLanCircuit, Element):
+    def __init__ (self, parent, name, datalink, config):
+        Element.__init__ (self, parent)
+        route_eth.RoutingLanCircuit.__init__ (self, parent, name, datalink,
+                                              config)
+
+class test_routing (lantest):
+    ntype = L1ROUTER
+    ctype = t_RoutingLanCircuit
+    
+    def setUp (self):
+        super ().setUp ()
+        self.c.Adjacency = unittest.mock.Mock ()
+        self.c.Adjacency.side_effect = self.__class__.makeadj
+        self.c.nr = 2
+        self.c.minrouterblk = ETHMTU
+        p = self.lastsent (self.cp, 1)
+        p, dest = self.lastsent (self.cp, 1)
+        self.assertIsInstance (p, RouterHello)
+        self.assertEqual (p.id, Nodeid (1, 5))
+        self.assertEqual (p.tiver, tiver_ph4)
+        self.assertEqual (p.blksize, ETHMTU)
+        self.assertEqual (p.timer, 10)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        rslist = Elist (p.elist).rslist
+        self.assertFalse (rslist)
+        
+    def makeadj (self, item):
+        adj = unittest.mock.Mock ()
+        adj.nodeid = item.id
+        adj.macid = Macaddr (item.id)
+        adj.ntype = item.ntype
+        adj.blksize = item.blksize
+        try:
+            adj.priority = item.prio
+        except AttributeError:
+            pass
+        return adj
+
+    def test_ehello (self):
+        self.assertEqual (len (self.c.adjacencies), 0)
+        # Out of area hello
+        p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x08\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:08"),
+                                   packet = p1))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        # In area hello
+        p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = p1))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, ENDNODE)
+        # Another one
+        p2 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x03\x04\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:03:04"),
+                                   packet = p2))
+        self.assertEqual (len (self.c.adjacencies), 2)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, ENDNODE)
+        b = self.c.adjacencies[Nodeid (1, 3)]
+        self.assertEqual (b.state, route_eth.UP)
+        self.assertEqual (b.ntype, ENDNODE)
+        
+    def test_rhello (self):
+        self.assertFalse (self.c.adjacencies)
+        # out of area L1 router hello
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x08\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:08"),
+                                   packet = pkt))
+        self.assertFalse (self.c.adjacencies)
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 64)
+        self.assertNotEqual (a.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        # That other router will be DR
+        self.assertFalse (self.c.isdr)
+        self.assertEqual (self.c.dr, a)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.
+        self.c.dispatch (Timeout (owner = self.c))
+        p, dest = self.lastsent (self.cp, 2)
+        self.assertIsInstance (p, RouterHello)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        rslist = Elist (p.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (1, 2))
+        self.assertEqual (rsent.prio, 64)
+        self.assertFalse (rsent.twoway)
+        # Send the hello with 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        # Now adjacency should be up
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 64)
+        self.assertEqual (a.state, route_eth.UP)
+        # The received hello should trigger yet another hello at T2 expiration,
+        # so deliver that expiration.
+        self.c.dispatch (Timeout (owner = self.c))
+        p, dest = self.lastsent (self.cp, 3)
+        self.assertIsInstance (p, RouterHello)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        rslist = Elist (p.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (1, 2))
+        self.assertEqual (rsent.prio, 64)
+        self.assertTrue (rsent.twoway)
+        # Change that neighbor to be endnode instead
+        pkt = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
+              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        # Adjacency will disappear the first time around
+        self.assertEqual (len (self.c.adjacencies), 0)
+        self.assertEqual (self.c.minrouterblk, ETHMTU)
+        self.assertIsNone (self.c.dr)
+        # We're going to be DR, but not yet
+        self.assertFalse (self.c.isdr)
+        # Expire the DR holdoff
+        self.c.drtimer.dispatch (Timeout (self.c))
+        self.assertTrue (self.c.isdr)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.  More precisely, two of them since
+        # we're now DR
+        self.c.dispatch (Timeout (owner = self.c))
+        p1, dest1 = self.lastsent (self.cp, 5)
+        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        self.assertIsInstance (p1, RouterHello)
+        self.assertIsInstance (p2, RouterHello)
+        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
+                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
+                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
+                          dest2 == Macaddr ("AB-00-00-03-00-00")))
+        self.assertEqual (bytes (p1), bytes (p2))
+        rslist = Elist (p1.elist).rslist
+        self.assertFalse (rslist)
+        # The second hello will bring it back as endnode
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, ENDNODE)
+        
+    def test_rhello_dr (self):
+        self.assertFalse (self.c.adjacencies)
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x1f\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 31)
+        self.assertNotEqual (a.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        # We're going to be DR, but not yet
+        self.assertFalse (self.c.isdr)
+        # Expire the DR holdoff
+        self.c.drtimer.dispatch (Timeout (self.c))
+        self.assertTrue (self.c.isdr)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.  More precisely, two of them since
+        # we're now DR
+        self.c.dispatch (Timeout (owner = self.c))
+        p1, dest1 = self.lastsent (self.cp, 3)
+        p2, dest2 = self.lastsent (self.cp, 3, back = 1)
+        self.assertIsInstance (p1, RouterHello)
+        self.assertIsInstance (p2, RouterHello)
+        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
+                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
+                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
+                          dest2 == Macaddr ("AB-00-00-03-00-00")))
+        self.assertEqual (bytes (p1), bytes (p2))
+        rslist = Elist (p1.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (1, 2))
+        self.assertEqual (rsent.prio, 31)
+        self.assertFalse (rsent.twoway)
+        # Send the hello with 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x1f\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        # Now adjacency should be up
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 31)
+        self.assertEqual (a.state, route_eth.UP)
+        # The received hello should trigger yet another hello at T2 expiration,
+        # so deliver that expiration.
+        self.c.dispatch (Timeout (owner = self.c))
+        p1, dest1 = self.lastsent (self.cp, 5)
+        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        self.assertIsInstance (p1, RouterHello)
+        self.assertIsInstance (p2, RouterHello)
+        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
+                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
+                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
+                          dest2 == Macaddr ("AB-00-00-03-00-00")))
+        self.assertEqual (bytes (p1), bytes (p2))
+        rslist = Elist (p1.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (1, 2))
+        self.assertEqual (rsent.prio, 31)
+        self.assertTrue (rsent.twoway)
+
+    def test_shortdata (self):
+        # Send endnode hello to create adjacency for neighbor 1.2
+        p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = p1))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, ENDNODE)
+        pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (1)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        # ditto but with padding
+        pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (2)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+
+    def test_longdata (self):
+        # Send endnode hello to create adjacency for neighbor 1.2
+        p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = p1))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, ENDNODE)
+        pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (1)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        # ditto but with padding
+        pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x02\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        spkt = self.lastdispatch (2)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 2))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+
+    def test_rnd (self):
+        for i in range (rcount):
+            pkt = randpkt (rmin, rmax)
+            self.c.dispatch (Received (owner = self.c,
+                                       src = Macaddr ("aa:00:04:00:02:04"),
+                                       packet = pkt))
+
+class test_l2routing (test_routing):
+    ntype = L2ROUTER
+    
+    def test_l2hello (self):
+        self.assertFalse (self.c.adjacencies)
+        # out of area L2 router hello
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x08\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x07\x08\x9f"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:08"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (2, 2)]
+        self.assertEqual (a.ntype, L2ROUTER)
+        self.assertEqual (a.priority, 64)
+        self.assertNotEqual (a.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        # That other router will not be DR (since DR is per area)
+        # We will instead, but not yet
+        self.assertFalse (self.c.isdr)
+        self.assertIsNone (self.c.dr)
+        # Expire the DR holdoff
+        self.c.drtimer.dispatch (Timeout (self.c))
+        self.assertTrue (self.c.isdr)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.
+        self.c.dispatch (Timeout (owner = self.c))
+        p1, dest1 = self.lastsent (self.cp, 3)
+        p2, dest2 = self.lastsent (self.cp, 3, back = 1)
+        self.assertIsInstance (p1, RouterHello)
+        self.assertIsInstance (p2, RouterHello)
+        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
+                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
+                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
+                          dest2 == Macaddr ("AB-00-00-03-00-00")))
+        self.assertEqual (bytes (p1), bytes (p2))
+        rslist = Elist (p1.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (2, 2))
+        self.assertEqual (rsent.prio, 64)
+        self.assertFalse (rsent.twoway)
+        # Establish 2 way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x08\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x16\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x0e\xaa\x00\x04\x00\x07\x08\x9f" \
+              b"\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:08"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (2, 2)]
+        self.assertEqual (a.ntype, L2ROUTER)
+        self.assertEqual (a.priority, 64)
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        # The received hello should trigger yet another hello at T2 expiration,
+        # so deliver that expiration.
+        self.c.dispatch (Timeout (owner = self.c))
+        p1, dest1 = self.lastsent (self.cp, 5)
+        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        self.assertIsInstance (p1, RouterHello)
+        self.assertIsInstance (p2, RouterHello)
+        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
+                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
+                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
+                          dest2 == Macaddr ("AB-00-00-03-00-00")))
+        self.assertEqual (bytes (p1), bytes (p2))
+        rslist = Elist (p1.elist).rslist
+        self.assertTrue (rslist)
+        rsent = RSent ()
+        rslist = rsent.decode (rslist)
+        self.assertFalse (rslist)
+        self.assertEqual (rsent.router, Nodeid (2, 2))
+        self.assertEqual (rsent.prio, 64)
+        self.assertTrue (rsent.twoway)
         
 if __name__ == "__main__":
     unittest.main ()

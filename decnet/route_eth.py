@@ -498,6 +498,16 @@ class RoutingLanCircuit (LanCircuit):
         if a.state == UP:
             a.state = INIT
             a.down (**kwargs)
+        # Remove this entry from the adjacencies
+        try:
+            del self.adjacencies[a.nodeid]
+        except KeyError:
+            pass
+        # If that was the DR, we now have no DR
+        if a is self.dr:
+            self.dr = None
+        # Now that it's been removed, see if that affects our router
+        # related state
         if a.ntype != ENDNODE:
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
@@ -505,10 +515,6 @@ class RoutingLanCircuit (LanCircuit):
             self.minrouterblk = ETHMTU
             for r in self.routers ():
                 self.minrouterblk = min (self.minrouterblk, r.blksize)
-        try:
-            del self.adjacencies[a.nodeid]
-        except KeyError:
-            pass
 
     def adjacency_down (self, a, **kwargs):
         """Called from the control layer to take an adjacency down.

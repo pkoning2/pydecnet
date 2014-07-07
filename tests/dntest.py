@@ -72,9 +72,12 @@ class DnTest (unittest.TestCase):
     def mocktrace (self, fmt, *args):
         print (self, "trace:", fmt % args)
 
-    def lastsent (self, port, calls):
+    def lastsent (self, port, calls, back = 0):
         self.assertEqual (port.send.call_count, calls)
-        a, k = port.send.call_args
+        if back:
+            a, k = port.send.call_args_list[-1 - back]
+        else:
+            a, k = port.send.call_args
         if len (a) > 1:
             w, dest = a
         else:
