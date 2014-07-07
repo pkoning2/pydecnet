@@ -75,9 +75,11 @@ class PtpCircuit (statemachine.StateMachine):
     def __str__ (self):
         return "{0.name}".format (self)
 
-    def restart (self, msg = None):
+    def restart (self, msg = None, **kwargs):
         if self.state == self.ru:
-            self.down ()            
+            self.down (**kwargs)
+        else:
+            self.node.logevent (entity = self, **kwargs)
         if msg:
             logging.trace ("%s restart due to %s", self.name, msg)
         self.datalink.close ()
@@ -89,6 +91,7 @@ class PtpCircuit (statemachine.StateMachine):
         # Get the packet beginning, 16 bytes even though spec says max of 6
         hdrb = bytes (pkt)[:16]
         hdrs = ':'.join ([ "{:02X}".format (i) for i in hdrb ])
+        logging.debug ("packet format error: %s", hdrs)
         self.node.logevent (Event.fmt_err, self,
                             adjacent_node = self.node.nodeinfo (self.nodeid),
                             packet_beginning = hdrs)
@@ -343,6 +346,14 @@ class PtpCircuit (statemachine.StateMachine):
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
                 self.blksize = self.minrouterblk = pkt.blksize
+                if not 1 <= pkt.srcnode <= self.parent.maxnodes:
+                    logging.debug ("%s Phase II node id out of range: %d",
+                                   self.name, pkt.srcnode)
+                    self.init_fail += 1
+                    return self.restart ("node id out of range",
+                                         event = Event.init_fault,
+                                         node = self.node.nodeinfo (self.nodeid),
+                                         reason = "address_out_of_range")
                 if self.node.phase == 4:
                     self.nodeid = Nodeid (self.parent.homearea,
                                           pkt.srcnode)
@@ -377,8 +388,23 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
+                        self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart ("bad ntype")
+                    area, tid = pkt.srcnode.split ()
+                    if not 1 <= tid <= self.parent.maxnodes or \
+                       (pkt.ntype == L2ROUTER and self.parent.ntype == L2ROUTER
+                        and not 1 <= area <= self.parent.maxarea) or \
+                        ((pkt.ntype != L2ROUTER or
+                          self.parent.ntype != L2ROUTER)
+                         and area != self.parent.homearea):
+                        logging.debug ("%s Node address out of range: %s",
+                                       self.name, pkt.srcnode)
+                        self.init_fail += 1
+                        return self.restart ("node id out of range",
+                                             event = Event.init_fault,
+                                             node = self.node.nodeinfo (self.nodeid),
+                                             reason = "address_out_of_range")
                     self.nodeid = pkt.srcnode
                 else:
                     # Phase 3
@@ -395,6 +421,21 @@ class PtpCircuit (statemachine.StateMachine):
                         self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart ("bad ntype for phase 3")
+                    if not 1 <= pkt.srcnode <= self.parent.maxnodes:
+                        logging.debug ("%s Phase III node id out of range: %d",
+                                       self.name, pkt.srcnode)
+                        self.init_fail += 1
+                        return self.restart ("node id out of range",
+                                             event = Event.init_fault,
+                                             node = self.node.nodeinfo (self.nodeid),
+                                             reason = "address_out_of_range")
+                    if pkt.ntype == L1ROUTER and \
+                       pkt.blksize < self.parent.maxnodes * 2 + 6:
+                        self.init_fail += 1
+                        return self.restart ("node id out of range",
+                                             event = Event.init_fault,
+                                             node = self.node.nodeinfo (self.nodeid),
+                                             reason = "block_size_too_small")
                     if self.node.phase > 3:
                         # We're phase 4 and neighbor is Phase 3,
                         # send it a Phase 3 init.  (If we're phase 3, we
@@ -453,10 +494,10 @@ class PtpCircuit (statemachine.StateMachine):
         if isinstance (item, timers.Timeout):
             # Process timeout
             self.init_fail += 1
-            self.node.logevent (Event.ver_rej, self,
-                                node = self.node.nodeinfo (self.nodeid),
-                                reason = "verification_timeout")
-            return self.restart ("verification timeout")
+            return self.restart ("verification timeout",
+                                 event = Event.ver_rej, 
+                                 node = self.node.nodeinfo (self.nodeid),
+                                 reason = "verification_timeout")
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
@@ -464,20 +505,20 @@ class PtpCircuit (statemachine.StateMachine):
             if not verif:
                 logging.debug ("%s verification required but not set",
                                self.name)
-                self.node.logevent (Event.ver_rej, self,
+                self.init_fail += 1
+                return self.restart ("verification reject",
+                                     event = Event.ver_rej, 
                                     node = self.node.nodeinfo (self.nodeid),
                                     reason = "verification_required")
-                self.init_fail += 1
-                return self.restart ("verification reject")
             if isinstance (pkt, PtpVerify) and self.rphase > 2:
                 if pkt.fcnval != verif:
                     logging.debug ("%s verification value mismatch",
                                    self.name)
-                    self.node.logevent (Event.ver_rej, self,
-                                        node = self.node.nodeinfo (self.nodeid),
-                                        reason = "invalid_verification")
                     self.init_fail += 1
-                    return self.restart ("verification reject")
+                    return self.restart ("verification reject",
+                                         event = Event.ver_rej, 
+                                         node = self.node.nodeinfo (self.nodeid),
+                                         reason = "invalid_verification")
                 self.node.timers.start (self, self.t4)
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
@@ -487,11 +528,11 @@ class PtpCircuit (statemachine.StateMachine):
                 if pkt.password != verif:
                     logging.debug ("%s verification value mismatch",
                                    self.name)
-                    self.node.logevent (Event.ver_rej, self,
-                                        node = self.node.nodeinfo (self.nodeid),
-                                        reason = "invalid_verification")
                     self.init_fail += 1
-                    return self.restart ("verification reject")
+                    return self.restart ("verification reject",
+                                         event = Event.ver_rej, 
+                                         node = self.node.nodeinfo (self.nodeid),
+                                         reason = "invalid_verification")
                 self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru                
@@ -568,7 +609,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # So for this case, as a workaround, we declare the
                     # circuit down, set the next state to DI, and
                     # reprocess the message we just received.
-                    self.down ()            
+                    self.down ()
                     logging.trace ("%s restart due to init message, using init workaround", self.name)
                     # Next 3 lines lifted from "HA" state handler
                     self.t4 = self.hellotime * 3
