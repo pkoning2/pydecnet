@@ -297,6 +297,30 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
+        # Long data is accepted
+        pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (3)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
+        # ditto but with padding
+        pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (4)
+        self.assertIsInstance (spkt, LongData)
+        self.assertEqual (spkt.payload, b"abcdef payload")
+        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
+        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
+        self.assertEqual (spkt.visit, 17)
         # test hello transmission
         self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
         p = self.lastsent (self.cp, 2)
