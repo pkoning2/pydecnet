@@ -87,7 +87,10 @@ class DnTest (unittest.TestCase):
     def lastevent (self, code):
         self.assertTrue (self.node.logevent.call_count)
         a, k = self.node.logevent.call_args
-        e = a[0]
+        try:
+            e = k["event"]
+        except KeyError:
+            e = a[0]
         if code:
             self.assertEqual (e, code)
         e = events.Event (*a, **k)
