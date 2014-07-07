@@ -118,7 +118,8 @@ class test_rhello (rptest):
     def test_decode (self):
         s = RouterHello ()
         s.decode (b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02"
-                  b"\x10\x02\x40\x00\x80\x00\x00\x0f\x00\x00\x00\x00\x00\x00\x00"
+                  b"\x10\x02\x40\x00\x80\x00\x00"
+                  b"\x0f\x00\x00\x00\x00\x00\x00\x00"
                   b"\x07\xaa\x00\x04\x00\x07\x04\x9f")
         self.assertEqual (s.tiver, Version (2, 0, 1))
         self.assertEqual (s.id, Nodeid (1, 2))

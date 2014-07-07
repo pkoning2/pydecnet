@@ -66,7 +66,11 @@ class LanCircuit (timers.Timer):
             if hdr & 0x80:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
-                buf = buf[pad & 0x7f:]
+                buf = buf[hdr & 0x7f:]
+                if not buf:
+                    logging.debug ("Null packet after padding on %s",
+                                   self.name)
+                    return
                 hdr = buf[0]
                 if hdr & 0x80:
                     logging.debug ("Double padded packet received on %s",
@@ -81,18 +85,30 @@ class LanCircuit (timers.Timer):
                     logging.debug ("Unknown routing control packet %d from %s",
                                    code, self.name)
                     return
+                except Event as e:
+                    # If parsing the packet raises an Event
+                    # exception, log that event
+                    self.node.logevent (e)
+                    return
             else:
                 code = hdr & 7
-                if code == 6:
-                    work = LongData (buf, src = work.src)
-                elif code == 2:
-                    # Short data is not expected, but it is accepted
-                    # just for grins (and because the spec allows it).
-                    work = ShortData (buf, src = work.src)
-                else:
-                    logging.debug ("Unknown routing packet %d from %s",
-                                   code, self.name)
+                try:
+                    if code == 6:
+                        work = LongData (buf, src = work.src)
+                    elif code == 2:
+                        # Short data is not expected, but it is accepted
+                        # just for grins (and because the spec allows it).
+                        work = ShortData (buf, src = work.src)
+                    else:
+                        logging.debug ("Unknown routing packet %d from %s",
+                                       code, self.name)
+                        return
+                except Event as e:
+                    # If parsing the packet raises an Event
+                    # exception, log that event
+                    self.node.logevent (e)
                     return
+
         return work
 
     def up (self, **kwargs):
@@ -127,13 +143,13 @@ class NiCacheEntry (timers.Timer):
         super ().__init__ ()
         self.circuit = circuit
         self.id = id
-        self.prevhop = prevhop
-        self.alive ()
+        self.alive (prevhop)
         
     def dispatch (self, item):
         self.circuit.cache_expire (self.id)
 
-    def alive (self):
+    def alive (self, prevhop):
+        self.prevhop = prevhop
         self.circuit.node.timers.start (self, self.cachetime)
         
 class EndnodeLanCircuit (LanCircuit):
@@ -187,7 +203,7 @@ class EndnodeLanCircuit (LanCircuit):
         else:
             if isinstance (item, (LongData, ShortData)):
                 try:
-                    self.prevhops[item.srcnode].alive ()
+                    self.prevhops[item.srcnode].alive (item.src)
                 except KeyError:
                     self.prevhops[item.srcnode] = NiCacheEntry (item.srcnode,
                                                                 item.src, self)
