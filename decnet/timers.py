@@ -120,23 +120,29 @@ class TimerWheel (Element, StopThread):
         """
         while not self.stopnow:
             time.sleep (self.tick)
-            pos = self.pos = (self.pos + 1) % self.maxtime
-            qh = self.wheel[pos]
-            # We'll remove timed out items from the list one at a time,
-            # to ensure things work correctly even if they are being removed
-            # concurrent with this expiration handler.  That's why the
-            # items are removed one at a time under protection of the
-            # timer wheel lock, rather than making a copy of the list
-            # and walking that copy.
-            while qh.islinked ():
-                self.lock.acquire ()
-                item = qh.next
-                item.remove ()
-                self.lock.release ()
-                if item is not qh:
-                    logging.trace ("Timeout for %s", item)
-                    self.node.addwork (Timeout (item))
-
+            self.pos = (self.pos + 1) % self.maxtime
+            self.expirations ()
+            
+    def expirations (self):
+        count = 0
+        qh = self.wheel[self.pos]
+        # We'll remove timed out items from the list one at a time,
+        # to ensure things work correctly even if they are being removed
+        # concurrent with this expiration handler.  That's why the
+        # items are removed one at a time under protection of the
+        # timer wheel lock, rather than making a copy of the list
+        # and walking that copy.
+        while qh.islinked ():
+            self.lock.acquire ()
+            item = qh.next
+            item.remove ()
+            self.lock.release ()
+            if item is not qh:
+                logging.trace ("Timeout for %s", item)
+                self.node.addwork (Timeout (item))
+                count += 1
+        return count
+    
     def shutdown (self):
         self.__stop (True)
 
