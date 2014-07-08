@@ -52,6 +52,14 @@ class lantest (DnTest):
             work.owner = handler
         work.dispatch ()
 
+    def last2sent (self, count, dest1, dest2):
+        p1, d1 = self.lastsent (self.cp, count)
+        p2, d2 = self.lastsent (self.cp, count, back = 1)
+        self.assertTrue ((d1 == dest1 and d2 == dest2) or
+                         (d1 == dest2 and d2 == dest1))
+        self.assertEqual (bytes (p1), bytes (p2))
+        return p1
+    
 class test_end (lantest):
     ntype = ENDNODE
     ctype = route_eth.EndnodeLanCircuit
@@ -408,15 +416,9 @@ class test_routing (lantest):
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR
         self.c.dispatch (Timeout (owner = self.c))
-        p1, dest1 = self.lastsent (self.cp, 5)
-        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
-        self.assertIsInstance (p2, RouterHello)
-        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
-                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
-                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
-                          dest2 == Macaddr ("AB-00-00-03-00-00")))
-        self.assertEqual (bytes (p1), bytes (p2))
         rslist = Elist (p1.elist).rslist
         self.assertFalse (rslist)
         # The second hello will bring it back as endnode
@@ -451,15 +453,9 @@ class test_routing (lantest):
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR
         self.c.dispatch (Timeout (owner = self.c))
-        p1, dest1 = self.lastsent (self.cp, 3)
-        p2, dest2 = self.lastsent (self.cp, 3, back = 1)
+        p1 = self.last2sent (3, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
-        self.assertIsInstance (p2, RouterHello)
-        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
-                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
-                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
-                          dest2 == Macaddr ("AB-00-00-03-00-00")))
-        self.assertEqual (bytes (p1), bytes (p2))
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
         rsent = RSent ()
@@ -485,15 +481,9 @@ class test_routing (lantest):
         # The received hello should trigger yet another hello at T2 expiration,
         # so deliver that expiration.
         self.c.dispatch (Timeout (owner = self.c))
-        p1, dest1 = self.lastsent (self.cp, 5)
-        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
-        self.assertIsInstance (p2, RouterHello)
-        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
-                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
-                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
-                          dest2 == Macaddr ("AB-00-00-03-00-00")))
-        self.assertEqual (bytes (p1), bytes (p2))
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
         rsent = RSent ()
@@ -611,15 +601,9 @@ class test_l2routing (test_routing):
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.
         self.c.dispatch (Timeout (owner = self.c))
-        p1, dest1 = self.lastsent (self.cp, 3)
-        p2, dest2 = self.lastsent (self.cp, 3, back = 1)
+        p1 = self.last2sent (3, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
-        self.assertIsInstance (p2, RouterHello)
-        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
-                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
-                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
-                          dest2 == Macaddr ("AB-00-00-03-00-00")))
-        self.assertEqual (bytes (p1), bytes (p2))
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
         rsent = RSent ()
@@ -646,15 +630,9 @@ class test_l2routing (test_routing):
         # The received hello should trigger yet another hello at T2 expiration,
         # so deliver that expiration.
         self.c.dispatch (Timeout (owner = self.c))
-        p1, dest1 = self.lastsent (self.cp, 5)
-        p2, dest2 = self.lastsent (self.cp, 5, back = 1)
+        p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
-        self.assertIsInstance (p2, RouterHello)
-        self.assertTrue ((dest1 == Macaddr ("AB-00-00-03-00-00") and
-                          dest2 == Macaddr ("AB-00-00-04-00-00")) or
-                         (dest1 == Macaddr ("AB-00-00-04-00-00") and
-                          dest2 == Macaddr ("AB-00-00-03-00-00")))
-        self.assertEqual (bytes (p1), bytes (p2))
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
         rsent = RSent ()
@@ -663,6 +641,10 @@ class test_l2routing (test_routing):
         self.assertEqual (rsent.router, Nodeid (2, 2))
         self.assertEqual (rsent.prio, 64)
         self.assertTrue (rsent.twoway)
-        
+
+# TODO: various strange cases: bad hello, adjacency dropped by neighbor,
+# endnode changing to router, router type change, priority change
+# Move Adjacency class to route_eth?
+
 if __name__ == "__main__":
     unittest.main ()
