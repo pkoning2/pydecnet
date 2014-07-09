@@ -65,6 +65,10 @@ class TestNodeid (DnTest):
         self.assertEqual (n.tid, 3)
         with self.assertRaises (ValueError):
             common.Nodeid (b"\000\004")
+        n, b = common.Nodeid.decode (b"\003\004abc")
+        self.assertEqual (n.area, 1)
+        self.assertEqual (n.tid, 3)
+        self.assertEqual (b, b"abc")
 
 class TestMacaddr (DnTest):
     def test_newstr (self):
@@ -87,6 +91,8 @@ class TestMacaddr (DnTest):
         a = common.Macaddr (b"abcdef")
         self.assertRaises (ValueError, common.Macaddr, b"abcde")
         self.assertRaises (ValueError, common.Macaddr, b"abcdefg")
+        a, b = common.Macaddr.decode (b"abcdefABC")
+        self.assertEqual (b, b"ABC")
 
 class tthread (common.StopThread):
     hasrun = False

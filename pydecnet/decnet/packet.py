@@ -45,9 +45,9 @@ def proc_layoutelem (cls, e):
             except AttributeError:
                 raise TypeError ("Invalid type code %s" % code) from None
         else:
-            if not hasattr (code, "_len"):
-                raise TypeError ("Field type code is class %s without length"
-                                 % code.__name__)
+            if not hasattr (code, "decode"):
+                raise TypeError ("Field type code is class %s "
+                                 "without decode method" % code.__name__)
             enc = getattr (cls, "encode_type")
             dec = getattr (cls, "decode_type")
             # Argument list should have one entry (the attribute name).
@@ -285,7 +285,7 @@ class Packet (metaclass = packet_encoding_meta):
                 if prev != val:
                     raise ReadOnlyError ("Cannot change attribute {} " \
                                          "from {} to {}" \
-                                         .format (field, val, prev)) from None
+                                         .format (field, prev, val)) from None
             else:
                 raise
             
@@ -307,15 +307,17 @@ class Packet (metaclass = packet_encoding_meta):
             val = t ()    # Make a default object of that type, if possible
         elif not isinstance (val, t):
             val = t (val)
-        return bytes (val)
+        try:
+            return val.encode ()
+        except AttributeError:
+            return bytes (val)
 
     def decode_type (self, buf, field, t):
-        """Decode a given type.  We use the type's attribute _len to
-        know how many bytes to decode.
+        """Decode a given type.  Uses the "decode" class method of the type.
         """
-        flen = t._len
-        setattr (self, field, t (buf[:flen]))
-        return buf[flen:]
+        v, buf = t.decode (buf)
+        setattr (self, field, v)
+        return buf
     
     def encode_i (self, field, maxlen):
         """Encode "field" as an image field with max length "maxlen".
@@ -604,7 +606,7 @@ class Packet (metaclass = packet_encoding_meta):
                 buf = d (self, buf, *args)
             except ReadOnlyError:
                 logging.debug ("Field required value mismatch: %s", args)
-                raise Event (Event.fmt_err) from None
+                raise Event (Event.fmt_err) #from None
             except ValueError:
                 logging.debug ("Invalid field value: %s", args)
                 raise Event (Event.fmt_err) from None
@@ -616,9 +618,19 @@ class Packet (metaclass = packet_encoding_meta):
                 # that's ok.  It might mean that we don't expect
                 # extra data, but that's up to the caller to sort out.
                 pass
+        # Override this method to implement additional checks after
+        # individual field parse
+        self.check ()
         #logging.debug ("packet parse: %s", self.__dict__)
         return buf
 
+    def check (self):
+        """Override this method to implement additional checks after
+        individual field parse.  It should raise an exception if there
+        is a problem, or return if all is well.
+        """
+        pass
+    
     def __str__ (self):
         ret = list ()
         for a in self.allslots ():

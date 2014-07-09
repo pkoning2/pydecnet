@@ -111,7 +111,6 @@ _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
     """A DECnet Node ID.
     """
-    _len = 2
     def __new__ (cls, s, id2 = None):
         """Create a Nodeid from a string, an integer, a pair of integers,
         a Mac address, or anything that can be converted to a byte string
@@ -164,6 +163,10 @@ class Nodeid (int):
                 raise ValueError ("Invalid node ID %s" % s)
         return int.__new__ (cls, n)
 
+    @classmethod
+    def decode (cls, buf):
+        return cls (buf[:2]), buf[2:]
+
     @property
     def area (self):
         return int (self) >> 10
@@ -194,7 +197,6 @@ _mac_re = re.compile ("[-:]")
 class Macaddr (bytes):
     """MAC address for Ethernet (or similar LAN).
     """
-    _len = 6
     def __new__ (cls, s):
         """Create a Macaddr instance from a string, a Nodeid, or
         any other object that can be converted to a bytes object of
@@ -222,6 +224,10 @@ class Macaddr (bytes):
                 raise ValueError ("Invalid MAC address string %s" % s)
         return bytes.__new__ (cls, s)
 
+    @classmethod
+    def decode (cls, buf):
+        return cls (buf[:6]), buf[6:]
+
     def __str__ (self):
         return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (self)
 
@@ -233,8 +239,6 @@ _version = struct.Struct ("<BBB")
 class Version (bytes):
     """DECnet component version number -- 3 integers.
     """
-    _len = 3
-    
     def __new__ (cls, v1, v2 = 0, v3 = 0):
         if isinstance (v1, str):
             v = v1.split ('.')
@@ -248,6 +252,10 @@ class Version (bytes):
             if len (v) != 3:
                 raise ValueError ("Invalid version string %s" % v1)
         return super ().__new__ (cls, v)
+
+    @classmethod
+    def decode (cls, buf):
+        return cls (buf[:3]), buf[3:]
 
     def __str__ (self):
         v1, v2, v3 = _version.unpack (self)
