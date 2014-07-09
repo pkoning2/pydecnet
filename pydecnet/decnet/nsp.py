@@ -20,10 +20,61 @@ from . import modulo
 
 # Sequence numbers are modulo 4096
 class Seq (modulo.Mod, mod = 4096):
-    """Sequence numbers for NSP -- integers modulo 2^12.
+    """Sequence numbers for NSP -- integers modulo 2^12.  Note that
+    creating one of these (e.g., from packet decode) ignores high
+    order bits rather than complaining about them.
     """
-    _len = 2
+    def __new__ (cls, val):
+        return modulo.Mod.__new__ (cls, val & 0o7777)
 
+    @classmethod
+    def decode (cls, buf):
+        v = int.from_bytes (buf[:2], packet.LE)
+        return cls (v), buf[2:]
+
+    def __bytes__ (self):
+        return self.to_bytes (2, packet.LE)
+    
+class AckNum (object):
+    """Class for the (usually optional) ACK field in an NSP packet.
+    """
+    # Values for QUAL:
+    ACK = 0
+    NAK = 1
+    XACK = 2
+    XNAK = 3
+    def __init__ (self, num, qual = ACK):
+        if qual not in { 0, 1, 2, 3 }:
+            raise ValueError ("Invalid QUAL value %s" % qual)
+        self.qual = qual
+        self.num = Seq (num)
+        
+    @classmethod
+    def decode (cls, buf):
+        v = int.from_bytes (buf[:2], packet.LE)
+        if v & 0x8000:
+            # ACK field is present.  Always advance past it.
+            buf = buf[2:]
+            qual = (v >> 12) & 7
+            if qual in { 0, 1, 2, 3 }:
+                # Use the field only if QUAL is valid
+                return cls (v, qual), buf
+        return None, buf
+
+    def __bytes__ (self):
+        return (0x8000 + (self.qual << 12) + self.num).to_bytes (2, packet.LE)
+
+    def is_nak (self):
+        return self.qual == self.NAK or self.qual == self.XNAK
+
+    def is_cross (self):
+        return self.qual == self.XACK or self.qual == self.XNAK
+    
+    def chan (self, this, other):
+        if self.is_cross ():
+            return other
+        return this
+    
 # Common header -- just the MSGFLG field, expanded into its subfields.
 class NspHdr (packet.Packet):
     _layout = (( "bm",
@@ -53,40 +104,25 @@ class NspHdr (packet.Packet):
     DC = 4
     #NI = 5    # Phase 2 node init (doesn't come to NSP)
     RCI = 6    # Retransmitted CI
-    
-    def encode_optack (self, field, x):
-        """The third argument -- usually length -- instead encodes the
-        cross-subchannel bit of the QUAL field.
-        """
-        v = getattr (self, field, None)
-        if v is None:
-            # The relevant ack number attribute is not defined or is
-            # set to None -- skip this ack number field
-            return b''
-        m = (getattr (self, field + "_qual", 0) & 1) + x
-        v = int (v) + (m << 12) + 0x8000
-        return v.to_bytes (2, LE)
 
-    def decode_optack (self, field, x):
-        """The third argument -- usually length -- instead encodes the
-        cross-subchannel bit of the QUAL field.  We expect it to match.
-        In other words, even though theoretically one could put a cross-
-        subchannel ack in before a regular ack, this won't work.  You're
-        allowed to omit one, either one, but if both are present the
-        cross-subchannel one has to be second because that's how the packet
-        layout tables specify it.
-        """
-        v = int.from_bytes (buf[:2])
-        if v & 0x8000:
-            m = ((v >> 12) & 3) - x
-            v = Seq (v)
-            # Check that cross-channel is in the expected spot
-            if m in (0, 1):
-                setattr (self, field, v)
-                setattr (self, field + "_qual", m)
-                return buf[2:]
-        setattr (self, field, None)
-        return buf
+class AckHdr (NspHdr):
+    """The standard packet beginning for packets that have link addresses
+    and acknum fields.  Note that the second ACK field is called "acknum2"
+    rather than "ackoth" or "ackdat" since those names don't make sense if
+    we use this header interchangeably for all packet layouts.
+    """
+    _layout = (( "b", "dstaddr", 2 ),
+               ( "b", "srcaddr", 2 ),
+               ( AckNum, "acknum" ),
+               ( AckNum, "acknum2" ))
+
+    def check (self):
+        # Check that the two acknum fields (if both are supplied) point
+        # to different subchannels
+        if self.acknum and self.acknum2 and \
+           self.acknum.is_cross () == self.acknum2.is_cross ():
+            logging.debug ("Both acknums refer to the same subchannel")
+            raise Event (Event.fmt_err)
 
 # Note on classes for packet layouts:
 #
@@ -100,49 +136,52 @@ class NspHdr (packet.Packet):
 # almost always derived from a base class that is not in itself an
 # actual message class.
 
-class AckData (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
-               ( "optack", "acknum", 0 ),  # This is mandatory
-               ( "optack", "ackoth", 2 ))
+class AckData (AckHdr):
     type = NspHdr.ACK
     subtype = NspHdr.ACK_DATA
-    
-class AckOther (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
-               ( "optack", "acknum", 0 ),
-               ( "optack", "ackdat", 2 ))
+
+    def check (self):
+        AckHdr.check (self)
+        if self.acknum is None:
+            logging.debug ("acknum field missing")
+            raise Event (Event.fmt_err)
+        
+class AckOther (AckHdr):
     type = NspHdr.ACK
     subtype = NspHdr.ACK_OTHER
 
+    check = AckData.check
+        
 class AckConn (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),)
     type = NspHdr.ACK
     subtype = NspHdr.ACK_CONN
     
-# Data messages start with the same stuff as ACK messages, so subclass
-# them that way.
-class DataSeg (AckData):
+class DataSeg (AckHdr):
     _addslots = { "payload" }
     _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
-    subtype = 0
+    int_ls = 0
     
-class IntMsg (AckOther):
+class IntMsg (AckHdr):
     _addslots = { "payload" }
     _layout = (( Seq, "segnum" ),)
     type = NspHdr.DATA
     subtype = 3
+    int_ls = 1
+    int = 1
 
 # Link Service message is a variation on interrupt message.
-class LinkSvcMsg (AckOther):
+class LinkSvcMsg (AckHdr):
     _layout = (( Seq, "segnum" ),
                ( "bm",
                  ( "fcmod", 0, 2 ),
-                 ( "fcval_int", 2, 3 )),
+                 ( "fcval_int", 2, 2 )),
                ( "signed", "fcval", 1 ))
+    type = NspHdr.DATA
     subtype = 1
+    int_ls = 1
+    int = 0
     # fcval_int values:
     DATA_REQ = 0
     INT_REQ = 1
@@ -150,6 +189,11 @@ class LinkSvcMsg (AckOther):
     NO_CHANGE = 0
     XOFF = 1
     XON = 2
+
+    def check (self):
+        if self.fcval_int > 1 or self.fcmod == 3:
+            logging.debug ("Reserved LSFLAGS value")
+            raise Event (Event.fmt_err)
 
 # Control messages.  0 (NOP) and 5 (Node init) are handled
 # in route_ptp since they are really datalink dependent routing
@@ -488,8 +532,8 @@ class Subchannel (Element, timers.Timer):
     def dispatch (self, item):
         if isinstance (item, timers.Timeout):
             # Send an explicit ack
-            ack = self.parent.makepacket (self.Ack, acknum = self.acknum,
-                                          acknum_qual = 0)
+            ack = self.parent.makepacket (self.Ack,
+                                          acknum = AckNum (self.acknum))
             self.parent.send (ack)
         else:
             item.subchannel = self
@@ -883,7 +927,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             self.data.ack (0)    # Treat this as ACK of the CI
             if self.nspver != ConnMsg.VER_PH2 and self.node.phase > 2:
                 # If phase 3 or later, send data Ack
-                ack = self.makepacket (DataAck, acknum = self.data.acknum)
+                ack = self.makepacket (DataAck,
+                                       acknum = AckNum (self.data.acknum))
                 self.sendmsg (ack)
             # Send the accept up to Session Control
             self.to_sc (item)
