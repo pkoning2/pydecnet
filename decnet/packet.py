@@ -606,7 +606,7 @@ class Packet (metaclass = packet_encoding_meta):
                 buf = d (self, buf, *args)
             except ReadOnlyError:
                 logging.debug ("Field required value mismatch: %s", args)
-                raise Event (Event.fmt_err) #from None
+                raise Event (Event.fmt_err) from None
             except ValueError:
                 logging.debug ("Invalid field value: %s", args)
                 raise Event (Event.fmt_err) from None
