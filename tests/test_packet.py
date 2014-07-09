@@ -85,7 +85,7 @@ class TestPacket (DnTest):
                 _layout = ( ("b", "dupname", 2),)
 
     def test_badlayout4 (self):
-        # Field types that are a class must have a specified length
+        # Field types that are a class must have a decode method
         with self.assertRaises (TypeError):
             class foo (packet.Packet):
                 _layout = ( (int, "name"),)
