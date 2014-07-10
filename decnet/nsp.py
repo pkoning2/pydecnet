@@ -235,7 +235,6 @@ class ConnInit (ConnMsg):
 class ConnConf (ConnMsg):
     _layout = (( "i", "data_ctl", 16 ),)    # CC payload is an I field
     subtype = NspHdr.CC
-    srcaddr = None    # Cancel the fixed 0 in ConnInit
 
 class DiscConf (NspHdr):
     _layout = (( "b", "dstaddr", 2 ),

@@ -342,3 +342,99 @@ class test_packets (DnTest):
         with self.assertRaises (events.Event) as e:
             nsp.LinkSvcMsg (p)
         self.assertEqual (e.exception.event, events.Event.fmt_err)
+
+    def test_ci (self):
+        p = b"\x18\x00\x00\x03\x00\x05\x02\x04\x02payload"
+        ci = nsp.ConnInit (p)
+        self.assertEqual (ci.subtype, nsp.NspHdr.CI)
+        self.assertEqual (ci.srcaddr, 3)
+        self.assertEqual (ci.fcopt, 1)
+        self.assertEqual (ci.info, 2)
+        self.assertEqual (ci.segsize, 516)
+        self.assertEqual (ci.payload, b"payload")
+        # encode
+        ci = nsp.ConnInit (srcaddr = 3, fcopt = 1, info = 2, segsize = 516,
+                           payload = b"payload", subtype = nsp.NspHdr.CI)
+        self.assertEqual (bytes (ci), p)
+        # Ditto but Retransmitted CI
+        pr = b"\x68\x00\x00\x03\x00\x05\x02\x04\x02payload"
+        ci = nsp.ConnInit (pr)
+        self.assertEqual (ci.subtype, nsp.NspHdr.RCI)
+        self.assertEqual (ci.srcaddr, 3)
+        self.assertEqual (ci.fcopt, 1)
+        self.assertEqual (ci.info, 2)
+        self.assertEqual (ci.segsize, 516)
+        self.assertEqual (ci.payload, b"payload")
+        # encode
+        ci = nsp.ConnInit (srcaddr = 3, fcopt = 1, info = 2, segsize = 516,
+                           payload = b"payload", subtype = nsp.NspHdr.RCI)
+        self.assertEqual (ci.encode (), pr)
+
+    def test_cc (self):
+        p = b"\x28\x0b\x00\x03\x00\x05\x02\x04\x02\x07payload"
+        cc = nsp.ConnConf (p)
+        self.assertEqual (cc.dstaddr, 11)
+        self.assertEqual (cc.srcaddr, 3)
+        self.assertEqual (cc.fcopt, 1)
+        self.assertEqual (cc.info, 2)
+        self.assertEqual (cc.segsize, 516)
+        self.assertEqual (cc.data_ctl, b"payload")
+        # encode
+        cc = nsp.ConnConf (dstaddr = 11, srcaddr = 3, fcopt = 1,
+                           info = 2, segsize = 516,
+                           data_ctl = b"payload")
+        self.assertEqual (bytes (cc), p)
+
+    def test_di (self):
+        # No payload, just a reason code
+        p = b"\x38\x0b\x00\x03\x00\x05\x00\x00"
+        di = nsp.DiscInit (p)
+        self.assertEqual (di.dstaddr, 11)
+        self.assertEqual (di.srcaddr, 3)
+        self.assertEqual (di.reason, 5)
+        self.assertEqual (di.data_ctl, b"")
+        # With session control payload
+        p = b"\x38\x0b\x00\x03\x00\x05\x00\x07payload"
+        di = nsp.DiscInit (p)
+        self.assertEqual (di.dstaddr, 11)
+        self.assertEqual (di.srcaddr, 3)
+        self.assertEqual (di.reason, 5)
+        self.assertEqual (di.data_ctl, b"payload")
+        # encode
+        di = nsp.DiscInit (dstaddr = 11, srcaddr = 3, reason = 5,
+                           data_ctl = b"payload")
+        self.assertEqual (bytes (di), p)
+
+    def test_dc (self):
+        p = b"\x48\x0b\x00\x03\x00\x05\x00"
+        dc = nsp.DiscConf (p)
+        self.assertEqual (dc.dstaddr, 11)
+        self.assertEqual (dc.srcaddr, 3)
+        self.assertEqual (dc.reason, 5)
+        # encode
+        dc = nsp.DiscConf (dstaddr = 11, srcaddr = 3, reason = 5)
+        self.assertEqual (bytes (dc), p)
+        # Check the special cases, which are like DC but with
+        # predefined reason codes
+        # No Resources (1)
+        p = b"\x48\x0b\x00\x03\x00\x01\x00"
+        dc = nsp.NoRes (p)
+        self.assertEqual (dc.dstaddr, 11)
+        self.assertEqual (dc.srcaddr, 3)
+        dc = nsp.NoRes (dstaddr = 11, srcaddr = 3)
+        self.assertEqual (dc.encode (), p)
+        # Disconnect Complete (42)
+        p = b"\x48\x0b\x00\x03\x00\x2a\x00"
+        dc = nsp.DiscComp (p)
+        self.assertEqual (dc.dstaddr, 11)
+        self.assertEqual (dc.srcaddr, 3)
+        dc = nsp.DiscComp (dstaddr = 11, srcaddr = 3)
+        self.assertEqual (dc.encode (), p)
+        # No Link Terminate (43)
+        p = b"\x48\x0b\x00\x03\x00\x2b\x00"
+        dc = nsp.NoLink (p)
+        self.assertEqual (dc.dstaddr, 11)
+        self.assertEqual (dc.srcaddr, 3)
+        dc = nsp.NoLink (dstaddr = 11, srcaddr = 3)
+        self.assertEqual (dc.encode (), p)
+        
