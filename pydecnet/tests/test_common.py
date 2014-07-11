@@ -84,8 +84,7 @@ class TestMacaddr (DnTest):
 
     def test_newnodeid (self):
         c = common.Macaddr (common.Nodeid (1, 24))
-        p3 = common.Nodeid (42)
-        self.assertRaises (ValueError, common.Macaddr, p3)
+        c = common.Macaddr (common.Nodeid (42))
 
     def test_newbytes (self):
         a = common.Macaddr (b"abcdef")

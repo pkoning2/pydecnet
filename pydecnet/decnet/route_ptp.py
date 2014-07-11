@@ -10,6 +10,7 @@ from .common import *
 from . import packet
 from .routing_packets import *
 from .events import *
+from . import adjacency
 from . import datalink
 from . import timers
 from . import statemachine
@@ -36,16 +37,19 @@ class PtpCircuit (statemachine.StateMachine):
     to applying the Phase II backward compatibility rules given in the
     Phase III routing spec.
     """
+    prio = 0    # For commonality with BC circuit hello processing
+    T3MULT = PTP_T3MULT
+    pkttype = ShortData
+    
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
         self.node = parent.node
         self.name = name
-        self.hellotime = config.t3 or 60
-        self.t4 = self.hellotime * 3
-        self.tiver = None
-        self.blksize = self.nodeid = 0
+        self.t3 = config.t3 or 60
+        self.timer = 0
+        self.tiver = self.adj = None
+        self.blksize = self.id = 0
         self.verif = config.verify
-        self.hellotimer = timers.CallbackTimer (self.sendhello, None)
         self.datalink = datalink.create_port (self)
         if self.node.phase == 2:
             self.initmsg = NodeInit (srcnode = parent.tid,
@@ -66,7 +70,7 @@ class PtpCircuit (statemachine.StateMachine):
             else:
                 self.initmsg = PtpInit (srcnode = parent.nodeid,
                                         ntype = parent.ntype,
-                                        timer = self.hellotime,
+                                        timer = self.t3,
                                         tiver = parent.tiver,
                                         verif = self.verif,
                                         blksize = MTU,
@@ -76,8 +80,8 @@ class PtpCircuit (statemachine.StateMachine):
         return "{0.name}".format (self)
 
     def restart (self, msg = None, **kwargs):
-        if self.state == self.ru:
-            self.down (**kwargs)
+        if self.state == self.ru and self.adj:
+            self.adj.down ()
         else:
             self.node.logevent (entity = self, **kwargs)
         if msg:
@@ -93,13 +97,13 @@ class PtpCircuit (statemachine.StateMachine):
         hdrs = ':'.join ([ "{:02X}".format (i) for i in hdrb ])
         logging.debug ("packet format error: %s", hdrs)
         self.node.logevent (Event.fmt_err, self,
-                            adjacent_node = self.node.nodeinfo (self.nodeid),
+                            adjacent_node = self.node.nodeinfo (self.id),
                             packet_beginning = hdrs)
         
     def start (self):
         # Put in some dummy values until we hear from the neighbor
         self.ntype = ENDNODE
-        self.nodeid = 0
+        self.id = 0
         self.node.addwork (Start (self))
 
     def stop (self):
@@ -107,16 +111,17 @@ class PtpCircuit (statemachine.StateMachine):
 
     def send (self, pkt, dstnode, tryhard = False):
         # Note that the function signature must match that of
-        # EndnodeLanCircuit.send.
+        # LanCircuit.send.
         if self.state == self.ru:
             if self.rphase < 4:
                 # Neighbor is Phase 3 or older, so we have its address
                 # as an 8-bit value.  Force destination address to
-                # the old size.
+                # the old form.
                 dstnode = Nodeid (0, dstnode.tid)
                 pkt.dstnode = dstnode
-            if self.ntype in (ENDNODE, PHASE2) and dstnode != self.nodeid:
-                logging.debug ("Sending packet %s to wrong address %s (expected %s)", pkt, dstnode, self.nodeid)
+            if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
+                logging.debug ("Sending packet %s to wrong address %s "
+                               "(expected %s)", pkt, dstnode, self.id)
                 return
             if self.ntype == PHASE2:
                 pkt = pkt.payload
@@ -282,9 +287,9 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, Start):
             self.datalink.open ()
-            self.t4 = self.hellotime * 3
-            self.tiver = None
-            self.node.timers.start (self, self.t4)
+            self.tiver = self.adj = None
+            self.timer = 0     # No remote hello timer value received
+            self.node.timers.start (self, self.t3)
             return self.ds
 
     s0 = ha    # "halted" is the initial state
@@ -301,6 +306,7 @@ class PtpCircuit (statemachine.StateMachine):
             # for up, False for down.
             if item.status:
                 self.datalink.send (self.initmsg)
+                self.node.timers.start (self, self.t3)
                 return self.ri
             return self.restart ("datalink down")
         elif isinstance (item, Shutdown):
@@ -352,17 +358,20 @@ class PtpCircuit (statemachine.StateMachine):
                     self.init_fail += 1
                     return self.restart ("node id out of range",
                                          event = Event.init_fault,
-                                         node = self.node.nodeinfo (self.nodeid),
+                                         node = self.node.nodeinfo (self.id),
                                          reason = "address_out_of_range")
                 if self.node.phase == 4:
-                    self.nodeid = Nodeid (self.parent.homearea,
+                    self.id = Nodeid (self.parent.homearea,
                                           pkt.srcnode)
                 else:
-                    self.nodeid = Nodeid (pkt.srcnode)
+                    self.id = Nodeid (pkt.srcnode)
                 self.tiver = pkt.tiver
+                # Create the adjacency.  Note that it is not set to "up"
+                # yet, that happens on transition to RU state.
+                self.adj = adjacency.Adjacency (self, self)
                 if pkt.verif:
                     # Verification requested
-                    verif = self.node.nodeinfo (self.nodeid).overif
+                    verif = self.node.nodeinfo (self.id).overif
                     if not verif:
                         logging.trace ("%s verification requested but not set, attempting null string", self.name)
                         verif = ""
@@ -370,8 +379,8 @@ class PtpCircuit (statemachine.StateMachine):
                     self.datalink.send (vpkt)
                 # If we requested verification, wait for that.
                 if self.initmsg.verif:
+                    self.node.timers.start (self, self.t3)
                     return self.rv
-                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             elif isinstance (pkt, (PtpInit, PtpInit3)):
@@ -381,8 +390,8 @@ class PtpCircuit (statemachine.StateMachine):
                         # If we're phase 3 or below, ignore phase 4 init
                         logging.trace ("Ignoring phase 4 init")
                         return
-                    self.t4 = pkt.timer * T3MULT
                     self.rphase = 4
+                    self.timer = pkt.timer
                     self.hellomsg = PtpHello (srcnode = self.parent.nodeid,
                                               testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
@@ -403,16 +412,15 @@ class PtpCircuit (statemachine.StateMachine):
                         self.init_fail += 1
                         return self.restart ("node id out of range",
                                              event = Event.init_fault,
-                                             node = self.node.nodeinfo (self.nodeid),
+                                             node = self.node.nodeinfo (self.id),
                                              reason = "address_out_of_range")
-                    self.nodeid = pkt.srcnode
+                    self.id = pkt.srcnode
                 else:
                     # Phase 3
                     if self.node.phase < 3:
                         # If we're phase 2, ignore phase 3 init
                         logging.trace ("Ignoring phase3 init")
                         return
-                    self.t4 = self.t3 * T3MULT
                     self.rphase = 3
                     self.hellomsg = PtpHello (srcnode = self.parent.tid,
                                               testdata = b'\252' * 10)
@@ -427,14 +435,14 @@ class PtpCircuit (statemachine.StateMachine):
                         self.init_fail += 1
                         return self.restart ("node id out of range",
                                              event = Event.init_fault,
-                                             node = self.node.nodeinfo (self.nodeid),
+                                             node = self.node.nodeinfo (self.id),
                                              reason = "address_out_of_range")
                     if pkt.ntype == L1ROUTER and \
                        pkt.blksize < self.parent.maxnodes * 2 + 6:
                         self.init_fail += 1
                         return self.restart ("node id out of range",
                                              event = Event.init_fault,
-                                             node = self.node.nodeinfo (self.nodeid),
+                                             node = self.node.nodeinfo (self.id),
                                              reason = "block_size_too_small")
                     if self.node.phase > 3:
                         # We're phase 4 and neighbor is Phase 3,
@@ -450,16 +458,16 @@ class PtpCircuit (statemachine.StateMachine):
                                             blksize = MTU)
                         self.datalink.send (initmsg)
                     if self.node.phase == 4:
-                        self.nodeid = Nodeid (self.parent.homearea,
+                        self.id = Nodeid (self.parent.homearea,
                                               pkt.srcnode.tid)
                     else:
-                        self.nodeid = Nodeid (pkt.srcnode.tid)
+                        self.id = Nodeid (pkt.srcnode.tid)
                 self.ntype = pkt.ntype
                 self.blksize = self.minrouterblk = pkt.blksize
                 self.tiver = pkt.tiver
                 if pkt.verif:
                     # Verification requested
-                    verif = self.node.nodeinfo (self.nodeid).overif
+                    verif = self.node.nodeinfo (self.id).overif
                     if not verif:
                         logging.trace ("%s verification requested but not set,"
                                        " attempting null string", self.name)
@@ -467,11 +475,13 @@ class PtpCircuit (statemachine.StateMachine):
                     vpkt = PtpVerify (fcnval = verif)
                     self.setsrc (vpkt)
                     self.datalink.send (vpkt)
+                # Create the adjacency.  Note that it is not set to "up"
+                # yet, that happens on transition to RU state.
+                self.adj = adjacency.Adjacency (self, self)
                 # If we requested verification, wait for that.
                 if self.initmsg.verif:
+                    self.node.timers.start (self, self.t3)
                     return self.rv
-                self.node.timers.start (self, self.t4)
-                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             else:
@@ -496,19 +506,19 @@ class PtpCircuit (statemachine.StateMachine):
             self.init_fail += 1
             return self.restart ("verification timeout",
                                  event = Event.ver_rej, 
-                                 node = self.node.nodeinfo (self.nodeid),
+                                 node = self.node.nodeinfo (self.id),
                                  reason = "verification_timeout")
         elif isinstance (item, Received):
             # Process received packet
             pkt = item.packet
-            verif = self.node.nodeinfo (self.nodeid).iverif
+            verif = self.node.nodeinfo (self.id).iverif
             if not verif:
                 logging.debug ("%s verification required but not set",
                                self.name)
                 self.init_fail += 1
                 return self.restart ("verification reject",
                                      event = Event.ver_rej, 
-                                    node = self.node.nodeinfo (self.nodeid),
+                                    node = self.node.nodeinfo (self.id),
                                     reason = "verification_required")
             if isinstance (pkt, PtpVerify) and self.rphase > 2:
                 if pkt.fcnval != verif:
@@ -517,10 +527,8 @@ class PtpCircuit (statemachine.StateMachine):
                     self.init_fail += 1
                     return self.restart ("verification reject",
                                          event = Event.ver_rej, 
-                                         node = self.node.nodeinfo (self.nodeid),
+                                         node = self.node.nodeinfo (self.id),
                                          reason = "invalid_verification")
-                self.node.timers.start (self, self.t4)
-                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru
             elif isinstance (pkt, NodeVerify) and self.rphase == 2:
@@ -531,9 +539,8 @@ class PtpCircuit (statemachine.StateMachine):
                     self.init_fail += 1
                     return self.restart ("verification reject",
                                          event = Event.ver_rej, 
-                                         node = self.node.nodeinfo (self.nodeid),
+                                         node = self.node.nodeinfo (self.id),
                                          reason = "invalid_verification")
-                self.node.timers.start (self.hellotimer, self.hellotime)
                 self.up ()
                 return self.ru                
             else:
@@ -553,8 +560,9 @@ class PtpCircuit (statemachine.StateMachine):
         """Running state.  The circuit is up at the routing control layer.
         """
         if isinstance (item, timers.Timeout):
-            # Process listen timeout
-            return self.restart ("timeout")
+            # Process hello timer expiration
+            self.sendhello ()
+            return
         elif isinstance (item, Received):
             if self.rphase == 2:
                 # Process received packet from Phase II node.
@@ -567,14 +575,13 @@ class PtpCircuit (statemachine.StateMachine):
                     # made up here instead.
                     # TODO: handle intercept mode operation.
                     pkt = ShortData (dstnode = self.parent.nodeid,
-                                     srcnode = self.nodeid, rts = 0, visit = 1,
+                                     srcnode = self.id, rts = 0, visit = 1,
                                      payload = item.packet, src = self)
                     logging.trace ("Phase II data packet to routing: %s", pkt)
                     self.parent.dispatch (pkt)
                     return
             # Process received packet.  Restart the listen timer if not phase 2.
-            if self.rphase > 2:
-                self.node.timers.start (self, self.t4)
+            self.adj.alive ()
             pkt = item.packet
             if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
                and self.rphase > 2:
@@ -612,9 +619,7 @@ class PtpCircuit (statemachine.StateMachine):
                     self.down ()
                     logging.trace ("%s restart due to init message, using init workaround", self.name)
                     # Next 3 lines lifted from "HA" state handler
-                    self.t4 = self.hellotime * 3
                     self.tiver = None
-                    self.node.timers.start (self, self.t4)
                     # Fake a datalink up notification to generate init packet
                     self.node.addwork (datalink.DlStatus (self, status = True))
                     self.node.addwork (Received (self, packet = pkt))
@@ -629,13 +634,33 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.close ()
             return self.ha
 
-    def sendhello (self, unused):
-        """CallbackTimer handler to send periodic hello messages.
+    def sendhello (self):
+        """Handler to send periodic hello messages.
         """
         if self.state == self.ru:
             self.datalink.send (self.hellomsg)
-            self.node.timers.start (self.hellotimer, self.hellotime)
+            self.node.timers.start (self, self.t3)
 
+    def up (self):
+        """We're done initializing with the neighbor.  Set the adjacency
+        to "up", and start the hello timer.
+        """
+        self.adj.up ()
+        self.node.timers.start (self, self.t3)
+
+    def down (self):
+        """Take the adjacency down. 
+        """
+        self.adj.down ()
+        self.adj = None
+
+    def adj_timeout (self, adj):
+        """Take the adjacency down and restart the circuit.  This is
+        called by adjacency listen timeout.
+        """
+        self.adj = None
+        self.restart ("timeout")
+        
     def html (self, what, first):
         if first:
             hdr = """<tr><th>Name</th><th>Cost</th>
@@ -646,13 +671,13 @@ class PtpCircuit (statemachine.StateMachine):
         else:
             hdr = ""
         if self.state == self.ru:
-            neighbor = str (self.node.nodeinfo (self.nodeid))
+            neighbor = str (self.node.nodeinfo (self.id))
         else:
             neighbor = ""
         ntype = ntypestrings[self.ntype]
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
-        <td>{1}</td><td>{2}</td><td>{0.hellotime}</td><td>{0.blksize}</td>
-        <td>{0.t4}</td><td>{0.tiver}</td>
+        <td>{1}</td><td>{2}</td><td>{0.t3}</td><td>{0.blksize}</td>
+        <td>{0.adj.t4}</td><td>{0.tiver}</td>
         <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype)
         return hdr + s
     
