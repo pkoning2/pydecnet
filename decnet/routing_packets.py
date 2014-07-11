@@ -94,7 +94,9 @@ class PtpInit3 (CtlHdr):
                ( "i", "reserved", 64 ))
     type = 0
     blo = 0
-    
+    # Defined in phase IV hello, supply dummy value for commonality
+    timer = 0
+
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
                ( "i", "fcnval", 64 ))
@@ -308,6 +310,8 @@ class EndnodeHello (CtlHdr):
     type = 6
     hiid = HIORD
     ntype = ENDNODE
+    # Only meaningful for router hellos, but defined here for commonality
+    prio = 0
 
 class NodeInit (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),
@@ -328,7 +332,7 @@ class NodeInit (packet.Packet):
     msgflag = 0x58
     starttype = 1
     # These two are field of Phase 3/4 messages, but are implied here.
-    ntype = ENDNODE
+    ntype = PHASE2
     tiver = tiver_ph2
 
 class NodeVerify (packet.Packet):

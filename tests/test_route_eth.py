@@ -37,6 +37,9 @@ class lantest (DnTest):
         self.c.parent = self.node
         self.c.node = self.node
         self.c.t3 = 15
+        self.c.adj_down = 0
+        self.c.log_adj_up = unittest.mock.Mock ()
+        self.c.log_adj_down = unittest.mock.Mock ()
         self.c.name = "lan-0"
         self.c.start ()
         
@@ -110,9 +113,8 @@ class test_end (lantest):
         self.assertIsInstance (p, EndnodeHello)
         self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
-        # DR timeout is in the common routing code, which isn't tested here.
-        # So prod the relevant API call instead of doing the actual timeout.
-        self.c.dr_down ()
+        # Send timeout to DR adjacency object
+        self.c.dr.dispatch (Timeout (owner = self.c.dr))
         self.c.dispatch (Timeout (owner = self.c))
         p, dest = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, EndnodeHello)
@@ -244,8 +246,9 @@ class test_end (lantest):
         self.assertFalse (self.c.prevhops)
         # Send again, this should go to DR
         self.c.send (pkt, pkt.dstnode)
-        p, dest = self.lastsent (self.c.dr, 1)
-        
+        p, dest = self.lastsent (self.cp, 6)
+        self.assertEqual (dest, Macaddr (Nodeid (1, 2)))
+
     def test_rnd (self):
         for i in range (rcount):
             pkt = randpkt (rmin, rmax)
@@ -258,6 +261,9 @@ class t_RoutingLanCircuit (route_eth.RoutingLanCircuit, Element):
         Element.__init__ (self, parent)
         route_eth.RoutingLanCircuit.__init__ (self, parent, name, datalink,
                                               config)
+        self.adj_down = 0
+        self.log_adj_up = unittest.mock.Mock ()
+        self.log_adj_down = unittest.mock.Mock ()
 
 class test_routing (lantest):
     ntype = L1ROUTER
@@ -414,7 +420,7 @@ class test_routing (lantest):
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
-        # we're now DR
+        # we're now DR.
         self.c.dispatch (Timeout (owner = self.c))
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
@@ -451,7 +457,7 @@ class test_routing (lantest):
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
-        # we're now DR
+        # we're now DR.
         self.c.dispatch (Timeout (owner = self.c))
         p1 = self.last2sent (3, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))

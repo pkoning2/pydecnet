@@ -11,11 +11,38 @@ import sys
 from .common import *
 from .routing_packets import *
 from .events import *
+from . import adjacency
 from . import datalink
 from . import timers
 from . import statemachine
 from . import route_ptp
 from . import route_eth
+
+internals = """
+Notes on circuits and adjacencies.
+
+The DECnet Routing architecture spec makes a bit of a muddle about
+circuits and adjacencies and the way route data is kept.  It seems
+to come from an attempt to model what's likely to be implemented
+in a tight memory environment, rather than to give a description
+that's maximally simple.
+
+In this implementation, we have circuit objects that store only
+circuit things, and adjacency objects to record information about
+a given neighbor.  This means, for example, that for a point to point
+circuit there is an adjacency (one), describing that neighbor, instead
+of keeping that data as part of the circuit.
+
+Similarly, we try to keep the distinction between endnode adjacencies
+and router adjacencies as small as possible.
+
+Basically, adjacencies all have some common behavior: they appear and
+disappear, they have an associated timeout that makes the adjacency
+go away on expiration, you can send things to the adjacency.
+
+*** adjacency created in sublayer, when node heard from.  routing.adj_up
+called when ready for routing upper layer.
+"""
 
 def allocvecs (maxidx):
     hops = bytearray (maxidx + 1)
@@ -28,229 +55,40 @@ def setinf (hops, cost):
         hops[i] = INFHOPS
         cost[i] = INFCOST
 
-class CirAdj (object):
-    """Base class for what is common between point to point circuits
-    and LAN adjacencies.
+class SelfAdj (adjacency.Adjacency):
+    """A pseudo-adjacency used to describe the local node.
     """
-    def __init__ (self, circuit):
-        self.circuit = circuit
-        self.routing = circuit.routing
-        
-    def up (self, nodeid = None, ntype = None, **kwargs):
-        if ntype is not None:
-            self.nodeid = nodeid
-            self.ntype = ntype
-        self.log_up (**kwargs)
-
-    def down (self, **kwargs):
-        self.log_down (**kwargs)
-    
-class L1CirAdj (CirAdj):
-    """Circuit/Adjacency common behavior on L1 routers (or the L1 part
-    of area routers).
-    """
-    def __init__ (self, circuit):
-        CirAdj.__init__ (self, circuit)
-        self.hops, self.cost = allocvecs (self.routing.maxnodes)
-        self.routeinfo = RouteInfo (self)
-
-    def up (self, nodeid = None, ntype = None, **kwargs):
-        CirAdj.up (self, nodeid, ntype, **kwargs)
-        if self.ntype == ENDNODE:
-            id = self.nodeid.tid
-            circ = self.circuit
-            circ.hops[id] = 1
-            circ.cost[id] = circ.config.cost
-            self.routing.l1info[circ] = circ.routeinfo
-            self.routing.route (id)
-        else:
-            setinf (self.hops, self.cost)
-            self.routeinfo.nodeid = self.nodeid
-            self.circuit.setsrm (0, self.routing.maxnodes)
-            self.routing.l1info[self] = self.routeinfo
-        
-    def down (self, **kwargs):
-        CirAdj.down (self, **kwargs)
-        if self.ntype == ENDNODE:
-            id = self.nodeid.tid
-            circ = self.circuit
-            circ.hops[id] = INFHOPS
-            circ.cost[id] = INFCOST
-            self.routing.route (id)
-        else:
-            if self.nodeid.area == self.routing.homearea:
-                try:
-                    del self.routing.l1info[self]
-                except KeyError:
-                    # If this adjacency is current in INIT state,
-                    # it won't be in the l1info dict, so ignore any
-                    # exception resulting from that.
-                    pass
-            self.routing.route (0, self.routing.maxnodes)
-
-class L2CirAdj (L1CirAdj):
-    """The additional adjacency/circuit common behavior for an area router.
-    """
-    def __init__ (self, circuit):
-        L1CirAdj.__init__ (self, circuit)
-        self.ahops, self.acost = allocvecs (self.routing.maxarea)
-        self.arouteinfo = RouteInfo (self, l2 = True)
-    
-    def up (self, nodeid = None, ntype = None, **kwargs):
-        L1CirAdj.up (self, nodeid, ntype, **kwargs)
-        setinf (self.ahops, self.acost)
-        if self.ntype == L2ROUTER:
-            self.circuit.setasrm (0, self.routing.maxarea)
-            self.routing.l2info[self] = self.arouteinfo
-
-    def down (self, **kwargs):
-        L1CirAdj.down (self, **kwargs)
-        if self.ntype == L2ROUTER:
-            try:
-                del self.routing.l2info[self]
-            except KeyError:
-                # If this adjacency is current in INIT state,
-                # it won't be in the l2info dict, so ignore any
-                # exception resulting from that.
-                pass
-            self.routing.aroute (0, self.routing.maxarea)
-
-class _Adjacency (Element, timers.Timer):
-    """DECnet broadcast adjacency base class.  Its parent (owner) is
-    the circuit to which this adjacency belongs.  We only use these
-    for LANs; for point to point, the circuit does double duty to
-    carry the adjacency related data.  This base class is used along with
-    one of the CirAdj classes to derive the adjacency classes actually
-    used by Routing.
-    """
-    def __init__ (self, circuit, hellomsg):
-        """Create an adjacency based on the information in the hello
-        message that announced the node.
-        """
-        Element.__init__ (self, circuit)
+    def __init__ (self, routing):
+        Element.__init__ (self, routing)
         timers.Timer.__init__ (self)
-        self.circuit = circuit
-        self.t4 = hellomsg.timer * BCT3MULT
-        self.blksize = hellomsg.blksize
-        self.nodeid = hellomsg.id
-        self.ntype = hellomsg.ntype
-        self.tiver = hellomsg.tiver
-        self.macid = Macaddr (self.nodeid)
-        self.priority = 0
-        
-    def __str__ (self):
-        return "{0.nodeid}".format (self)
-
-    def __format__ (self, fmt):
-        # A bit of a hack: "format" gives you a longer string than "str"
-        return "{0.circuit} {0.nodeid}".format (self)
-    
-    def html (self, what, first):
-        if first:
-            hdr = """<tr><th>Neighbor</th><th>Type</th><th>Block size</th>
-            <th>Priority</th><th>Listen time</th><th>Version</th></tr>"""
-        else:
-            hdr = ""
-        neighbor = str (self.node.nodeinfo (self.nodeid))
-        ntype = ntypestrings[self.ntype]
-        s = """<tr><td>{1}</td><td>{2}</td>
-        <td>{0.blksize}</td><td>{0.priority}</td><td>{0.t4}</td>
-        <td>{0.tiver}</td></tr>""".format (self, neighbor, ntype)
-        return hdr + s
-
-    def __eq__ (self, other):
-        if isinstance (other, self.__class__):
-            return self.circuit == other.circuit and \
-                   self.nodeid == other.nodeid
-        else:
-            return super ().__eq__ (other)
-
-    def __hash__ (self):
-        return hash ((id (self.circuit), self.nodeid))
+        # Note that we don't call the Adjacency constructor
+        # Instead, some of the things it does are done here in
+        # a slightly different way, and a lot of things are omitted
+        self.circuit = None
+        self.routing = routing
+        self.nodeid = routing.nodeid
+        self.ntype = routing.ntype
+        self.tiver = routing.tiver
+        self.t4 = 100    # dummy value just in case someone calls alive()
 
     def dispatch (self, item):
         """Work item handler.
         """
-        if isinstance (item, timers.Timeout):
-            self.down (reason = "listener_timeout")
-
-    def down (self):
-        """Adjacency down -- stop listen timer
-        """
-        self.node.timers.stop (self)
-        
-    def alive (self):
-        """Mark this adjacency as alive -- restart its listen timeout.
-        """
-        self.node.timers.start (self, self.t4)
+        pass    # self adjacency doesn't time out
 
     def send (self, pkt):
-        """Send the supplied packet on this adjacency.  If it has a short
-        header, give it a long header instead.
+        """Forwarding to self, which means pass up to NSP.
         """
-        if isinstance (pkt, ShortData):
-            pkt = LongData (copy = pkt, payload = pkt.payload)
-        logging.trace ("Sending %d byte packet to %s: %s",
-                       len (pkt), self.macid, pkt)
-        self.circuit.datalink.send (pkt, dest = self.macid)
-
-    def log_up (self, **kwargs):
-        self.node.logevent (Event.adj_up, self.circuit,
-                            adjacent_node = self.node.nodeinfo (self.nodeid),
-                            **kwargs)
-
-    def log_down (self, **kwargs):
-        self.circuit.adj_down += 1
-        self.node.logevent (Event.adj_down, self.circuit,
-                            adjacent_node = self.node.nodeinfo (self.nodeid),
-                            **kwargs)
-    
-class EndnodeAdjacency (CirAdj, _Adjacency):
-    """Adjacency class as used on endnodes.
-    """
-    def __init__ (self, circuit, hellomsg):
-        """Create an adjacency on an endnode, and mark it as "up"
-        """
-        CirAdj.__init__ (self, circuit)
-        _Adjacency.__init__ (self, circuit, hellomsg)
-        self.up ()
-
-    def down (self, **kwargs):
-        _Adjacency.down (self)
-        self.circuit.dr_down ()
+        # Note that local packets (originating here and terminating
+        # here as well) are not counted since there isn't any circuit
+        # on which to count them.
+        if pkt.src.circuit:
+            pkt.src.circuit.term_recv += 1
+        work = Received (self.node.nsp, packet = pkt,
+                         src = pkt.srcnode, rts = pkt.rts)
+        self.node.addwork (work, self.node.nsp)
         
-class L1Adjacency (L1CirAdj, _Adjacency):
-    """Adjacency class as used on level 1 routers.
-    """
-    def __init__ (self, circuit, hellomsg):
-        L1CirAdj.__init__ (self, circuit)
-        _Adjacency.__init__ (self, circuit, hellomsg)
-        if self.ntype != ENDNODE:
-            self.priority = hellomsg.prio
 
-    def up (self, **kwargs):
-        L1CirAdj.up (self, **kwargs)
-        if self.ntype == ENDNODE:
-            # Add this adjacency to the BEA list
-            self.circuit.bea[self.nodeid.tid] = self
-            
-    def down (self, **kwargs):
-        _Adjacency.down (self)
-        L1CirAdj.down (self, **kwargs)
-        self.circuit.adjacency_down (self, **kwargs)
-            
-class L2Adjacency (L2CirAdj, L1Adjacency):
-    """Adjacency class as used on area routers.
-    """
-    def __init__ (self, circuit, hellomsg):
-        L2CirAdj.__init__ (self, circuit)
-        L1Adjacency.__init__ (self, circuit, hellomsg)
-    
-    def down (self, **kwargs):
-        _Adjacency.down (self)
-        L2CirAdj.down (self, **kwargs)
-        self.circuit.adjacency_down (self, **kwargs)
-            
 class Circuit (Element):
     """Base class for all routing layer circuits.
     """
@@ -266,13 +104,25 @@ class Circuit (Element):
         #self.term_cong = self.trans_cong = 0    # congestion loss, needed?
         self.cir_down = self.adj_down = self.init_fail = 0
 
-    def log_up (self, **kwargs):
+    # "adj" is a defaulted keyword argument in the next two, so they
+    # can be used as alternates for the log_adj_up/down methods.
+    def log_up (self, adj = None, **kwargs):
         self.node.logevent (Event.circ_up, self, **kwargs)
 
-    def log_down (self, **kwargs):
+    def log_down (self, adj = None, **kwargs):
         self.cir_down += 1
         self.node.logevent (Event.circ_down, self, **kwargs)
     
+    def log_adj_up (self, adj, **kwargs):
+        self.node.logevent (Event.adj_up, self,
+                            adjacent_node = self.node.nodeinfo (adj.nodeid),
+                            **kwargs)
+
+    def log_adj_down (self, adj, **kwargs):
+        self.node.logevent (Event.adj_down, self,
+                            adjacent_node = self.node.nodeinfo (adj.nodeid),
+                            **kwargs)
+
 class L1Circuit (Circuit):
     """The routing layer circuit behavior for a circuit in a level 1
     router (or the level 1 functionality of an area router).
@@ -292,51 +142,50 @@ class L2Circuit (L1Circuit):
 # With all the building blocks in place, define the classes to use
 # for the routing circuits for various routing layer configs
 
-class PtpEndnodeCircuit (route_ptp.PtpCircuit, CirAdj, Circuit):
+class PtpEndnodeCircuit (route_ptp.PtpCircuit, Circuit):
     """Point to point circuit on an endnode.
     """
+    # Adjacency up/down is logged as circuit up/down
+    log_adj_up = Circuit.log_up
+    log_adj_down = Circuit.log_down
+    
     def __init__ (self, parent, name, datalink, config):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
         Circuit.__init__ (self, parent, name, datalink, config)
-        CirAdj.__init__ (self, self)
         
-class PtpL1Circuit (route_ptp.PtpCircuit, L1CirAdj, L1Circuit):
+class PtpL1Circuit (route_ptp.PtpCircuit, L1Circuit):
     """Point to point circuit on a level 1 router.
     """
+    # Adjacency up/down is logged as circuit up/down
+    log_adj_up = Circuit.log_up
+    log_adj_down = Circuit.log_down
+    
     def __init__ (self, parent, name, datalink, config):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
         L1Circuit.__init__ (self, parent, name, datalink, config)
-        L1CirAdj.__init__ (self, self)
         # Use the circuit override of t1 if specified, else the
         # exec setting of t1
         t1 = config.t1 or self.routing.config.t1
         self.update = Update (self, t1, self.routing.minhops,
                               self.routing.mincost, L1Routing)
         
-class PtpL2Circuit (PtpL1Circuit, L2CirAdj, L2Circuit):
+class PtpL2Circuit (PtpL1Circuit, L2Circuit):
     """Point to point circuit on an area router.  
     """
     def __init__ (self, parent, name, datalink, config):
         PtpL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
-        L2CirAdj.__init__ (self, self)
         # Use the circuit override of t1 if specified, else the
         # exec setting of t1
         t1 = config.t1 or self.routing.config.t1
         self.aupdate = Update (self, t1, self.routing.aminhops,
                                self.routing.amincost, L2Routing)
 
-# The LAN circuits have the analogous base classes.  Note that the routing
-# versions still have a CirAdj base class -- that is used to store the
-# routing information derived from endnode adjacencies.
-# For LAN circuits, the node type (ntype) is taken to be that of the
-# local node.  When we need to know the specific type of a neighbor,
-# that information is found in the adjacency for that neighbor.
+# The LAN circuits have the analogous base classes. 
 
 class LanEndnodeCircuit (route_eth.EndnodeLanCircuit, Circuit):
     """LAN circuit on an endnode.
     """
-    Adjacency = EndnodeAdjacency
     ntype = ENDNODE
     
     def __init__ (self, parent, name, datalink, config):
@@ -344,43 +193,34 @@ class LanEndnodeCircuit (route_eth.EndnodeLanCircuit, Circuit):
         route_eth.EndnodeLanCircuit.__init__ (self, parent, name,
                                               datalink, config)
         
-class LanL1Circuit (route_eth.RoutingLanCircuit, L1CirAdj, L1Circuit):
+class LanL1Circuit (route_eth.RoutingLanCircuit, L1Circuit):
     """LAN circuit on a level 1 router.
     """
-    Adjacency = L1Adjacency
     ntype = L1ROUTER
     
     def __init__ (self, parent, name, datalink, config):
         self.nodeid = 0
         L1Circuit.__init__ (self, parent, name, datalink, config)
-        L1CirAdj.__init__ (self, self)
         route_eth.RoutingLanCircuit.__init__ (self, parent, name,
                                               datalink, config)
-        # Vector of broadcast endnode adjacencies, indexed by Tid
-        self.bea = [ None ] * (self.routing.maxnodes + 1)
         # Use the circuit override of t1 if specified, else the
         # exec setting of bct1
         t1 = config.t1 or self.routing.config.bct1
         self.update = Update (self, t1, self.routing.minhops,
                               self.routing.mincost, L1Routing)
 
-class LanL2Circuit (LanL1Circuit, L2CirAdj, L2Circuit):
+class LanL2Circuit (LanL1Circuit, L2Circuit):
     """LAN circuit on an area router.
     """
-    Adjacency = L2Adjacency
     ntype = L2ROUTER
     
     def __init__ (self, parent, name, datalink, config):
         LanL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
-        L2CirAdj.__init__ (self, self)
-        # Use the circuit override of t1 if specified, else the
-        # exec setting of bct1
-        t1 = config.t1 or self.routing.config.bct1
         self.aupdate = Update (self, t1, self.routing.aminhops,
                                self.routing.amincost, L2Routing)
         
-class _Router (Element):
+class BaseRouter (Element):
     """The routing layer.  Mainly this is the parent of a number of control
     components and collections of circuits and adjacencies.
     """
@@ -392,6 +232,8 @@ class _Router (Element):
         self.config = config.routing
         self.routing = self
         self.circuits = dict ()
+        self.adjacencies = dict ()
+        self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
         self.nodeid = config.routing.id
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea, self.tid = self.nodeid.split ()
@@ -444,6 +286,15 @@ class _Router (Element):
     def dispatch (self, item):
         pass
 
+    def adj_up (self, adj, **kwargs):
+        self.adjacencies[adj.nodeid] = adj
+    
+    def adj_down (self, adj, **kwargs):
+        try:
+            del self.adjacencies[adj.id]
+        except KeyError:
+            pass
+    
     def html (self, what):
         if what == "overall":
             whats = "summary"
@@ -461,7 +312,7 @@ class _Router (Element):
         Routing version: {0.tiver}
         </p>""".format (self, whats, hdr, ntype)
 
-class EndnodeRouting (_Router):
+class EndnodeRouting (BaseRouter):
     """Routing entity for endnodes.
     """
     LanCircuit = LanEndnodeCircuit
@@ -490,11 +341,12 @@ class EndnodeRouting (_Router):
         self.circuit.send (pkt, dest, tryhard)
 
     def dispatch (self, item):
+        """A received packet is sent up to NSP if it is for this node,
+        and ignored otherwise.
+        """
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
-                work = Received (self.node.nsp, packet = item,
-                                 src = item.srcnode, rts = item.rts)
-                self.node.addwork (work, self.node.nsp)
+                self.selfadj.send (item)
 
     def html (self, what):
         ret = [ super ().html (what) ]
@@ -508,42 +360,36 @@ class Phase3EndnodeRouting (EndnodeRouting):
     """
     LanCircuit = None    # not supported
 
-    def send (self, data, dest, rqr = False, tryhard = False):
-        """Send NSP data to the given destination.  rqr is True to
-        request return to sender (done for CI messages).  tryhard is
-        ignored in Phase III.
-        """
-        pkt = ShortData (rqr = rqr, dstnode = dest,
-                         srcnode = self.tid, visit = 0,
-                         payload = data, src = None)
-        logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
-        self.circuit.send (pkt, dest, tryhard)
-
-class Phase2Routing (_Router):
+class Phase2Routing (BaseRouter):
     """Routing entity for Phase II node.
     """
-    LanCircuit = None
+    LanCircuit = None    # not supported
     PtpCircuit = PtpEndnodeCircuit
     ntype = PHASE2
     
     def send (self, pkt, dest, rqr = False, tryhard = False):
         """Send NSP packet to the given destination. rqr and
         tryhard are ignored in Phase II.
-        Note that intercept support is TBS.
+        TODO: Intercept support.
         """
-        for c in self.circuits.values ():
-            if c.state == c.ru and dest == c.nodeid:
-                # Destination matches this circuit's neighbor, send
-                logging.trace ("Sending %d byte packet to %s: %s",
-                               len (pkt), c, pkt)
-                c.send (pkt, dest, False)
-                return
-        logging.trace ("%s unreachable: %s", dest, data)
+        try:
+            a = self.adjacencies[dest]
+            # Destination matches this adjacency, send
+            logging.trace ("Sending %d byte packet to %s: %s",
+                           len (pkt), a, pkt)
+            a.send (pkt)
+        except KeyError:
+            logging.trace ("%s unreachable: %s", dest, data)
 
     def dispatch (self, item):
+        """A received packet is sent up to NSP if it is for this node,
+        and ignored otherwise.
+        TODO: Intercept support.
+        """
         if isinstance (item, Received):
-            item.rts = False
-            self.node.addwork (item, self.node.nsp)
+            if item.dstnode == self.nodeid:
+                item.rts = False
+                self.selfadj.send (item)
 
     def html (self, what):
         ret = [ super ().html (what) ]
@@ -569,14 +415,13 @@ class RouteInfo (object):
             self.setsrm = circ.setasrm
         self.nodeid = None
             
-class L1Router (_Router, L1CirAdj):
-    """Routing entity for level 1 routers.  The L1CirAdj base class
-    provides column 0 of the routing data -- the entries for "self".
+class L1Router (BaseRouter):
+    """Routing entity for level 1 routers.
     """
     LanCircuit = LanL1Circuit
     PtpCircuit = PtpL1Circuit
     ntype = L1ROUTER
-    attached = False    # Set on L2 router, needed by check
+    attached = False    # Defined for L2 routers, needed by check
     firstnode = 0       # For routing table display
     
     def __init__ (self, parent, config):
@@ -588,30 +433,67 @@ class L1Router (_Router, L1CirAdj):
         self.maxvisits = rconfig.maxvisits
         self.minhops, self.mincost = allocvecs (rconfig.maxnodes)
         self.oadj = [ None ] * (self.maxnodes + 1)
-        _Router.__init__ (self, parent, config)
-        L1CirAdj.__init__ (self, self)
+        BaseRouter.__init__ (self, parent, config)
         self.l1info = dict ()
-        #self.adjacencies = dict ()
+        # Create the special routeinfo column that is used
+        # to record information for all the endnode adjacencies
+        self.l1info[ENDNODE] = RouteInfo (None, l2 = False)
+        
+    def adj_up (self, adj):
+        """Take the appropriate actions for an adjacency that has
+        just come up.  If it is an adjacency to a router, allocate
+        the routing control data we will need later.
+        """
+        super ().adj_up (adj)
+        if adj.ntype in { L1ROUTER, L2ROUTER }:
+            adj.routeinfo = RouteInfo (adj, l2 = False)
+            if adj is self.selfadj:
+                # The initial RouteInfo is all infinite, so set our
+                # own entries correctly.
+                tid = self.parent.nodeid.tid
+                self.routeinfo.hops[tid] = self.cost[tid] = 0
+                self.routeinfo.oadj[tid] = self
+            self.route (0, self.maxnodes)
+        else:
+            # End node and Phase II node
+            adj.routeinfo = None
+            ri = self.l1info[ENDNODE]
+            tid = adj.nodeid.tid
+            if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj:
+                # We already have an endnode here.  Curious.
+                logging.debug ("Possible duplicate endnode %s on %s and %s",
+                               adj.nodeid, adj.circuit,
+                               ri.oadj[tid].circuit)
+            ri.hops[tid] = 1
+            ri.cost[tid] = adj.circuit.cost
+            ri.oadj[tid] = adj
+            self.route (tid, tid)
 
-    # CirAdj.up calls this:
-    def log_up (self):
-        pass
-
+    def adj_down (self, adj):
+        """Take the appropriate actions for an adjacency that has
+        just gone down. 
+        """
+        super ().adj_up (adj)
+        if adj.ntype in { L1ROUTER, L2ROUTER }:
+            self.route (0, self.maxnodes)
+        else:
+            # End node and Phase II node
+            ri = self.l1info[ENDNODE]
+            tid = adj.nodeid.tid
+            ri.hops[tid] = INFHOPS
+            ri.cost[tid] = INFCOST
+            ri.oadj[tid] = None
+            self.route (tid, tid)
+        
     def up (self):
         # The routing object includes adjacency data which describes
         # "self" (the routing architecture spec shows this as column 0
         # of the routing matrix).
-        L1CirAdj.up (self)
-        # The CirAdj "up" call sets the whole column to infinite, so set our
-        # own entries correctly.
-        tid = self.parent.nodeid.tid
-        self.hops[tid] = self.cost[tid] = 0
-        self.oadj[tid] = self
+        self.adj_up (self.selfadj)
         
     def start (self):
         super ().start ()
         self.up ()
-        self.route (0, self.maxnodes)
         
     def routemsg (self, item, info, route, maxid):
         adj = item.src
@@ -646,7 +528,6 @@ class L1Router (_Router, L1CirAdj):
         pass
 
     def doroute (self, start, end, l2):
-        end = end or start
         if l2:
             routeinfodict = self.l2info
             minhops = self.aminhops
@@ -669,16 +550,7 @@ class L1Router (_Router, L1CirAdj):
                      (r.nodeid and r.nodeid > besta.nodeid))):
                     bestc = r.cost[i]
                     besth = r.hops[i]
-                    # routeinfo.adjacency is the adjacency for this
-                    # next hop, unless we're dealing with an endnode
-                    # in which case that is the circuit where the
-                    # endnode lives, and we have to look in its
-                    # broadcast adjacency table to find the actual
-                    # adjacency.  That case is flagged by the routeinfo
-                    # nodeid attribute being zero.
                     besta = r.adjacency
-                    if r.nodeid == 0:
-                        besta = besta.bea[i]
             if bestc > self.maxcost or besth > self.maxhops:
                 besth, bestc, besta = INFHOPS, INFCOST, None
             if minhops[i] != besth or mincost[i] != bestc:
@@ -726,7 +598,7 @@ class L1Router (_Router, L1CirAdj):
         rk1 = sorted ((k for k in routeinfodict.keys ()
                        if isinstance (k, Circuit)), key = str)
         rk2 = sorted ((k for k in routeinfodict.keys ()
-                       if isinstance (k, _Adjacency)), key = str)
+                       if isinstance (k, adjacency.Adjacency)), key = str)
         rkeys = [ self ] + rk1 + rk2
         first = True
         for i in range (start, end + 1):
@@ -759,23 +631,25 @@ class L1Router (_Router, L1CirAdj):
             ret.append ("</table>")
         return '\n'.join (ret)
     
-    def route (self, start, end = None):
+    def route (self, start, end):
         self.doroute (start, end, l2 = False)
 
-    def aroute (self, start, end = None):
+    def aroute (self, start, end):
         pass
     
     def check (self):
+        tid = self.nodeid.tid
+        ri = self.selfadj.routeinfo
         try:
-            tid = self.nodeid.tid
             for i in range (self.maxnodes + 1):
                 if i == tid or (self.attached and i == 0):
-                    assert self.hops[i] == self.cost[i] == 0
+                    assert ri.hops[i] == ri.cost[i] == 0
+                    assert ri.oadj[i] == self.selfadj
                 else:
-                    assert self.hops[i] == INFHOPS and self.cost[i] == INFCOST
+                    assert ri.hops[i] == INFHOPS and ri.cost[i] == INFCOST
         except AssertionError:
             logging.critical ("Check failure on L1 entry %d: %d %d",
-                              i, self.hops[i], self.cost[i])
+                              i, self.ri.hops[i], self.ri.cost[i])
             sys.exit (1)
 
     def findoadj (self, dest):
@@ -808,23 +682,13 @@ class L1Router (_Router, L1CirAdj):
         """
         dest = pkt.dstnode
         srcadj = pkt.src
-        if dest == self.nodeid:
-            # Terminating packet - hand it to NSP
-            if srcadj:
-                # Note that local packets (originating here and terminating
-                # here as well) are not counted since there isn't any circuit
-                # on which to count them.
-                pkt.src.circuit.term_recv += 1
-            work = Received (self.node.nsp, packet = pkt, src = pkt.srcnode,
-                             rts = pkt.rts)
-            self.node.addwork (work, self.node.nsp)
-            return
-        else:
-            a = self.findoadj (dest)
-            if a:
-                # Destination is reachable.  Send it, unless
-                # we're at the visit limit
-                limit = self.maxvisits
+        a = self.findoadj (dest)
+        if a:
+            # Destination is reachable.  Send it, unless
+            # we're at the visit limit
+            limit = self.maxvisits
+            if a.circuit:
+                # Forwarding (as opposed to terminating)
                 if srcadj:
                     # Forwarding (as opposed to originating)
                     pkt.visit += 1
@@ -844,26 +708,30 @@ class L1Router (_Router, L1CirAdj):
                        len (pkt), a, pkt)
                     a.send (pkt)
                     return
-            # If we get to this point, we could not forward the packet,
-            # for one of two reasons: not reachable, or too many visits.
-            # Return to sender if requested and not already underway,
-            # else drop the packet.
-            if pkt.rqr and not pkt.rts:
-                pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
-                pkt.rts = 1
-                pkt.rqr = 0
-                self.forward (pkt)
+            else:
+                # Terminating, don't count anything here.
+                a.send (pkt)
                 return
-            # FIXME: Build correct packet header argument
-            if isinstance (pkt, ShortData):
-                kwargs = { packet_header : 1234 }
-            else:
-                kwargs = { eth_packet_header : 1234 }
-            if a:
-                # Reachable, so the problem was max visits
-                self.node.logevent (aged_drop, **kwargs)
-            else:
-                self.node.logevent (unreach_drop, adjacency = srcadj, **kwargs)
+        # If we get to this point, we could not forward the packet,
+        # for one of two reasons: not reachable, or too many visits.
+        # Return to sender if requested and not already underway,
+        # else drop the packet.
+        if pkt.rqr and not pkt.rts:
+            pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
+            pkt.rts = 1
+            pkt.rqr = 0
+            self.forward (pkt)
+            return
+        # FIXME: Build correct packet header argument
+        if isinstance (pkt, ShortData):
+            kwargs = { packet_header : 1234 }
+        else:
+            kwargs = { eth_packet_header : 1234 }
+        if a:
+            # Reachable, so the problem was max visits
+            self.node.logevent (aged_drop, **kwargs)
+        else:
+            self.node.logevent (unreach_drop, adjacency = srcadj, **kwargs)
             
     def html (self, what):
         ret = [ super ().html (what) ]
@@ -937,7 +805,7 @@ class Phase3Router (L1Router):
     LanCircuit = None
     firstnode = 1       # For routing table display
     
-class L2Router (L1Router, L2CirAdj):
+class L2Router (L1Router):
     """Routing entity for level 2 (area) routers
     """
     LanCircuit = LanL2Circuit
@@ -952,28 +820,35 @@ class L2Router (L1Router, L2CirAdj):
         self.aminhops, self.amincost = allocvecs (rconfig.maxarea)
         self.aoadj = [ None ] * (self.maxarea + 1)
         L1Router.__init__ (self, parent, config)
-        L2CirAdj.__init__ (self, self)
         self.attached = False
         self.l2info = dict ()
         
-    def up (self):
-        # The routing object includes adjacency data which describes
-        # "self" (the routing architecture spec shows this as column 0
-        # of the routing matrix).
-        L2CirAdj.up (self)
-        # The CirAdj "up" call sets the whole column to infinite, so set our
-        # own entries correctly.
-        tid = self.parent.nodeid.tid
-        self.hops[tid] = self.cost[tid] = 0
-        self.oadj[tid] = self
-        area = self.nodeid.area
-        self.ahops[area] = self.acost[area] = 0
-        self.aoadj[area] = self
-        
-    def start (self):
-        super ().start ()
-        self.aroute (1, self.maxarea)
+    def adj_up (self, adj):
+        """Take the appropriate actions for an adjacency that has
+        just come up.  If it is an adjacency to a router, allocate
+        the routing control data we will need later.
+        """
+        super ().adj_up (adj)
+        if adj.ntype == L2ROUTER:
+            adj.arouteinfo = RouteInfo (adj, l2 = True)
+            if adj is self.selfadj:
+                # The initial RouteInfo is all infinite, so set our
+                # own entries correctly.
+                area = self.nodeid.area
+                self.arouteinfo.ahops[area] = self.acost[area] = 0
+                self.arouteinfo.aoadj[area] = None
+            self.aroute (1, self.maxarea)
+        else:
+            adj.arouteinfo = None
 
+    def adj_down (self, adj):
+        """Take the appropriate actions for an adjacency that has
+        just gone down. 
+        """
+        super ().adj_up (adj)
+        if adj.ntype == L2ROUTER:
+            self.aroute (1, self.maxarea)
+        
     def dispatch (self, item):
         if isinstance (item, L2Routing):
             adj = item.src
@@ -985,8 +860,26 @@ class L2Router (L1Router, L2CirAdj):
         for c in self.circuits.values ():
             c.setasrm (area, endarea)
 
-    def aroute (self, start, end = None):
+    def aroute (self, start, end):
         self.doroute (start, end, l2 = True)
+        #
+        # Calculate the value of the Attached flag.
+        #
+        # The algorithm used here is what the DNA Routing 2.0.0 spec
+        # describes.  It is actually not the best algorithm; instead
+        # a better definition of "attached" is "this node has adjacencies
+        # up to L2 routers out of area".  The difference is that the
+        # specification definition makes all L2 routers in an area
+        # "attached" as soon as the area is attached to other areas.
+        # If only one router has an out of area connection, it is the
+        # right place to forward packets going out of area, but with the
+        # spec algorithm, other L2 routers may be "nearest L2 router" for
+        # a portion of the area, which causes packets to travel farther
+        # than they should.  If only routers with out of area connections
+        # appear attached, then out of area traffic will go directly to
+        # those exits.
+        #
+        # For now, leave things per spec.
         attached = False
         for i, a in enumerate (self.aoadj):
             if a and i != self.homearea:
@@ -1000,7 +893,7 @@ class L2Router (L1Router, L2CirAdj):
             else:
                 self.hops[0] = INFHOPS
                 self.cost[0] = INFCOST
-            self.route (0)
+            self.route (0, 0)
 
     def findoadj (self, dest):
         """Find the output adjacency for this destination address.
@@ -1015,14 +908,15 @@ class L2Router (L1Router, L2CirAdj):
         try:
             area = self.nodeid.area
             for i in range (1, self.maxarea + 1):
+                ari = self.selfadj.arouteinfo
                 if i == area:
-                    assert self.ahops[i] == self.acost[i] == 0
+                    assert self.ari.ahops[i] == self.ari.acost[i] == 0
                 else:
-                    assert self.ahops[i] == INFHOPS and \
-                           self.acost[i] == INFCOST
+                    assert self.ari.ahops[i] == INFHOPS and \
+                           self.ari.acost[i] == INFCOST
         except AssertionError:
             logging.critical ("Check failure on L2 entry %d: %d %d",
-                              i, self.ahops[i], self.acost[i])
+                              i, self.ari.ahops[i], self.ari.acost[i])
             sys.exit (1)
         
     def html (self, what):
@@ -1189,7 +1083,7 @@ nodetypes = { "l1router" : L1Router,
 
 def Router (parent, config):
     """Factory function for routing layer instance.  Returns an instance
-    of the appropriate _Router subclass, depending on the supplied config.
+    of the appropriate BaseRouter subclass, depending on the supplied config.
     """
     rtype = config.routing.type
     try:

@@ -26,7 +26,7 @@ LATPROTO     = 0x6004   # used by bridge
 LOOPPROTO    = 0x9000
 HIORD = b"\xaa\x00\x04\x00"
 T2 = 1
-T3MULT = 2
+PTP_T3MULT = 2
 BCT3MULT = 3
 DRDELAY = 5
 INFHOPS = 31
@@ -215,8 +215,6 @@ class Macaddr (bytes):
             else:
                 s = bytes (int (f, 16) for f in bl)
         elif isinstance (s, Nodeid):
-            if not s.area:
-                raise ValueError ("Invalid Node ID %s for MAC address" % s)
             s = HIORD + bytes (s)
         else:
             s = bytes (s)

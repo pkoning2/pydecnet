@@ -318,7 +318,10 @@ class NSP (Element):
         self.init_id ()
         # Create the "reserved port"
         self.resport = ReservedPort (self)
-        self.nspver = (ConnMsg.VER_PH2, ConnMsg.VER_PH3, ConnMsg.VER_PH4)[self.node.phase - 2]
+        # Figure out what NSP version code we will send in CI/CC messages
+        self.nspver = (ConnMsg.VER_PH2,
+                       ConnMsg.VER_PH3,
+                       ConnMsg.VER_PH4)[self.node.phase - 2]
         
     def start (self):
         logging.debug ("Starting NSP")
@@ -353,12 +356,11 @@ class NSP (Element):
                 # (step 5)
                 try:
                     t = dcmap[pkt.reason]
-                    pkt = t (buf)
                 except KeyError:
                     # Other Disconnect Confirm, that's Phase II stuff.
-                    # Handle it as a Disconnect Initiate
-                    t = DiscInit
-                    pkt = t (buf)
+                    # Parse it as a generic DiscConf packet
+                    pass
+                pkt = t (buf)
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.

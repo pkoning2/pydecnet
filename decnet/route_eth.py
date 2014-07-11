@@ -11,6 +11,7 @@ from .common import *
 from .routing_packets import *
 from .events import *
 from . import datalink
+from . import adjacency
 from . import timers
 
 # Some well known Ethernet addresses
@@ -30,6 +31,8 @@ class LanCircuit (timers.Timer):
     """
     ph4 = True
     ph2 = False
+    T3MULT = BCT3MULT
+    pkttype = LongData
     
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
@@ -124,7 +127,10 @@ class LanCircuit (timers.Timer):
             <th>Designated router</th></tr>\n"""
         else:
             hdr = ""
-        dr = self.node.nodeinfo (self.dr)
+        if self.dr:
+            dr = self.node.nodeinfo (self.dr)
+        else:
+            dr = ""
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{0.config.priority}</td><td>{0.hellotime}</td>
         <td>{1}</td></tr>\n""".format (self, dr)
@@ -165,9 +171,10 @@ class EndnodeLanCircuit (LanCircuit):
         self.dr = None
         self.prevhops = dict ()
 
-    def dr_down (self):
+    def adj_timeout (self, adj):
         # Called from the common routing code when an adjacency down
         # occurs (e.g., adjacency listen timeout).
+        assert adj == self.dr
         self.dr = None
         
     def sendhello (self):
@@ -196,11 +203,11 @@ class EndnodeLanCircuit (LanCircuit):
                 if self.dr.nodeid != item.id:
                     # Different.  Make the old one go away
                     self.dr.down (reason = "address_change")
-                    self.dr = self.Adjacency (self, item)
+                    self.dr = adjacency.Adjacency (self, item)
                 else:
                     self.dr.alive ()
             else:
-                self.dr = self.Adjacency (self, item)
+                self.dr = adjacency.Adjacency (self, item)
         elif isinstance (item, EndnodeHello):
             logging.debug ("Endnode hello from %s received by endnode",
                            item.src)
@@ -338,7 +345,7 @@ class RoutingLanCircuit (LanCircuit):
                     return
                 # End node.  If it's new, add its adjacency and mark it up.
                 if a is None:
-                    a = self.adjacencies[id] = self.Adjacency (self, item)
+                    a = self.adjacencies[id] = adjacency.Adjacency (self, item)
                     a.state = UP
                     a.up ()
                 elif a.ntype == ENDNODE:
@@ -349,7 +356,7 @@ class RoutingLanCircuit (LanCircuit):
             else:
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
-                    a = self.adjacencies[id] = self.Adjacency (self, item)
+                    a = self.adjacencies[id] = adjacency.Adjacency (self, item)
                     logging.trace ("New adjacency from %s", item)
                     a.state = INIT
                     # Check that the RSlist is not too long

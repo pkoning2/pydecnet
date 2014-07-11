@@ -45,25 +45,27 @@ class rtest (DnTest):
         self.node.maxarea = 10
         self.node.name = b"TEST"
         self.c = route_ptp.PtpCircuit (self.node, "ptp-0", self.dl, self.config)
-        self.c.up = unittest.mock.Mock ()
-        self.c.down = unittest.mock.Mock ()
+        self.c.log_adj_up = unittest.mock.Mock ()
+        self.c.log_adj_down = unittest.mock.Mock ()
         self.c.parent = self.node
         self.c.t3 = 15
-        self.c.init_fail = 0
+        self.c.term_recv = self.c.orig_sent = 0
+        self.c.trans_recv = self.c.trans_sent = 0
+        self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
         self.c.start ()
         self.assertState ("ha")
         self.dispatch ()
         self.assertState ("ds")
         self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
         self.assertState ("ri")        
-        
+
     def tearDown (self, updown = True):
-        self.workqueue = queue.Queue ()
         self.c.stop ()
         self.dispatch ()
         self.assertState ("ha")
-        if updown:
-            self.assertEqual (self.c.up.call_count, self.c.down.call_count)
+        if 0:# updown:
+            self.assertEqual (self.c.log_adj_up.call_count,
+                              self.c.log_adj_down.call_count)
         super ().tearDown ()
 
     def assertState (self, name):
@@ -98,9 +100,9 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (66))
+        self.assertEqual (self.c.id, Nodeid (66))
 
     def test_noverify (self):
         self.startup ()
@@ -113,7 +115,7 @@ class test_ph2 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.node.nodeid)
         self.assertEqual (spkt.visit, 1)
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -128,9 +130,9 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (66))
+        self.assertEqual (self.c.id, Nodeid (66))
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, NodeVerify)
         self.assertEqual (bytes (v), b"\x58\x02\x00OVERIF\x00\x00")
@@ -173,9 +175,9 @@ class test_ph3 (rtest):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
-        self.assertEqual (self.c.nodeid, Nodeid (2))
+        self.assertEqual (self.c.id, Nodeid (2))
 
     def test_noverify (self):
         self.startup ()
@@ -188,14 +190,15 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1))
         self.assertEqual (spkt.dstnode, Nodeid (3))
         self.assertEqual (spkt.visit, 17)
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
         self.assertRegex (p.testdata, b"^\252+$")
-        self.c.dispatch (Timeout (owner = self.c))
+        # test listen timeout
+        self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
-        self.assertEqual (self.c.down.call_count, 1)
+        self.assertEqual (self.c.log_adj_down.call_count, 1)
 
     def test_verify (self):
         p, x = self.lastsent (self.cp, 1)
@@ -205,9 +208,9 @@ class test_ph3 (rtest):
         pkt = b"\x01\x02\x00\x06\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
-        self.assertEqual (self.c.nodeid, Nodeid (2))
+        self.assertEqual (self.c.id, Nodeid (2))
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, PtpVerify)
         self.assertEqual (v.srcnode, Nodeid (5))
@@ -223,9 +226,9 @@ class test_ph3 (rtest):
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (66))
+        self.assertEqual (self.c.id, Nodeid (66))
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -235,7 +238,7 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.node.nodeid)
         self.assertEqual (spkt.visit, 1)
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -272,9 +275,9 @@ class test_ph4 (rtest):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
 
     def test_noverify (self):
         self.startup ()
@@ -322,15 +325,15 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
         # test hello transmission
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
         self.assertRegex (p.testdata, b"^\252+$")
         # test listen timeout
-        self.c.dispatch (Timeout (owner = self.c))
+        self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
-        self.assertEqual (self.c.down.call_count, 1)
+        self.assertEqual (self.c.log_adj_down.call_count, 1)
         # test restart after circuit down
         self.dispatch ()
         self.assertState ("ds")
@@ -343,9 +346,9 @@ class test_ph4 (rtest):
         pkt = b"\x01\x02\x04\x06\x10\x02\x02\x00\x00\x10\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, PtpVerify)
         self.assertEqual (v.srcnode, Nodeid (1, 5))
@@ -361,9 +364,9 @@ class test_ph4 (rtest):
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 66))
+        self.assertEqual (self.c.id, Nodeid (1, 66))
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -373,7 +376,7 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1, 66))
         self.assertEqual (spkt.dstnode, self.node.nodeid)
         self.assertEqual (spkt.visit, 1)
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -386,9 +389,9 @@ class test_ph4 (rtest):
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -398,7 +401,7 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1, 1))
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
-        self.c.hellotimer.dispatch (Timeout (owner = self.c.hellotimer))
+        self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
@@ -437,11 +440,11 @@ class test_ph4verify (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x03\x02\x04\x06IVERIF"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         
     def test_wrongverify (self):
         p, x = self.lastsent (self.cp, 1)
@@ -452,11 +455,11 @@ class test_ph4verify (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x03\x02\x04\x06ZVERIF"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
-        self.assertEqual (self.c.up.call_count, 0)
+        self.assertEqual (self.c.log_adj_up.call_count, 0)
         e = self.lastevent (events.Event.ver_rej)
         self.assertEqual (e.reason, "invalid_verification")
         self.dispatch ()
@@ -471,15 +474,15 @@ class test_ph4verify (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         self.c.dispatch (Timeout (owner = self.c))
         self.assertState ("ha")
-        self.assertEqual (self.c.up.call_count, 0)
+        self.assertEqual (self.c.log_adj_up.call_count, 0)
         e = self.lastevent (events.Event.ver_rej)
         self.assertEqual (e.reason, "verification_timeout")
         self.dispatch ()
         self.assertState ("ds")
-        
+
     def test_verify (self):
         p, x = self.lastsent (self.cp, 1)
         self.assertIsInstance (p, PtpInit)
@@ -489,7 +492,7 @@ class test_ph4verify (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, PtpVerify)
         self.assertEqual (v.srcnode, Nodeid (1, 5))
@@ -497,7 +500,7 @@ class test_ph4verify (rtest):
         pkt = b"\x03\x02\x04\x06IVERIF"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
 
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -510,11 +513,11 @@ class test_ph4verify (rtest):
         self.assertEqual (p.verif, 1)
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 66))
+        self.assertEqual (self.c.id, Nodeid (1, 66))
         pkt = b"\x58\x02\x00IVERIF\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         
     def test_ph3 (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
@@ -525,11 +528,11 @@ class test_ph4verify (rtest):
         self.assertEqual (p.verif, 1)
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 3)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x03\x02\x00\x06IVERIF"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
 
     def test_rndrv (self):
         p, x = self.lastsent (self.cp, 1)
@@ -703,9 +706,9 @@ class test_ph4restart (rtest):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c.up.call_count, 1)
+        self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
 
     def test_dlrestart (self):
         self.startup ()
@@ -741,7 +744,7 @@ class test_ph4restart (rtest):
         self.dispatch ()
         self.assertState ("ru")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
 
     def test_init3_workaround (self):
         self.cp.start_works = False
@@ -751,7 +754,7 @@ class test_ph4restart (rtest):
         self.dispatch ()
         self.assertState ("ru")
         self.assertEqual (self.c.rphase, 3)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
 
     def test_init2_workaround (self):
         self.cp.start_works = False
@@ -762,7 +765,7 @@ class test_ph4restart (rtest):
         self.dispatch ()
         self.assertState ("ru")
         self.assertEqual (self.c.rphase, 2)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 66))
+        self.assertEqual (self.c.id, Nodeid (1, 66))
 
     def test_ri_restart (self):
         pkt = b"\x03\x02\x04\x06IVERIF"
@@ -787,7 +790,7 @@ class test_ph4restart_rv (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
-        self.assertEqual (self.c.nodeid, Nodeid (1, 2))
+        self.assertEqual (self.c.id, Nodeid (1, 2))
 
     def test_dlrestart (self):
         self.startup ()
