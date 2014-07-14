@@ -70,7 +70,7 @@ class MultinetBase (DnTest):
 
 class TestMultinetUDP (MultinetBase):
     def setUp (self):
-        self.tconfig = unittest.mock.Mock ()
+        self.tconfig = container ()
         self.tconfig.device = "127.0.0.1:6666:6667"  # UDP mode
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
@@ -123,7 +123,7 @@ class MultinetTCPbase (MultinetBase):
         
 class TestMultinetTCPconnect (MultinetTCPbase):
     def setUp (self):
-        self.tconfig = unittest.mock.Mock ()
+        self.tconfig = container ()
         self.tconfig.device = "127.0.0.1:6666:connect"  # active TCP
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET)
@@ -140,7 +140,7 @@ class TestMultinetTCPconnect (MultinetTCPbase):
 
 class TestMultinetTCPlisten (MultinetTCPbase):
     def setUp (self):
-        self.tconfig = unittest.mock.Mock ()
+        self.tconfig = container ()
         self.tconfig.device = "127.0.0.1:6666:listen"  # passive TCP
         super ().setUp ()
         self.rport.open ()

@@ -188,6 +188,7 @@ class EndnodeLanCircuit (LanCircuit):
         self.node.timers.start (self, self.hellotime)
 
     def dispatch (self, item):
+        logging.trace ("%s: processessing work item %s", self.name, item)
         item = self.common_dispatch (item)
         if not item:
             # Rejected by common code

@@ -113,16 +113,22 @@ class PtpCircuit (statemachine.StateMachine):
         # Note that the function signature must match that of
         # LanCircuit.send.
         if self.state == self.ru:
-            if self.rphase < 4:
-                # Neighbor is Phase 3 or older, so we have its address
-                # as an 8-bit value.  Force destination address to
-                # the old form.
-                dstnode = Nodeid (0, dstnode.tid)
-                pkt.dstnode = dstnode
+            # Note: this check has to be made before dstnode is changed
+            # to the older form (if needed) because internally we store
+            # the neighbor ID according to our phase, not its phase.
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
                 logging.debug ("Sending packet %s to wrong address %s "
                                "(expected %s)", pkt, dstnode, self.id)
                 return
+            if self.rphase < 4:
+                # Neighbor is Phase 3 or older, so we have its address
+                # as an 8-bit value.  Force destination address to
+                # the old form.
+                dstnode = Nodeid (dstnode.tid)
+                pkt.dstnode = dstnode
+                # Ditto for source address, if in area
+                if pkt.srcnode.area == self.routing.homearea:
+                    pkt.srcnode = Nodeid (pkt.srcnode.tid)
             if self.ntype == PHASE2:
                 pkt = pkt.payload
             elif isinstance (pkt, LongData):
@@ -352,7 +358,9 @@ class PtpCircuit (statemachine.StateMachine):
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
                 self.blksize = self.minrouterblk = pkt.blksize
-                if not 1 <= pkt.srcnode <= self.parent.maxnodes:
+                if pkt.srcnode == 0 or \
+                       (self.parent.ntype in { L1ROUTER, L2ROUTER } and
+                        pkt.srcnode > self.parent.maxnodes ):
                     logging.debug ("%s Phase II node id out of range: %d",
                                    self.name, pkt.srcnode)
                     self.init_fail += 1
@@ -401,7 +409,9 @@ class PtpCircuit (statemachine.StateMachine):
                         self.init_fail += 1
                         return self.restart ("bad ntype")
                     area, tid = pkt.srcnode.split ()
-                    if not 1 <= tid <= self.parent.maxnodes or \
+                    if tid == 0 or \
+                           (self.parent.ntype in { L1ROUTER, L2ROUTER } and
+                            tid > self.parent.maxnodes ) or \
                        (pkt.ntype == L2ROUTER and self.parent.ntype == L2ROUTER
                         and not 1 <= area <= self.parent.maxarea) or \
                         ((pkt.ntype != L2ROUTER or
@@ -429,7 +439,9 @@ class PtpCircuit (statemachine.StateMachine):
                         self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart ("bad ntype for phase 3")
-                    if not 1 <= pkt.srcnode <= self.parent.maxnodes:
+                    if pkt.srcnode == 0 or \
+                           (self.parent.ntype in { L1ROUTER, L2ROUTER } and
+                            pkt.srcnode > self.parent.maxnodes ):
                         logging.debug ("%s Phase III node id out of range: %d",
                                        self.name, pkt.srcnode)
                         self.init_fail += 1
@@ -438,6 +450,7 @@ class PtpCircuit (statemachine.StateMachine):
                                              node = self.node.nodeinfo (self.id),
                                              reason = "address_out_of_range")
                     if pkt.ntype == L1ROUTER and \
+                       self.parent.ntype in { L1ROUTER, L2ROUTER } and \
                        pkt.blksize < self.parent.maxnodes * 2 + 6:
                         self.init_fail += 1
                         return self.restart ("node id out of range",
@@ -590,10 +603,14 @@ class PtpCircuit (statemachine.StateMachine):
                 # item we received that wraps it.
                 if self.rphase < 4 and self.node.phase == 4:
                     # Running phase 4 but neighbor is older, supply
-                    # our area number into source and destination addresses.
-                    pkt.srcnode = Nodeid (self.parent.homearea,
-                                          pkt.srcnode.tid)
-                    if isinstance (pkt, ShortData):
+                    # our area number into source and destination addresses,
+                    # but only if they are not already set (see DNA Routing
+                    # spec for why).
+                    if pkt.srcnode.area == 0:
+                        pkt.srcnode = Nodeid (self.parent.homearea,
+                                              pkt.srcnode.tid)
+                    if isinstance (pkt, (ShortData, LongData)) and \
+                           pkt.dstnode.area == 0:
                         pkt.dstnode = Nodeid (self.parent.homearea,
                                               pkt.dstnode.tid)
                 pkt.src = self
