@@ -335,7 +335,7 @@ class NSP (Element):
             # Arriving packet delivered up from Routing.  Map the packet
             # to a port (Connection object), see NSP 4.0.1 spec
             # section 6.2 (receive dispatcher)
-            buf = item.packet.payload
+            buf = item.packet
             logging.trace ("NSP packet received from %s: %s",
                            item.src, item.packet)
             msgflg = buf[0]
@@ -367,7 +367,7 @@ class NSP (Element):
                 if pkt.dstaddr != 0:
                     logging.trace ("CI with nonzero dstaddr")
                     # FIXME: this needs to log the message in the right format
-                    self.node.logevent (Event.inv_msg, buf, item.srcnode)
+                    self.node.logevent (Event.inv_msg, buf, item.src)
                     return
                 if item.rts:
                     try:

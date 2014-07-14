@@ -12,7 +12,7 @@ from decnet import timers
 from decnet import datalink
 from decnet.apiserver import ApiRequest
 
-tconfig = unittest.mock.Mock ()
+tconfig = container ()
 tconfig.device = None
 
 class TestMop (DnTest):

@@ -34,7 +34,7 @@ class rtest (DnTest):
         self.cp = unittest.mock.Mock ()
         self.cp.start_works = True
         self.dl.create_port.return_value = self.cp
-        self.config = unittest.mock.Mock ()
+        self.config = container ()
         self.config.t3 = 10
         self.config.cost = 1
         self.config.verify = self.verify

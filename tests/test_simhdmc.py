@@ -92,7 +92,7 @@ class SimhDMCBase (DnTest):
         
 class TestSimhDMCconnect (SimhDMCBase):
     def setUp (self):
-        self.tconfig = unittest.mock.Mock ()
+        self.tconfig = container ()
         self.tconfig.device = "127.0.0.1:6666"  # active TCP
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET)
@@ -109,7 +109,7 @@ class TestSimhDMCconnect (SimhDMCBase):
         
 class TestSimhDMClisten (SimhDMCBase):
     def setUp (self):
-        self.tconfig = unittest.mock.Mock ()
+        self.tconfig = container ()
         self.tconfig.device = "127.0.0.1:6666:secondary"  # passive TCP
         super ().setUp ()
         self.rport.open ()

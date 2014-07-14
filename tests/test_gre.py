@@ -6,7 +6,7 @@ import queue
 
 from decnet import gre
 
-tconfig = unittest.mock.Mock ()
+tconfig = container ()
 tconfig.device = "127.0.0.1"
 
 dest = ("127.0.0.1", 47)
@@ -74,7 +74,7 @@ class TestGre (DnTest):
         self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
         self.postPacket (b"\x00\x00\x60\x03" +
                          self.lelen (self.tdata) + self.tdata)
-        w = self.lastreceived (1)
+        w = self.lastwork (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.unk_dest, 0)
@@ -88,7 +88,7 @@ class TestGre (DnTest):
         self.lport = self.gre.create_port (lcirc, LOOPPROTO, False)
         self.postPacket (b"\x00\x00\x60\x03" +
                          self.lelen (self.tdata) + self.tdata)
-        w = self.lastreceived (1)
+        w = self.lastwork (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.unk_dest, 0)
@@ -96,7 +96,7 @@ class TestGre (DnTest):
         self.assertEqual (self.lport.bytes_recv, 0)
         self.assertEqual (self.rport.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x90\x00" + self.tdata)
-        w = self.lastreceived (2)
+        w = self.lastwork (2)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.unk_dest, 0)
@@ -104,7 +104,7 @@ class TestGre (DnTest):
         self.assertEqual (self.lport.bytes_recv, 30)
         self.assertEqual (self.rport.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x91\x00" + self.tdata)
-        self.lastreceived (2)   # Check that nothing new is posted
+        self.lastwork (2)   # Check that nothing new is posted
         self.assertEqual (self.gre.unk_dest, 1)
         self.assertEqual (self.gre.bytes_recv, 62)
         self.assertEqual (self.lport.bytes_recv, 30)

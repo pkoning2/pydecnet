@@ -38,6 +38,9 @@ def randpkt (minlen, maxlen):
     i = random.getrandbits (plen * 8)
     return i.to_bytes (plen, "little")
 
+class container (object):
+    """An empty object, but you can assign attributes to it."""
+    
 class DnTest (unittest.TestCase):
     debug = False
     trace = False
@@ -86,11 +89,11 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, ptype)
         return w, dest
 
-    def lastreceived (self, calls):
+    def lastwork (self, calls, itype = Received):
         self.assertEqual (self.node.addwork.call_count, calls)
         a, k = self.node.addwork.call_args
         w = a[0]
-        self.assertIsInstance (w, Received)
+        self.assertIsInstance (w, itype)
         return w
 
     def lastevent (self, code):

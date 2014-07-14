@@ -82,9 +82,10 @@ class SelfAdj (adjacency.Adjacency):
         # Note that local packets (originating here and terminating
         # here as well) are not counted since there isn't any circuit
         # on which to count them.
-        if pkt.src.circuit:
-            pkt.src.circuit.term_recv += 1
-        work = Received (self.node.nsp, packet = pkt,
+        # ***FIXME
+        #if pkt.src.circuit:
+        #    pkt.src.circuit.term_recv += 1
+        work = Received (self.node.nsp, packet = pkt.payload,
                          src = pkt.srcnode, rts = pkt.rts)
         self.node.addwork (work, self.node.nsp)
         
@@ -231,14 +232,14 @@ class BaseRouter (Element):
         logging.debug ("Initializing routing layer")
         self.config = config.routing
         self.routing = self
-        self.circuits = dict ()
-        self.adjacencies = dict ()
-        self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
         self.nodeid = config.routing.id
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea, self.tid = self.nodeid.split ()
         self.typename = config.routing.type
         self.name = parent.nodeinfo (self.nodeid).nodename
+        self.circuits = dict ()
+        self.adjacencies = dict ()
+        self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -291,7 +292,7 @@ class BaseRouter (Element):
     
     def adj_down (self, adj, **kwargs):
         try:
-            del self.adjacencies[adj.id]
+            del self.adjacencies[adj.nodeid]
         except KeyError:
             pass
     
@@ -334,7 +335,7 @@ class EndnodeRouting (BaseRouter):
         True to request ignoring endnode cache entries; this is done
         for retransmits.  For routers it has no effect and is ignored.
         """
-        pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
+        pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
         logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
@@ -344,6 +345,7 @@ class EndnodeRouting (BaseRouter):
         """A received packet is sent up to NSP if it is for this node,
         and ignored otherwise.
         """
+        logging.trace ("%s: processessing work item %s", self.name, item)
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
                 self.selfadj.send (item)
@@ -669,7 +671,7 @@ class L1Router (BaseRouter):
         True to request ignoring endnode cache entries; this is done
         for retransmits.  For routers it has no effect and is ignored.
         """
-        pkt = LongData (rqr = rqr, ie = 1, dstnode = dest,
+        pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
         self.forward (pkt)
