@@ -131,16 +131,8 @@ def main ():
             print ("--daemon requires --log-file")
             sys.exit (1)
         h = logging.StreamHandler (sys.stderr)
-    # Don't call logging.basicConfig here because in Python 3.2 that doesn't
-    # accept a handler argument (that's in 3.3).  So do it the hard way.
-    #logging.basicConfig (handler = h, level = p.log_level,
-    #                     format = "%(asctime)s: %(threadName)s: %(message)s")
-    rootlogger = logging.getLogger ()
-    fmt = logging.Formatter ("%(asctime)s: %(threadName)s: %(message)s")
-    h.setFormatter (fmt)
-    rootlogger.addHandler (h)
-    rootlogger.addFilter (events.logging_add_ts)
-    rootlogger.setLevel (p.log_level)
+    logging.basicConfig (handler = h, level = p.log_level,
+                         format = "%(asctime)s: %(threadName)s: %(message)s")
     # Read all the configs
     logging.info ("Starting DECnet/Python")
     configs = [ config.Config (c) for c in p.configfile ]

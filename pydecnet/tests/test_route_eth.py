@@ -28,6 +28,7 @@ class lantest (DnTest):
         self.config.t3 = 10
         self.config.cost = 1
         self.config.priority = 32
+        self.config.nr = 3
         self.node.ntype = self.ntype
         self.node.tiver = tiver_ph4
         self.node.name = b"TEST"

@@ -110,6 +110,11 @@ class PtpCircuit (statemachine.StateMachine):
         self.node.addwork (Shutdown (self))
 
     def send (self, pkt, dstnode, tryhard = False):
+        """Send packet to the specified destination.  Returns True
+        if it worked.  "Worked" means the circuit is up and the
+        neighbor is a router or the destination address matches
+        the neighbor address.
+        """
         # Note that the function signature must match that of
         # LanCircuit.send.
         if self.state == self.ru:
@@ -119,7 +124,7 @@ class PtpCircuit (statemachine.StateMachine):
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
                 logging.debug ("Sending packet %s to wrong address %s "
                                "(expected %s)", pkt, dstnode, self.id)
-                return
+                return False
             if self.rphase < 4:
                 # Neighbor is Phase 3 or older, so we have its address
                 # as an 8-bit value.  Force destination address to
@@ -134,7 +139,9 @@ class PtpCircuit (statemachine.StateMachine):
             elif isinstance (pkt, LongData):
                 pkt = ShortData (copy = pkt, payload = pkt.payload)
             self.datalink.send (pkt)
-            
+            return True
+        return False
+    
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.

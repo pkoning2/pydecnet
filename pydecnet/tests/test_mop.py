@@ -14,6 +14,7 @@ from decnet.apiserver import ApiRequest
 
 tconfig = container ()
 tconfig.device = None
+tconfig.console = False
 
 class TestMop (DnTest):
     tdata = b"four score and seven years ago"
