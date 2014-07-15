@@ -7,11 +7,11 @@
 import os
 import queue
 import threading
-import logging
 
 from .common import *
-from .events import *
+from . import events
 from . import timers
+from . import logging
 from . import datalink
 from . import datalinks    # All the datalinks we know
 from . import mop
@@ -152,7 +152,7 @@ class Node (object):
                     break
                 try:
                     work.dispatch ()
-                except Event as e:
+                except events.Event as e:
                     # If processing of the work item raises an Event
                     # exception, log that event and keep going.
                     # Any other exception terminates things.
@@ -183,7 +183,7 @@ class Node (object):
         return self.api.register_api (command, handler, help)
 
     def logevent (self, event, entity = None, **kwds):
-        if not isinstance (event, Event):
-            event = Event (event, entity, **kwds)
+        if not isinstance (event, events.Event):
+            event = event (entity, **kwds)
         event._local_node = self
         logging.info (event)

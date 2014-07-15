@@ -10,7 +10,7 @@ import sys
 
 from .common import *
 from .routing_packets import *
-from .events import *
+from . import events
 from . import adjacency
 from . import datalink
 from . import timers
@@ -108,19 +108,19 @@ class Circuit (Element):
     # "adj" is a defaulted keyword argument in the next two, so they
     # can be used as alternates for the log_adj_up/down methods.
     def log_up (self, adj = None, **kwargs):
-        self.node.logevent (Event.circ_up, self, **kwargs)
+        self.node.logevent (events.circ_up, self, **kwargs)
 
     def log_down (self, adj = None, **kwargs):
         self.cir_down += 1
-        self.node.logevent (Event.circ_down, self, **kwargs)
+        self.node.logevent (events.circ_down, self, **kwargs)
     
     def log_adj_up (self, adj, **kwargs):
-        self.node.logevent (Event.adj_up, self,
+        self.node.logevent (events.adj_up, self,
                             adjacent_node = self.node.nodeinfo (adj.nodeid),
                             **kwargs)
 
     def log_adj_down (self, adj, **kwargs):
-        self.node.logevent (Event.adj_down, self,
+        self.node.logevent (events.adj_down, self,
                             adjacent_node = self.node.nodeinfo (adj.nodeid),
                             **kwargs)
 
@@ -270,7 +270,7 @@ class BaseRouter (Element):
                 logging.debug ("Started Routing circuit %s", name)
             except Exception:
                 logging.exception ("Error starting Routing circuit %s", name)
-        self.node.logevent (Event.node_state, reason = "operator_command",
+        self.node.logevent (events.node_state, reason = "operator_command",
                             old_state = "off", new_state = "on")
     
     def stop (self):
@@ -281,7 +281,7 @@ class BaseRouter (Element):
                 logging.debug ("Stopped Routing circuit %s", name)
             except Exception:
                 logging.exception ("Error stopping Routing circuit %s", name)
-        self.node.logevent (Event.node_state, reason = "operator_command",
+        self.node.logevent (events.node_state, reason = "operator_command",
                             old_state = "on", new_state = "off")
     
     def dispatch (self, item):
@@ -524,7 +524,7 @@ class L1Router (BaseRouter):
                 info.hops[k], info.cost[k] = v
                 route (k)
         if maxreach:
-            self.node.logevent (Event.rout_upd_loss, adj.circuit,
+            self.node.logevent (events.rout_upd_loss, adj.circuit,
                                 highest_address = maxreach,
                                 adjacent_node = self.node.nodeinfo (adj.nodeid))
         
@@ -581,20 +581,20 @@ class L1Router (BaseRouter):
                 oadj[i] = besta
                 if l2:
                     if besta:
-                        self.node.logevent (Event.area_chg, i,
+                        self.node.logevent (events.area_chg, i,
                                             status = "reachable")
                     else:
-                        self.node.logevent (Event.area_chg, i,
+                        self.node.logevent (events.area_chg, i,
                                             status = "unreachable")
                 elif i:
                     # That check for 0 is there so reachability changes
                     # of "nearest L2 router" aren't logged.
                     nod = self.node.nodeinfo (Nodeid (self.homearea, i))
                     if besta:
-                        self.node.logevent (Event.reach_chg, nod,
+                        self.node.logevent (events.reach_chg, nod,
                                             status = "reachable")
                     else:
-                        self.node.logevent (Event.reach_chg, nod,
+                        self.node.logevent (events.reach_chg, nod,
                                             status = "unreachable")
 
     def html_matrix (self, l2):

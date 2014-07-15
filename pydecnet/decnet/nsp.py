@@ -9,7 +9,7 @@ from collections import deque
 
 from .common import *
 from .routing_packets import ShortData, LongData
-from .events import *
+from . import events
 from . import packet
 from . import timers
 from . import statemachine
@@ -64,6 +64,11 @@ class AckNum (object):
     def __bytes__ (self):
         return (0x8000 + (self.qual << 12) + self.num).to_bytes (2, packet.LE)
 
+    def encode (self):
+        if self is None:
+            return b""
+        return bytes (self)
+    
     def is_nak (self):
         return self.qual == self.NAK or self.qual == self.XNAK
 
@@ -122,7 +127,7 @@ class AckHdr (NspHdr):
         if self.acknum and self.acknum2 and \
            self.acknum.is_cross () == self.acknum2.is_cross ():
             logging.debug ("Both acknums refer to the same subchannel")
-            raise Event (Event.fmt_err)
+            raise events.fmt_err
 
 # Note on classes for packet layouts:
 #
@@ -144,7 +149,7 @@ class AckData (AckHdr):
         AckHdr.check (self)
         if self.acknum is None:
             logging.debug ("acknum field missing")
-            raise Event (Event.fmt_err)
+            raise events.fmt_err
         
 class AckOther (AckHdr):
     type = NspHdr.ACK
@@ -193,7 +198,7 @@ class LinkSvcMsg (AckHdr):
     def check (self):
         if self.fcval_int > 1 or self.fcmod == 3:
             logging.debug ("Reserved LSFLAGS value")
-            raise Event (Event.fmt_err)
+            raise events.fmt_err
 
 # Control messages.  0 (NOP) and 5 (Node init) are handled
 # in route_ptp since they are really datalink dependent routing
@@ -345,7 +350,7 @@ class NSP (Element):
                 # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
                 logging.trace ("Unrecognized msgflg value %d, ignored", msgflg)
                 # FIXME: this needs to log the message in the right format
-                self.node.logevent (Event.inv_msg, buf, item.src)
+                self.node.logevent (events.inv_msg, buf, item.src)
                 return
             if not t:
                 # NOP message to be ignored, do so.
@@ -367,7 +372,7 @@ class NSP (Element):
                 if pkt.dstaddr != 0:
                     logging.trace ("CI with nonzero dstaddr")
                     # FIXME: this needs to log the message in the right format
-                    self.node.logevent (Event.inv_msg, buf, item.src)
+                    self.node.logevent (events.inv_msg, buf, item.src)
                     return
                 if item.rts:
                     try:

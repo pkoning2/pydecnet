@@ -13,6 +13,8 @@ sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 from decnet.common import *
 from decnet import packet
 from decnet import events
+from decnet import logging
+from decnet import node
 
 def testcases (tests):
     for t in tests:
@@ -40,32 +42,44 @@ def randpkt (minlen, maxlen):
 
 class container (object):
     """An empty object, but you can assign attributes to it."""
+
+class t_node (node.Node):
+    nodeid = Nodeid (42, 1023)
+    nodename = "NEMO"
     
+    def __init__ (self):
+        self.node = self
+        self.nodeinfo = unittest.mock.Mock ()
+        self.addwork = unittest.mock.Mock ()
+        self.timers = unittest.mock.Mock ()
+        self.dispatch = unittest.mock.Mock ()
+        
+    def start (self, mainthread = False): pass
+    def mainloop (self): raise Exception
+    def stop (self): pass
+    def register_api (self, command, handler, help = None): pass
+        
 class DnTest (unittest.TestCase):
-    debug = False
-    trace = False
+    loglevel = logging.WARNING
 
     def setUp (self):
         """Common setup for DECnet/Python test cases.
-
-        If "debug" and/or "trace" attributes are set True in the derived
-        class or object, debug and/or trace logging will be printed.
         """
-        self.node = unittest.mock.Mock ()
-        self.node.node = self.node
+        self.node = t_node ()
+        self.node.logevent = unittest.mock.Mock (wraps = self.node.logevent)
         self.lpatches = list ()
-        for n, m in sys.modules.items ():
-            if n.startswith ("decnet.") and hasattr (m, "logging"):
-                ln = "%s.logging" % n
-                p = unittest.mock.patch (ln)
-                self.lpatches.append (p)
-                l = p.start ()
-                if self.debug:
-                    l.debug.side_effect = self.mockdebug
-                if self.trace:
-                    l.trace.side_effect = self.mocktrace
-                    
+        for n in ("critical", "error", "warning", "info", "debug",
+                  "trace", "log", "exception"):
+            m = getattr (logging, n)
+            p = unittest.mock.patch ("decnet.logging.%s" % n, wraps = m)
+            p.start ()
+            self.lpatches.append (p)                                     
+        h = logging.StreamHandler (sys.stdout)
+        logging.basicConfig (handler = h, level = self.loglevel)
+        logging.getLogger ().setLevel (self.loglevel)
+        
     def tearDown (self):
+        logging.shutdown ()
         for p in self.lpatches:
             p.stop ()
             
@@ -101,18 +115,21 @@ class DnTest (unittest.TestCase):
         a, k = self.node.logevent.call_args
         try:
             e = k["event"]
+            rest = a
         except KeyError:
             e = a[0]
+            rest = a[1:]
         if code:
             self.assertEqual (e, code)
-        e = events.Event (*a, **k)
+        if not isinstance (e, events.Event):
+            e = e (*rest, **k)
         e._local_node = self.node
-        e._timestamp = time.time ()
         return e
         
-    def lastdispatch (self, calls):
-        self.assertEqual (self.node.dispatch.call_count, calls)
-        a, k = self.node.dispatch.call_args
+    def lastdispatch (self, calls, element = None):
+        element = element or self.node
+        self.assertEqual (element.dispatch.call_count, calls)
+        a, k = element.dispatch.call_args
         w = a[0]
         self.assertIsInstance (w, packet.Packet)
         return w

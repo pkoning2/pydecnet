@@ -2,10 +2,9 @@
 
 from tests.dntest import *
 
-import logging
-
 from decnet import nsp
 from decnet.timers import Timeout
+from decnet import logging
 
 rcount = 5000
 rmin = 0
@@ -45,22 +44,6 @@ class test_packets (DnTest):
                           acknum = nsp.AckNum (2),
                           acknum2 = nsp.AckNum (5, nsp.AckNum.XNAK))
         self.assertEqual (p, bytes (p2))
-        # Error checks
-        # Missing acknum field
-        p = b"\x04\x03\x00\x05\x01"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckData (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
-        # Two references to this subchannel
-        p = b"\x04\x03\x00\x05\x01\x02\x80\x05\x90"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckData (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
-        # Two references to other subchannel
-        p = b"\x04\x03\x00\x05\x01\x02\xa0\x05\xa0"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckData (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
         # Invalid qual subfield is not an error but the field is ignored
         p = b"\x04\x03\x00\x05\x01\x05\x80\x07\xc0"
         ackdat = nsp.AckData (p)
@@ -98,27 +81,11 @@ class test_packets (DnTest):
                            acknum = nsp.AckNum (2),
                            acknum2 = nsp.AckNum (5, nsp.AckNum.XNAK))
         self.assertEqual (p, bytes (p2))
-        # Error checks
-        # Missing acknum field
-        p = b"\x14\x03\x00\x05\x01"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckOther (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
-        # Two references to this subchannel
-        p = b"\x14\x03\x00\x05\x01\x02\x80\x05\x90"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckOther (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
-        # Two references to other subchannel
-        p = b"\x14\x03\x00\x05\x01\x02\xa0\x05\xa0"
-        with self.assertRaises (events.Event) as e:
-            nsp.AckOther (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
         # Invalid qual subfield is not an error but the field is ignored
         p = b"\x14\x03\x00\x05\x01\x05\x80\x07\xc0"
         ackoth = nsp.AckOther (p)
         self.assertIsNone (ackoth.acknum2)
-        
+
     def test_ackconn (self):
         p = b"\x24\x03\x00"
         ackconn = nsp.AckConn (p)
@@ -180,7 +147,6 @@ class test_packets (DnTest):
                            acknum2 = nsp.AckNum (6, nsp.AckNum.XACK),
                            srcaddr = 261, segnum = 7, payload = b"payload")
         self.assertEqual (dat.encode (), p)
-        # Errors and the like
         # Verify that high order bits in segnum are ignored
         p = b"\x60\x03\x00\x05\x01\x07\x60payload"
         dat = nsp.DataSeg (p)
@@ -241,7 +207,6 @@ class test_packets (DnTest):
                           acknum2 = nsp.AckNum (6, nsp.AckNum.XACK),
                           srcaddr = 261, segnum = 7, payload = b"payload")
         self.assertEqual (dat.encode (), p)
-        # Errors and the like
         # Verify that high order bits in segnum are ignored
         p = b"\x30\x03\x00\x05\x01\x07\x60payload"
         dat = nsp.IntMsg (p)
@@ -309,7 +274,6 @@ class test_packets (DnTest):
                               srcaddr = 261, segnum = 7,
                               fcmod = 1, fcval_int = 1, fcval = 5)
         self.assertEqual (dat.encode (), p)
-        # Errors and the like
         # Verify that high order bits in segnum are ignored
         p = b"\x10\x03\x00\x05\x01\x07\x60\x00\x04"
         dat = nsp.LinkSvcMsg (p)
@@ -332,16 +296,6 @@ class test_packets (DnTest):
         self.assertEqual (dat.fcmod, 0)
         self.assertEqual (dat.fcval_int, 0)
         self.assertEqual (dat.fcval, 4)
-        # Bad fcmod is rejected
-        p = b"\x10\x03\x00\x05\x01\x07\x60\x03\x04"
-        with self.assertRaises (events.Event) as e:
-            nsp.LinkSvcMsg (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
-        # Bad fcval_int is rejected
-        p = b"\x10\x03\x00\x05\x01\x07\x60\x08\x04"
-        with self.assertRaises (events.Event) as e:
-            nsp.LinkSvcMsg (p)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
 
     def test_ci (self):
         p = b"\x18\x00\x00\x03\x00\x05\x02\x04\x02payload"
@@ -438,3 +392,44 @@ class test_packets (DnTest):
         dc = nsp.NoLink (dstaddr = 11, srcaddr = 3)
         self.assertEqual (dc.encode (), p)
         
+class test_packets_err (DnTest):
+    loglevel = logging.CRITICAL
+    
+    def test_ackdata (self):
+        # Missing acknum field
+        p = b"\x04\x03\x00\x05\x01"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckData (p)
+        # Two references to this subchannel
+        p = b"\x04\x03\x00\x05\x01\x02\x80\x05\x90"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckData (p)
+        # Two references to other subchannel
+        p = b"\x04\x03\x00\x05\x01\x02\xa0\x05\xa0"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckData (p)
+
+    def test_ackother (self):
+        # Missing acknum field
+        p = b"\x14\x03\x00\x05\x01"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckOther (p)
+        # Two references to this subchannel
+        p = b"\x14\x03\x00\x05\x01\x02\x80\x05\x90"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckOther (p)
+        # Two references to other subchannel
+        p = b"\x14\x03\x00\x05\x01\x02\xa0\x05\xa0"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.AckOther (p)
+        
+    def test_lsmsg (self):
+        # Bad fcmod is rejected
+        p = b"\x10\x03\x00\x05\x01\x07\x60\x03\x04"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.LinkSvcMsg (p)
+        # Bad fcval_int is rejected
+        p = b"\x10\x03\x00\x05\x01\x07\x60\x08\x04"
+        with self.assertRaises (events.fmt_err) as e:
+            nsp.LinkSvcMsg (p)
+

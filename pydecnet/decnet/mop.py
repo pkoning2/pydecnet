@@ -8,16 +8,16 @@ from random import randint
 import time
 from fcntl import *
 import socket
-import logging
 import os
 
 from .common import *
 from .apiserver import ApiRequest, ApiWork
-from .events import Event
+from . import events
 from . import packet
 from . import datalink
 from . import timers
 from . import statemachine
+from . import logging
 
 # Some well known Ethernet addresses
 CONSMC = Macaddr ("AB-00-00-02-00-00")
@@ -186,7 +186,7 @@ class SysId (MopHdr):
         if isinstance (val, int):
             if val not in (0, -1, -2):
                 logging.debug ("MOP C-n field integer not in -2..0")
-                raise Event (Event.fmt_err)
+                raise events.fmt_err
             val = val.to_bytes (1, packet.LE)
         else:
             if isinstance (val, str):
@@ -194,7 +194,7 @@ class SysId (MopHdr):
             vl = len (val)
             if vl > maxlen:
                 logging.debug ("Value too long for %d byte field", maxlen)
-                raise Event (Event.fmt_err)                
+                raise events.fmt_err
             val = vl.to_bytes (1, packet.LE) + val
         return val
 
@@ -207,10 +207,10 @@ class SysId (MopHdr):
         flen = buf[0]
         if flen < -2:
             logging.debug ("Image field with negative length %d", flen)
-            raise Event (Event.fmt_err)
+            raise events.fmt_err
         elif flen > maxlen:
             logging.debug ("Image field longer than max length %d", maxlen)
-            raise Event (Event.fmt_err)
+            raise events.fmt_err
         elif flen < 0:
             v = flen
             flen = 1
@@ -218,7 +218,7 @@ class SysId (MopHdr):
             v = buf[1:flen + 1]
             if len (v) != flen:
                 logging.debug ("Not %d bytes left for image field", flen)
-                raise Event (Event.fmt_err)
+                raise events.fmt_err
             v = bytes (v).decode ()
         setattr (self, field, v)
         return buf[flen + 1:]

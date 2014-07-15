@@ -2,7 +2,6 @@
 
 from tests.dntest import *
 
-import logging
 import queue
 
 from decnet.routing_packets import *
@@ -10,21 +9,25 @@ from decnet import route_ptp
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
+from decnet import logging
 
 rcount = 5000
 rmin = 0
 rmax = 30
     
 class rtest (DnTest):
+
     def setUp (self):
         super ().setUp ()
+        self.r = unittest.mock.Mock ()
+        self.r.node = self.node
         if self.phase == 4:
-            self.node.nodeid = Nodeid (1, 5)
+            self.r.nodeid = Nodeid (1, 5)
         else:
-            self.node.nodeid = Nodeid (5)
-        self.node.homearea, self.node.tid = self.node.nodeid.split ()
-        self.node.nodename = "testnd"
-        self.info = Nodeinfo (None, self.node.nodeid)
+            self.r.nodeid = Nodeid (5)
+        self.r.homearea, self.r.tid = self.r.nodeid.split ()
+        self.r.nodename = "testnd"
+        self.info = Nodeinfo (None, self.r.nodeid)
         self.info.iverif = b"IVERIF"
         self.info.overif = b"OVERIF"
         self.node.nodeinfo.return_value = self.info
@@ -38,16 +41,16 @@ class rtest (DnTest):
         self.config.t3 = 10
         self.config.cost = 1
         self.config.verify = self.verify
-        self.node.phase = self.phase
-        self.node.tiver = self.tiver
-        self.node.ntype = self.ntype
-        self.node.maxnodes = 200
-        self.node.maxarea = 10
-        self.node.name = b"TEST"
-        self.c = route_ptp.PtpCircuit (self.node, "ptp-0", self.dl, self.config)
+        self.r.phase = self.node.phase = self.phase
+        self.r.tiver = self.tiver
+        self.r.ntype = self.ntype
+        self.r.maxnodes = 200
+        self.r.maxarea = 10
+        self.r.name = b"TEST"
+        self.c = route_ptp.PtpCircuit (self.r, "ptp-0", self.dl, self.config)
         self.c.log_adj_up = unittest.mock.Mock ()
         self.c.log_adj_down = unittest.mock.Mock ()
-        self.c.parent = self.node
+        self.c.parent = self.r
         self.c.t3 = 15
         self.c.term_recv = self.c.orig_sent = 0
         self.c.trans_recv = self.c.trans_sent = 0
@@ -111,11 +114,11 @@ class test_ph2 (rtest):
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, pkt)
         self.assertEqual (spkt.srcnode, Nodeid (66))
-        self.assertEqual (spkt.dstnode, self.node.nodeid)
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 2)
@@ -212,7 +215,7 @@ class test_ph3 (rtest):
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (1))
@@ -326,11 +329,11 @@ class test_ph3 (rtest):
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, pkt)
         self.assertEqual (spkt.srcnode, Nodeid (66))
-        self.assertEqual (spkt.dstnode, self.node.nodeid)
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
@@ -401,7 +404,7 @@ class test_ph4 (rtest):
         pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -411,7 +414,7 @@ class test_ph4 (rtest):
         pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (2)
+        spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -423,7 +426,7 @@ class test_ph4 (rtest):
               b"abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (3)
+        spkt = self.lastdispatch (3, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -435,7 +438,7 @@ class test_ph4 (rtest):
               b"abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (4)
+        spkt = self.lastdispatch (4, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -549,11 +552,11 @@ class test_ph4 (rtest):
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, pkt)
         self.assertEqual (spkt.srcnode, Nodeid (1, 66))
-        self.assertEqual (spkt.dstnode, self.node.nodeid)
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
@@ -574,7 +577,7 @@ class test_ph4 (rtest):
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (1, 1))
@@ -639,7 +642,7 @@ class test_ph4verify (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
         self.assertEqual (self.c.log_adj_up.call_count, 0)
-        e = self.lastevent (events.Event.ver_rej)
+        e = self.lastevent (events.ver_rej)
         self.assertEqual (e.reason, "invalid_verification")
         self.dispatch ()
         self.assertState ("ds")
@@ -657,7 +660,7 @@ class test_ph4verify (rtest):
         self.c.dispatch (Timeout (owner = self.c))
         self.assertState ("ha")
         self.assertEqual (self.c.log_adj_up.call_count, 0)
-        e = self.lastevent (events.Event.ver_rej)
+        e = self.lastevent (events.ver_rej)
         self.assertEqual (e.reason, "verification_timeout")
         self.dispatch ()
         self.assertState ("ds")

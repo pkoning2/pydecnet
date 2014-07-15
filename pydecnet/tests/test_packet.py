@@ -46,14 +46,9 @@ tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
           b"\012\004\004\001\000\000\014\002\003\004"
 
 class TestPacket (DnTest):
-    def setUp (self):
-        logging.exception = unittest.mock.Mock ()
-
     def tearDown (self):
-        l = logging.exception.call_args_list
-        if l:
-            print (l)
         self.assertEqual (logging.exception.call_count, 0)
+        super ().tearDown ()
         
     def test_abc (self):
         # Can't instantiate the Packet base class
@@ -137,9 +132,8 @@ class TestPacket (DnTest):
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (a.payload, b"payload")
         self.assertEqual (bytes (a), testdata2 + b"payload")
-        with self.assertRaises (events.Event) as e:
+        with self.assertRaises (events.fmt_err) as e:
             alltypes (testdata + b"x")
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
 
     def test_constfield (self):
         # Value defined in class is constant field
@@ -157,9 +151,8 @@ class TestPacket (DnTest):
         self.assertEqual (a.int4, 257)
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2.replace (b"abcdef", b"foobar"))
-        with self.assertRaises (events.Event) as e:
+        with self.assertRaises (events.fmt_err) as e:
             constimage (testdata)
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
 
     def test_tlv (self):
         # TLV field parsing
@@ -177,9 +170,8 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "sint"))
         self.assertFalse (hasattr (a, "byte5"))
         # Check that invalid Type values are rejected
-        with self.assertRaises (events.Event) as e:
+        with self.assertRaises (events.fmt_err) as e:
             alltlv (tlvdata + b"\004xxx")
-        self.assertEqual (e.exception.event, events.Event.fmt_err)
         
 if __name__ == "__main__":
     unittest.main ()

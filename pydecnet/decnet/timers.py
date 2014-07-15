@@ -7,9 +7,9 @@ This implements the timer wheel mechanism, with callbacks on expiration.
 
 from abc import abstractmethod, ABCMeta
 import time
-import logging
 
 from .common import *
+from . import logging
 
 class Cque (object):
     """Base class for objects that can be put on a circular queue.

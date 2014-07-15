@@ -5,6 +5,7 @@ import io
 
 from decnet import config
 from decnet import ethernet
+from decnet import logging
 
 def errmsg ():
     if not config.logging.error.called:
@@ -85,6 +86,13 @@ class TestCircuit (Logchecker):
         self.assertEqual (set (c.circuit), { "ETH-0", "ETH-1", "GRE-0",
                                              "MUL-0", "DMC-0" })
 
+class TestCircuit_err (Logchecker):
+    req = """system
+    routing 1.1
+    nsp
+    """
+    loglevel = logging.CRITICAL
+    
     def test_errors (self):
         self.checkerr ("circuit", "arguments are required")
         self.checkerr ("circuit foo-0 --frob", "unrecognized argument")
@@ -114,6 +122,12 @@ class TestSystem (Logchecker):
         self.assertEqual (c.http_port, 99)
         self.assertEqual (c.https_port, 102)
 
+class TestSystem_err (Logchecker):
+    req = """routing 1.1
+    nsp
+    """
+    loglevel = logging.CRITICAL
+    
     def test_errors (self):
         self.checkerr ("system --frob", "unrecognized argument")
         self.checkerr ("system --http-port -1", "invalid choice")
@@ -157,6 +171,12 @@ class TestRouting (Logchecker):
         self.assertEqual (c.t1, 124)
         self.assertEqual (c.bct1, 17)
 
+class TestRouting_err (Logchecker):
+    req = """system
+    nsp
+    """
+    loglevel = logging.CRITICAL
+    
     def test_errors (self):
         self.checkerr ("routing", "arguments are required")
         self.checkerr ("routing 1.1 --frob", "unrecognized argument")
@@ -198,6 +218,13 @@ class TestNode (Logchecker):
         self.assertEqual (cc.inbound_verification, "bar")
         self.assertEqual (cc.outbound_verification, "baz")
 
+class TestNode_err (Logchecker):
+    req = """system
+    routing 1.1
+    nsp
+    """
+    loglevel = logging.CRITICAL
+    
     def test_errors (self):
         self.checkerr ("node", "arguments are required")
         self.checkerr ("node 1.4", "arguments are required")
@@ -221,6 +248,12 @@ class TestNSP (Logchecker):
         self.assertEqual (c.nsp_weight, 8)
         self.assertEqual (c.nsp_delay, 13.5)
 
+class TestNSP_err (Logchecker):
+    req = """system
+    routing 1.1
+    """
+    loglevel = logging.CRITICAL
+    
     def test_errors (self):
         self.checkerr ("nsp --frob", "unrecognized argument")
         self.checkerr ("nsp --max-connections 1024", "invalid choice")

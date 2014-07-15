@@ -2,13 +2,12 @@
 
 from tests.dntest import *
 
-import logging
-
 from decnet.routing_packets import *
 from decnet import route_eth
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
+from decnet import logging
 
 rcount = 5000
 rmin = 0
@@ -17,9 +16,12 @@ rmax = 40
 class lantest (DnTest):
     def setUp (self):
         super ().setUp ()
-        self.node.nodeid = Nodeid (1, 5)
-        self.node.homearea, self.node.tid = self.node.nodeid.split ()
-        self.node.nodename = "testnd"
+        self.r = unittest.mock.Mock ()
+        self.r.node = self.node
+        self.r.nodeid = Nodeid (1, 5)
+        self.r.nodemacaddr = Macaddr (self.r.nodeid)
+        self.r.homearea, self.r.tid = self.r.nodeid.split ()
+        self.r.nodename = "testnd"
         self.node.addwork.side_effect = self.t_addwork
         self.dl = unittest.mock.Mock ()
         self.cp = unittest.mock.Mock ()
@@ -29,13 +31,13 @@ class lantest (DnTest):
         self.config.cost = 1
         self.config.priority = 32
         self.config.nr = 3
-        self.node.ntype = self.ntype
-        self.node.tiver = tiver_ph4
-        self.node.name = b"TEST"
-        self.c = self.ctype (self.node, "lan-0", self.dl, self.config)
+        self.r.ntype = self.ntype
+        self.r.tiver = tiver_ph4
+        self.r.name = b"TEST"
+        self.c = self.ctype (self.r, "lan-0", self.dl, self.config)
         self.c.up = unittest.mock.Mock ()
         self.c.down = unittest.mock.Mock ()
-        self.c.parent = self.node
+        self.c.parent = self.r
         self.c.node = self.node
         self.c.t3 = 15
         self.c.adj_down = 0
@@ -127,7 +129,7 @@ class test_end (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -141,7 +143,7 @@ class test_end (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (2)
+        spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -159,7 +161,7 @@ class test_end (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -175,7 +177,7 @@ class test_end (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (2)
+        spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 2))
@@ -516,7 +518,7 @@ class test_routing (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -527,7 +529,7 @@ class test_routing (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (2)
+        spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -552,7 +554,7 @@ class test_routing (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (1)
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
@@ -565,7 +567,7 @@ class test_routing (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
-        spkt = self.lastdispatch (2)
+        spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 2))

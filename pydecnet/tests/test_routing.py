@@ -2,14 +2,13 @@
 
 from tests.dntest import *
 
-import logging
-
 from decnet.routing_packets import *
 from decnet import routing
 from decnet import route_ptp
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
+from decnet import logging
 
 rcount = 5000
 rmin = 0
@@ -31,7 +30,9 @@ class rtest (DnTest):
         self.config.routing.t1 = 50
         self.config.routing.bct1 = 10
         self.config.circuit = dict ()
+        self.node.datalink = container ()
         self.node.datalink.circuits = dict ()
+        self.node.nsp = unittest.mock.Mock ()
         i = 1
         for n, lan in self.circ:
             self.config.circuit[n] = container ()
