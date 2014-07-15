@@ -36,17 +36,6 @@ MTU = 576                # Max NPDU size
 ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 MSS = MTU - 13           # Max TSDU size
 
-# Make a version of "bytes" that pays attention to __bytes__ even
-# if the argument is an int.
-class bytes (builtins.bytes):
-    def __new__ (cls, o, *args):
-        if not args:
-            try:
-                return o.__bytes__ ()
-            except AttributeError:
-                pass
-        return builtins.bytes.__new__ (cls, o, *args)
-
 # List of file descriptors to keep open if we run as daemon
 files_preserve = list ()
 def dont_close (f):

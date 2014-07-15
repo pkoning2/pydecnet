@@ -97,14 +97,14 @@ class test_ph2 (adjtest):
                         srcnode = Nodeid (1, 1), visit = 1,
                         payload = b"new payload")
         self.adj.send (pkt)
-        p, dest = self.lastsent (self.datalink, 1, ptype = type (b""))
+        p, dest = self.lastsent (self.datalink, 1, ptype = bytes)
         self.assertEqual (p, pkt.payload)
         # Try short data
         s = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (1, 17),
                        srcnode = Nodeid (1, 1), visit = 1,
                        payload = b"new payload")
         self.adj.send (s)
-        p, dest = self.lastsent (self.datalink, 2, ptype = type (b""))
+        p, dest = self.lastsent (self.datalink, 2, ptype = bytes)
         self.assertEqual (p, s.payload)
 
 if __name__ == "__main__":

@@ -380,7 +380,7 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Try sending a packet
         self.r.send (b"payload", Nodeid (1, 66))
-        p, dest = self.lastsent (self.d1, 3, ptype = type (b""))
+        p, dest = self.lastsent (self.d1, 3, ptype = bytes)
         self.assertEqual (p, b"payload")
 
     def test_recvdata_ph2 (self):
@@ -393,6 +393,9 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.log_adj_up.call_count, 1)
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
+        # Send a packet.  Note that the first byte needs to be a valid
+        # NSP header byte (which this is -- 00 means data segment,
+        # no BOP, no EOP).
         pkt = b"\x00abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         w = self.lastwork (2)

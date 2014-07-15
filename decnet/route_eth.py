@@ -229,7 +229,8 @@ class EndnodeLanCircuit (LanCircuit):
             pass
         
     def send (self, pkt, dstnode, tryhard = False):
-        """Send pkt to dstnode.
+        """Send pkt to dstnode.  Always returns True because it always
+        works (we don't know of "unreachable").
         """
         logging.trace ("Sending %d byte packet to %s: %s",
                        len (pkt), dstnode, pkt)
@@ -248,6 +249,7 @@ class EndnodeLanCircuit (LanCircuit):
             self.dr.send (pkt)
         else:
             self.datalink.send (pkt, Macaddr (dstnode))
+        return True
 
 # Adjacency states
 INIT = 1

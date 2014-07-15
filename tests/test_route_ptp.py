@@ -52,6 +52,8 @@ class rtest (DnTest):
         self.c.term_recv = self.c.orig_sent = 0
         self.c.trans_recv = self.c.trans_sent = 0
         self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
+        self.c.routing = container ()
+        self.c.routing.homearea = 1
         self.c.start ()
         self.assertState ("ha")
         self.dispatch ()
@@ -120,6 +122,31 @@ class test_ph2 (rtest):
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
 
+    def test_send (self):
+        self.startup ()
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 2, ptype = bytes)
+        self.assertEqual (p, pkt.payload)
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (66),
+                      srcnode = Nodeid (1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 3, ptype = bytes)
+        self.assertEqual (p, s.payload)
+        # Send to non-neighbor should fail (for now)
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertFalse (ok)
+        self.lastsent (self.cp, 3, ptype = bytes)
+        
     def test_verify (self):
         p, x = self.lastsent (self.cp, 1)
         self.assertIsInstance (p, NodeInit)
@@ -178,6 +205,7 @@ class test_ph3 (rtest):
         self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (2))
+        self.assertEqual (self.c.ntype, 2)
 
     def test_noverify (self):
         self.startup ()
@@ -195,6 +223,39 @@ class test_ph3 (rtest):
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
         self.assertRegex (p.testdata, b"^\252+$")
+        # Send some packets
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (2),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 3)
+        self.assertIs (p, pkt)
+        self.assertEqual (p.dstnode, Nodeid (2))
+        self.assertEqual (p.srcnode, Nodeid (1))
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (2),
+                      srcnode = Nodeid (4, 1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 4)
+        self.assertIsInstance (p, ShortData)
+        self.assertEqual (p.rqr, s.rqr)
+        self.assertEqual (p.rts, s.rts)
+        self.assertEqual (p.dstnode, Nodeid (2))
+        self.assertEqual (p.srcnode, Nodeid (4, 1))
+        self.assertEqual (p.visit, s.visit)
+        self.assertEqual (p.payload, s.payload)
+        self.assertFalse (p.ie)
+        # Send to non-neighbor should succeed since neighbor is router
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 5)
+        self.assertIs (p, pkt)
         # test listen timeout
         self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
@@ -205,16 +266,49 @@ class test_ph3 (rtest):
         self.assertIsInstance (p, PtpInit3)
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
-        pkt = b"\x01\x02\x00\x06\x10\x02\x01\x03\x00\x00"
+        pkt = b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (2))
+        self.assertEqual (self.c.ntype, ENDNODE)  # 3
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, PtpVerify)
         self.assertEqual (v.srcnode, Nodeid (5))
         self.assertEqual (v.fcnval, b"OVERIF")
+        # Send some packets
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (2),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 3)
+        self.assertIs (p, pkt)
+        self.assertEqual (p.dstnode, pkt.dstnode)
+        self.assertEqual (p.srcnode, Nodeid (1))
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (2),
+                      srcnode = Nodeid (4, 1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 4)
+        self.assertIsInstance (p, ShortData)
+        self.assertEqual (p.rqr, s.rqr)
+        self.assertEqual (p.rts, s.rts)
+        self.assertEqual (p.dstnode, s.dstnode)
+        self.assertEqual (p.srcnode, Nodeid (4, 1))
+        self.assertEqual (p.visit, s.visit)
+        self.assertEqual (p.payload, s.payload)
+        self.assertFalse (p.ie)
+        # Send to non-neighbor should fail
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertFalse (ok)
+        self.lastsent (self.cp, 4)
 
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -242,6 +336,29 @@ class test_ph3 (rtest):
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
+        # Send some packets
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 4, ptype = bytes)
+        self.assertEqual (p, pkt.payload)
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (66),
+                      srcnode = Nodeid (1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 5, ptype = bytes)
+        self.assertEqual (p, s.payload)
+        # Send to non-neighbor should fail (for now)
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
+                         srcnode = Nodeid (1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertFalse (ok)
+        self.lastsent (self.cp, 5, ptype = bytes)
         
     def test_ph4 (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x02\x00\x00\x20\x00\x00"
@@ -330,6 +447,37 @@ class test_ph4 (rtest):
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
         self.assertRegex (p.testdata, b"^\252+$")
+        # Send some packets
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (2, 2),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 3)
+        self.assertIs (p, pkt)
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (2, 2),
+                      srcnode = Nodeid (1, 1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 4)
+        self.assertIsInstance (p, ShortData)
+        self.assertEqual (p.rqr, s.rqr)
+        self.assertEqual (p.rts, s.rts)
+        self.assertEqual (p.srcnode, s.srcnode)
+        self.assertEqual (p.dstnode, s.dstnode)
+        self.assertEqual (p.visit, s.visit)
+        self.assertEqual (p.payload, s.payload)
+        self.assertFalse (p.ie)
+        # Send to non-neighbor should succeed since neighbor is router
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (9, 44),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 5)
+        self.assertIs (p, pkt)
         # test listen timeout
         self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
@@ -343,16 +491,47 @@ class test_ph4 (rtest):
         self.assertIsInstance (p, PtpInit)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
         self.assertEqual (p.verif, 0)
-        pkt = b"\x01\x02\x04\x06\x10\x02\x02\x00\x00\x10\x00\x00"
+        pkt = b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x10\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         self.assertEqual (self.c.log_adj_up.call_count, 1)
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
+        self.assertEqual (self.c.ntype, ENDNODE)  # 3
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, PtpVerify)
         self.assertEqual (v.srcnode, Nodeid (1, 5))
         self.assertEqual (v.fcnval, b"OVERIF")
+        # Send some packets
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (1, 2),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 3)
+        self.assertIs (p, pkt)
+        # Try long data
+        s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (1, 2),
+                      srcnode = Nodeid (1, 1), visit = 1,
+                      payload = b"new payload")
+        ok = self.c.send (s, s.dstnode)
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.cp, 4)
+        self.assertIsInstance (p, ShortData)
+        self.assertEqual (p.rqr, s.rqr)
+        self.assertEqual (p.rts, s.rts)
+        self.assertEqual (p.srcnode, s.srcnode)
+        self.assertEqual (p.dstnode, s.dstnode)
+        self.assertEqual (p.visit, s.visit)
+        self.assertEqual (p.payload, s.payload)
+        self.assertFalse (p.ie)
+        # Send to non-neighbor should fail
+        pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (9, 44),
+                         srcnode = Nodeid (1, 1), visit = 1,
+                         payload = b"new payload")
+        ok = self.c.send (pkt, pkt.dstnode)
+        self.assertFalse (ok)
+        self.lastsent (self.cp, 4)
 
     def test_ph2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -561,9 +740,11 @@ class test_ph4err (rtest):
         self.assertState ("ha")
 
     def test_oor (self):
-        pkt = b"\x01\xc9\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
-        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ha")
+        if self.ntype != ENDNODE:
+            pkt = b"\x01\xc9\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
+            self.c.dispatch (Received (owner = self.c,
+                                       src = self.c, packet = pkt))
+            self.assertState ("ha")
 
     def test_azero (self):
         pkt = b"\x01\x02\x00\x01\x10\x02\x02\x00\x00\x0a\x00\x00"
@@ -591,9 +772,11 @@ class test_ph4err (rtest):
         self.assertState ("ha")
 
     def test_ph3oor (self):
-        pkt = b"\x01\xc9\x00\x02\x10\x02\x01\x03\x00\x00"
-        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ha")
+        if self.ntype != ENDNODE:
+            pkt = b"\x01\xc9\x00\x02\x10\x02\x01\x03\x00\x00"
+            self.c.dispatch (Received (owner = self.c,
+                                       src = self.c, packet = pkt))
+            self.assertState ("ha")
 
     def test_ph3smlblk (self):
         pkt = b"\x01\xc0\x00\x01\x80\x02\x01\x03\x00\x00"
@@ -646,9 +829,11 @@ class test_ph3err (rtest):
         self.assertState ("ha")
 
     def test_oor (self):
-        pkt = b"\x01\xc9\x00\x02\x10\x02\x01\x03\x00\x00"
-        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ha")
+        if self.ntype != ENDNODE:
+            pkt = b"\x01\xc9\x00\x02\x10\x02\x01\x03\x00\x00"
+            self.c.dispatch (Received (owner = self.c,
+                                       src = self.c, packet = pkt))
+            self.assertState ("ha")
 
     def test_ph3smlblk (self):
         pkt = b"\x01\xc0\x00\x01\x80\x02\x01\x03\x00\x00"
