@@ -76,7 +76,8 @@ class test_ethend (rtest):
                                    packet = pkt))
         self.assertEqual (self.c1.dr.macid, Macaddr ("aa:00:04:00:02:04"))
         # Try sending a packet
-        self.r.send (b"payload", Nodeid (1,17))
+        ok = self.r.send (b"payload", Nodeid (1,17))
+        self.assertTrue (ok)
         p, dest = self.lastsent (self.d1, 2)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (1,17))
@@ -101,7 +102,8 @@ class test_ethend (rtest):
         self.assertEqual (p.neighbor, NULLID)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Try sending a packet.  Note that out of area makes no difference.
-        self.r.send (b"payload", Nodeid (3,17))
+        ok = self.r.send (b"payload", Nodeid (3,17))
+        self.assertTrue (ok)
         p, dest = self.lastsent (self.d1, 5)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (3,17))
@@ -212,7 +214,8 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
-        self.r.send (b"payload", Nodeid (1,17))
+        ok = self.r.send (b"payload", Nodeid (1,17))
+        self.assertTrue (ok)
         p, dest = self.lastsent (self.d1, 2)
         self.assertIsInstance (p, ShortData)
         self.assertEqual (p.dstnode, Nodeid (1,17))
@@ -295,7 +298,8 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
-        self.r.send (b"payload", Nodeid (1, 17))
+        ok = self.r.send (b"payload", Nodeid (1, 17))
+        self.assertTrue (ok)
         p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, ShortData)
         self.assertEqual (p.dstnode, Nodeid (17))
@@ -379,9 +383,13 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Try sending a packet
-        self.r.send (b"payload", Nodeid (1, 66))
+        ok = self.r.send (b"payload", Nodeid (1, 66))
+        self.assertTrue (ok)
         p, dest = self.lastsent (self.d1, 3, ptype = bytes)
         self.assertEqual (p, b"payload")
+        ok = self.r.send (b"payload", Nodeid (1, 44))
+        self.assertFalse (ok)
+        self.lastsent (self.d1, 3, ptype = bytes)
 
     def test_recvdata_ph2 (self):
         # Send phase2 init
