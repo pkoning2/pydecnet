@@ -6,7 +6,6 @@
 import os
 import sys
 import io
-import logging
 import argparse
 import socketserver
 import shlex
@@ -15,6 +14,7 @@ import select
 from fcntl import *
 
 from .common import *
+from . import logging
 
 class ApiWork (Work):
     """Work requests carrying continuation data in the "data" attribute.

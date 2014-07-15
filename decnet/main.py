@@ -16,8 +16,6 @@ except ImportError:
     sys.exit (1)
     
 import time
-import logging
-import logging.handlers
 import threading
 import os
 from daemon import DaemonContext
@@ -26,8 +24,8 @@ from . import common
 from . import config
 from . import node
 from . import events
+from . import logging
 
-TRACE = 2
 DEFPIDFILE = "/var/run/pydecnet.pid"
 
 dnparser = argparse.ArgumentParser ()
@@ -58,24 +56,6 @@ dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        nargs = "?", const = "",
                        help = "Show configuration file help (for CMD if given)")
 
-# This one is like the one in the "logging" module but with the
-# decimal comma corrected to a decimal point.
-def formatTime(self, record, datefmt=None):
-    """
-    Return the creation time of the specified LogRecord as formatted text.
-    """
-    ct = self.converter (record.created)
-    if datefmt:
-        s = time.strftime (datefmt, ct)
-    else:
-        t = time.strftime ("%Y-%m-%d %H:%M:%S", ct)
-        s = "%s.%03d" % (t, record.msecs) # the use of % here is internal
-    return s
-logging.Formatter.formatTime = formatTime
-
-def trace (msg, *args, **kwargs):
-    logging.log (TRACE, msg, *args, **kwargs)
-    
 class pidfile:
     def __init__ (self, fn):
         self.fn = fn
@@ -112,8 +92,6 @@ def main ():
     if not p.configfile:
         print ("At least one config file argument must be specified")
         sys.exit (1)
-    logging.addLevelName (TRACE, "TRACE")
-    logging.trace = trace
     if p.log_file:
         if p.keep:
             h = logging.handlers.TimedRotatingFileHandler (filename = p.log_file,

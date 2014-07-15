@@ -6,9 +6,10 @@
 
 import re
 import threading
-import logging
 import builtins
 import struct
+
+from . import logging
 
 DNVERSION = "DECnet/Python V1.0"
 

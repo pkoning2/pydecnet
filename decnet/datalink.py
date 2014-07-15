@@ -6,7 +6,6 @@
 
 from abc import abstractmethod, ABCMeta
 import time
-import logging
 import os
 import sys
 import struct
@@ -14,6 +13,7 @@ import socket
 import random
 
 from .common import *
+from . import logging
 
 class HostAddress (object):
     """A class for handling host addresses, including periodic refreshing

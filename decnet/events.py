@@ -12,322 +12,511 @@ can be caught and then logged, resulting in the same output as for a simple
 "logevent" call.
 """
 
-import logging
 import time
 
+from . import logging
+
+class _dummy_node (object):
+    nodeid = "0.0"
+    nodename = "NEMO"
+    
 class Event (Exception):
     """A DECnet event.  It is derived from Exception so it can be raised.
     """
-    # Event class codes
-    netman = 0
-    application = 1
-    session = 2
-    ecl = 3
-    routing = 4
-    datalink = 5
-    physical = 6
-    pydecnet = 320    # DECnet/Python specific events
-
-    # Event code for all the standard events, as a tuple of class, type
-    # Comment lists arguments (for events we use -- many are listed in the
-    # spec but not applicable to DECnet/Python)
-    events_lost = (netman, 0)
-    node_ctrs = (netman, 1)
-    line_ctrs = (netman, 2)
-    circ_svc = (netman, 3)
-    line_zero = (netman, 4)
-    node_zero = (netman, 5)
-    circ_loop = (netman, 6)
-    circ_svcabt = (netman, 7)
-    auto_ctrs = (netman, 8)
-    ctrs_zero = (netman, 9)
-    node_state = (session, 0)      # Reason, old state, new state
-    acc_rej = (session, 1)         # Source node, proc, dest proc, user/pw/acc
-    inv_msg = (ecl, 0)             # Message, source node
-    inv_flow = (ecl, 1)            # Message, source node
-    db_reuse = (ecl, 2)            # NSP node counters
-    aged_drop = (routing, 0)       # Packet header
-    unreach_drop = (routing, 1)    # Packet header, adjacency
-    oor_drop = (routing, 2)        # Packet header, adjacency
-    size_drop = (routing, 3)       # Packet header, adjacency
-    fmt_err = (routing, 4)         # Packet beginning, adjacency
-    rout_upd_loss = (routing, 5)   # Packet header, adjacency, highest addr
-    ver_rej = (routing, 6)         # Node
-    circ_fault = (routing, 7)      # Reason, adjacency
-    circ_down = (routing, 8)       # Reason, Packet header, adjacency
-    circ_off = (routing, 9)        # Reason, Packet header, adjacency
-    circ_up = (routing, 10)        # Adjacency
-    init_fault = (routing, 11)     # Reason
-    init_swerr = (routing, 12)     # Reason, Packet header
-    init_oper = (routing, 13)      # Reason, Packet header, received version
-    reach_chg = (routing, 14)      # Status
-    adj_up = (routing, 15)         # Adjacency
-    adj_rej = (routing, 16)        # Reason, adjacency
-    area_chg = (routing, 17)       # Status
-    adj_down = (routing, 18)       # Reason, packet header, adjacency
-    adj_oper = (routing, 19)       # Reason, packet header, adjacency
-    circ_lcl = (datalink, 0)
-    circ_rem = (datalink, 1)
-    circ_maint = (datalink, 2)
-    circ_xerr = (datalink, 3)
-    circ_rerr = (datalink, 4)
-    circ_sel = (datalink, 5)
-    circ_bherr = (datalink, 6)
-    circ_addr = (datalink, 7)
-    circ_trib = (datalink, 8)
-    circ_bufsz = (datalink, 9)
-    mod_restart = (datalink, 10)
-    mod_state = (datalink, 11)
-    mod_stmax = (datalink, 12)
-    line_initfail = (datalink, 13)
-    line_xfail = (datalink, 14)
-    line_rfail = (datalink, 15)
-    line_coll = (datalink, 16)
-    mod_dteup = (datalink, 17)
-    mod_dtedown = (datalink, 18)
-    line_dsr = (physical, 0)
-    line_ring = (physical, 1)
-    line_carr = (physical, 2)
-    line_mem = (physical, 3)
-    line_comm = (physical, 4)
-    line_perf = (physical, 5)
-
-    # This dictionary maps event codes to the corresponding string.
-    # The strings are taken from the Netman spec.
-    eventnames = {
-        (netman, 0) : "Event records lost",
-        (netman, 1) : "Automatic node counters",
-        (netman, 2) : "Automatic line counters",
-        (netman, 3) : "Automatic service",
-        (netman, 4) : "Line counters zeroed",
-        (netman, 5) : "Node counters zeroed",
-        (netman, 6) : "Passive loopback",
-        (netman, 7) : "Aborted service request",
-        (netman, 8) : "Automatic counters",
-        (netman, 9) : "Counters zeroed",
-        (session, 0) : "Local node state change",
-        (session, 1) : "Access control reject",
-        (ecl, 0) : "Invalid message",
-        (ecl, 1) : "Invalid flow control",
-        (ecl, 2) : "Data base reused",
-        (routing, 0) : "Aged packet loss",
-        (routing, 1) : "Node unreachable packet loss",
-        (routing, 2) : "Node out-of-range packet loss",
-        (routing, 3) : "Oversized packet loss",
-        (routing, 4) : "Packet format error",
-        (routing, 5) : "Partial routing update loss",
-        (routing, 6) : "Verification reject",
-        (routing, 7) : "Circuit down, circuit fault",
-        (routing, 8) : "Circuit down",
-        (routing, 9) : "Circuit down, operator initiated",
-        (routing, 10) : "Circuit up",
-        (routing, 11) : "Initialization failure, line fault",
-        (routing, 12) : "Initialization failure, software fault",
-        (routing, 13) : "Initialization failure, operator fault",
-        (routing, 14) : "Node reachability change",
-        (routing, 15) : "Adjacency up",
-        (routing, 16) : "Adjacency rejected",
-        (routing, 17) : "Area reachability change",
-        (routing, 18) : "Adjacency down",
-        (routing, 19) : "Adjacency down, operator initiated",
-        (datalink, 0) : "Locally initiated state change",
-        (datalink, 1) : "Remotely initiated state change",
-        (datalink, 2) : "Protocol restart received in maintenance mode",
-        (datalink, 3) : "Send error threshold",
-        (datalink, 4) : "Receive error threshold",
-        (datalink, 5) : "Select error threshold",
-        (datalink, 6) : "Block header format error",
-        (datalink, 7) : "Selection address error",
-        (datalink, 8) : "Streaming tributary",
-        (datalink, 9) : "Local buffer too small",
-        (datalink, 10) : "Restart ",
-        (datalink, 11) : "State change ",
-        (datalink, 12) : "Retransmit maximum exceeded",
-        (datalink, 13) : "Initialization failure",
-        (datalink, 14) : "Send failed",
-        (datalink, 15) : "Receive failed",
-        (datalink, 16) : "Collision detect check failed",
-        (datalink, 17) : "DTE up",
-        (datalink, 18) : "DTE down",
-        (physical, 0) : "Data set ready transition",
-        (physical, 1) : "Ring indicator transition",
-        (physical, 2) : "Unexpected carrier transition",
-        (physical, 3) : "Memory access error",
-        (physical, 4) : "Communications interface error",
-        (physical, 5) : "Performance error",
-        }
-    # This dictionary maps event IDs to the entity type name.
-    evententities = {
-        (netman, 0) : None,
-        (netman, 1) : "Node",
-        (netman, 2) : "Line",
-        (netman, 3) : "Circuit",
-        (netman, 4) : "Line",
-        (netman, 5) : "Node",
-        (netman, 6) : "Circuit",
-        (netman, 7) : "Circuit",
-        (netman, 8) : None,
-        (netman, 9) : None,
-        (session, 0) : None,
-        (session, 1) : None,
-        (ecl, 0) : None,
-        (ecl, 1) : None,
-        (ecl, 2) : "Node",
-        (routing, 0) : "Node",
-        (routing, 1) : "Circuit",
-        (routing, 2) : "Circuit",
-        (routing, 3) : "Circuit",
-        (routing, 4) : "Circuit",
-        (routing, 5) : "Circuit",
-        (routing, 6) : "Circuit",
-        (routing, 7) : "Circuit",
-        (routing, 8) : "Circuit",
-        (routing, 9) : "Circuit",
-        (routing, 10) : "Circuit",
-        (routing, 11) : "Circuit",
-        (routing, 12) : "Circuit",
-        (routing, 13) : "Circuit",
-        (routing, 14) : "Node",
-        (routing, 15) : "Circuit",
-        (routing, 16) : "Circuit",
-        (routing, 17) : "Area",
-        (routing, 18) : "Circuit",
-        (routing, 19) : "Circuit",
-        (datalink, 0) : "Circuit",
-        (datalink, 1) : "Circuit",
-        (datalink, 2) : "Circuit",
-        (datalink, 3) : "Circuit",
-        (datalink, 4) : "Circuit",
-        (datalink, 5) : "Circuit",
-        (datalink, 6) : "Circuit",
-        (datalink, 7) : "Circuit",
-        (datalink, 8) : "Circuit",
-        (datalink, 9) : "Circuit",
-        (datalink, 10) : "Module",
-        (datalink, 11) : "Module",
-        (datalink, 12) : "Module",
-        (datalink, 13) : "Line",
-        (datalink, 14) : "Line",
-        (datalink, 15) : "Circuit",
-        (datalink, 16) : "Line",
-        (datalink, 17) : "Module",
-        (datalink, 18) : "Module",
-        (physical, 0) : "Line",
-        (physical, 1) : "Line",
-        (physical, 2) : "Line",
-        (physical, 3) : "Line",
-        (physical, 4) : "Line",
-        (physical, 5) : "Line",
-        }
-
-    # This dictionary defines event parameters and parameter value codes
-    # for each event class.  The top level dictionary is indexed by class code.
-    # Each value is the dictionary for that class.
-    # The dictionary for the class lists two things: (a) the mapping from
-    # attribute names to event parameter codes, and (b) the mapping from
-    # attribute values to parameter value codes.  The names are all as
-    # given in the Netman spec, except that they are in lower case, and spaces
-    # are replaced by _ characters.  Also, really long names are trimmed.
-    # For attribute names (parameters), the value is a tuple consisting
-    # of the parameter type code (an integer) followed by the encoding
-    # rules (strings).  For attribute values, the value is an integer.
-    params = {
-        session : {
-            "reason" : (0, "c-1"),
-            "old_state" : (1, "c-1"),
-            "new_state" : (2, "c-1"),
-            "source_node" : (3, "cm-1/2", "du-2", "ai-6"),
-            "source_process" : (4, "cm-1/2/3/4", "du-1", "du-2", "du-2", "ai-6"),
-            "destination_process" : (5, "cm-1/2/3/4", "du-1", "du-2", "du-2", "ai-6"),
-            "user" : (6, "ai-39"),
-            "password" : (7, "c-1"),
-            "account" : (8, "ai-39"),
-            "operator_command" : 0,    # Reason
-            "normal_operation" : 1,
-            "on" : 0,                  # Old/new state
-            "off" : 1,
-            "shut" : 2,
-            "restricted" : 3,
-            "set" : 0                  # Password
-            },
-        ecl : {
-            "message" : (0, "cm-4", "h-1", "du-2", "du-2", "hi-6"),
-            "request_count" : (1, "ds-1"),
-            "source_node" : (2, "cm-1/2", "du-2", "ai-6")
-            },
-        routing : {
-            "packet_header" : (0, "cm-2/4", "h-1", "du-2", "du-2", "du-1"),
-            "eth_packet_header" : (0, "cm-11", "h-1", "du-1", "du-1", "hi-6",
-                                   "du-1", "du-1", "hi-6", "du-1", "du-1",
-                                   "h-1", "du-1"),
-            "packet_beginning" : (1, "hi-6"),
-            "highest_address" : (2, "du-2"),
-            "node" : (3, "cm-1/2", "du-2", "ai-6"),
-            "expected_node" : (4, "cm-1/2", "du-2", "ai-6"),
-            "reason" : (5, "c-1"),
-            "received_version" : (6, "cm-3", "du-1", "du-1", "du-1"),
-            "status" : (7, "c-1"),
-            "adjacent_node" : (8, "cm-1/2", "du-2", "ai-6"),
-            "sync_lost" : 0,          # Reason
-            "data_errors" : 1,
-            "unexpected_packet_type" : 2,
-            "checksum_error" : 3,
-            "address_change" : 4,
-            "verification_timeout" : 5,
-            "version_skew" : 6,
-            "address_out_of_range" : 7,
-            "block_size_too_small" : 8,
-            "invalid_verification" : 9,
-            "listener_timeout" : 10,
-            "listener_invalid_data" : 11,
-            "call_failed" : 12,
-            "verification_required" : 13,
-            "dropped" : 14,
-            "reachable" : 0,          # Status
-            "unreachable" : 1
-            },
-        }
-
-    def __init__ (self, event, entity = None, **kwds):
+    _entity_type = None
+    _local_node = _dummy_node ()    # Should normally be set by log_event call
+    
+    def __init__ (self, entity = None, **kwds):
         Exception.__init__ (self)
-        self.event = event
-        self._entity = entity
+        if self._entity_type and entity:
+            self._entity = self._entity_type (entity)
+        else:
+            self._entity = None
+        self._timestamp = time.time ()
         self.__dict__.update (kwds)
 
-    def paramid (self, kv):
-        k, v = kv
-        try:
-            return self.params[self.event[0]][k][0]
-        except KeyError:
-            return hash (k)
-        
+    def params (self):
+        # Yield pairs of param name and param label text,
+        # in ascending order of parameter code
+        citems = [ getattr (self.__class__, cn) for cn in dir (self.__class__) ]
+        plist = [ c for c in citems
+                  if isinstance (c, type) and issubclass (c, EventParam) ]
+        for c in sorted (plist, key = EventParam.key):
+            name = c.__name__
+            text = name.replace ("_", " ").capitalize ()
+            yield name, text
+            
     def __str__ (self):
-        e = self.event
         n = self._local_node
         ts = self._timestamp
-        ms = int (ts * 1000.) % 1000
+        ts, ms = divmod (int (ts * 1000), 1000)
         ts = time.strftime("%d-%b-%Y %H:%M:%S", time.localtime (ts))
         ts = "{}.{:03d}".format (ts, ms)
-        ret = [ "Event type {0[0]}.{0[1]}, {1}".format (e, self.eventnames[e]),
-                "  From node {0.nodeid} ({0.nodename}), occurred {1}".format (n, ts) ]
+        ret = [ "Event type {}.{}, {}".format (self._class,
+                                               self._code,
+                                               self.__doc__),
+                "  From node {0.nodeid} ({0.nodename}), "
+                "occurred {1}".format (n, ts) ]
         if self._entity:
-            ret.append ("  {} {}".format (self.evententities[e],
+            ret.append ("  {} {}".format (self._entity_type.__doc__,
                                           self._entity))
-        for k, v in sorted (self.__dict__.items (), key = self.paramid):
-            if k != "event" and k[0] != "_":
-                k = k.replace ("_", " ").capitalize ()
+        for name, text in self.params ():
+            try:
+                v = self.__dict__[name]
                 if isinstance (v, str):
                     v = v.replace ("_", " ")
                 elif isinstance (v, tuple):
                     v = ' '.join (str (i) for i in v)
-                ret.append ("  {}: {}".format (k, v))
+                ret.append ("  {}: {}".format (text, v))
+            except KeyError:
+                pass
         return '\n'.join (ret)
 
-def logging_add_ts (rec):
-    """Filter to add the log record timestamp to the Event, if this is
-    an event being logged.
-    """
-    m = rec.msg
-    if isinstance (m, Event):
-        m._timestamp = rec.created
-    return True
+# Event entity classes
+class EventEntity (object):
+    def __init__ (self, val):
+        assert (val)
+        self.val = val
+
+    def __str__ (self):
+        return str (self.val)
+
+# Event Parameter classes
+class EventParam (object):
+    code = None
+    fmt = None
+    values = None
+
+    def __init__ (self, val):
+        assert (val)
+        self.val = val
+
+    def __str__ (self):
+        return str (self.val)
+
+    @staticmethod
+    def key (cls):
+        return cls.code
+    
+class NodeEntity (EventEntity): "Node"
+class AreaEntity (EventEntity): "Area"
+class CircuitEntity (EventEntity): "Circuit"
+class LineEntity (EventEntity): "Line"
+class ModuleEntity (EventEntity): "Module"
+
+# Subclasses for the different layers.  Each defines the class attributes
+# common (or mostly common) to that layer's events.
+class NetmanEvent (Event):
+    _class = 0
+    
+class AppEvent (Event):
+    _class = 1
+    
+class SessionEvent (Event):
+    _class = 2
+    class reason (EventParam):
+        code = 0
+        fmt = ("c-1")
+        values = { "operator_command" : 0,
+                   "normal_operation" : 1}
+
+    class old_state (EventParam):
+        code = 1
+        fmt = ("c-1")
+        values = { "on" : 0,
+                   "off" : 1,
+                   "shut" : 2,
+                   "restricted" : 3, }
+
+    class new_state (EventParam):
+        code = 2
+        fmt = ("c-1")
+        #values = old_state.values
+        
+    class source_node (EventParam):
+        code = 3
+        fmt = ("cm-1/2", "du-2", "ai-6")
+    class source_process (EventParam):
+        code = 4
+        fmt = ("cm-1/2/3/4", "du-1", "du-2", "du-2", "ai-6")
+    class destination_process (EventParam):
+        code = 5
+        fmt = ("cm-1/2/3/4", "du-1", "du-2", "du-2", "ai-6")
+    class user (EventParam):
+        code = 6
+        fmt = ("ai-39")
+    class password (EventParam):
+        code = 7
+        fmt = ("c-1")
+        values = { "set" : 0 }
+        
+    class account (EventParam):
+        code = 8
+        fmt = ("ai-39")
+
+SessionEvent.new_state.values = SessionEvent.old_state.values
+
+class EclEvent (Event):
+    _class = 3
+    class message (EventParam):
+        code = 0
+        fmt = ("cm-4", "h-1", "du-2", "du-2", "hi-6")
+    class request_count (EventParam):
+        code = 1
+        fmt = ("ds-1")
+    class source_node (EventParam):
+        code = 2
+        fmt = ("cm-1/2", "du-2", "ai-6")
+    
+class RoutingEvent (Event):
+    _class = 4
+    _entity_type = CircuitEntity
+    class packet_header (EventParam):
+        code = 0
+        fmt = ("cm-2/4", "h-1", "du-2", "du-2", "du-1")
+    class eth_packet_header (EventParam):
+        code =  0
+        fmt = ("cm-11", "h-1", "du-1", "du-1", "hi-6",
+               "du-1", "du-1", "hi-6", "du-1", "du-1",
+               "h-1", "du-1")
+    class packet_beginning (EventParam):
+        code = 1
+        fmt = ("hi-6")
+    class highest_address (EventParam):
+        code = 2
+        fmt = ("du-2")
+    class node (EventParam):
+        code = 3
+        fmt = ("cm-1/2", "du-2", "ai-6")
+    class expected_node (EventParam):
+        code = 4
+        fmt = ("cm-1/2", "du-2", "ai-6")
+    class reason (EventParam):
+        code = 5
+        fmt = ("c-1")
+        values = { "sync_lost" : 0,
+                   "data_errors" : 1,
+                   "unexpected_packet_type" : 2,
+                   "checksum_error" : 3,
+                   "address_change" : 4,
+                   "verification_timeout" : 5,
+                   "version_skew" : 6,
+                   "address_out_of_range" : 7,
+                   "block_size_too_small" : 8,
+                   "invalid_verification" : 9,
+                   "listener_timeout" : 10,
+                   "listener_invalid_data" : 11,
+                   "call_failed" : 12,
+                   "verification_required" : 13,
+                   "dropped" : 14 }
+        
+    class received_version (EventParam):
+        code = 6
+        fmt = ("cm-3", "du-1", "du-1", "du-1")
+    class status (EventParam):
+        code = 7
+        fmt = ("c-1")
+        values = { "reachable" : 0,
+                   "unreachable" : 1 }
+
+    class adjacent_node (EventParam):
+        code = 8
+        fmt = ("cm-1/2", "du-2", "ai-6")
+    
+class DlEvent (Event):
+    _class = 5
+    _entity_type = CircuitEntity
+    
+class PhyEvent (Event):
+    _class = 6
+    _entity_type = LineEntity
+    
+class PyEvent (Event):
+    # DECnet/Python specific events
+    _class = 320
+
+# The actual event classes
+class events_lost (NetmanEvent):
+    "Event records lost"
+    _code = 0
+    _entity_type = None
+    
+class node_ctrs (NetmanEvent):
+    "Automatic node counters"
+    _code = 1
+    _entity_type = NodeEntity
+    
+class line_ctrs (NetmanEvent):
+    "Automatic line counters"
+    _code = 2
+    _entity_type = LineEntity
+
+class circ_svc (NetmanEvent):
+    "Automatic service"
+    _code = 3
+    _entity_type = CircuitEntity
+
+class line_zero (NetmanEvent):
+    "Line counters zeroed"
+    _code = 4
+    _entity_type = LineEntity
+
+class node_zero (NetmanEvent):
+    "Node counters zeroed",    
+    _code = 5
+    _entity_type = NodeEntity
+
+class circ_loop (NetmanEvent):
+    "Passive loopback"
+    _code = 6
+    _entity_type = CircuitEntity
+
+class circ_svcabt (NetmanEvent):
+    "Aborted service request"
+    _code = 7
+    _entity_type = CircuitEntity
+
+class auto_ctrs (NetmanEvent):
+    "Automatic counters"
+    _code = 8
+
+class ctrs_zero (NetmanEvent):
+    "Counters zeroed"
+    _code = 9
+
+class node_state (SessionEvent):
+    "Local node state change"
+    _code = 0
+    # Reason, old state, new state
+
+class acc_rej (SessionEvent):
+    "Access control reject"
+    _code = 1
+    # Source node, proc, dest proc, user/pw/acc
+
+class inv_msg (EclEvent):
+    "Invalid message"
+    _code = 0
+    # Message, source node
+
+class inv_flow (EclEvent):
+    "Invalid flow control"
+    _code = 1
+    # Message, source node
+
+class db_reuse (EclEvent):
+    "Data base reused"
+    _code = 2
+    _entity_type = NodeEntity
+    # NSP node counters
+
+class aged_drop (RoutingEvent):
+    "Aged packet loss"
+    _code = 0
+    _entity_type = NodeEntity
+    # Packet header
+
+class unreach_drop (RoutingEvent):
+    "Node unreachable packet loss"
+    _code = 1
+    # Packet header, adjacency
+
+class oor_drop (RoutingEvent):
+    "Node out-of-range packet loss"
+    _code = 2
+    # Packet header, adjacency
+
+class size_drop (RoutingEvent):
+    "Oversized packet loss"
+    _code = 3
+    # Packet header, adjacency
+
+class fmt_err (RoutingEvent):
+    "Packet format error"
+    _code = 4
+    # Packet beginning, adjacency
+
+class rout_upd_loss (RoutingEvent):
+    "Partial routing update loss"
+    _code = 5
+    # Packet header, adjacency, highest addr
+
+class ver_rej (RoutingEvent):
+    "Verification reject"
+    _code = 6
+    # Node
+
+class circ_fault (RoutingEvent):
+    "Circuit down, circuit fault"
+    _code = 7
+    # Reason, adjacency
+
+class circ_down (RoutingEvent):
+    "Circuit down"
+    _code = 8
+    # Reason, Packet header, adjacency
+
+class circ_off (RoutingEvent):
+    "Circuit down, operator initiated"
+    _code = 9
+    # Reason, Packet header, adjacency
+
+class circ_up (RoutingEvent):
+    "Circuit up"
+    _code = 10
+    # Adjacency
+
+class init_fault (RoutingEvent):
+    "Initialization failure, line fault"
+    _code = 11
+    # Reason
+
+class init_swerr (RoutingEvent):
+    "Initialization failure, software fault"
+    _code = 12
+    # Reason, Packet header
+
+class init_oper (RoutingEvent):
+    "Initialization failure, operator fault"
+    _code = 13
+    # Reason, Packet header, received version
+
+class reach_chg (RoutingEvent):
+    "Node reachability change"
+    _code = 14
+    _entity_type = NodeEntity
+    # Status
+
+class adj_up (RoutingEvent):
+    "Adjacency up"
+    _code = 15
+    # Adjacency
+
+class adj_rej (RoutingEvent):
+    "Adjacency rejected"
+    _code = 16
+    # Reason, adjacency
+
+class area_chg (RoutingEvent):
+    "Area reachability change"
+    _code = 17
+    # Status
+
+class adj_down (RoutingEvent):
+    "Adjacency down"
+    _code = 18
+    # Reason, packet header, adjacency
+
+class adj_oper (RoutingEvent):
+    "Adjacency down, operator initiated"
+    _code = 19
+    # Reason, packet header, adjacency
+
+class circ_lcl (DlEvent):
+    "Locally initiated state change"
+    _code = 0
+    _entity_type = CircuitEntity
+
+class circ_rem (DlEvent):
+    "Remotely initiated state change"
+    _code = 1
+
+class circ_maint (DlEvent):
+    "Protocol restart received in maintenance mode"
+    _code = 2
+
+class circ_xerr (DlEvent):
+    "Send error threshold"
+    _code = 3
+
+class circ_rerr (DlEvent):
+    "Receive error threshold"
+    _code = 4
+
+class circ_sel (DlEvent):
+    "Select error threshold"
+    _code = 5
+
+class circ_bherr (DlEvent):
+    "Block header format error"
+    _code = 6
+
+class circ_addr (DlEvent):
+    "Selection address error"
+    _code = 7
+
+class circ_trib (DlEvent):
+    "Streaming tributary"
+    _code = 8
+
+class circ_bufsz (DlEvent):
+    "Local buffer too small"
+    _code = 9
+
+class mod_restart (DlEvent):
+    "Restart "
+    _code = 10
+    _entity_type = ModuleEntity
+
+class mod_state (DlEvent):
+    "State change "
+    _code = 11
+    _entity_type = ModuleEntity
+
+class mod_stmax (DlEvent):
+    "Retransmit maximum exceeded"
+    _code = 12
+    _entity_type = ModuleEntity
+
+class line_initfail (DlEvent):
+    "Initialization failure"
+    _entity_type = LineEntity
+    _code = 13
+
+class line_xfail (DlEvent):
+    "Send failed"
+    _code = 14
+    _entity_type = LineEntity
+
+class line_rfail (DlEvent):
+    "Receive failed"
+    _code = 15
+
+class line_coll (DlEvent):
+    "Collision detect check failed"
+    _code = 16
+    _entity_type = LineEntity
+
+class mod_dteup (DlEvent):
+    "DTE up"
+    _code = 17
+    _entity_type = ModuleEntity
+
+class mod_dtedown (DlEvent):
+    "DTE down"
+    _code = 18
+    _entity_type = ModuleEntity
+
+class line_dsr (PhyEvent):
+    "Data set ready transition"
+    _code = 0
+
+class line_ring (PhyEvent):
+    "Ring indicator transition"
+    _code = 1
+
+class line_carr (PhyEvent):
+    "Unexpected carrier transition"
+    _code = 2
+
+class line_mem (PhyEvent):
+    "Memory access error"
+    _code = 3
+
+class line_comm (PhyEvent):
+    "Communications interface error"
+    _code = 4
+
+class line_perf (PhyEvent):
+    "Performance error"
+    _code = 5

@@ -9,7 +9,7 @@ import time
 
 from .common import *
 from .routing_packets import *
-from .events import *
+from . import events
 from . import datalink
 from . import adjacency
 from . import timers
@@ -88,7 +88,7 @@ class LanCircuit (timers.Timer):
                     logging.debug ("Unknown routing control packet %d from %s",
                                    code, self.name)
                     return
-                except Event as e:
+                except events.Event as e:
                     # If parsing the packet raises an Event
                     # exception, log that event
                     self.node.logevent (e)
@@ -106,7 +106,7 @@ class LanCircuit (timers.Timer):
                         logging.debug ("Unknown routing packet %d from %s",
                                        code, self.name)
                         return
-                except Event as e:
+                except events.Event as e:
                     # If parsing the packet raises an Event
                     # exception, log that event
                     self.node.logevent (e)

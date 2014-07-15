@@ -9,12 +9,12 @@ import os
 import sys
 import argparse
 import shlex
-import logging
 
 from .common import *
 from .apiserver import dnparser
 from . import datalink
 from . import datalinks    # All the datalinks we know
+from . import logging
 
 configparser = dnparser (prog = "", add_help = False)
 configparser.add_argument ("-h", action = "help", help = argparse.SUPPRESS)

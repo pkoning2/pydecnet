@@ -13,10 +13,10 @@ is told to do so, by having"start_works" set to False in the port object.
 import re
 import select
 import socket
-import logging
 
 from .common import *
 from . import datalink
+from . import logging
 
 # Multinet link states
 OFF = 0

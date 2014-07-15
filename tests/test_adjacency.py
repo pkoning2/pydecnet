@@ -2,12 +2,11 @@
 
 from tests.dntest import *
 
-import logging
-
 from decnet.routing_packets import *
 from decnet import adjacency
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
+from decnet import logging
 
 class adjtest (DnTest):
     blksize = 500
