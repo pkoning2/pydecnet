@@ -125,6 +125,11 @@ class DnTest (unittest.TestCase):
             e = e (*rest, **k)
         e._local_node = self.node
         return e
+
+    def assertParam (self, p, value):
+        if not isinstance (value, int):
+            value = p.values[value]
+        self.assertEqual (p.val, value)
         
     def lastdispatch (self, calls, element = None):
         element = element or self.node

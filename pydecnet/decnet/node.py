@@ -9,6 +9,7 @@ import queue
 import threading
 
 from .common import *
+from . import nice
 from . import events
 from . import timers
 from . import logging
@@ -20,28 +21,21 @@ from . import apiserver
 from . import nsp
 from . import monitor
 
-class Nodeinfo (nsp.NSPNode):
+class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     """A container for node database entries.  This contains the attributes
     needed by the various layers for remote node items -- for example, the
     state and counters needed by NSP.  The argument is the node config entry.
     """
     def __init__ (self, c, id = None):
-        super ().__init__ ()
+        nsp.NSPNode.__init__ (self)
         if c:
-            self.nodeid = c.id
-            self.nodename = c.name
+            nice.NiceNode (c.id, c.name)
             self.overif = c.outbound_verification
             self.iverif = c.inbound_verification
         else:
-            self.nodeid = id
-            self.nodename = None
+            nice.NiceNode (id)
             self.overif = None
             self.iverif = None
-            
-    def __str__ (self):
-        if self.nodename:
-            return "{0.nodeid} ({0.nodename})".format (self)
-        return "{0.nodeid}".format (self)
 
 # A mapping from router node type to DECnet Phase number.  We need this
 # in a number of layers so we'll keep the answer in the Node object.

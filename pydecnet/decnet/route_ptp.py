@@ -92,13 +92,13 @@ class PtpCircuit (statemachine.StateMachine):
         return self.ha
 
     def fmterr (self, pkt):
-        # Get the packet beginning, 16 bytes even though spec says max of 6
-        hdrb = bytes (pkt)[:16]
+        # Get the packet beginning, 6 bytes max
+        hdrb = bytes (pkt)[:6]
         hdrs = ':'.join ([ "{:02X}".format (i) for i in hdrb ])
         logging.debug ("packet format error: %s", hdrs)
         self.node.logevent (events.fmt_err, self,
                             adjacent_node = self.node.nodeinfo (self.id),
-                            packet_beginning = hdrs)
+                            packet_beginning = hdrb)
         
     def start (self):
         # Put in some dummy values until we hear from the neighbor
