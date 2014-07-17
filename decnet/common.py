@@ -6,7 +6,6 @@
 
 import re
 import threading
-import builtins
 import struct
 
 from . import logging
@@ -105,6 +104,10 @@ class Nodeid (int):
         """Create a Nodeid from a string, an integer, a pair of integers,
         a Mac address, or anything that can be converted to a byte string
         of length 2.
+
+        Note that this accepts some technically invalid values, such as
+        node number of zero or area number of zero, to avoid running into
+        trouble in some use cases.
         """
         if isinstance (s, str):
             m = _nodeid_re.match (s)
@@ -117,41 +120,23 @@ class Nodeid (int):
                 a = 0
             else:
                 a = int (a)
-                if a == 0:
-                    raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         elif isinstance (s, int):
             if id2 is None:
-                n = s
-                a = 0
+                a, n = divmod (s, 1024)
             else:
                 a, n = s, id2
-                if a == 0:
-                    raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
         elif isinstance (s, Macaddr):
             if s[:4] != HIORD:
                 raise ValueError ("Invalid DECnet Mac address %s" % s)
             a, n = divmod (int.from_bytes (s[4:], "little"), 1024)
-            if a == 0:
-                raise ValueError ("Invalid DECnet Mac address %s" % s)
         else:
             s = bytes (s)
             if len (s) != 2:
                 raise ValueError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
-            if a == 0:
-                pass #raise ValueError ("Invalid Phase IV address %d.%d" % (a, n))
-        if a == 0:
-            if n < 1 or n > 1023:
-                # Note we check for 1023, not 255, because DECnet/E Phase IV
-                # sometimes sends bogus Phase III format addresses in
-                # point to point hello messages when it isn't supposed to.
-                raise ValueError ("Invalid node ID %s" % s)
-        else:
-            if 1 <= a <= 63 and 1 <= n <= 1023:
-                n = (a << 10) + n
-            else:
-                raise ValueError ("Invalid node ID %s" % s)
-        return int.__new__ (cls, n)
+        if a > 63 or n > 1023:
+            raise ValueError ("Invalid node ID %s" % s)
+        return int.__new__ (cls, (a << 10) + n)
 
     @classmethod
     def decode (cls, buf):

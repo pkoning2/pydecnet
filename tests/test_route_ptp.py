@@ -643,7 +643,7 @@ class test_ph4verify (rtest):
         self.assertState ("ha")
         self.assertEqual (self.c.log_adj_up.call_count, 0)
         e = self.lastevent (events.ver_rej)
-        self.assertEqual (e.reason, "invalid_verification")
+        self.assertParam (e.reason, "invalid_verification")
         self.dispatch ()
         self.assertState ("ds")
         
@@ -661,7 +661,7 @@ class test_ph4verify (rtest):
         self.assertState ("ha")
         self.assertEqual (self.c.log_adj_up.call_count, 0)
         e = self.lastevent (events.ver_rej)
-        self.assertEqual (e.reason, "verification_timeout")
+        self.assertParam (e.reason, "verification_timeout")
         self.dispatch ()
         self.assertState ("ds")
 

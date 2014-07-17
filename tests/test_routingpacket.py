@@ -191,7 +191,7 @@ class test_p3routing (routingmsg):
         s = PhaseIIIRouting ()
         with self.assertRaises (events.adj_down) as e:
             s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x06\x88")
-        self.assertEqual (e.exception.reason, "checksum_error")
+        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_encode (self):
         s = PhaseIIIRouting (srcnode = Nodeid (4),
@@ -215,17 +215,20 @@ class test_l1routing (routingmsg):
     def test_decodebad (self):
         s = L1Routing ()
         with self.assertRaises (events.adj_down) as e:
-            s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0c\x88")
-        self.assertEqual (e.exception.reason, "checksum_error")
+            s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00"
+                      b"\xff\x7f\x06\x08\x0c\x88")
+        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_decodebadseg (self):
         s = L1Routing ()
         # Segment entry count 0
         with self.assertRaises (events.fmt_err) as e:
-            s.decode (b"\x07\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
+            s.decode (b"\x07\x03\x00\x00\x00\x00\x07\x00"
+                      b"\xff\x7f\x06\x08\x0d\x88")
         # Segment start id out of range
         with self.assertRaises (events.fmt_err) as e:
-            s.decode (b"\x07\x03\x00\x00\x02\x00\x00\x04\xff\x7f\x06\x08\x08\x8c")
+            s.decode (b"\x07\x03\x00\x00\x02\x00\x00\x04"
+                      b"\xff\x7f\x06\x08\x08\x8c")
 
     def test_encode (self):
         segs = [ L1Segment (count = 2, startid = 3,
@@ -251,8 +254,9 @@ class test_l2routing (routingmsg):
     def test_decodebad (self):
         s = L2Routing ()
         with self.assertRaises (events.adj_down) as e:
-            s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0c\x88")
-        self.assertEqual (e.exception.reason, "checksum_error")
+            s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00"
+                      b"\xff\x7f\x06\x08\x0c\x88")
+        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_decodebadseg (self):
         s = L2Routing ()

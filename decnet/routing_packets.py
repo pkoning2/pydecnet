@@ -83,6 +83,12 @@ class PtpInit (CtlHdr):
                ( "i", "reserved", 64 ))
     type = 0
     blo = 0
+
+    def check (self):
+        # Check that the node number is valid
+        if not self.srcnode:
+            logging.debug ("Invalid Phase IV node address")
+            raise events.fmt_err
     
 class PtpInit3 (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
@@ -96,6 +102,12 @@ class PtpInit3 (CtlHdr):
     blo = 0
     # Defined in phase IV hello, supply dummy value for commonality
     timer = 0
+
+    def check (self):
+        # Check that the node number is valid
+        if not 1 <= self.srcnode <= 255:
+            logging.debug ("Invalid Phase III node address")
+            raise events.fmt_err
 
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
