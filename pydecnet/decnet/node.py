@@ -29,11 +29,11 @@ class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     def __init__ (self, c, id = None):
         nsp.NSPNode.__init__ (self)
         if c:
-            nice.NiceNode (c.id, c.name)
+            nice.NiceNode.__init__ (self, c.id, c.name)
             self.overif = c.outbound_verification
             self.iverif = c.inbound_verification
         else:
-            nice.NiceNode (id)
+            nice.NiceNode.__init__ (self, id)
             self.overif = None
             self.iverif = None
 
@@ -51,7 +51,7 @@ class Node (object):
     """
     startlist = ( "datalink", "mop", "routing", "nsp",
                   "api", "monitor" )
-    
+
     def __init__ (self, config):
         self.node = self
         self.config = config
@@ -76,13 +76,24 @@ class Node (object):
         self.api = apiserver.ApiServer (self, sock)
         self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()
-
+        self.initfilter ()
         # We now have a node.
         # Create its child entities in the appropriate order.
         self.datalink = datalink.DatalinkLayer (self, config)
         self.mop = mop.Mop (self, config)
         self.routing = routing.Router (self, config)
         self.nsp = nsp.NSP (self, config)
+
+    def initfilter (self):
+        # Set up the event filter.  TODO: make this configurable.
+        # For now, just enable almost everything.
+        self.eventfilter = set ()
+        for i in (0, 1, 2, 3, 4, 5, 6, 320):
+            for j in range (32):
+                evtcode = (i << 6) + j
+                self.eventfilter.add (evtcode)
+        # Turn off a couple
+        self.eventfilter.remove (events.Event.eventcode (events.fmt_err))
         
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
@@ -177,7 +188,9 @@ class Node (object):
         return self.api.register_api (command, handler, help)
 
     def logevent (self, event, entity = None, **kwds):
-        if not isinstance (event, events.Event):
-            event = event (entity, **kwds)
-        event._local_node = self
-        logging.info (event)
+        if isinstance (event, events.Event):
+            event.setsource (self.nodeid)
+        else:
+            event = event (entity, source = self.nodeid, **kwds)
+        if event.eventcode () in self.eventfilter:
+            logging.info (event)

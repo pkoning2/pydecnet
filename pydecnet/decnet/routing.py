@@ -104,14 +104,11 @@ class Circuit (Element):
         self.trans_recv = self.trans_sent = 0
         #self.term_cong = self.trans_cong = 0    # congestion loss, needed?
         self.cir_down = self.adj_down = self.init_fail = 0
-
-    # "adj" is a defaulted keyword argument in the next two, so they
-    # can be used as alternates for the log_adj_up/down methods.
-    def log_up (self, adj = None, **kwargs):
+        
+    def log_up (self, **kwargs):
         self.node.logevent (events.circ_up, self, **kwargs)
 
-    def log_down (self, adj = None, **kwargs):
-        self.cir_down += 1
+    def log_down (self, **kwargs):
         self.node.logevent (events.circ_down, self, **kwargs)
     
     def log_adj_up (self, adj, **kwargs):
@@ -147,8 +144,11 @@ class PtpEndnodeCircuit (route_ptp.PtpCircuit, Circuit):
     """Point to point circuit on an endnode.
     """
     # Adjacency up/down is logged as circuit up/down
-    log_adj_up = Circuit.log_up
-    log_adj_down = Circuit.log_down
+    def log_adj_up (self, adj, **kwargs):
+        self.log_up (**kwargs)
+
+    def log_adj_down (self, adj, **kwargs):
+        self.log_down (**kwargs)
     
     def __init__ (self, parent, name, datalink, config):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
@@ -237,6 +237,10 @@ class BaseRouter (Element):
         self.homearea, self.tid = self.nodeid.split ()
         self.typename = config.routing.type
         self.name = parent.nodeinfo (self.nodeid).nodename
+        # Counters:
+        self.unreach_loss = self.aged_loss = self.node_oor_loss = 0
+        self.oversized_loss = self.partial_update_loss = 0
+        self.fmt_errors = self.ver_rejects = 0        
         self.circuits = dict ()
         self.adjacencies = dict ()
         self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)

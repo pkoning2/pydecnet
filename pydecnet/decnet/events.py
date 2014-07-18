@@ -37,7 +37,7 @@ class Event (Exception, NiceMsg):
         else:
             self._entity = None
         if source is not None:
-            self._local_node = source
+            self.setsource (source)
         self._timestamp = time.time ()
         if params:
             for p in params:
@@ -56,6 +56,9 @@ class Event (Exception, NiceMsg):
                 v = c (v)
                 setattr (self, k, v)
 
+    def setsource (self, source):
+        self._local_node = source
+        
     def params (self):
         # Return the parameters from the event, in ascending order of
         # parameter code
@@ -85,7 +88,23 @@ class Event (Exception, NiceMsg):
         return '\n'.join (ret)
 
     evthdr = struct.Struct ("<BBHHHHHB")
-    
+
+    def eventcode (self, i = None):
+        """Return the event code for this event.  Call either with
+        an event class or instance, or with two arguments which
+        are the integer event class and event ID.
+        """
+        if i is None:
+            return (self._class << 6) + self._code
+        return (self << 6) + i
+
+    @staticmethod
+    def codesplit (evt):
+        """Split event code.  Note that bits 15 and 5 are reserved
+        so they are ignored.
+        """
+        return divmod (evt & 0x7fdf, 64)
+        
     @classmethod
     def decode (cls, b):
         """Decode an event message.  Returns the resulting Event
@@ -98,8 +117,7 @@ class Event (Exception, NiceMsg):
         srcnam = str (b[cls.evthdr.size:cls.evthdr.size + srcnlen],
                       encoding = "latin-1", errors = "ignore")
         b = b[cls.evthdr.size + srcnlen:]
-        # Split event code.  Note that bits 15 and 5 are reserved (!?)
-        evtclass, evtid = divmod (evt & 0x7fdf, 64)
+        evtclass, evtid = self.codesplit (evt)
         ts = jhd * 12 * 60 * 60 + sec + jbase
         if ms & 0x8000:
             ms_valid = False
