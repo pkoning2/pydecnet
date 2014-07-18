@@ -50,7 +50,8 @@ class t_node (node.Node):
     
     def __init__ (self):
         self.node = self
-        self.nodeinfo = unittest.mock.Mock ()
+        self.nodeinfo_byname = dict()
+        self.nodeinfo_byid = dict()
         self.addwork = unittest.mock.Mock ()
         self.timers = unittest.mock.Mock ()
         self.dispatch = unittest.mock.Mock ()
@@ -99,12 +100,6 @@ class DnTest (unittest.TestCase):
         for p in self.lpatches:
             p.stop ()
             
-    def mockdebug (self, fmt, *args):
-        print (self, "debug:", fmt % args)
-
-    def mocktrace (self, fmt, *args):
-        print (self, "trace:", fmt % args)
-
     def lastsent (self, port, calls, back = 0, ptype = packet.Packet):
         self.assertEqual (port.send.call_count, calls)
         if back:
@@ -137,7 +132,13 @@ class DnTest (unittest.TestCase):
                 v = p.values[v]
             except (AttributeError, KeyError):
                 pass
-            self.assertEqual (p.val, v)
+            pval = p.val
+            if isinstance (pval, collections.abc.Sequence):
+                # Multiple.  Keep just the values
+                pval = [ v for v, f in pval ]
+                if len (pval) == 1:
+                    pval = pval[0]
+            self.assertEqual (pval, v)
             
     def assertParam (self, p, value):
         if not isinstance (value, int):

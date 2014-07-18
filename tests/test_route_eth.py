@@ -4,6 +4,7 @@ from tests.dntest import *
 
 from decnet.routing_packets import *
 from decnet import route_eth
+from decnet import routing
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
@@ -18,6 +19,10 @@ class lantest (DnTest):
         super ().setUp ()
         self.r = unittest.mock.Mock ()
         self.r.node = self.node
+        # Counters:
+        self.r.unreach_loss = self.r.aged_loss = self.r.node_oor_loss = 0
+        self.r.oversized_loss = self.r.partial_update_loss = 0
+        self.r.fmt_errors = self.r.ver_rejects = 0        
         self.r.nodeid = Nodeid (1, 5)
         self.r.nodemacaddr = Macaddr (self.r.nodeid)
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
@@ -28,21 +33,21 @@ class lantest (DnTest):
         self.dl.create_port.return_value = self.cp
         self.config = container ()
         self.config.t3 = 10
+        self.config.t1 = 15
         self.config.cost = 1
         self.config.priority = 32
         self.config.nr = 3
         self.r.ntype = self.ntype
         self.r.tiver = tiver_ph4
         self.r.name = b"TEST"
+        self.r.minhops, self.r.mincost = routing.allocvecs (100)
         self.c = self.ctype (self.r, "lan-0", self.dl, self.config)
-        self.c.up = unittest.mock.Mock ()
-        self.c.down = unittest.mock.Mock ()
         self.c.parent = self.r
         self.c.node = self.node
         self.c.t3 = 15
-        self.c.adj_down = 0
-        self.c.log_adj_up = unittest.mock.Mock ()
-        self.c.log_adj_down = unittest.mock.Mock ()
+        self.c.term_recv = self.c.orig_sent = 0
+        self.c.trans_recv = self.c.trans_sent = 0
+        self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
         self.c.name = "lan-0"
         self.c.start ()
         
@@ -68,12 +73,10 @@ class lantest (DnTest):
     
 class test_end (lantest):
     ntype = ENDNODE
-    ctype = route_eth.EndnodeLanCircuit
-    
+    ctype = routing.LanEndnodeCircuit
+
     def setUp (self):
         super ().setUp ()
-        self.c.Adjacency = unittest.mock.Mock ()
-        self.c.Adjacency.side_effect = self.__class__.makeadj
         p = self.lastsent (self.cp, 1)
         p, dest = self.lastsent (self.cp, 1)
         self.assertIsInstance (p, EndnodeHello)
@@ -85,11 +88,6 @@ class test_end (lantest):
         self.assertEqual (p.neighbor, NULLID)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         
-    def makeadj (self, item):
-        self.adj = unittest.mock.Mock ()
-        self.adj.macid = Macaddr (item.id)
-        return self.adj
-
     def test_dr (self):
         self.assertIsNone (self.c.dr)
         # out of area hello
@@ -109,6 +107,7 @@ class test_end (lantest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (self.c.dr.macid, Macaddr ("aa:00:04:00:02:04"))
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         # Note that change of DR doesn't generate a new endnode hello,
         # so do a hello timer expiration to get one.
         self.c.dispatch (Timeout (owner = self.c))
@@ -118,6 +117,9 @@ class test_end (lantest):
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Send timeout to DR adjacency object
         self.c.dr.dispatch (Timeout (owner = self.c.dr))
+        self.assertEvent (events.adj_down, reason = "listener_timeout",
+                          adjacent_node = Nodeid (1, 2))
+        # Force another hello
         self.c.dispatch (Timeout (owner = self.c))
         p, dest = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, EndnodeHello)
@@ -259,23 +261,12 @@ class test_end (lantest):
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
 
-class t_RoutingLanCircuit (route_eth.RoutingLanCircuit, Element):
-    def __init__ (self, parent, name, datalink, config):
-        Element.__init__ (self, parent)
-        route_eth.RoutingLanCircuit.__init__ (self, parent, name, datalink,
-                                              config)
-        self.adj_down = 0
-        self.log_adj_up = unittest.mock.Mock ()
-        self.log_adj_down = unittest.mock.Mock ()
-
 class test_routing (lantest):
     ntype = L1ROUTER
-    ctype = t_RoutingLanCircuit
-    
+    ctype = routing.LanL1Circuit
+
     def setUp (self):
         super ().setUp ()
-        self.c.Adjacency = unittest.mock.Mock ()
-        self.c.Adjacency.side_effect = self.__class__.makeadj
         self.c.nr = 2
         self.c.minrouterblk = ETHMTU
         p = self.lastsent (self.cp, 1)
@@ -288,18 +279,6 @@ class test_routing (lantest):
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         rslist = Elist (p.elist).rslist
         self.assertFalse (rslist)
-        
-    def makeadj (self, item):
-        adj = unittest.mock.Mock ()
-        adj.nodeid = item.id
-        adj.macid = Macaddr (item.id)
-        adj.ntype = item.ntype
-        adj.blksize = item.blksize
-        try:
-            adj.priority = item.prio
-        except AttributeError:
-            pass
-        return adj
 
     def test_ehello (self):
         self.assertEqual (len (self.c.adjacencies), 0)
@@ -322,6 +301,7 @@ class test_routing (lantest):
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.state, route_eth.UP)
         self.assertEqual (a.ntype, ENDNODE)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         # Another one
         p2 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x03\x04\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
@@ -329,6 +309,7 @@ class test_routing (lantest):
         self.c.dispatch (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:03:04"),
                                    packet = p2))
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 3))
         self.assertEqual (len (self.c.adjacencies), 2)
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.state, route_eth.UP)
@@ -355,6 +336,7 @@ class test_routing (lantest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEqual (self.eventcount (events.adj_up), 0)
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.ntype, L1ROUTER)
         self.assertEqual (a.priority, 64)
@@ -387,6 +369,7 @@ class test_routing (lantest):
                                    packet = pkt))
         # Now adjacency should be up
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.ntype, L1ROUTER)
         self.assertEqual (a.priority, 64)
@@ -414,6 +397,8 @@ class test_routing (lantest):
                                    packet = pkt))
         # Adjacency will disappear the first time around
         self.assertEqual (len (self.c.adjacencies), 0)
+        self.assertEvent (events.adj_down, reason = "address_change",
+                          adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c.minrouterblk, ETHMTU)
         self.assertIsNone (self.c.dr)
         # We're going to be DR, but not yet
@@ -435,6 +420,7 @@ class test_routing (lantest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.state, route_eth.UP)
         self.assertEqual (a.ntype, ENDNODE)
@@ -448,6 +434,7 @@ class test_routing (lantest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEqual (self.eventcount (events.adj_up), 0)
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.ntype, L1ROUTER)
         self.assertEqual (a.priority, 31)
@@ -483,6 +470,7 @@ class test_routing (lantest):
                                    packet = pkt))
         # Now adjacency should be up
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.ntype, L1ROUTER)
         self.assertEqual (a.priority, 31)
@@ -595,6 +583,7 @@ class test_l2routing (test_routing):
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEqual (self.eventcount (events.adj_up), 0)
         a = self.c.adjacencies[Nodeid (2, 2)]
         self.assertEqual (a.ntype, L2ROUTER)
         self.assertEqual (a.priority, 64)
@@ -631,6 +620,7 @@ class test_l2routing (test_routing):
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (2, 2))
         a = self.c.adjacencies[Nodeid (2, 2)]
         self.assertEqual (a.ntype, L2ROUTER)
         self.assertEqual (a.priority, 64)

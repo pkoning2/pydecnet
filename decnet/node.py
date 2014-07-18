@@ -26,14 +26,14 @@ class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     needed by the various layers for remote node items -- for example, the
     state and counters needed by NSP.  The argument is the node config entry.
     """
-    def __init__ (self, c, id = None):
+    def __init__ (self, c, nodeid = None):
         nsp.NSPNode.__init__ (self)
         if c:
             nice.NiceNode.__init__ (self, c.id, c.name)
             self.overif = c.outbound_verification
             self.iverif = c.inbound_verification
         else:
-            nice.NiceNode.__init__ (self, id)
+            nice.NiceNode.__init__ (self, nodeid)
             self.overif = None
             self.iverif = None
 
@@ -109,7 +109,7 @@ class Node (object):
             return self.nodeinfo_byid[n]
         except KeyError:
             # No entry for this node ID; add one with no name
-            n = Nodeinfo (None, id)
+            n = Nodeinfo (None, n)
             self.nodeinfo_byid[n.nodeid] = n
             return n
     
