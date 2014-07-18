@@ -175,6 +175,7 @@ class EndnodeLanCircuit (LanCircuit):
         # Called from the common routing code when an adjacency down
         # occurs (e.g., adjacency listen timeout).
         assert adj == self.dr
+        self.dr.down (reason = "listener_timeout")
         self.dr = None
         
     def sendhello (self):
@@ -205,10 +206,12 @@ class EndnodeLanCircuit (LanCircuit):
                     # Different.  Make the old one go away
                     self.dr.down (reason = "address_change")
                     self.dr = adjacency.Adjacency (self, item)
+                    self.dr.up ()
                 else:
                     self.dr.alive ()
             else:
                 self.dr = adjacency.Adjacency (self, item)
+                self.dr.up ()
         elif isinstance (item, EndnodeHello):
             logging.debug ("Endnode hello from %s received by endnode",
                            item.src)

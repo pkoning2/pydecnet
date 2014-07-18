@@ -12,7 +12,7 @@ from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 from decnet import logging
 
-rcount = 5#000
+rcount = 5000
 rmin = 0
 rmax = 30
 
