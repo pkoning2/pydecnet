@@ -72,7 +72,7 @@ class Adjacency (Element, timers.Timer):
         """Work item handler.
         """
         if isinstance (item, timers.Timeout):
-            self.down (reason = "listener_timeout")
+            self.down ()
             self.circuit.adj_timeout (self)
 
     def up (self, **kwargs):
@@ -87,7 +87,8 @@ class Adjacency (Element, timers.Timer):
         self.circuit.adj_down += 1
         self.node.timers.stop (self)
         self.routing.adj_down (self, **kwargs)
-        self.circuit.log_adj_down (self, **kwargs)
+        if kwargs:
+            self.circuit.log_adj_down (self, **kwargs)
     
     def alive (self):
         """Mark this adjacency as alive -- restart its listen timeout.

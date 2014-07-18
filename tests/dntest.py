@@ -4,6 +4,7 @@ import sys
 import os
 import time
 import random
+import collections
 
 import unittest
 import unittest.mock
@@ -53,11 +54,23 @@ class t_node (node.Node):
         self.addwork = unittest.mock.Mock ()
         self.timers = unittest.mock.Mock ()
         self.dispatch = unittest.mock.Mock ()
+        self.ecounts = collections.Counter ()
+        node.Node.initfilter (self)
+        self.elist = list ()
         
     def start (self, mainthread = False): pass
     def mainloop (self): raise Exception
     def stop (self): pass
     def register_api (self, command, handler, help = None): pass
+
+    def logevent (self, event, entity = None, **kwds):
+        if isinstance (event, events.Event):
+            event.setsource (self.nodeid)
+        else:
+            event = event (entity, source = self.nodeid, **kwds)
+        self.ecounts[event.__class__] += 1
+        self.elist.append (event)
+        super ().logevent (event, entity, **kwds)
         
 class DnTest (unittest.TestCase):
     loglevel = logging.WARNING
@@ -76,7 +89,10 @@ class DnTest (unittest.TestCase):
             self.lpatches.append (p)                                     
         h = logging.StreamHandler (sys.stdout)
         logging.basicConfig (handler = h, level = self.loglevel)
-        logging.getLogger ().setLevel (self.loglevel)
+        self.setloglevel (self.loglevel)
+        
+    def setloglevel (self, level):
+        logging.getLogger ().setLevel (level)
         
     def tearDown (self):
         logging.shutdown ()
@@ -110,27 +126,24 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, itype)
         return w
 
-    def lastevent (self, code):
-        self.assertTrue (self.node.logevent.call_count)
-        a, k = self.node.logevent.call_args
-        try:
-            e = k["event"]
-            rest = a
-        except KeyError:
-            e = a[0]
-            rest = a[1:]
-        if code:
-            self.assertEqual (e, code)
-        if not isinstance (e, events.Event):
-            e = e (*rest, **k)
-        e._local_node = self.node
-        return e
-
+    def assertEvent (self, evt = None, **kwds):
+        self.assertTrue (self.node.elist)
+        e = self.node.elist[-1]
+        if evt:
+            self.assertEqual (type (e), evt)
+        for k, v in kwds.items ():
+            p = getattr (e, k)
+            try:
+                v = p.values[v]
+            except (AttributeError, KeyError):
+                pass
+            self.assertEqual (p.val, v)
+            
     def assertParam (self, p, value):
         if not isinstance (value, int):
             value = p.values[value]
         self.assertEqual (p.val, value)
-        
+
     def lastdispatch (self, calls, element = None):
         element = element or self.node
         self.assertEqual (element.dispatch.call_count, calls)
@@ -139,3 +152,6 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, packet.Packet)
         return w
 
+    def eventcount (self, ec):
+        return self.node.ecounts[ec]
+    
