@@ -66,8 +66,7 @@ class Node (object):
         self.nodeinfo_byid = dict()
         for n in config.node.values ():
             n = Nodeinfo (n)
-            self.nodeinfo_byname[n.nodename] = n
-            self.nodeinfo_byid[n.nodeid] = n
+            self.addnodeinfo (n)
         self.nodename = self.nodeinfo (self.nodeid).nodename
         threading.current_thread ().name = self.nodename
         logging.debug ("Initializing node %s", self.nodename)
@@ -83,6 +82,10 @@ class Node (object):
         self.mop = mop.Mop (self, config)
         self.routing = routing.Router (self, config)
         self.nsp = nsp.NSP (self, config)
+
+    def addnodeinfo (self, n):
+        self.nodeinfo_byname[n.nodename] = n
+        self.nodeinfo_byid[n.nodeid] = n
 
     def initfilter (self):
         # Set up the event filter.  TODO: make this configurable.
@@ -190,6 +193,7 @@ class Node (object):
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
             event.setsource (self.nodeid)
+            event.setparams (**kwds)
         else:
             event = event (entity, source = self.nodeid, **kwds)
         if event.eventcode () in self.eventfilter:

@@ -22,6 +22,38 @@ nspver_ph2 = Version (3, 1, 0)
 # Mapping from router type code to strings:
 ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
 
+# Utility to turn packet into event data.
+def splithdr (b, lens):
+    # Split a prefix of b into pieces of length specified by the lens
+    # sequence.  Return those pieces.
+    st = 0
+    ret = list ()
+    for l in lens:
+        ret.append (b[st:st + l])
+        st += l
+    return ret
+
+def evtpackethdr (pkt):
+    # Build the packet header parameter from the header
+    # fields, according to whether it's a short or long header.
+    if isinstance (pkt, bytes):
+        buf = pkt
+    else:
+        try:
+            buf = pkt.decoded_from
+        except Exception:
+            return { }
+    if isinstance (pkt, (ShortData, bytes)):
+        fields = splithdr (buf, (1, 2, 2, 1))
+        return { "packet_header" : fields }
+    elif isinstance (pkt, LongData):
+        fields = splithdr (pkt, (1, 1, 1, 6, 1, 1, 6, 1, 1, 1, 1))
+        return { "eth_packet_header" : fields }
+    elif isinstance (pkt, CtlHdr):
+        fields = splithdr (buf, (1, 2))
+        return { "packet_header" : fields }
+    return { "packet_beginning" : buf[:6] }
+
 class ShortData (packet.Packet):
     _addslots = { "payload" }
     _layout = (( "bm",

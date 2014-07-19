@@ -39,6 +39,9 @@ class Event (Exception, NiceMsg):
         if source is not None:
             self.setsource (source)
         self._timestamp = time.time ()
+        self.setparams (params = params, **kwds)
+
+    def setparams (self, params = None, **kwds):
         if params:
             for p in params:
                 try:
@@ -258,6 +261,7 @@ class RoutingEvent (Event):
         format = format_nodeid
     class eth_packet_header (Param):
         code =  0
+        skip_eventdict = True
         fmt = (H (1), DU (1), DU (1), HI (6), DU (1), DU (1), HI (6),
                DU (1), DU (1), H (1), DU (1))
         send_only = True
@@ -641,6 +645,9 @@ def _seteventdicts ():
             try:
                 code = c._code
                 # It has a code, so it's a class for a specific event
+                if c.hasattr ("skip_eventdict"):
+                    # If we don't want it in the dictionary, skip it
+                    continue
                 base = c.__base__
                 try:
                     iddict = evtids[base]

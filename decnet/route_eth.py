@@ -91,7 +91,8 @@ class LanCircuit (timers.Timer):
                 except events.Event as e:
                     # If parsing the packet raises an Event
                     # exception, log that event
-                    self.node.logevent (e)
+                    self.node.logevent (e, entity = self,
+                                        packet_beginning = buf[:6])
                     return
             else:
                 code = hdr & 7
@@ -109,7 +110,8 @@ class LanCircuit (timers.Timer):
                 except events.Event as e:
                     # If parsing the packet raises an Event
                     # exception, log that event
-                    self.node.logevent (e)
+                    self.node.logevent (e, entity = self,
+                                        packet_beginning = buf[:6])
                     return
 
         return work

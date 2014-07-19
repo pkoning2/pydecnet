@@ -227,7 +227,7 @@ class Packet (metaclass = packet_encoding_meta):
     which has to be set by the derived class definition.
     See the documentation for "process_layout" for details.
     """
-    _addslots = { "src" }
+    _addslots = { "src", "decoded_from" }
 
     @classmethod
     def allslots (cls):
@@ -600,6 +600,7 @@ class Packet (metaclass = packet_encoding_meta):
         values are required values and mismatches will raise an Event
         with event code events.fmt_err (format error).
         """
+        self.decoded_from = buf
         codetable = layout or self._codetable
         for e, d, args in codetable:
             try:

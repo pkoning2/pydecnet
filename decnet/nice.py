@@ -76,7 +76,8 @@ class Param (object, metaclass = param_meta):
                not isinstance (val, (str, bytes, bytearray)):
             # Sequence, make it a coded multiple.  The format
             # must be specified (in the class or as an argument)
-            # and must also be a sequence of the same length.
+            # and must also be a sequence of at least the length
+            # of the parameter value.
             l = len (val)
             if l > 0x3f:
                 raise OverflowError ("Too many elements in sequence")
@@ -101,10 +102,17 @@ class Param (object, metaclass = param_meta):
                 val = bytes (val, encoding = "latin-1", errors = "ignore")
             else:
                 val = bytes (val)
-        elif (fmt & 0xc0) == 0x80:
-            # C-n field, convert value name to number if name was given
-            if not isinstance (val, int):
-                val = self.values[val]
+        else:
+            if (fmt & 0xc0) == 0x80:
+                # C-n field, convert value name to number if name was given
+                if not isinstance (val, int):
+                    val = self.values[val]
+            if isinstance (val, bytes):
+                # Byte string, convert to integer
+                if (fmt & 0x30) == 0x10:
+                    val = int.from_bytes (val, "little", signed = True)
+                else:
+                    val = int.from_bytes (val, "little")
         return val
         
     @staticmethod
