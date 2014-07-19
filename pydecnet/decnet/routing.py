@@ -530,7 +530,8 @@ class L1Router (BaseRouter):
         if maxreach:
             self.node.logevent (events.rout_upd_loss, adj.circuit,
                                 highest_address = maxreach,
-                                adjacent_node = self.node.nodeinfo (adj.nodeid))
+                                adjacent_node = self.node.nodeinfo (adj.nodeid),
+                                **evtpackethdr (item))
         
     def dispatch (self, item):
         if isinstance (item, L1Routing):
@@ -674,6 +675,8 @@ class L1Router (BaseRouter):
 
     def findoadj (self, dest):
         """Find the output adjacency for this destination address.
+
+        Returns None for unreachable, or False for out of range.
         """
         area, tid = dest.split ()
         if area != self.homearea:
@@ -681,7 +684,10 @@ class L1Router (BaseRouter):
                 # Not Phase IV, so out of area is unreachable
                 return None
             tid = 0
-        return self.oadj[tid]
+        try:
+            return self.oadj[tid]
+        except IndexError:
+            return False
 
     def send (self, data, dest, rqr = False, tryhard = False):
         """Send NSP data to the given destination.  rqr is True to
@@ -742,7 +748,8 @@ class L1Router (BaseRouter):
                 a.send (pkt)
                 return True
         # If we get to this point, we could not forward the packet,
-        # for one of two reasons: not reachable, or too many visits.
+        # for one of three reasons: not reachable, too many visits,
+        # or address out of range.
         # Return to sender if requested and not already underway,
         # else drop the packet.
         if orig:
@@ -753,16 +760,17 @@ class L1Router (BaseRouter):
             pkt.rqr = 0
             self.forward (pkt)
             return True    # Note that we did "send" it
-        # FIXME: Build correct packet header argument
-        if isinstance (pkt, ShortData):
-            kwargs = { packet_header : 1234 }
-        else:
-            kwargs = { eth_packet_header : 1234 }
+        kwargs = evtpackethdr (pkt)
         if a:
             # Reachable, so the problem was max visits
-            self.node.logevent (aged_drop, **kwargs)
+            self.node.logevent (events.aged_drop, **kwargs)
         else:
-            self.node.logevent (unreach_drop, adjacency = srcadj, **kwargs)
+            c = events.unreach_drop
+            if a is False:
+                c = events.oor_drop
+            self.node.logevent (c, srcadj.circuit,
+                                adjacent_node = srcadj.nodeid,
+                                **kwargs)
         return True
     
     def html (self, what):
@@ -932,7 +940,10 @@ class L2Router (L1Router):
         """
         area = dest.area
         if self.attached and area != self.homearea:
-            return self.aoadj[area]
+            try:
+                return self.aoadj[area]
+            except IndexError:
+                return False
         return super ().findoadj (dest)
 
     def check (self):

@@ -32,10 +32,22 @@ class rtest (DnTest):
             self.r.nodeid = Nodeid (5)
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
         self.r.nodename = "testnd"
-        self.info = Nodeinfo (None, self.r.nodeid)
-        self.info.iverif = b"IVERIF"
-        self.info.overif = b"OVERIF"
-        self.node.nodeinfo.return_value = self.info
+        info = Nodeinfo (None, Nodeid (66))
+        info.iverif = b"IVERIF"
+        info.overif = b"OVERIF"
+        self.node.addnodeinfo (info)
+        info = Nodeinfo (None, Nodeid (1, 66))
+        info.iverif = b"IVERIF"
+        info.overif = b"OVERIF"
+        self.node.addnodeinfo (info)
+        info = Nodeinfo (None, Nodeid (2))
+        info.iverif = b"IVERIF"
+        info.overif = b"OVERIF"
+        self.node.addnodeinfo (info)
+        info = Nodeinfo (None, Nodeid (1, 2))
+        info.iverif = b"IVERIF"
+        info.overif = b"OVERIF"
+        self.node.addnodeinfo (info)
         self.node.addwork.side_effect = self.t_addwork
         self.workqueue = queue.Queue ()
         self.dl = unittest.mock.Mock ()
