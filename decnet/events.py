@@ -260,11 +260,18 @@ class RoutingEvent (Event):
         fmt = (H (1), DU (2), DU (2), DU (1))
         format = format_nodeid
     class eth_packet_header (Param):
+        _name = "Packet header"
         code =  0
         skip_eventdict = True
         fmt = (H (1), DU (1), DU (1), HI (6), DU (1), DU (1), HI (6),
                DU (1), DU (1), H (1), DU (1))
         send_only = True
+    # Not in the spec, the next two are made up for Phase 2 headers
+    class ni_packet_header (eth_packet_header):
+        fmt = (H (1), H (1), DU (2), AI (6))
+        format = format_nodeid
+    class nv_packet_header (eth_packet_header):
+        fmt = (H (1), H (1))
     class packet_beginning (Param):
         code = 1
         fmt = HI (6)

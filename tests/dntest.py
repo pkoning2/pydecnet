@@ -130,7 +130,7 @@ class DnTest (unittest.TestCase):
             p = getattr (e, k)
             try:
                 v = p.values[v]
-            except (AttributeError, KeyError):
+            except (AttributeError, KeyError, TypeError):
                 pass
             pval = p.val
             if isinstance (pval, collections.abc.Sequence):
