@@ -102,6 +102,12 @@ class Param (object, metaclass = param_meta):
                 val = bytes (val, encoding = "latin-1", errors = "ignore")
             else:
                 val = bytes (val)
+        elif fmt == 0x40:
+            # AI-n, for str type
+            if isinstance (val, bytes):
+                val = str (val, encoding = "latin-1", errors = "ignore")
+            else:
+                val = str (val)
         else:
             if (fmt & 0xc0) == 0x80:
                 # C-n field, convert value name to number if name was given

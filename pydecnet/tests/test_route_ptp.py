@@ -917,7 +917,8 @@ class test_ph4restart (rtest):
         self.startup ()
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type")
+        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+                          packet_header = [ 1, Nodeid (1, 2) ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
         
@@ -925,7 +926,8 @@ class test_ph4restart (rtest):
         self.startup ()
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type")
+        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+                          packet_header = [ 1, 2 ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
         
@@ -934,7 +936,8 @@ class test_ph4restart (rtest):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type")
+        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+                          ni_packet_header = [ 0x58, 1, 66, "REMOTE" ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
         
@@ -972,7 +975,15 @@ class test_ph4restart (rtest):
     def test_ri_restart (self):
         pkt = b"\x03\x02\x04\x06IVERIF"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type")
+        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
+                          packet_header = [ 3, Nodeid (1, 2) ])
+        self.assertState ("ha")
+
+    def test_ri_restart_ph2 (self):
+        pkt = b"\x58\x02\x00IVERIF\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
+                          nv_packet_header = [ 0x58, 2 ])
         self.assertState ("ha")
 
 class test_ph4restart_rv (rtest):
@@ -1003,10 +1014,11 @@ class test_ph4restart_rv (rtest):
         
     def test_init (self):
         self.startup ()
-        pkt = b"\x01\x02\x00\x02\x10\x02\x02\x00\x00\x20\x00\x00"
+        pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
-        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type")
+        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
+                          packet_header = [ 1, Nodeid (1, 2) ])
         self.assertEqual (self.c.init_fail, 1)
         
     def test_init3 (self):
@@ -1014,7 +1026,8 @@ class test_ph4restart_rv (rtest):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
-        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type")
+        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
+                          packet_header = [ 1, 2 ])
         self.assertEqual (self.c.init_fail, 1)
         
     def test_init2 (self):
@@ -1023,7 +1036,8 @@ class test_ph4restart_rv (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
-        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type")
+        self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
+                          ni_packet_header = [ 0x58, 1, 66, "REMOTE" ])
         self.assertEqual (self.c.init_fail, 1)
         
 if __name__ == "__main__":

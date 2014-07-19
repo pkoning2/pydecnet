@@ -52,7 +52,14 @@ def evtpackethdr (pkt):
     elif isinstance (pkt, CtlHdr):
         fields = splithdr (buf, (1, 2))
         return { "packet_header" : fields }
-    return { "packet_beginning" : buf[:6] }
+    elif isinstance (pkt, NodeInit):
+        fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, pkt.nodename ]
+        return { "ni_packet_header" : fields }
+    elif isinstance (pkt, NodeVerify):
+        fields = splithdr (buf, (1, 1))
+        return { "nv_packet_header" : fields }
+    else:
+        return { "packet_beginning" : buf[:6] }
 
 class ShortData (packet.Packet):
     _addslots = { "payload" }
