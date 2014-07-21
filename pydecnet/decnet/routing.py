@@ -145,9 +145,11 @@ class PtpEndnodeCircuit (route_ptp.PtpCircuit, Circuit):
     """
     # Adjacency up/down is logged as circuit up/down
     def log_adj_up (self, adj, **kwargs):
+        kwargs["adjacent_node"] = self.node.nodeinfo (adj.nodeid)
         self.log_up (**kwargs)
 
     def log_adj_down (self, adj, **kwargs):
+        kwargs["adjacent_node"] = self.node.nodeinfo (adj.nodeid)
         self.log_down (**kwargs)
     
     def __init__ (self, parent, name, datalink, config):
@@ -399,6 +401,9 @@ class Phase2Routing (BaseRouter):
             return True
         except KeyError:
             logging.trace ("%s unreachable: %s", dest, data)
+            self.node.logevent (events.unreach_drop, srcadj.circuit,
+                                adjacent_node = srcadj.nodeid,
+                                **kwargs)
             return False
 
     def dispatch (self, item):

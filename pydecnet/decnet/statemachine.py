@@ -44,7 +44,8 @@ class StateMachine (timers.Timer):
     def validate (self, data):
         """Override this to define common checks or actions done
         before the state action.  Return False to skip the state
-        action, True to perform it.
+        action, True to perform it, some other value that tests
+        as True to use that data instead.
         """
         return True
     
@@ -53,7 +54,12 @@ class StateMachine (timers.Timer):
         Returns the output defined by the action for that state, if any.
         The current state is updated as appropriate.
         """
-        if self.validate (data):
+        v = self.validate (data)
+        if v:
+            if v is not True:
+                logging.trace ("%s %s substituting %s", self.statename (),
+                               data, v)
+                data = v
             newstate = self.state (data)
             if newstate:
                 logging.trace ("%s %s new state %s",
@@ -62,7 +68,8 @@ class StateMachine (timers.Timer):
             else:
                 logging.trace ("%s %s no state change", self.statename (), data)
         else:
-            logging.trace ("%s %s rejected by validate", self.statename (), data)
+            logging.trace ("%s %s rejected by validate",
+                           self.statename (), data)
             
     def statename (self):
         """Return a string giving the state machine class name and the

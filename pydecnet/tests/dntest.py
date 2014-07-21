@@ -133,7 +133,7 @@ class DnTest (unittest.TestCase):
             except (AttributeError, KeyError, TypeError):
                 pass
             pval = p.val
-            if isinstance (pval, collections.abc.Sequence):
+            if (p.fmt & 0xc0) == 0xc0:
                 # Multiple.  Keep just the values
                 pval = [ v for v, f in pval ]
                 if len (pval) == 1:
