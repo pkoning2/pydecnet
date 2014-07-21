@@ -20,11 +20,14 @@ tiver_ph4 = Version (2, 0, 0)
 nspver_ph2 = Version (3, 1, 0)
 
 # Exceptions related to routing packet parsing
-class RoutingDecodeError (packet.DecodeError): pass
-class InvalidAddress (RoutingDecodeError):
+class InvalidAddress (packet.DecodeError):
     """Invalid node address."""
+
+class RoutingDecodeError (packet.DecodeError): pass
+
 class FormatError (RoutingDecodeError):
     """Invalid field in routing packet."""
+
 class ChecksumError (RoutingDecodeError):
     """Routing packet checksum error."""
 
@@ -397,6 +400,12 @@ class NodeInit (packet.Packet):
     # These two are field of Phase 3/4 messages, but are implied here.
     ntype = PHASE2
     tiver = tiver_ph2
+
+    def check (self):
+        # Check that the node number is valid
+        if not 1 <= self.srcnode <= 255:
+            logging.debug ("Invalid Phase II node address")
+            raise InvalidAddress
 
 class NodeVerify (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),

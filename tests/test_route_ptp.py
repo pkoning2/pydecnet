@@ -33,10 +33,12 @@ class rtest (DnTest):
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
         self.r.nodename = "testnd"
         info = Nodeinfo (None, Nodeid (66))
+        info.nodename = "REMOTE"
         info.iverif = b"IVERIF"
         info.overif = b"OVERIF"
         self.node.addnodeinfo (info)
         info = Nodeinfo (None, Nodeid (1, 66))
+        info.nodename = "REMOTE"
         info.iverif = b"IVERIF"
         info.overif = b"OVERIF"
         self.node.addnodeinfo (info)
@@ -136,6 +138,17 @@ class test_ph2 (rtest):
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
 
+    def test_extadr (self):
+        # Phase 2 init has address in an EX-2 field, so if it's 128 or above
+        # it takes 2 bytes rather than 1.
+        pkt = b"\x58\x01\x82\x01\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.assertEvent (events.circ_up)
+        self.assertEqual (self.c.rphase, 2)
+        self.assertEqual (self.c.id, Nodeid (130))
+        
     def test_send (self):
         self.startup ()
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
@@ -201,6 +214,20 @@ class test_ph2 (rtest):
     def test_rndrun (self):
         self.startup ()
         self.test_rnd ()
+
+    def test_short (self):
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        for l in range (len (pkt) - 1):
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt[:l]))
+            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
+            if self.c.state == self.c.ha:
+                self.dispatch ()
+                self.assertState ("ds")
+                self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                                    status = True))
+            self.assertState ("ri")
         
 class test_ph3 (rtest):
     phase = 3
@@ -392,6 +419,19 @@ class test_ph3 (rtest):
     def test_rndrun (self):
         self.startup ()
         self.test_rnd ()
+        
+    def test_short (self):
+        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        for l in range (len (pkt) - 1):
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt[:l]))
+            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
+            if self.c.state == self.c.ha:
+                self.dispatch ()
+                self.assertState ("ds")
+                self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                                    status = True))
+            self.assertState ("ri")
         
 class test_ph4 (rtest):
     phase = 4
@@ -620,6 +660,19 @@ class test_ph4 (rtest):
         self.startup ()
         self.test_rnd ()
         
+    def test_short (self):
+        pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
+        for l in range (len (pkt) - 1):
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt[:l]))
+            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
+            if self.c.state == self.c.ha:
+                self.dispatch ()
+                self.assertState ("ds")
+                self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                                    status = True))
+            self.assertState ("ri")
+        
 class test_ph4verify (rtest):
     phase = 4
     tiver = tiver_ph4
@@ -806,7 +859,7 @@ class test_ph4err (rtest):
         self.assertState ("ha")
         
     def test_ph3ntype (self):
-        pkt = b"\x01\x03\x04\x01\x10\x02\x01\x03\x00\x00"
+        pkt = b"\x01\x03\x00\x01\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
 
@@ -881,7 +934,7 @@ class test_ph2err (rtest):
         self.assertState ("ha")
 
     def test_oor (self):
-        pkt = b"\x58\x01\xc9\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+        pkt = b"\x58\x01\x80\x39\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
@@ -921,6 +974,15 @@ class test_ph4restart (rtest):
                           packet_header = [ 1, Nodeid (1, 2) ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
+        
+    def test_shortinit (self):
+        self.startup ()
+        pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertEvent (events.fmt_err,
+                          packet_beginning = b"\x01\x02\x04\x02\x10\x02")
+        self.assertEqual (self.c.cir_down, 0)
+        self.assertState ("ru")
         
     def test_init3 (self):
         self.startup ()

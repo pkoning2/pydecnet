@@ -96,7 +96,7 @@ class Node (object):
                 evtcode = (i << 6) + j
                 self.eventfilter.add (evtcode)
         # Turn off a couple
-        self.eventfilter.remove (events.Event.eventcode (events.fmt_err))
+        #self.eventfilter.remove (events.Event.eventcode (events.fmt_err))
         
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
