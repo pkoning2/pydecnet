@@ -88,10 +88,10 @@ class LanCircuit (timers.Timer):
                     logging.debug ("Unknown routing control packet %d from %s",
                                    code, self.name)
                     return
-                except events.Event as e:
-                    # If parsing the packet raises an Event
+                except packet.DecodeError:
+                    # If parsing the packet raises a DecodeError
                     # exception, log that event
-                    self.node.logevent (e, entity = self,
+                    self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return
             else:
@@ -107,10 +107,10 @@ class LanCircuit (timers.Timer):
                         logging.debug ("Unknown routing packet %d from %s",
                                        code, self.name)
                         return
-                except events.Event as e:
-                    # If parsing the packet raises an Event
+                except packet.DecodeError:
+                    # If parsing the packet raises a DecodeError
                     # exception, log that event
-                    self.node.logevent (e, entity = self,
+                    self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return
 

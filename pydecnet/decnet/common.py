@@ -36,6 +36,9 @@ MTU = 576                # Max NPDU size
 ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 MSS = MTU - 13           # Max TSDU size
 
+# Exceptions
+class DNAException (Exception): pass
+
 # List of file descriptors to keep open if we run as daemon
 files_preserve = list ()
 def dont_close (f):

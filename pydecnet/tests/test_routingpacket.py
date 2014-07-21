@@ -189,9 +189,8 @@ class test_p3routing (routingmsg):
 
     def test_decodebad (self):
         s = PhaseIIIRouting ()
-        with self.assertRaises (events.adj_down) as e:
+        with self.assertRaises (ChecksumError):
             s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x06\x88")
-        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_encode (self):
         s = PhaseIIIRouting (srcnode = Nodeid (4),
@@ -214,19 +213,18 @@ class test_l1routing (routingmsg):
 
     def test_decodebad (self):
         s = L1Routing ()
-        with self.assertRaises (events.adj_down) as e:
+        with self.assertRaises (ChecksumError):
             s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00"
                       b"\xff\x7f\x06\x08\x0c\x88")
-        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_decodebadseg (self):
         s = L1Routing ()
         # Segment entry count 0
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (FormatError):
             s.decode (b"\x07\x03\x00\x00\x00\x00\x07\x00"
                       b"\xff\x7f\x06\x08\x0d\x88")
         # Segment start id out of range
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (FormatError):
             s.decode (b"\x07\x03\x00\x00\x02\x00\x00\x04"
                       b"\xff\x7f\x06\x08\x08\x8c")
 
@@ -253,18 +251,17 @@ class test_l2routing (routingmsg):
 
     def test_decodebad (self):
         s = L2Routing ()
-        with self.assertRaises (events.adj_down) as e:
+        with self.assertRaises (ChecksumError):
             s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00"
                       b"\xff\x7f\x06\x08\x0c\x88")
-        self.assertParam (e.exception.reason, "checksum_error")
 
     def test_decodebadseg (self):
         s = L2Routing ()
         # Segment entry count 0
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (FormatError):
             s.decode (b"\x09\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
         # Segment start id out of range
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (FormatError):
             s.decode (b"\x09\x03\x00\x00\x02\x00\x3f\x00\xff\x7f\x06\x08\x47\x88")
 
     def test_encode (self):

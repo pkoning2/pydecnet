@@ -20,7 +20,7 @@ class rtest (DnTest):
     def setUp (self):
         super ().setUp ()
         self.node.phase = self.phase
-        self.selfinfo = Nodeinfo (None, id = Nodeid (1, 5))
+        self.selfinfo = Nodeinfo (None, nodeid = Nodeid (1, 5))
         self.selfinfo.nodename = "testnd"
         self.nodeinfo = unittest.mock.Mock ()
         self.nodeinfo.return_value = self.selfinfo
