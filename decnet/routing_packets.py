@@ -19,6 +19,15 @@ tiver_ph3 = Version (1, 3, 0)
 tiver_ph4 = Version (2, 0, 0)
 nspver_ph2 = Version (3, 1, 0)
 
+# Exceptions related to routing packet parsing
+class RoutingDecodeError (packet.DecodeError): pass
+class InvalidAddress (RoutingDecodeError):
+    """Invalid node address."""
+class FormatError (RoutingDecodeError):
+    """Invalid field in routing packet."""
+class ChecksumError (RoutingDecodeError):
+    """Routing packet checksum error."""
+
 # Mapping from router type code to strings:
 ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
 
@@ -33,9 +42,12 @@ def splithdr (b, lens):
         st += l
     return ret
 
-def evtpackethdr (pkt):
-    # Build the packet header parameter from the header
-    # fields, according to whether it's a short or long header.
+def evtpackethdr (pkt, exc = None):
+    """Build the packet header parameter from the header
+    fields, according to whether it's a short or long header.
+    Optional argument "exc" is an exception instance, which
+    may change the choice of parameter used.
+    """
     if isinstance (pkt, bytes):
         buf = pkt
     else:
@@ -43,23 +55,23 @@ def evtpackethdr (pkt):
             buf = pkt.decoded_from
         except Exception:
             return { }
-    if isinstance (pkt, (ShortData, bytes)):
-        fields = splithdr (buf, (1, 2, 2, 1))
-        return { "packet_header" : fields }
-    elif isinstance (pkt, LongData):
-        fields = splithdr (pkt, (1, 1, 1, 6, 1, 1, 6, 1, 1, 1, 1))
-        return { "eth_packet_header" : fields }
-    elif isinstance (pkt, CtlHdr):
-        fields = splithdr (buf, (1, 2))
-        return { "packet_header" : fields }
-    elif isinstance (pkt, NodeInit):
-        fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, pkt.nodename ]
-        return { "ni_packet_header" : fields }
-    elif isinstance (pkt, NodeVerify):
-        fields = splithdr (buf, (1, 1))
-        return { "nv_packet_header" : fields }
-    else:
-        return { "packet_beginning" : buf[:6] }
+    if exc is None or isinstance (exc, RoutingDecodeError):
+        if isinstance (pkt, (ShortData, bytes)):
+            fields = splithdr (buf, (1, 2, 2, 1))
+            return { "packet_header" : fields }
+        elif isinstance (pkt, LongData):
+            fields = splithdr (pkt, (1, 1, 1, 6, 1, 1, 6, 1, 1, 1, 1))
+            return { "eth_packet_header" : fields }
+        elif isinstance (pkt, CtlHdr):
+            fields = splithdr (buf, (1, 2))
+            return { "packet_header" : fields }
+        elif isinstance (pkt, NodeInit):
+            fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, pkt.nodename ]
+            return { "ni_packet_header" : fields }
+        elif isinstance (pkt, NodeVerify):
+            fields = splithdr (buf, (1, 1))
+            return { "nv_packet_header" : fields }
+    return { "packet_beginning" : buf[:6] }
 
 class ShortData (packet.Packet):
     _addslots = { "payload" }
@@ -127,7 +139,7 @@ class PtpInit (CtlHdr):
         # Check that the node number is valid
         if not self.srcnode:
             logging.debug ("Invalid Phase IV node address")
-            raise events.fmt_err
+            raise InvalidAddress
     
 class PtpInit3 (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
@@ -146,7 +158,7 @@ class PtpInit3 (CtlHdr):
         # Check that the node number is valid
         if not 1 <= self.srcnode <= 255:
             logging.debug ("Invalid Phase III node address")
-            raise events.fmt_err
+            raise InvalidAddress
 
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
@@ -177,7 +189,7 @@ class L1Segment (packet.Packet):
         if self.count + self.startid > 1024 or self.count == 0:
             logging.debug ("Invalid L1 segment, start %d, count %d",
                            self.startid, self.count)
-            raise events.fmt_err
+            raise FormatError
         
     def decode (self, buf):
         data = super ().decode (buf)
@@ -207,7 +219,7 @@ class L2Segment (L1Segment):
                self.startid == 0 or self.count == 0:
             logging.debug ("Invalid L2 segment, start %d, count %d",
                            self.startid, self.count)
-            raise events.fmt_err
+            raise FormatError
     
 class L1Routing (CtlHdr):
     """A Level 1 routing message.  It consists of a header,
@@ -225,7 +237,7 @@ class L1Routing (CtlHdr):
         segslen = len (segs)
         if not segs or (segslen & 1):
             logging.debug ("Invalid routing packet payload")
-            raise events.fmt_err
+            raise FormatError
         s = self.initchecksum
         for i in range (0, segslen - 2, 2):
             s += int.from_bytes (segs[i:i + 2], packet.LE)
@@ -236,7 +248,7 @@ class L1Routing (CtlHdr):
         if s != check:
             logging.debug ("Routing packet checksum error (%04x not %04x)",
                            s, check)
-            raise events.adj_down (reason = "checksum_error")
+            raise ChecksumError
 
     def decode_segments (self, data):
         segments = [ ]

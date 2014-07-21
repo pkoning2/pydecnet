@@ -57,7 +57,7 @@ class TestPacket (DnTest):
 
     def test_nolayout (self):
         # Can't define a packet subclass with no layout
-        with self.assertRaises (TypeError):
+        with self.assertRaises (packet.InvalidField):
             class foo (packet.Packet): pass
 
     def test_badlayout1 (self):
@@ -67,7 +67,7 @@ class TestPacket (DnTest):
 
     def test_badlayout2 (self):
         # Can't have a duplicate field name
-        with self.assertRaises (TypeError):
+        with self.assertRaises (packet.InvalidField):
             class foo (packet.Packet):
                 _layout = ( ("b", "dupname", 2),
                             ("b", "dupname", 2))
@@ -75,13 +75,13 @@ class TestPacket (DnTest):
         # Can't redefine a field from a base class
         class foo (packet.Packet):
             _layout = ( ("b", "dupname", 2),)
-        with self.assertRaises (TypeError):
+        with self.assertRaises (packet.InvalidField):
             class bar (foo):
                 _layout = ( ("b", "dupname", 2),)
 
     def test_badlayout4 (self):
         # Field types that are a class must have a decode method
-        with self.assertRaises (TypeError):
+        with self.assertRaises (packet.InvalidField):
             class foo (packet.Packet):
                 _layout = ( (int, "name"),)
 
@@ -132,7 +132,7 @@ class TestPacket (DnTest):
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (a.payload, b"payload")
         self.assertEqual (bytes (a), testdata2 + b"payload")
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (packet.ExtraData) as e:
             alltypes (testdata + b"x")
 
     def test_constfield (self):
@@ -151,7 +151,7 @@ class TestPacket (DnTest):
         self.assertEqual (a.int4, 257)
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2.replace (b"abcdef", b"foobar"))
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (packet.WrongValue) as e:
             constimage (testdata)
 
     def test_tlv (self):
@@ -169,9 +169,9 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "extended"))
         self.assertFalse (hasattr (a, "sint"))
         self.assertFalse (hasattr (a, "byte5"))
-        # Check that invalid Type values are rejected
-        with self.assertRaises (events.fmt_err) as e:
-            alltlv (tlvdata + b"\004xxx")
-        
+        # Check that unknown Type values are rejected if "wild" is False
+        with self.assertRaises (packet.InvalidTag) as e:
+            alltlv (tlvdata + b"\004\003xxx")
+
 if __name__ == "__main__":
     unittest.main ()

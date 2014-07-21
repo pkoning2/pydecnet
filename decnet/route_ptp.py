@@ -93,20 +93,6 @@ class PtpCircuit (statemachine.StateMachine):
         self.start ()
         return self.ha
 
-    def fmterr (self, pkt, log = True):
-        self.routing.fmt_errors += 1
-        # Get the packet beginning, 6 bytes max
-        if isinstance (pkt, bytes):
-            hdrb = pkt
-        else:
-            hdrb = pkt.decoded_from[:6]
-        hdrs = ':'.join ([ "{:02X}".format (i) for i in hdrb ])
-        logging.debug ("packet format error: %s", hdrs)
-        if log:
-            self.node.logevent (events.fmt_err, self,
-                                adjacent_node = self.node.nodeinfo (self.id),
-                                packet_beginning = hdrb)
-        
     def start (self):
         # Put in some dummy values until we hear from the neighbor
         self.ntype = ENDNODE
@@ -148,7 +134,13 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.send (pkt)
             return True
         return False
-    
+
+    def downevent (self):
+        if self.state == self.ru:
+            return events.circ_down
+        else:
+            return events.init_swerr
+        
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
@@ -185,10 +177,10 @@ class PtpCircuit (statemachine.StateMachine):
                 # Phase 2 routing header
                 try:
                     p2route = RouteHdr (buf)
-                except events.Event as e:
-                    # If parsing the packet raises an Event
+                except packet.DecodeError:
+                    # If parsing the packet raises a DecodeError
                     # exception, log that event and take down the circuit
-                    self.node.logevent (e, entity = self,
+                    self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return datalink.DlStatus (self, status = False)
                 buf = p2route.payload
@@ -210,11 +202,15 @@ class PtpCircuit (statemachine.StateMachine):
                         logging.debug ("Unknown routing control packet %d from %s",
                                        code, self.name)
                         return datalink.DlStatus (self, status = False)
-                    except events.Event as e:
-                        # If parsing the packet raises an Event
+                    except packet.DecodeError as e:
+                        # If parsing the packet raises a DecodeError
                         # exception, log that event and take down the circuit
-                        self.node.logevent (e, entity = self,
-                                            packet_beginning = buf[:6])
+                        if isinstance (e, RoutingDecodeError):
+                            evt = self.downevent ()
+                        else:
+                            evt = events.fmt_err
+                        self.node.logevent (evt, entity = self,
+                                            **evtpackethdr (buf, e))
                         return datalink.DlStatus (self, status = False)
                 else:
                     # Init message type depends on major version number.
@@ -228,20 +224,23 @@ class PtpCircuit (statemachine.StateMachine):
                         phase = 3
                         try:
                             work.packet = PtpInit3 (buf)
-                        except events.Event as e:
-                            self.node.logevent (e, entity = self,
+                        except packet.DecodeError:
+                            self.node.logevent (events.fmt_err, entity = self,
                                                 packet_beginning = buf[:6])
                             return datalink.DlStatus (self, status = False)
                     elif mver == tiver_ph4[0]:
                         phase = 4
                         try:
                             work.packet = PtpInit (buf)
-                        except events.Event as e:
-                            self.node.logevent (e, entity = self,
+                        except packet.DecodeError:
+                            self.node.logevent (events.fmt_err, entity = self,
                                                 packet_beginning = buf[:6])
                             return datalink.DlStatus (self, status = False)
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version %d", mver)
+                        self.node.logevent (self.downevent (), entity = self,
+                                            reason = "version_skew",
+                                            **evtpackethdr (buf))
                         return datalink.DlStatus (self, status = False)
                     else:
                         logging.trace ("Ignoring high version init %d", mver)
@@ -256,15 +255,15 @@ class PtpCircuit (statemachine.StateMachine):
                     # just for grins (and because the phase 4 spec allows it).
                     try:
                         work.packet = LongData (buf, src = None)
-                    except events.Event as e:
-                        self.node.logevent (e, entity = self,
+                    except packet.DecodeError:
+                        self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
                         return datalink.DlStatus (self, status = False)
                 elif self.node.phase > 2 and code == 2:
                     try:
                         work.packet = ShortData (buf, src = None)
-                    except events.Event as e:
-                        self.node.logevent (e, entity = self,
+                    except packet.DecodeError:
+                        self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
                         return datalink.DlStatus (self, status = False)
                 elif (code & 3) == 0:
@@ -280,8 +279,9 @@ class PtpCircuit (statemachine.StateMachine):
                             if code == 1:
                                 try:
                                     work.packet = NodeInit (buf)
-                                except events.Event as e:
-                                    self.node.logevent (e, entity = self,
+                                except packet.DecodeError:
+                                    self.node.logevent (events.fmt_err,
+                                                        entity = self,
                                                         packet_beginning =
                                                         buf[:6])
                                     return datalink.DlStatus (self,
@@ -289,8 +289,9 @@ class PtpCircuit (statemachine.StateMachine):
                             elif code == 2:
                                 try:
                                     work.packet = NodeVerify (buf)
-                                except events.Event as e:
-                                    self.node.logevent (e, entity = self,
+                                except packet.DecodeError:
+                                    self.node.logevent (events.fmt_err,
+                                                        entity = self,
                                                         packet_beginning =
                                                         buf[:6])
                                     return datalink.DlStatus (self,
@@ -309,6 +310,9 @@ class PtpCircuit (statemachine.StateMachine):
                     if code == 1:
                         # Phase 3/4 init message on phase 2 node, ignore
                         return False
+                    self.node.logevent (self.downevent (), entity = self,
+                                        reason = "unexpected_packet_type",
+                                        **evtpackethdr (buf))
                     return datalink.DlStatus (self, status = False)
         return True
                 
@@ -432,7 +436,6 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
-                        self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart (events.init_swerr,
                                              "bad ntype",
@@ -467,7 +470,6 @@ class PtpCircuit (statemachine.StateMachine):
                                               testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
-                        self.fmterr (pkt)
                         self.init_fail += 1
                         return self.restart (events.init_swerr,
                                              "bad ntype for phase 3",
@@ -534,7 +536,6 @@ class PtpCircuit (statemachine.StateMachine):
                 return self.ru
             else:
                 # Some unexpected message
-                self.fmterr (pkt)
                 self.init_fail += 1
                 return self.restart (events.init_swerr,
                                      "unexpected message",
@@ -602,7 +603,6 @@ class PtpCircuit (statemachine.StateMachine):
                 self.up ()
                 return self.ru                
             else:
-                self.fmterr (pkt)
                 self.init_fail += 1
                 return self.restart (events.init_swerr,
                                      "unexpected message",
@@ -669,14 +669,12 @@ class PtpCircuit (statemachine.StateMachine):
                 self.parent.dispatch (pkt)
             elif isinstance (pkt, PtpHello) and self.node.phase > 2:
                 if not testdata_re.match (pkt.testdata):
-                    self.fmterr (pkt)
                     return self.restart (events.circ_down,
                                          "invalid test data",
                                          node = self.node.nodeinfo (self.id),
                                          reason = "listener_invalid_data",
                                          **evtpackethdr (pkt))
             else:
-                self.fmterr (pkt)
                 if not self.datalink.start_works and \
                        isinstance (pkt, (NodeInit, PtpInit3, PtpInit)):
                     # Unexpected init message from the other end, on a

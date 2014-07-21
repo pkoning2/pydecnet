@@ -616,7 +616,7 @@ class Other_Subchannel (Subchannel):
         self.flow = ConnMsg.SVC_MSG
 
 # API exceptions
-class NSPException (Exception): pass
+class NSPException (DNAException): pass
 class WrongState (NSPException): "Connection is in the wrong state"
 class RangeError (NSPException): "Parameter is out of range"
 class ConnectionLimit (NSPException): "Connection limit reached"
