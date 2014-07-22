@@ -51,10 +51,6 @@ class rtest (DnTest):
         for n, lan in self.circ:
             c = self.r.circuits[n]
             setattr (self, "c%d" % i, c)
-            c.log_up = unittest.mock.Mock ()
-            c.log_down = unittest.mock.Mock ()
-            c.log_adj_up = unittest.mock.Mock ()
-            c.log_adj_down = unittest.mock.Mock ()
             setattr (self, "d%d" % i, c.datalink)
             i += 1
         
@@ -211,7 +207,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
@@ -231,7 +227,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x02\x05\x04\x01\x08\x11abcdef payload"
@@ -260,7 +256,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x05\x04" \
@@ -295,7 +291,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
@@ -315,7 +311,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x02\x05\x00\x01\x08\x11abcdef payload"
@@ -344,7 +340,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x05\x00" \
@@ -380,7 +376,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Try sending a packet
@@ -399,7 +395,7 @@ class test_ptpend (rtest):
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState ("ru")
-        self.assertEqual (self.c1.log_adj_up.call_count, 1)
+        self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Send a packet.  Note that the first byte needs to be a valid

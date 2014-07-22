@@ -962,7 +962,7 @@ class test_ph4restart (rtest):
         self.c.dispatch (datalink.DlStatus (owner = self.c, status = False))
         self.assertState ("ha")
         self.dispatch ()
-        self.assertEvent (events.circ_down, reason = "sync_lost")
+        self.assertEvent (events.circ_fault, reason = "sync_lost")
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ds")
         
@@ -970,7 +970,8 @@ class test_ph4restart (rtest):
         self.startup ()
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+        self.assertEvent (events.init_swerr,
+                          reason = "unexpected_packet_type",
                           packet_header = [ 1, Nodeid (1, 2) ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
@@ -988,7 +989,8 @@ class test_ph4restart (rtest):
         self.startup ()
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+        self.assertEvent (events.init_swerr,
+                          reason = "unexpected_packet_type",
                           packet_header = [ 1, 2 ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
@@ -998,7 +1000,8 @@ class test_ph4restart (rtest):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertEvent (events.circ_down, reason = "unexpected_packet_type",
+        self.assertEvent (events.init_swerr,
+                          reason = "unexpected_packet_type",
                           ni_packet_header = [ 0x58, 1, 66, "REMOTE" ])
         self.assertEqual (self.c.cir_down, 1)
         self.assertState ("ha")
@@ -1048,6 +1051,13 @@ class test_ph4restart (rtest):
                           nv_packet_header = [ 0x58, 2 ])
         self.assertState ("ha")
 
+    def test_badhello (self):
+        self.startup ()
+        pkt = b"\x05\x02\x04\x05\252\252\252\252\251"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertEvent (events.circ_down, reason = "listener_invalid_data")
+        self.assertState ("ha")
+        
 class test_ph4restart_rv (rtest):
     phase = 4
     tiver = tiver_ph4

@@ -45,6 +45,10 @@ class Adjacency (Element, timers.Timer):
         # A bit of a hack: "format" gives you a longer string than "str"
         return "{0.circuit} {0.nodeid}".format (self)
     
+    def adjnode (self):
+        # Return a Nodeinfo object for this adjacency's adjacent node
+        return self.node.nodeinfo (self.nodeid)
+    
     def html (self, what, first):
         if first:
             hdr = """<tr><th>Neighbor</th><th>Type</th><th>Block size</th>
@@ -80,15 +84,12 @@ class Adjacency (Element, timers.Timer):
             # Start the listen timer, except for Phase II neighbors
             # because those aren't required to send periodic messages
             self.node.timers.start (self, self.t4)
-        self.routing.adj_up (self, **kwargs)
-        self.circuit.log_adj_up (self, **kwargs)
+        self.routing.adj_up (self)
         
     def down (self, **kwargs):
         self.circuit.adj_down += 1
         self.node.timers.stop (self)
-        self.routing.adj_down (self, **kwargs)
-        if kwargs:
-            self.circuit.log_adj_down (self, **kwargs)
+        self.routing.adj_down (self)
     
     def alive (self):
         """Mark this adjacency as alive -- restart its listen timeout.
