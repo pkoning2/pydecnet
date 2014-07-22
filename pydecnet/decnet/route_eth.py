@@ -371,6 +371,8 @@ class RoutingLanCircuit (LanCircuit):
                 elif a.ntype == ENDNODE:
                     a.alive ()
                 else:
+                    # It used to be a router.  Call that address change,
+                    # for lack of a more specific reason code
                     self.deladj (a, reason = "address_change")
                     return
             else:
@@ -390,9 +392,16 @@ class RoutingLanCircuit (LanCircuit):
                         # in this event, the routing and netman specs
                         # both agree, but then later on the netman spec
                         # fails to define a reason code!
+                        if a2.state != UP:
+                            # Log the adjacency reject here,
+                            # since deladj will not have done it (it only
+                            # does so for UP adjacencies).
+                            self.node.logevent (events.adj_rej, self,
+                                                adjacent_node = a2.adjnode ())
                         self.deladj (a2, event = events.adj_rej)
                         if a == a2:
-                            # This node is the lowest priority, ignore its hello
+                            # This node is the lowest priority, ignore its
+                            # hello.
                             return
                     self.minrouterblk = min (a.blksize for a in rslist)
                     hellochange = True
@@ -400,6 +409,9 @@ class RoutingLanCircuit (LanCircuit):
                     a.alive ()
                 if a.ntype == ENDNODE or \
                        a.ntype != item.ntype or a.priority != item.prio:
+                    # It used to be an endnode, or a different kind of router,
+                    # or a different DR priority..  Call that address change,
+                    # for lack of a more specific reason code
                     self.deladj (a, reason = "address_change")
                     return
                 # Process the received E-list and see if two-way state changed.
@@ -529,6 +541,11 @@ class RoutingLanCircuit (LanCircuit):
                 self.node.timers.start (self, deltat)
         else:
             self.sendhello ()
+
+    def adj_timeout (self, adj):
+        # Called from the common routing code when an adjacency down
+        # occurs (e.g., adjacency listen timeout).
+        self.deladj (adj, reason = "listener_timeout")
 
     def deladj (self, a, event = events.adj_down, **kwargs):
         if a.state == UP:

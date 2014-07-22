@@ -317,8 +317,21 @@ class test_routing (lantest):
         b = self.c.adjacencies[Nodeid (1, 3)]
         self.assertEqual (b.state, route_eth.UP)
         self.assertEqual (b.ntype, ENDNODE)
+        # Time out that adjacency
+        b.dispatch (Timeout (owner = b))
+        self.assertEvent (events.adj_down, reason = "listener_timeout",
+                          adjacent_node = Nodeid (1, 3))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        # Test bad hello
+        pb = p1[:-1] + b"\251"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pb))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        self.assertEvent (events.adj_down, reason = "listener_invalid_data",
+                          adjacent_node = Nodeid (1, 2))
         
-    def test_rhello (self):
+    def rhello (self):
         self.assertFalse (self.c.adjacencies)
         # out of area L1 router hello
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x08\x02" \
@@ -388,6 +401,95 @@ class test_routing (lantest):
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 64)
         self.assertTrue (rsent.twoway)
+
+    def test_rhello_change2rtr (self):
+        # Fully bring up that router adjacency
+        self.rhello ()
+        # Change router type
+        # Send the hello with 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        # Adjacency will disappear the first time around
+        self.assertEqual (len (self.c.adjacencies), 0)
+        self.assertEvent (events.adj_down, reason = "address_change",
+                          adjacent_node = Nodeid (1, 2))
+        self.assertEqual (self.c.minrouterblk, ETHMTU)
+        self.assertIsNone (self.c.dr)
+        # We're going to be DR, but not yet
+        self.assertFalse (self.c.isdr)
+        # Expire the DR holdoff
+        self.c.drtimer.dispatch (Timeout (self.c))
+        self.assertTrue (self.c.isdr)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.  More precisely, two of them since
+        # we're now DR.
+        self.c.dispatch (Timeout (owner = self.c))
+        p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
+        self.assertIsInstance (p1, RouterHello)
+        rslist = Elist (p1.elist).rslist
+        self.assertFalse (rslist)
+        # The second hello will bring it back as L2 router
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, L2ROUTER)
+        
+    def test_rhello_changeprio (self):
+        # Fully bring up that router adjacency
+        self.rhello ()
+        # Change router priority
+        # Send the hello with 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x41\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        # Adjacency will disappear the first time around
+        self.assertEqual (len (self.c.adjacencies), 0)
+        self.assertEvent (events.adj_down, reason = "address_change",
+                          adjacent_node = Nodeid (1, 2))
+        self.assertEqual (self.c.minrouterblk, ETHMTU)
+        self.assertIsNone (self.c.dr)
+        # We're going to be DR, but not yet
+        self.assertFalse (self.c.isdr)
+        # Expire the DR holdoff
+        self.c.drtimer.dispatch (Timeout (self.c))
+        self.assertTrue (self.c.isdr)
+        # The received hello should trigger a new hello at T2 expiration,
+        # so deliver that expiration.  More precisely, two of them since
+        # we're now DR.
+        self.c.dispatch (Timeout (owner = self.c))
+        p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
+                             Macaddr ("AB-00-00-04-00-00"))
+        self.assertIsInstance (p1, RouterHello)
+        rslist = Elist (p1.elist).rslist
+        self.assertFalse (rslist)
+        # The second hello will bring it back with different priority
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.state, route_eth.UP)
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 65)
+        
+    def test_rhello_change2end (self):
+        # Fully bring up that router adjacency
+        self.rhello ()
         # Change that neighbor to be endnode instead
         pkt = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
               b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
@@ -424,7 +526,72 @@ class test_routing (lantest):
         a = self.c.adjacencies[Nodeid (1, 2)]
         self.assertEqual (a.state, route_eth.UP)
         self.assertEqual (a.ntype, ENDNODE)
-        
+
+    def test_rhello_multi (self):
+        # Fully bring up first router adjacency
+        self.rhello ()
+        # Bring up a second one.
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x06\x04\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:06:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 2)
+        self.assertEqual (self.eventcount (events.adj_up), 1)
+        b = self.c.adjacencies[Nodeid (1, 6)]
+        self.assertEqual (b.ntype, L2ROUTER)
+        self.assertEqual (b.priority, 64)
+        self.assertNotEqual (b.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        # The second router will be DR
+        self.assertFalse (self.c.isdr)
+        self.assertEqual (self.c.dr, b)
+        # Send the hello with 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x06\x04\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:06:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 2)
+        self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 6))
+        b = self.c.adjacencies[Nodeid (1, 6)]
+        self.assertEqual (b.state, route_eth.UP)
+        self.assertEqual (b.ntype, L2ROUTER)
+        # Try to bring up a third one, same priority, lower ID.  It is
+        # rejected.
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x01\x04\x01" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:01:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 2)
+        self.assertFalse (Nodeid (1, 1) in self.c.adjacencies)
+        self.assertEvent (events.adj_rej, adjacent_node = Nodeid (1, 1))
+        # The second router is still DR
+        self.assertFalse (self.c.isdr)
+        self.assertEqual (self.c.dr, b)
+        # Try to bring up a third one, higher priority, lower ID.  The
+        # lower of the earlier two is rejected
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x01\x04\x01" \
+              b"\x10\x02\x41\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:01:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 2)
+        self.assertFalse (Nodeid (1, 2) in self.c.adjacencies)
+        self.assertEvent (events.adj_rej, adjacent_node = Nodeid (1, 2))
+        c = self.c.adjacencies[Nodeid (1, 1)]
+        self.assertEqual (c.state, route_eth.INIT)
+        self.assertEqual (c.ntype, L2ROUTER)
+        # The third router is now DR
+        self.assertFalse (self.c.isdr)
+        self.assertEqual (self.c.dr, c)
+    
     def test_rhello_dr (self):
         self.assertFalse (self.c.adjacencies)
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
@@ -489,7 +656,22 @@ class test_routing (lantest):
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 31)
         self.assertTrue (rsent.twoway)
-
+        # Take away the 2-way connectivity
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x1f\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.c.dispatch (Received (owner = self.c,
+                                   src = Macaddr ("aa:00:04:00:02:04"),
+                                   packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 1)
+        a = self.c.adjacencies[Nodeid (1, 2)]
+        self.assertEqual (a.ntype, L1ROUTER)
+        self.assertEqual (a.priority, 31)
+        self.assertNotEqual (a.state, route_eth.UP)
+        self.assertEqual (self.c.minrouterblk, 528)
+        self.assertEvent (events.adj_down, adjacent_node = Nodeid (1, 2),
+                          reason = "dropped")
+        
     def test_shortdata (self):
         # Send endnode hello to create adjacency for neighbor 1.2
         p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
@@ -640,10 +822,6 @@ class test_l2routing (test_routing):
         self.assertEqual (rsent.router, Nodeid (2, 2))
         self.assertEqual (rsent.prio, 64)
         self.assertTrue (rsent.twoway)
-
-# TODO: various strange cases: bad hello, adjacency dropped by neighbor,
-# endnode changing to router, router type change, priority change
-# Move Adjacency class to route_eth?
 
 if __name__ == "__main__":
     unittest.main ()
