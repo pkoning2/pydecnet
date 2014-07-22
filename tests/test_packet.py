@@ -42,6 +42,22 @@ class alltlv (packet.Packet):
                    11: ( "bs", "bytestring", 50 ),
                    12: ( Nodeid, "node" ) }))
 
+class alltlv_w (packet.Packet):
+    _layout = (( "b", "int1", 1 ),
+               ( "tlv", 1, 1, True,
+                 { 1 : ( "bm",
+                         ( "bit1", 0, 1 ),
+                         ( "bit2", 1, 2 ),
+                         ( "bit6", 3, 6 )),
+                   2 : ( "i", "image", 10 ),
+                   3 : ( "b", "int6", 6 ),
+                   7 : ( "ex", "extended", 7 ),
+                   8 : ( "signed", "sint", 2 ),
+                   9 : ( "bv", "byte5", 5 ),
+                   10: ( "b", "int4", 4 ),
+                   11: ( "bs", "bytestring", 50 ),
+                   12: ( Nodeid, "node" ) }))
+
 tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
           b"\012\004\004\001\000\000\014\002\003\004"
 
@@ -169,9 +185,29 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "extended"))
         self.assertFalse (hasattr (a, "sint"))
         self.assertFalse (hasattr (a, "byte5"))
+
+    def test_tlv_err (self):
         # Check that unknown Type values are rejected if "wild" is False
         with self.assertRaises (packet.InvalidTag) as e:
             alltlv (tlvdata + b"\004\003xxx")
 
+    def test_tlv_wild (self):
+        # Check that unknown Type values are accepted if "wild" is True
+        a = alltlv_w (tlvdata + b"\004\003abc\xfe\004Test")
+        self.assertEqual (a.int1, 1)
+        self.assertEqual (a.int4, 260)
+        self.assertEqual (a.image, b"abcd")
+        self.assertEqual (a.bytestring, b"four score and seven")
+        self.assertEqual (a.node, Nodeid (1, 3))
+        self.assertFalse (hasattr (a, "bit1"))
+        self.assertFalse (hasattr (a, "bit2"))
+        self.assertFalse (hasattr (a, "bit6"))
+        self.assertFalse (hasattr (a, "int6"))
+        self.assertFalse (hasattr (a, "extended"))
+        self.assertFalse (hasattr (a, "sint"))
+        self.assertFalse (hasattr (a, "byte5"))
+        self.assertEqual (a.field4, b"abc")
+        self.assertEqual (a.field254, b"Test")
+        
 if __name__ == "__main__":
     unittest.main ()

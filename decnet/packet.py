@@ -144,30 +144,33 @@ def proc_slotelem (e):
     code, *args = e
     if isinstance (code, str):
         code = code.lower ()
-    
+
     if code == "tlv":
         tlen, llen, wild, layoutdict = args
         ret = set ()
         for v in layoutdict.values ():
-            ret |= proc_slotelem (v)
-        return ret
+            s, w = proc_slotelem (v)
+            ret |= s
+        return ret, wild
     else:
         if code == "bm":
-            return { name for name, start, bits in args if name }
+            return { name for name, start, bits in args if name }, False
         elif code == "res":
-            return set ()
+            return set (), False
         else:
-            return { args[0] }
+            return { args[0] }, False
         
 def process_slots (layout):
     """Build the set of slots (attribute names) given by the supplied layout.
     """
     slots = set ()
     for e in layout:
-        newslots = proc_slotelem (e)
+        newslots, wild = proc_slotelem (e)
         if newslots - slots != newslots:
             raise InvalidField ("Duplicate field in layout")
         slots |= newslots
+    if wild:
+        return None
     return slots
 
 class packet_encoding_meta (type):
@@ -193,24 +196,28 @@ class packet_encoding_meta (type):
             # Build the set of new fields from that, which will be
             # the __slots__ class variable.
             slots = process_slots (layout)
-            # Any attributes defined as class attributes will not be
-            # created as instance attributes.
-            slots -= set (classdict)
-            # See if there is an attempt to redefine previous fields
-            for c in bases:
-                try:
-                    if slots - c.__slots__ != slots:
-                        raise InvalidField ("Layout redefines field "
-                                            "from base class %s" % c.__name__)
-                except AttributeError:
-                    pass
+            if slots is not None:
+                # Any attributes defined as class attributes will not be
+                # created as instance attributes.
+                slots -= set (classdict)
+                # See if there is an attempt to redefine previous fields
+                for c in bases:
+                    try:
+                        if slots - c.__slots__ != slots:
+                            raise InvalidField ("Layout redefines field "
+                                                "from base class %s" %
+                                                c.__name__)
+                    except AttributeError:
+                        pass
         else:
             slots = set ()
         # Add any extra slots requested by the class
         addslots = classdict.get ("_addslots", None)
-        if addslots:
-            slots |= set (addslots)
-        classdict["__slots__"] = slots
+        if slots is not None:
+            if addslots:
+                addslots = set (addslots)
+                slots |= addslots
+            classdict["__slots__"] = slots
         result = type.__new__ (cls, name, bases, classdict)
         # Look for an existing _codetable.  If we find one, that means
         # this class is derived from another Packet subclass, and we
@@ -230,6 +237,12 @@ class packet_encoding_meta (type):
             if baselayout:
                 layout = baselayout + layout
             result._codetable = layout
+            # See if layout ends in TLV.  If so we can't have a
+            # "payload" field.
+            if layout and layout[-1][0] is result.encode_tlv:
+                if addslots and "payload" in addslots:
+                    raise InvalidField ("Packet with TLV fields can't have"
+                                        " payload")
         elif bases and not baselayout:
             # No layout -- ok if this is the Packet abstract base class
             raise InvalidField ("Required attribute '_layout' "\
