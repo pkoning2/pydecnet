@@ -93,14 +93,15 @@ class PtpCircuit (statemachine.StateMachine):
             return self.node.nodeinfo (nodeid)
         return None
         
-    def restart (self, event = events.circ_down, msg = None, **kwargs):
+    def restart (self, event = None, msg = None, **kwargs):
         if self.state == self.ru:
             self.cir_down += 1
             if self.adj:
                 self.adj.down ()
         if msg:
-            self.node.logevent (event, entity = self, **kwargs)
             logging.trace ("%s restart due to %s", self.name, msg)
+        if event:
+            self.node.logevent (event, entity = self, **kwargs)
         self.datalink.close ()
         self.state = self.ha
         self.start ()
@@ -148,12 +149,6 @@ class PtpCircuit (statemachine.StateMachine):
             return True
         return False
 
-    def downevent (self):
-        if self.state == self.ru:
-            return events.circ_down
-        else:
-            return events.init_swerr
-        
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
@@ -269,7 +264,7 @@ class PtpCircuit (statemachine.StateMachine):
                             return False
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version %d", mver)
-                        self.node.logevent (self.downevent (), entity = self,
+                        self.node.logevent (events.init_oper, entity = self,
                                             reason = "version_skew",
                                             **evtpackethdr (buf))
                         return CircuitDown (self)
@@ -336,7 +331,7 @@ class PtpCircuit (statemachine.StateMachine):
                                                         buf[:6])
                                     return False
                             else:
-                                self.node.logevent (self.downevent (),
+                                self.node.logevent (events.init_swerr,
                                                     entity = self,
                                                     packet_beginning =
                                                     buf[:6])
@@ -354,7 +349,7 @@ class PtpCircuit (statemachine.StateMachine):
                     if code == 1:
                         # Phase 3/4 init message on phase 2 node, ignore
                         return False
-                    self.node.logevent (self.downevent (), entity = self,
+                    self.node.logevent (events.init_swerr, entity = self,
                                         reason = "unexpected_packet_type",
                                         **evtpackethdr (buf))
                     return CircuitDown (self)
@@ -392,6 +387,8 @@ class PtpCircuit (statemachine.StateMachine):
             return self.restart ()
         elif isinstance (item, Shutdown):
             # operator "stop" command
+            self.node.logevent (events.circ_off, self,
+                                adjacent_node = self.optnode ())
             self.datalink.close ()
             return self.ha
 
@@ -603,6 +600,8 @@ class PtpCircuit (statemachine.StateMachine):
             return self.restart ()
         elif isinstance (item, Shutdown):
             # operator "stop" command
+            self.node.logevent (events.circ_off, self,
+                                adjacent_node = self.optnode ())
             self.datalink.close ()
             return self.ha
     
@@ -672,6 +671,8 @@ class PtpCircuit (statemachine.StateMachine):
             return self.restart ()
         elif isinstance (item, Shutdown):
             # operator "stop" command
+            self.node.logevent (events.circ_off, self,
+                                adjacent_node = self.optnode ())
             self.datalink.close ()
             return self.ha
 
@@ -749,14 +750,14 @@ class PtpCircuit (statemachine.StateMachine):
                     self.node.addwork (datalink.DlStatus (self, status = True))
                     self.node.addwork (Received (self, packet = pkt))
                     return self.ds
-                return self.restart (events.circ_down,
+                return self.restart (events.init_swerr,
                                      "unexpected packet",
                                      adjacent_node = self.optnode (),
                                      reason = "unexpected_packet_type",
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
-            return self.restart (events.circ_down,
+            return self.restart (events.circ_fault,
                                  "datalink status",
                                  adjacent_node = self.optnode (),
                                  reason = "sync_lost")
@@ -764,6 +765,8 @@ class PtpCircuit (statemachine.StateMachine):
             return self.restart ()
         elif isinstance (item, Shutdown):
             # operator "stop" command
+            self.node.logevent (events.circ_off, self,
+                                adjacent_node = self.optnode ())
             self.down ()
             self.datalink.close ()
             return self.ha
@@ -780,6 +783,8 @@ class PtpCircuit (statemachine.StateMachine):
         to "up", and start the hello timer.
         """
         self.adj.up ()
+        self.node.logevent (events.circ_up, self,
+                            adjacent_node = self.optnode ())
         self.node.timers.start (self, self.t3)
 
     def down (self):

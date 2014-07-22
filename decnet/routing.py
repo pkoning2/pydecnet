@@ -105,22 +105,6 @@ class Circuit (Element):
         #self.term_cong = self.trans_cong = 0    # congestion loss, needed?
         self.cir_down = self.adj_down = self.init_fail = 0
         
-    def log_up (self, **kwargs):
-        self.node.logevent (events.circ_up, self, **kwargs)
-
-    def log_down (self, **kwargs):
-        self.node.logevent (events.circ_down, self, **kwargs)
-    
-    def log_adj_up (self, adj, **kwargs):
-        self.node.logevent (events.adj_up, self,
-                            adjacent_node = self.node.nodeinfo (adj.nodeid),
-                            **kwargs)
-
-    def log_adj_down (self, adj, **kwargs):
-        self.node.logevent (events.adj_down, self,
-                            adjacent_node = self.node.nodeinfo (adj.nodeid),
-                            **kwargs)
-
 class L1Circuit (Circuit):
     """The routing layer circuit behavior for a circuit in a level 1
     router (or the level 1 functionality of an area router).
@@ -143,15 +127,6 @@ class L2Circuit (L1Circuit):
 class PtpEndnodeCircuit (route_ptp.PtpCircuit, Circuit):
     """Point to point circuit on an endnode.
     """
-    # Adjacency up/down is logged as circuit up/down
-    def log_adj_up (self, adj, **kwargs):
-        kwargs["adjacent_node"] = self.node.nodeinfo (adj.nodeid)
-        self.log_up (**kwargs)
-
-    def log_adj_down (self, adj, **kwargs):
-        kwargs["adjacent_node"] = self.node.nodeinfo (adj.nodeid)
-        self.log_down (**kwargs)
-    
     def __init__ (self, parent, name, datalink, config):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
         Circuit.__init__ (self, parent, name, datalink, config)
@@ -159,10 +134,6 @@ class PtpEndnodeCircuit (route_ptp.PtpCircuit, Circuit):
 class PtpL1Circuit (route_ptp.PtpCircuit, L1Circuit):
     """Point to point circuit on a level 1 router.
     """
-    # Adjacency up/down is logged as circuit up/down
-    log_adj_up = Circuit.log_up
-    log_adj_down = Circuit.log_down
-    
     def __init__ (self, parent, name, datalink, config):
         route_ptp.PtpCircuit.__init__ (self, parent, name, datalink, config)
         L1Circuit.__init__ (self, parent, name, datalink, config)
@@ -293,10 +264,10 @@ class BaseRouter (Element):
     def dispatch (self, item):
         pass
 
-    def adj_up (self, adj, **kwargs):
+    def adj_up (self, adj):
         self.adjacencies[adj.nodeid] = adj
     
-    def adj_down (self, adj, **kwargs):
+    def adj_down (self, adj):
         try:
             del self.adjacencies[adj.nodeid]
         except KeyError:

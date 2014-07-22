@@ -26,7 +26,7 @@ class Event (Exception, NiceMsg):
     """A DECnet event.  It is derived from Exception so it can be raised.
     """
     _entity_type = _label = None
-    _local_node = NiceNode ()    # Should normally be set by log_event call
+    _local_node = NiceNode ()    # Should normally be set by logevent call
     _ms_valid = True
     pdict = { }
     evtids = { }
