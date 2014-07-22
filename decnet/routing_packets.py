@@ -142,7 +142,7 @@ class PtpInit (CtlHdr):
         # Check that the node number is valid
         if not self.srcnode:
             logging.debug ("Invalid Phase IV node address")
-            raise InvalidAddress
+            raise InvalidAddress (self.srcnode)
     
 class PtpInit3 (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
@@ -161,7 +161,7 @@ class PtpInit3 (CtlHdr):
         # Check that the node number is valid
         if not 1 <= self.srcnode <= 255:
             logging.debug ("Invalid Phase III node address")
-            raise InvalidAddress
+            raise InvalidAddress (self.srcnode)
 
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
@@ -405,7 +405,7 @@ class NodeInit (packet.Packet):
         # Check that the node number is valid
         if not 1 <= self.srcnode <= 255:
             logging.debug ("Invalid Phase II node address")
-            raise InvalidAddress
+            raise InvalidAddress (self.srcnode)
 
 class NodeVerify (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),

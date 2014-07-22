@@ -398,38 +398,38 @@ class test_packets_err (DnTest):
     def test_ackdata (self):
         # Missing acknum field
         p = b"\x04\x03\x00\x05\x01"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckData (p)
         # Two references to this subchannel
         p = b"\x04\x03\x00\x05\x01\x02\x80\x05\x90"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckData (p)
         # Two references to other subchannel
         p = b"\x04\x03\x00\x05\x01\x02\xa0\x05\xa0"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckData (p)
 
     def test_ackother (self):
         # Missing acknum field
         p = b"\x14\x03\x00\x05\x01"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckOther (p)
         # Two references to this subchannel
         p = b"\x14\x03\x00\x05\x01\x02\x80\x05\x90"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckOther (p)
         # Two references to other subchannel
         p = b"\x14\x03\x00\x05\x01\x02\xa0\x05\xa0"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidAck) as e:
             nsp.AckOther (p)
         
     def test_lsmsg (self):
         # Bad fcmod is rejected
         p = b"\x10\x03\x00\x05\x01\x07\x60\x03\x04"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidLS) as e:
             nsp.LinkSvcMsg (p)
         # Bad fcval_int is rejected
         p = b"\x10\x03\x00\x05\x01\x07\x60\x08\x04"
-        with self.assertRaises (events.fmt_err) as e:
+        with self.assertRaises (nsp.InvalidLS) as e:
             nsp.LinkSvcMsg (p)
 
