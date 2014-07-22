@@ -15,6 +15,17 @@ from . import timers
 from . import statemachine
 from . import modulo
 
+# API exceptions
+class NSPException (DNAException): pass
+class WrongState (NSPException): "Connection is in the wrong state"
+class RangeError (NSPException): "Parameter is out of range"
+class ConnectionLimit (NSPException): "Connection limit reached"
+class CantSend (NSPException): "Can't send interrupt at this time"
+
+# Packet parsing exceptions
+class InvalidAck (NSPException): "ACK fields in error"
+class InvalidLS (NSPException): "Reserved LSFLAGS value"
+
 # NSP packet layouts.  These cover the routing layer payload (or the
 # datalink layer payload, in the case of Phase II)
 
@@ -127,7 +138,7 @@ class AckHdr (NspHdr):
         if self.acknum and self.acknum2 and \
            self.acknum.is_cross () == self.acknum2.is_cross ():
             logging.debug ("Both acknums refer to the same subchannel")
-            raise events.fmt_err
+            raise InvalidAck ("Both acknums refer to the same subchannel")
 
 # Note on classes for packet layouts:
 #
@@ -149,7 +160,7 @@ class AckData (AckHdr):
         AckHdr.check (self)
         if self.acknum is None:
             logging.debug ("acknum field missing")
-            raise events.fmt_err
+            raise InvalidAck ("acknum field missing")
         
 class AckOther (AckHdr):
     type = NspHdr.ACK
@@ -198,7 +209,7 @@ class LinkSvcMsg (AckHdr):
     def check (self):
         if self.fcval_int > 1 or self.fcmod == 3:
             logging.debug ("Reserved LSFLAGS value")
-            raise events.fmt_err
+            raise InvalidLS
 
 # Control messages.  0 (NOP) and 5 (Node init) are handled
 # in route_ptp since they are really datalink dependent routing
@@ -306,6 +317,9 @@ class NSPNode (object):
 
 # Packet types that trigger No Link response if not mapped to a connection
 nolinkset = { ConnConf, DiscInit, DataSeg, IntMsg, LinkSvcMsg }
+
+# These reason codes are internal to NSP and not available to SC
+reservedreasons = { NoRes.reason, DiscComp.reason, NoLink.reason }
 
 class NSP (Element):
     """The NSP Entity.  This owns all the connections.  It implements
@@ -614,16 +628,6 @@ class Other_Subchannel (Subchannel):
         # cannot be negative, and not every packet is subjected to control.
         # (In this case, interrupts are but link service messages are not.)
         self.flow = ConnMsg.SVC_MSG
-
-# API exceptions
-class NSPException (DNAException): pass
-class WrongState (NSPException): "Connection is in the wrong state"
-class RangeError (NSPException): "Parameter is out of range"
-class ConnectionLimit (NSPException): "Connection limit reached"
-class CantSend (NSPException): "Can't send interrupt at this time"
-
-# These reason codes are internal to NSP and not available to SC
-reservedreasons = { NoRes.reason, DiscComp.reason, NoLink.reason }
 
 class Connection (Element, statemachine.StateMachine, timers.Timer):
     """An NSP connection object.  This contains the connection state

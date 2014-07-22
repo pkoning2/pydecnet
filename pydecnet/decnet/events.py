@@ -25,17 +25,33 @@ jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 class Event (Exception, NiceMsg):
     """A DECnet event.  It is derived from Exception so it can be raised.
     """
-    _entity_type = None
+    _entity_type = _label = None
     _local_node = NiceNode ()    # Should normally be set by log_event call
     _ms_valid = True
-
+    pdict = { }
+    evtids = { }
+    
     def __init__ (self, entity = None, source = None, params = None, **kwds):
+        """Construct an Event object.  Arguments are:
+        entity: event source entity, if required.  For an event that takes
+          multiple entity types, this needs to be an EventEntity object.
+        source: source node for the event.  Usually omitted, will be
+          set by node.logevent.
+        params: a sequence of event parameters, as objects of some Param
+          subclass.
+        other keywords are handled as references to a Param subclass of that
+          name, and the value is converted to an object of that class.
+        """
         Exception.__init__ (self)
         NiceMsg.__init__ (self)
-        if self._entity_type and entity:
-            self._entity = self._entity_type (entity)
-        else:
-            self._entity = None
+        if isinstance (entity, EventEntity):
+            # entity is already an EventEntity instance
+            pass
+        elif self._entity_type:
+            entity = self._entity_type (entity)
+        elif entity is None:
+            entity = NoEntity
+        self._entity = entity
         if source is not None:
             self.setsource (source)
         self._timestamp = time.time ()
@@ -50,6 +66,8 @@ class Event (Exception, NiceMsg):
                     name = "param_%d" % p.code
                 setattr (self, name, p)
         for k, v in kwds.items ():
+            if v is None:
+                continue
             c = getattr (self.__class__, k, None)
             if c and isinstance (c, param_meta):
                 try:
@@ -76,16 +94,16 @@ class Event (Exception, NiceMsg):
         ts = time.strftime("%d-%b-%Y %H:%M:%S", time.localtime (ts))
         if self._ms_valid:
             ts = "{}.{:03d}".format (ts, ms)
-        if self.__doc__:
+        if self._label:
             l1 = "Event type {}.{}, {}".format (self._class,
                                                 self._code,
-                                                self.__doc__)
+                                                self._label)
         else:
             l1 = "Event type {}.{}".format (self._class, self._code)
         ret = [ l1, "  From node {}, occurred {}".format (n, ts) ]
-        if self._entity:
-            ret.append ("  {} {}".format (self._entity_type.label,
-                                          self._entity))
+        e = repr (self._entity)
+        if e:
+            ret.append ("  {}".format (e))
         for p in self.params ():
             ret.append ("  {!r}".format (p))
         return '\n'.join (ret)
@@ -120,7 +138,6 @@ class Event (Exception, NiceMsg):
         srcnam = str (b[cls.evthdr.size:cls.evthdr.size + srcnlen],
                       encoding = "latin-1", errors = "ignore")
         b = b[cls.evthdr.size + srcnlen:]
-        evtclass, evtid = self.codesplit (evt)
         ts = jhd * 12 * 60 * 60 + sec + jbase
         if ms & 0x8000:
             ms_valid = False
@@ -130,53 +147,135 @@ class Event (Exception, NiceMsg):
         srcnode = NiceNode (srcid, srcnam)
         # Parse the entity field
         eid = b[0]
-        if eid & 0x80:
-            # sign bit is set, so no entity
-            entity = None
-            b = b[1:]
-        else:
-            if eid == 5:
-                entity = b[1]
-                b = b[2:]
-            elif eid:
-                elen = b[1]
-                entity = str (b[2:2 + elen], encoding = "latin-1",
-                              errors = "ignore")
-                b = b[2 + elen:]
-            else:
-                # entity 0 is Node
-                eid = int.from_bytes (b[:2], "little")
-                elen = b[2]
-                ename = str (b[3:3 + elen], encoding = "latin-1",
-                             errors = "ignore")
-                b = b[3 + elen:]
-                entity = NiceNode (eid, ename)
+        ec = cls.entclass (eid)
+        entity, b = ec.decode (b[1:])
+        # In case it was an unknown entity
+        entity._code = eid
         # Find the correct class
-        c = cls.evtclasses.get (evtclass, cls)
-        if c is not cls:
-            c = c.evtids.get (evtid, c)
+        c = cls.evtclass (evt)
         # Decode the event parameters data
         plist = c.decode_params (b)
+        # Now create the event object
+        evtclass, evtid = cls.codesplit (evt)
         e = c (entity, srcnode, params = plist)
+        # Set the event identifiers in case it was an unknown class or type
+        e._class = evtclass
+        e._code = evtid
         e._ms_valid = ms_valid
         e._timestamp = ts
         e._sinks = sinks
         return e
+
+    @classmethod
+    def evtclass (cls, evt):
+        evtclass, evtid = cls.codesplit (evt)
+        c = cls.evtclasses.get (evtclass, cls)
+        if c is not cls:
+            c = c.evtids.get (evtid, c)
+        return c
+
+    @classmethod
+    def entclass (cls, ent):
+        if ent & 0x80:
+            ent = 0x80
+        c = cls.entclasses.get (ent, EventEntity)
+        return c
     
 # Event entity classes
 class EventEntity (object):
+    label = None
+    
     def __init__ (self, val):
         assert (val)
+        if not isinstance (val, str):
+            val = val.name
         self.val = val
 
     def __str__ (self):
         return str (self.val)
 
-class NodeEntity (EventEntity): label = "Node"
-class AreaEntity (EventEntity): label = "Area"
-class CircuitEntity (EventEntity): label = "Circuit"
-class LineEntity (EventEntity): label = "Line"
-class ModuleEntity (EventEntity): label = "Module"
+    def __repr__ (self):
+        label = self.label
+        if not label:
+            label = "Entity # {}".format (self._code)
+        return "{} = {}".format (label, self)
+
+    @classmethod
+    def decode (cls, b):
+        """Decode the entity encoding in b, and return a pair of
+        resulting entity object and remaining data.
+
+        The code here is the default case, for an entity encoded
+        as a string.
+        """
+        elen = b[0]
+        if elen > len (b):
+            raise ValueError ("Entity image field extends beyond packet end")
+        e = str (b[1:1 + elen], encoding = "latin-1", errors = "ignore")
+        return cls (e), b[1 + elen:]
+    
+class NodeEntity (EventEntity):
+    _code = 0
+    label = "Node"
+
+    def __init__ (self, val):
+        self.val = val
+        
+    @classmethod
+    def decode (cls, b):
+        """Decode the entity encoding in b, and return a pair of
+        resulting entity object and remaining data.
+        """
+        if len (b) < 3:
+            raise ValueError ("Node entity extends beyond packet end")
+        eid = int.from_bytes (b[:2], "little")
+        elen = b[2]
+        if elen > len (b) - 2:
+            raise ValueError ("Entity image field extends beyond packet end")
+        ename = str (b[3:3 + elen], encoding = "latin-1", errors = "ignore")
+        b = b[3 + elen:]
+        entity = NiceNode (eid, ename)
+        e = cls (entity)
+        return e, b[1 + elen:]
+    
+class LineEntity (EventEntity):
+    _code = 1
+    label = "Line"
+
+# Code 2 is Logging, but that's not an event entity only a NICE entity.
+
+class CircuitEntity (EventEntity):
+    _code = 3
+    label = "Circuit"
+    
+class ModuleEntity (EventEntity):
+    _code = 4
+    label = "Module"
+
+class AreaEntity (EventEntity):
+    _code = 5
+    label = "Area"
+
+    def __init__ (self, val):
+        self.val = str (val)
+        
+class _NoEntity (EventEntity):
+    _code = 0x80
+    label = ""
+    def __init__ (self, val = None): pass
+    def __bool__ (self): return False
+    def __str__ (self): return ""
+    def __repr__ (self): return ""
+
+    @classmethod
+    def decode (cls, b):
+        """Decode the entity encoding in b, and return a pair of
+        resulting entity object and remaining data.
+        """
+        return cls (), b
+
+# This is a singleton used for when no entity is supplied
+NoEntity = _NoEntity ()
 
 # Special formatters
 def format_nodeid (self, val = None, fmt = None):
@@ -354,305 +453,306 @@ class PyEvent (Event):
 
 # The actual event classes
 class events_lost (NetmanEvent):
-    "Event records lost"
+    _label = "Event records lost"
     _code = 0
     _entity_type = None
     
 class node_ctrs (NetmanEvent):
-    "Automatic node counters"
+    _label = "Automatic node counters"
     _code = 1
     _entity_type = NodeEntity
     
 class line_ctrs (NetmanEvent):
-    "Automatic line counters"
+    _label = "Automatic line counters"
     _code = 2
     _entity_type = LineEntity
 
 class circ_svc (NetmanEvent):
-    "Automatic service"
+    _label = "Automatic service"
     _code = 3
     _entity_type = CircuitEntity
 
 class line_zero (NetmanEvent):
-    "Line counters zeroed"
+    _label = "Line counters zeroed"
     _code = 4
     _entity_type = LineEntity
 
 class node_zero (NetmanEvent):
-    "Node counters zeroed",    
+    _label = "Node counters zeroed",    
     _code = 5
     _entity_type = NodeEntity
 
 class circ_loop (NetmanEvent):
-    "Passive loopback"
+    _label = "Passive loopback"
     _code = 6
     _entity_type = CircuitEntity
 
 class circ_svcabt (NetmanEvent):
-    "Aborted service request"
+    _label = "Aborted service request"
     _code = 7
     _entity_type = CircuitEntity
 
 class auto_ctrs (NetmanEvent):
-    "Automatic counters"
+    _label = "Automatic counters"
     _code = 8
 
 class ctrs_zero (NetmanEvent):
-    "Counters zeroed"
+    _label = "Counters zeroed"
     _code = 9
 
 class node_state (SessionEvent):
-    "Local node state change"
+    _label = "Local node state change"
     _code = 0
     # Reason, old state, new state
 
 class acc_rej (SessionEvent):
-    "Access control reject"
+    _label = "Access control reject"
     _code = 1
     # Source node, proc, dest proc, user/pw/acc
 
 class inv_msg (EclEvent):
-    "Invalid message"
+    _label = "Invalid message"
     _code = 0
     # Message, source node
 
 class inv_flow (EclEvent):
-    "Invalid flow control"
+    _label = "Invalid flow control"
     _code = 1
     # Message, source node
 
 class db_reuse (EclEvent):
-    "Data base reused"
+    _label = "Data base reused"
     _code = 2
     _entity_type = NodeEntity
     # NSP node counters
 
 class aged_drop (RoutingEvent):
-    "Aged packet loss"
+    _label = "Aged packet loss"
     _code = 0
     _entity_type = NodeEntity
     # Packet header
 
 class unreach_drop (RoutingEvent):
-    "Node unreachable packet loss"
+    _label = "Node unreachable packet loss"
     _code = 1
     # Packet header, adjacency
 
 class oor_drop (RoutingEvent):
-    "Node out-of-range packet loss"
+    _label = "Node out-of-range packet loss"
     _code = 2
     # Packet header, adjacency
 
 class size_drop (RoutingEvent):
-    "Oversized packet loss"
+    _label = "Oversized packet loss"
     _code = 3
     # Packet header, adjacency
 
 class fmt_err (RoutingEvent):
-    "Packet format error"
+    _label = "Packet format error"
     _code = 4
     # Packet beginning, adjacency
 
 class rout_upd_loss (RoutingEvent):
-    "Partial routing update loss"
+    _label = "Partial routing update loss"
     _code = 5
     # Packet header, adjacency, highest addr
 
 class ver_rej (RoutingEvent):
-    "Verification reject"
+    _label = "Verification reject"
     _code = 6
     # Node
 
 class circ_fault (RoutingEvent):
-    "Circuit down, circuit fault"
+    _label = "Circuit down, circuit fault"
     _code = 7
     # Reason, adjacency
 
 class circ_down (RoutingEvent):
-    "Circuit down"
+    _label = "Circuit down"
     _code = 8
     # Reason, Packet header, adjacency
 
 class circ_off (RoutingEvent):
-    "Circuit down, operator initiated"
+    _label = "Circuit down, operator initiated"
     _code = 9
     # Reason, Packet header, adjacency
 
 class circ_up (RoutingEvent):
-    "Circuit up"
+    _label = "Circuit up"
     _code = 10
     # Adjacency
 
 class init_fault (RoutingEvent):
-    "Initialization failure, line fault"
+    _label = "Initialization failure, line fault"
     _code = 11
     # Reason
 
 class init_swerr (RoutingEvent):
-    "Initialization failure, software fault"
+    _label = "Initialization failure, software fault"
     _code = 12
     # Reason, Packet header
 
 class init_oper (RoutingEvent):
-    "Initialization failure, operator fault"
+    _label = "Initialization failure, operator fault"
     _code = 13
     # Reason, Packet header, received version
 
 class reach_chg (RoutingEvent):
-    "Node reachability change"
+    _label = "Node reachability change"
     _code = 14
     _entity_type = NodeEntity
     # Status
 
 class adj_up (RoutingEvent):
-    "Adjacency up"
+    _label = "Adjacency up"
     _code = 15
     # Adjacency
 
 class adj_rej (RoutingEvent):
-    "Adjacency rejected"
+    _label = "Adjacency rejected"
     _code = 16
     # Reason, adjacency
 
 class area_chg (RoutingEvent):
-    "Area reachability change"
+    _label = "Area reachability change"
     _code = 17
     # Status
 
 class adj_down (RoutingEvent):
-    "Adjacency down"
+    _label = "Adjacency down"
     _code = 18
     # Reason, packet header, adjacency
 
 class adj_oper (RoutingEvent):
-    "Adjacency down, operator initiated"
+    _label = "Adjacency down, operator initiated"
     _code = 19
     # Reason, packet header, adjacency
 
 class circ_lcl (DlEvent):
-    "Locally initiated state change"
+    _label = "Locally initiated state change"
     _code = 0
     _entity_type = CircuitEntity
 
 class circ_rem (DlEvent):
-    "Remotely initiated state change"
+    _label = "Remotely initiated state change"
     _code = 1
 
 class circ_maint (DlEvent):
-    "Protocol restart received in maintenance mode"
+    _label = "Protocol restart received in maintenance mode"
     _code = 2
 
 class circ_xerr (DlEvent):
-    "Send error threshold"
+    _label = "Send error threshold"
     _code = 3
 
 class circ_rerr (DlEvent):
-    "Receive error threshold"
+    _label = "Receive error threshold"
     _code = 4
 
 class circ_sel (DlEvent):
-    "Select error threshold"
+    _label = "Select error threshold"
     _code = 5
 
 class circ_bherr (DlEvent):
-    "Block header format error"
+    _label = "Block header format error"
     _code = 6
 
 class circ_addr (DlEvent):
-    "Selection address error"
+    _label = "Selection address error"
     _code = 7
 
 class circ_trib (DlEvent):
-    "Streaming tributary"
+    _label = "Streaming tributary"
     _code = 8
 
 class circ_bufsz (DlEvent):
-    "Local buffer too small"
+    _label = "Local buffer too small"
     _code = 9
 
 class mod_restart (DlEvent):
-    "Restart"
+    _label = "Restart"
     _code = 10
     _entity_type = ModuleEntity
 
 class mod_state (DlEvent):
-    "State change"
+    _label = "State change"
     _code = 11
     _entity_type = ModuleEntity
 
 class mod_stmax (DlEvent):
-    "Retransmit maximum exceeded"
+    _label = "Retransmit maximum exceeded"
     _code = 12
     _entity_type = ModuleEntity
 
 class line_initfail (DlEvent):
-    "Initialization failure"
+    _label = "Initialization failure"
     _entity_type = LineEntity
     _code = 13
 
 class line_xfail (DlEvent):
-    "Send failed"
+    _label = "Send failed"
     _code = 14
     _entity_type = LineEntity
 
 class line_rfail (DlEvent):
-    "Receive failed"
+    _label = "Receive failed"
     _code = 15
 
 class line_coll (DlEvent):
-    "Collision detect check failed"
+    _label = "Collision detect check failed"
     _code = 16
     _entity_type = LineEntity
 
 class mod_dteup (DlEvent):
-    "DTE up"
+    _label = "DTE up"
     _code = 17
     _entity_type = ModuleEntity
 
 class mod_dtedown (DlEvent):
-    "DTE down"
+    _label = "DTE down"
     _code = 18
     _entity_type = ModuleEntity
 
 class line_dsr (PhyEvent):
-    "Data set ready transition"
+    _label = "Data set ready transition"
     _code = 0
 
 class line_ring (PhyEvent):
-    "Ring indicator transition"
+    _label = "Ring indicator transition"
     _code = 1
 
 class line_carr (PhyEvent):
-    "Unexpected carrier transition"
+    _label = "Unexpected carrier transition"
     _code = 2
 
 class line_mem (PhyEvent):
-    "Memory access error"
+    _label = "Memory access error"
     _code = 3
 
 class line_comm (PhyEvent):
-    "Communications interface error"
+    _label = "Communications interface error"
     _code = 4
 
 class line_perf (PhyEvent):
-    "Performance error"
+    _label = "Performance error"
     _code = 5
 
 # ******************* the code below must be at the end of file
 
 def _seteventdicts ():
-    # Set the eventclasses and eventids dictionaries.
+    # Set the entclasses, evtclasses and evtids dictionaries.
     # Note: this has to be a function so that its working variables
     # are local.  Otherwise, iterating through globals() will fail.
+    entclasses = dict ()
     evtclasses = dict ()
     evtids = dict ()
     for k, c in globals ().items ():
         if isinstance (c, nicemsg_meta):
             # It's a subclass of Event.  See what kind.
-            try:
+            if hasattr (c, "_code"):
                 code = c._code
                 # It has a code, so it's a class for a specific event
-                if c.hasattr ("skip_eventdict"):
+                if hasattr (c, "skip_eventdict"):
                     # If we don't want it in the dictionary, skip it
                     continue
                 base = c.__base__
@@ -661,13 +761,17 @@ def _seteventdicts ():
                 except KeyError:
                     iddict = evtids[base] = dict ()
                 iddict[code] = c
-            except AttributeError:
+            else:
                 # Not a leaf class, see if it's a layer (event class) class
                 try:
                     eclass = c._class
                     evtclasses[eclass] = c
                 except AttributeError:
                     pass
+        elif isinstance (c, type) and issubclass (c, EventEntity) \
+             and c is not EventEntity:
+            entclasses[c._code] = c
+    Event.entclasses = entclasses
     Event.evtclasses = evtclasses
     for bc, ids in evtids.items ():
         bc.evtids = ids
