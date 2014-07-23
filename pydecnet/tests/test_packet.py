@@ -116,6 +116,17 @@ class TestPacket (DnTest):
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2)
 
+    def test_truncated (self):
+        for l in range (1, len (testdata) - 1):
+            try:
+                a = alltypes (testdata[:l])
+                self.fail ("Accepted truncated data: %d %s" % (l, a))
+            except packet.DecodeError:
+                pass
+            except Exception as e:
+                self.fail ("Unexpected exception %s for input %s (len %d)"
+                           % (e, testdata[:l], l))
+        
     def test_alltypes_e (self):
         a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18,
                       image = b"defghi", int6 = 32767,
@@ -185,6 +196,17 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "extended"))
         self.assertFalse (hasattr (a, "sint"))
         self.assertFalse (hasattr (a, "byte5"))
+
+    def test_truncated_tlv (self):
+        for l in range (1, len (tlvdata) - 1):
+            try:
+                a = alltypes (tlvdata[:l])
+                # Truncated TLV still works if data ends on field boundary
+            except packet.DecodeError:
+                pass
+            except Exception as e:
+                self.fail ("Unexpected exception %s for input %s (len %d)"
+                           % (e, tlvdata[:l], l))
 
     def test_tlv_err (self):
         # Check that unknown Type values are rejected if "wild" is False

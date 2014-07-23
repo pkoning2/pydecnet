@@ -71,6 +71,11 @@ class lantest (DnTest):
         self.assertEqual (bytes (p1), bytes (p2))
         return p1
     
+    def shortpackets (self, pkt, src):
+        for l in range (len (pkt) - 1):
+            self.c.dispatch (Received (owner = self.c, src = src,
+                                       packet = pkt[:l]))
+
 class test_end (lantest):
     ntype = ENDNODE
     ctype = routing.LanEndnodeCircuit
@@ -260,6 +265,14 @@ class test_end (lantest):
             self.c.dispatch (Received (owner = self.c,
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
+
+    def test_short (self):
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
+              b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
+        self.shortpackets (pkt, Macaddr ("aa:00:04:00:02:04"))
+        self.assertIsNone (self.c.dr)
 
 class test_routing (lantest):
     ntype = L1ROUTER
@@ -750,7 +763,20 @@ class test_routing (lantest):
             self.c.dispatch (Received (owner = self.c,
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
-
+    def test_short (self):
+        # Truncated endnode hellos
+        p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
+             b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
+             b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
+        self.shortpackets (p1, Macaddr ("aa:00:04:00:02:04"))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        # Truncated router hellos
+        pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
+              b"\x10\x02\x40\x00\x80\x00\x00" \
+              b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+        self.shortpackets (p1, Macaddr ("aa:00:04:00:02:04"))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        
 class test_l2routing (test_routing):
     ntype = L2ROUTER
     

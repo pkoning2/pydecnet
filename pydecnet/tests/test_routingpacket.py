@@ -11,11 +11,29 @@ class rptest (DnTest):
     def tearDown (self):
         self.assertEqual (logging.exception.call_count, 0)
         super ().tearDown ()
-        
+
+    def short (self, b, cls, maxlen = None):
+        if not maxlen:
+            maxlen = len (b) - 1
+        for l in range (1, maxlen):
+            try:
+                ret = cls (b[:l])
+                self.fail ("Accepted truncated data: %d %s" % (l, ret))
+            except packet.DecodeError:
+                pass
+            except AssertionError:
+                raise
+            except Exception as e:
+                self.fail ("Unexpected exception %s for input %s (len %d)"
+                           % (e, b[:l], l))
+        ret = cls ()
+        ret.decode (b)
+        return ret
+    
 class test_shortdata (rptest):
     def test_decode (self):
-        s = ShortData ()
-        s.decode (b"\x02\x03\x04\x01\x08\x11abcdef payload")
+        s = self.short (b"\x02\x03\x04\x01\x08\x11abcdef payload", ShortData,
+                        maxlen = 5)
         self.assertEqual (s.rqr, 0)
         self.assertEqual (s.rts, 0)
         self.assertEqual (s.dstnode, Nodeid (1, 3))
@@ -32,10 +50,9 @@ class test_shortdata (rptest):
         
 class test_longdata (rptest):
     def test_decode (self):
-        s = LongData ()
-        s.decode (b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04"
-                  b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00"
-                  b"abcdef payload")
+        s = self.short (b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04"
+                        b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00"
+                        b"abcdef payload", LongData, maxlen = 20)
         self.assertEqual (s.rqr, 0)
         self.assertEqual (s.rts, 0)
         self.assertEqual (s.ie, 1)
@@ -55,8 +72,8 @@ class test_longdata (rptest):
 
 class test_ptpinit (rptest):
     def test_decode (self):
-        s = PtpInit ()
-        s.decode (b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x20\x00\x00")
+        s = self.short (b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x20\x00\x00",
+                        PtpInit)
         self.assertEqual (s.srcnode, Nodeid (1, 2))
         self.assertEqual (s.ntype, 3)
         self.assertEqual (s.verif, 1)
@@ -66,8 +83,7 @@ class test_ptpinit (rptest):
         self.assertEqual (s.reserved, b"")
         
     def test_decode3 (self):
-        s = PtpInit3 ()
-        s.decode (b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00")
+        s = self.short (b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00", PtpInit3)
         self.assertEqual (s.srcnode, Nodeid (2))
         self.assertEqual (s.ntype, 3)
         self.assertEqual (s.verif, 1)
@@ -92,8 +108,7 @@ class test_ptpinit (rptest):
 
 class test_ptpver (rptest):
     def test_decode (self):
-        s = PtpVerify ()
-        s.decode (b"\x03\x02\x0c\x04abcd")
+        s = self.short (b"\x03\x02\x0c\x04abcd", PtpVerify)
         self.assertEqual (s.srcnode, Nodeid (3, 2))
         self.assertEqual (s.fcnval, b"abcd")
 
@@ -104,8 +119,7 @@ class test_ptpver (rptest):
         
 class test_ptphello (rptest):
     def test_decode (self):
-        s = PtpHello ()
-        s.decode (b"\x05\x02\x00\x04abcd")
+        s = self.short (b"\x05\x02\x00\x04abcd", PtpHello)
         self.assertEqual (s.srcnode, Nodeid (2))
         self.assertEqual (s.testdata, b"abcd")
 
@@ -116,11 +130,10 @@ class test_ptphello (rptest):
 
 class test_rhello (rptest):
     def test_decode (self):
-        s = RouterHello ()
-        s.decode (b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02"
-                  b"\x10\x02\x40\x00\x80\x00\x00"
-                  b"\x0f\x00\x00\x00\x00\x00\x00\x00"
-                  b"\x07\xaa\x00\x04\x00\x07\x04\x9f")
+        s = self.short (b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02"
+                        b"\x10\x02\x40\x00\x80\x00\x00"
+                        b"\x0f\x00\x00\x00\x00\x00\x00\x00"
+                        b"\x07\xaa\x00\x04\x00\x07\x04\x9f", RouterHello)
         self.assertEqual (s.tiver, Version (2, 0, 1))
         self.assertEqual (s.id, Nodeid (1, 2))
         self.assertEqual (s.ntype, 2)
@@ -150,10 +163,10 @@ class test_rhello (rptest):
                           b"\xaa\x00\x04\x00\x01\x08\xc0")
 class test_ehello (rptest):
     def test_decode (self):
-        s = EndnodeHello ()
-        s.decode (b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x01\x0c\x03\x04\x02"
-                  b"\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-                  b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x06abcdef")
+        s = self.short (b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x01\x0c\x03\x04\x02"
+                        b"\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+                        b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x06abcdef",
+                        EndnodeHello)
         self.assertEqual (s.tiver, Version (2, 0, 3))
         self.assertEqual (s.id, Nodeid (3, 1))
         self.assertEqual (s.ntype, 3)
@@ -179,8 +192,8 @@ class routingmsg (rptest):
 
 class test_p3routing (routingmsg):
     def test_decode (self):
-        s = PhaseIIIRouting ()
-        s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x88")
+        s = self.short (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x88",
+                        PhaseIIIRouting)
         self.assertEqual (s.srcnode, 3)
         self.assertEqual (s.segments, [ RouteSegEntry (cost = 1023, hops = 31),
                                         RouteSegEntry (cost = 6, hops = 2) ])
@@ -201,8 +214,8 @@ class test_p3routing (routingmsg):
         
 class test_l1routing (routingmsg):
     def test_decode (self):
-        s = L1Routing ()
-        s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0d\x88")
+        s = self.short (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f"
+                        b"\x06\x08\x0d\x88", L1Routing)
         self.assertEqual (s.srcnode, 3)
         e = [ L1Segment (count = 2, startid = 5,
                          entries = [ RouteSegEntry (cost = 1023, hops = 31),
@@ -239,8 +252,8 @@ class test_l1routing (routingmsg):
         
 class test_l2routing (routingmsg):
     def test_decode (self):
-        s = L2Routing ()
-        s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f\x06\x08\x0d\x88")
+        s = self.short (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f"
+                        b"\x06\x08\x0d\x88", L2Routing)
         self.assertEqual (s.srcnode, 3)
         e = [ L2Segment (count = 2, startid = 5,
                          entries = [ RouteSegEntry (cost = 1023, hops = 31),
@@ -275,9 +288,8 @@ class test_l2routing (routingmsg):
 
 class test_ph2init (rptest):
     def test_decode (self):
-        s = NodeInit ()
-        s.decode (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
-                  b"\x00\x00\x00\x03\x01\x00\x00")
+        s = self.short (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
+                        b"\x00\x00\x00\x03\x01\x00\x00", NodeInit)
         self.assertEqual (s.srcnode, 7)
         self.assertEqual (s.nodename, b"TEST")
         self.assertEqual (s.int, 0)
@@ -300,8 +312,7 @@ class test_ph2init (rptest):
         
 class test_ph2verify (rptest):
     def test_decode (self):
-        s = NodeVerify ()
-        s.decode (b"\x58\x02\x00PASSWORD")
+        s = self.short (b"\x58\x02\x00PASSWORD", NodeVerify)
         self.assertEqual (s.password, b"PASSWORD")
 
     def test_encode (self):

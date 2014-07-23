@@ -85,25 +85,12 @@ class test_ethend (rtest):
         self.assertFalse (p.rqr)
         self.assertFalse (p.rts)
         self.assertTrue (p.ie)
+        self.assertEqual (p.payload, b"payload")
         self.assertEqual (dest, Macaddr ("aa:00:04:00:02:04"))
-        # Note that change of DR doesn't generate a new endnode hello,
-        # so do a hello timer expiration to get one.
-        self.c1.dispatch (Timeout (owner = self.c1))
-        p, dest = self.lastsent (self.d1, 3)
-        self.assertIsInstance (p, EndnodeHello)
-        self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
-        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
-        # Send timeout to DR adjacency object
-        self.c1.dr.dispatch (Timeout (owner = self.c1.dr))
-        self.c1.dispatch (Timeout (owner = self.c1))
-        p, dest = self.lastsent (self.d1, 4)
-        self.assertIsInstance (p, EndnodeHello)
-        self.assertEqual (p.neighbor, NULLID)
-        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Try sending a packet.  Note that out of area makes no difference.
-        ok = self.r.send (b"payload", Nodeid (3,17))
+        ok = self.r.send (b"payload2", Nodeid (3,17))
         self.assertTrue (ok)
-        p, dest = self.lastsent (self.d1, 5)
+        p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (3,17))
         self.assertEqual (p.srcnode, Nodeid (1,5))
@@ -111,6 +98,48 @@ class test_ethend (rtest):
         self.assertFalse (p.rqr)
         self.assertFalse (p.rts)
         self.assertTrue (p.ie)
+        self.assertEqual (p.payload, b"payload2")
+        self.assertEqual (dest, Macaddr ("aa:00:04:00:02:04"))
+        # Note that change of DR doesn't generate a new endnode hello,
+        # so do a hello timer expiration to get one.
+        self.c1.dispatch (Timeout (owner = self.c1))
+        p, dest = self.lastsent (self.d1, 4)
+        self.assertIsInstance (p, EndnodeHello)
+        self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        # Send timeout to DR adjacency object
+        self.c1.dr.dispatch (Timeout (owner = self.c1.dr))
+        # Try sending a packet
+        ok = self.r.send (b"payload", Nodeid (1,17))
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.d1, 5)
+        self.assertIsInstance (p, LongData)
+        self.assertEqual (p.dstnode, Nodeid (1,17))
+        self.assertEqual (p.srcnode, Nodeid (1,5))
+        self.assertEqual (p.visit, 0)
+        self.assertFalse (p.rqr)
+        self.assertFalse (p.rts)
+        self.assertTrue (p.ie)
+        self.assertEqual (p.payload, b"payload")
+        self.assertEqual (dest, Macaddr ("aa:00:04:00:11:04"))
+        # Check the hellp with the DR no longer mentioned
+        self.c1.dispatch (Timeout (owner = self.c1))
+        p, dest = self.lastsent (self.d1, 6)
+        self.assertIsInstance (p, EndnodeHello)
+        self.assertEqual (p.neighbor, NULLID)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        # Try sending a packet.  Note that out of area makes no difference.
+        ok = self.r.send (b"payload2", Nodeid (3,17))
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.d1, 7)
+        self.assertIsInstance (p, LongData)
+        self.assertEqual (p.dstnode, Nodeid (3,17))
+        self.assertEqual (p.srcnode, Nodeid (1,5))
+        self.assertEqual (p.visit, 0)
+        self.assertFalse (p.rqr)
+        self.assertFalse (p.rts)
+        self.assertTrue (p.ie)
+        self.assertEqual (p.payload, b"payload2")
         self.assertEqual (dest, Macaddr ("aa:00:04:00:11:0c"))
         
     def test_shortdata (self):
@@ -124,7 +153,7 @@ class test_ethend (rtest):
         self.assertFalse (w.rts)
         self.assertEqual (len (self.c1.prevhops), 1)
         self.assertEqual (self.c1.prevhops[Nodeid (2, 1)].prevhop,
-                          Macaddr (Nodeid (1, 2)))
+                          Macaddr ("aa:00:04:00:02:04"))
         # ditto but with padding
         pkt = b"\x88Testing\x02\x05\x04\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1,
@@ -138,7 +167,7 @@ class test_ethend (rtest):
         # Check that the previous hop cache was updated
         self.assertEqual (len (self.c1.prevhops), 1)
         self.assertEqual (self.c1.prevhops[Nodeid (2, 1)].prevhop,
-                          Macaddr (Nodeid (1, 7)))
+                          Macaddr ("aa:00:04:00:07:04"))
         # Packet for wrong address is ignored
         pkt = b"\x02\x01\x04\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1,
@@ -160,7 +189,7 @@ class test_ethend (rtest):
         self.assertFalse (w.rts)
         self.assertEqual (len (self.c1.prevhops), 1)
         self.assertEqual (self.c1.prevhops[Nodeid (2, 1)].prevhop,
-                          Macaddr (Nodeid (1, 2)))
+                          Macaddr ("aa:00:04:00:02:04"))
         # ditto but with padding
         pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x05\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
@@ -176,7 +205,7 @@ class test_ethend (rtest):
         # Check that the previous hop cache was updated
         self.assertEqual (len (self.c1.prevhops), 1)
         self.assertEqual (self.c1.prevhops[Nodeid (2, 1)].prevhop,
-                          Macaddr (Nodeid (1, 7)))
+                          Macaddr ("aa:00:04:00:07:04"))
         # Packet for wrong address is ignored
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x01\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
@@ -223,6 +252,7 @@ class test_ptpend (rtest):
         self.assertEqual (p.visit, 0)
         self.assertFalse (p.rqr)
         self.assertFalse (p.rts)
+        self.assertEqual (p.payload, b"payload")
 
     def test_shortdata_ph4 (self):
         # Send phase4 init
@@ -310,6 +340,7 @@ class test_ptpend (rtest):
         self.assertEqual (p.visit, 0)
         self.assertFalse (p.rqr)
         self.assertFalse (p.rts)
+        self.assertEqual (p.payload, b"payload")
 
     def test_shortdata_ph3 (self):
         # Send phase3 init
@@ -327,19 +358,17 @@ class test_ptpend (rtest):
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
         self.assertFalse (w.rts)
-        # ditto but with padding
+        # Packet with padding, should be ignored as invalid
         pkt = b"\x88Testing\x02\x05\x00\x01\x00\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
-        w = self.lastwork (3)
-        spkt = w.packet
-        self.assertEqual (w.packet, b"Other payload")
-        self.assertEqual (w.src, Nodeid (1, 1))
-        self.assertFalse (w.rts)
+        self.lastwork (2)
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
         # Packet for wrong address
         pkt = b"\x02\x01\x00\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
-        self.lastwork (3)
+        self.lastwork (2)
 
     def test_longdata_ph3 (self):
         # Send phase3 init
@@ -359,23 +388,21 @@ class test_ptpend (rtest):
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
         self.assertFalse (w.rts)
-        # ditto but with padding
+        # Packet with padding, should be ignored as invalid
         pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x05\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
-        w = self.lastwork (3)
-        spkt = w.packet
-        self.assertEqual (w.packet, b"Other payload")
-        self.assertEqual (w.src, Nodeid (2, 1))
-        self.assertFalse (w.rts)
+        self.lastwork (2)
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
         # Packet for wrong address is ignored
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x01\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
-        self.lastwork (3)
+        self.lastwork (2)
         
     def test_send_ph2 (self):
         # Send phase2 init

@@ -61,7 +61,7 @@ class TestMop (DnTest):
         w = datalink.Received (owner = c, src = macid,
                                packet = b"\x07\x00\x00\x00"
                                b"\x01\x00\x03\x03\x00\x00"
-                               b"\x02\x00\x01\x0d"
+                               b"\x02\x00\x02\x0d\x00"
                                b"\x64\x00\x01\x07"
                                b"\xc8\x00\x09\x08Unittest")
         c.dispatch (w)
@@ -79,19 +79,24 @@ class TestMop (DnTest):
         self.assertRegex (h, str (macid))
         self.assertRegex (h, "Computer Interconnect interface")
         self.assertRegex (h, "Unittest")
-        # Now update the entry
+        # Now update the entry.  Include an unknown (software dependent)
+        # field to validate open ended TLV parsing
         w = datalink.Received (owner = c, src = macid,
                                packet = b"\x07\x00\x00\x00"
                                b"\x01\x00\x03\x03\x00\x00"
-                               b"\x02\x00\x01\x0d"
+                               b"\x02\x00\x02\x0d\x00"
                                b"\x64\x00\x01\x07"
-                               b"\xc8\x00\x09\x08New text")
+                               b"\xc8\x00\x09\x08New text"
+                               b"\xca\x00\x0cSW dependent")
         c.dispatch (w)
         h = s.html (None)
         self.assertRegex (h, str (macid))
         self.assertRegex (h, "Computer Interconnect interface")
         self.assertNotRegex (h, "Unittest")
         self.assertRegex (h, "New text")
+        # Locate the sysid entry
+        entry = s.heard[macid]
+        self.assertEqual (entry.field202, b"SW dependent")
         
 if __name__ == "__main__":
     unittest.main ()
