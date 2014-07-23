@@ -123,6 +123,8 @@ class TestPacket (DnTest):
                 self.fail ("Accepted truncated data: %d %s" % (l, a))
             except packet.DecodeError:
                 pass
+            except AssertionError:
+                raise
             except Exception as e:
                 self.fail ("Unexpected exception %s for input %s (len %d)"
                            % (e, testdata[:l], l))

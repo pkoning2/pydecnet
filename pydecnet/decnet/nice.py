@@ -254,7 +254,7 @@ class Param (object, metaclass = param_meta):
         processed.
         """
         if len (b) < 2:
-            raise ValueError ("Data too short")
+            raise MissingData ("Data too short")
         fmt = b[0]
         b = b[1:]
         if fmt & 0x80:
@@ -332,7 +332,7 @@ class NiceMsg (metaclass = nicemsg_meta):
         ret = list ()
         while b:
             if len (b) < 2:
-                raise ValueError ("Truncated DATA ID field")
+                raise MissingData ("Truncated DATA ID field")
             did = int.from_bytes (b[:2], "little")
             b = b[2:]
             if did & 0x8000:

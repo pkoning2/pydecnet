@@ -23,8 +23,9 @@ class ConnectionLimit (NSPException): "Connection limit reached"
 class CantSend (NSPException): "Can't send interrupt at this time"
 
 # Packet parsing exceptions
-class InvalidAck (NSPException): "ACK fields in error"
-class InvalidLS (NSPException): "Reserved LSFLAGS value"
+class NSPDecodeError (packet.DecodeError): pass
+class InvalidAck (NSPDecodeError): "ACK fields in error"
+class InvalidLS (NSPDecodeError): "Reserved LSFLAGS value"
 
 # NSP packet layouts.  These cover the routing layer payload (or the
 # datalink layer payload, in the case of Phase II)
@@ -40,6 +41,8 @@ class Seq (modulo.Mod, mod = 4096):
 
     @classmethod
     def decode (cls, buf):
+        if len (buf) < 2:
+            raise MissingData
         v = int.from_bytes (buf[:2], packet.LE)
         return cls (v), buf[2:]
 
@@ -62,14 +65,15 @@ class AckNum (object):
         
     @classmethod
     def decode (cls, buf):
-        v = int.from_bytes (buf[:2], packet.LE)
-        if v & 0x8000:
-            # ACK field is present.  Always advance past it.
-            buf = buf[2:]
-            qual = (v >> 12) & 7
-            if qual in { 0, 1, 2, 3 }:
-                # Use the field only if QUAL is valid
-                return cls (v, qual), buf
+        if len (buf) >= 2:
+            v = int.from_bytes (buf[:2], packet.LE)
+            if v & 0x8000:
+                # ACK field is present.  Always advance past it.
+                buf = buf[2:]
+                qual = (v >> 12) & 7
+                if qual in { 0, 1, 2, 3 }:
+                    # Use the field only if QUAL is valid
+                    return cls (v, qual), buf
         return None, buf
 
     def __bytes__ (self):

@@ -39,6 +39,19 @@ MSS = MTU - 13           # Max TSDU size
 # Exceptions
 class DNAException (Exception): pass
 
+# Exceptions related to packet encode/decode
+class DecodeError (DNAException): pass
+class WrongValue (DecodeError):
+    """Constant field in packet with wrong value."""
+class ExtraData (DecodeError):
+    """Unexpected data at end of packet."""
+class MissingData (DecodeError):
+    """Unexpected end of packet in decode."""
+class FieldOverflow (DecodeError):
+    """Value too large for field size."""
+class InvalidTag (DecodeError):
+    """Unknown TLV tag field."""
+    
 # List of file descriptors to keep open if we run as daemon
 files_preserve = list ()
 def dont_close (f):
@@ -135,7 +148,7 @@ class Nodeid (int):
         else:
             s = bytes (s)
             if len (s) != 2:
-                raise ValueError ("Invalid node ID %s" % s)
+                raise DecodeError ("Invalid node ID %s" % s)
             a, n = divmod (int.from_bytes (s, "little"), 1024)
         if a > 63 or n > 1023:
             raise ValueError ("Invalid node ID %s" % s)
@@ -143,6 +156,8 @@ class Nodeid (int):
 
     @classmethod
     def decode (cls, buf):
+        if len (buf) < 2:
+            raise MissingData
         return cls (buf[:2]), buf[2:]
 
     @property
@@ -197,11 +212,13 @@ class Macaddr (bytes):
         else:
             s = bytes (s)
             if len (s) != 6:
-                raise ValueError ("Invalid MAC address string %s" % s)
+                raise DecodeError ("Invalid MAC address string %s" % s)
         return bytes.__new__ (cls, s)
 
     @classmethod
     def decode (cls, buf):
+        if len (buf) < 6:
+            raise MissingData
         return cls (buf[:6]), buf[6:]
 
     def __str__ (self):
@@ -231,6 +248,8 @@ class Version (bytes):
 
     @classmethod
     def decode (cls, buf):
+        if len (buf) < 3:
+            raise MissingData
         return cls (buf[:3]), buf[3:]
 
     def __str__ (self):
