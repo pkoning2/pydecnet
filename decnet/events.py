@@ -210,7 +210,7 @@ class EventEntity (object):
         """
         elen = b[0]
         if elen > len (b):
-            raise ValueError ("Entity image field extends beyond packet end")
+            raise MissingData ("Entity image field extends beyond packet end")
         e = str (b[1:1 + elen], encoding = "latin-1", errors = "ignore")
         return cls (e), b[1 + elen:]
     
@@ -227,11 +227,11 @@ class NodeEntity (EventEntity):
         resulting entity object and remaining data.
         """
         if len (b) < 3:
-            raise ValueError ("Node entity extends beyond packet end")
+            raise MissingData ("Node entity extends beyond packet end")
         eid = int.from_bytes (b[:2], "little")
         elen = b[2]
         if elen > len (b) - 2:
-            raise ValueError ("Entity image field extends beyond packet end")
+            raise MissingData ("Entity image field extends beyond packet end")
         ename = str (b[3:3 + elen], encoding = "latin-1", errors = "ignore")
         b = b[3 + elen:]
         entity = NiceNode (eid, ename)

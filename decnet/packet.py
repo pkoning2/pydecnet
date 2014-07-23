@@ -15,19 +15,6 @@ from . import logging
 
 LE = "little"
 
-# Exceptions related to packet encode/decode
-class DecodeError (DNAException): pass
-class WrongValue (DecodeError):
-    """Constant field in packet with wrong value."""
-class ExtraData (DecodeError):
-    """Unexpected data at end of packet."""
-class MissingData (DecodeError):
-    """Unexpected end of packet in decode."""
-class FieldOverflow (DecodeError):
-    """Value too large for field size."""
-class InvalidTag (DecodeError):
-    """Unknown TLV tag field."""
-    
 # Exceptions related to packet definitions
 class InvalidField (DNAException):
     """Invalid field descriptor."""
