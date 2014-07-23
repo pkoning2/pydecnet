@@ -414,6 +414,18 @@ class PtpCircuit (statemachine.StateMachine):
             pkt = item.packet
             if isinstance (pkt, NodeInit):
                 # Phase 2 neighbor
+                if pkt.srcnode == 0 or \
+                       (self.parent.ntype in { L1ROUTER, L2ROUTER } and
+                        pkt.srcnode > self.parent.maxnodes ):
+                    logging.debug ("%s Phase II node id out of range: %d",
+                                   self.name, pkt.srcnode)
+                    self.init_fail += 1
+                    nodeargs = (pkt.srcnode,)
+                    return self.restart (events.init_oper,
+                                         "node id out of range",
+                                         adjacent_node = nodeargs,
+                                         reason = "address_out_of_range",
+                                         **evtpackethdr (pkt))
                 if self.node.phase > 2:
                     # We're phase 3 or up, send a Phase II init
                     initmsg = NodeInit (srcnode = self.parent.tid,
@@ -430,21 +442,8 @@ class PtpCircuit (statemachine.StateMachine):
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
                 self.blksize = self.minrouterblk = pkt.blksize
-                if pkt.srcnode == 0 or \
-                       (self.parent.ntype in { L1ROUTER, L2ROUTER } and
-                        pkt.srcnode > self.parent.maxnodes ):
-                    logging.debug ("%s Phase II node id out of range: %d",
-                                   self.name, pkt.srcnode)
-                    self.init_fail += 1
-                    nodeargs = (pkt.srcnode,)
-                    return self.restart (events.init_oper,
-                                         "node id out of range",
-                                         adjacent_node = nodeargs,
-                                         reason = "address_out_of_range",
-                                         **evtpackethdr (pkt))
                 if self.node.phase == 4:
-                    self.id = Nodeid (self.parent.homearea,
-                                          pkt.srcnode)
+                    self.id = Nodeid (self.parent.homearea, pkt.srcnode)
                 else:
                     self.id = Nodeid (pkt.srcnode)
                 self.tiver = pkt.tiver
@@ -473,10 +472,6 @@ class PtpCircuit (statemachine.StateMachine):
                         # If we're phase 3 or below, ignore phase 4 init
                         logging.trace ("Ignoring phase 4 init")
                         return
-                    self.rphase = 4
-                    self.timer = pkt.timer
-                    self.hellomsg = PtpHello (srcnode = self.parent.nodeid,
-                                              testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
@@ -503,6 +498,10 @@ class PtpCircuit (statemachine.StateMachine):
                                              "node id out of range",
                                              adjacent_node = nodeargs,
                                              reason = "address_out_of_range")
+                    self.rphase = 4
+                    self.timer = pkt.timer
+                    self.hellomsg = PtpHello (srcnode = self.parent.nodeid,
+                                              testdata = b'\252' * 10)
                     self.id = pkt.srcnode
                 else:
                     # Phase 3
@@ -510,9 +509,6 @@ class PtpCircuit (statemachine.StateMachine):
                         # If we're phase 2, ignore phase 3 init
                         logging.trace ("Ignoring phase3 init")
                         return
-                    self.rphase = 3
-                    self.hellomsg = PtpHello (srcnode = self.parent.tid,
-                                              testdata = b'\252' * 10)
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
                         self.init_fail += 1
@@ -541,6 +537,9 @@ class PtpCircuit (statemachine.StateMachine):
                                              "node id out of range",
                                              adjacent_node = nodeargs,
                                              reason = "address_out_of_range")
+                    self.rphase = 3
+                    self.hellomsg = PtpHello (srcnode = self.parent.tid,
+                                              testdata = b'\252' * 10)
                     if self.node.phase > 3:
                         # We're phase 4 and neighbor is Phase 3,
                         # send it a Phase 3 init.  (If we're phase 3, we
