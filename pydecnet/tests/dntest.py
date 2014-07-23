@@ -114,9 +114,12 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, ptype)
         return w, dest
 
-    def lastwork (self, calls, itype = Received):
+    def lastwork (self, calls, back = 0, itype = Received):
         self.assertEqual (self.node.addwork.call_count, calls)
-        a, k = self.node.addwork.call_args
+        if back:
+            a, k = self.node.addwork.call_args_list[-1 - back]
+        else:
+            a, k = self.node.addwork.call_args
         w = a[0]
         self.assertIsInstance (w, itype)
         return w
@@ -139,6 +142,12 @@ class DnTest (unittest.TestCase):
                 if len (pval) == 1:
                     pval = pval[0]
             self.assertEqual (pval, v)
+        eparams = [ k for k, v in e.__dict__.items () if
+                    isinstance (v, events.Param) and k not in kwds ]
+        if eparams:
+            eparams = " ".join (sorted (eparams))
+            msg = "Missing event parameter checks: {}".format (eparams)
+            self.fail (msg)
             
     def assertParam (self, p, value):
         if not isinstance (value, int):

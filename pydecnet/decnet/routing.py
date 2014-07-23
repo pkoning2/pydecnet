@@ -368,13 +368,10 @@ class Phase2Routing (BaseRouter):
             # Destination matches this adjacency, send
             logging.trace ("Sending %d byte packet to %s: %s",
                            len (pkt), a, pkt)
-            a.send (pkt)
-            return True
+            pkt = ShortData (payload = pkt, srcnode = self.nodeid)
+            return a.circuit.send (pkt, dest)
         except KeyError:
-            logging.trace ("%s unreachable: %s", dest, data)
-            self.node.logevent (events.unreach_drop, srcadj.circuit,
-                                adjacent_node = srcadj.nodeid,
-                                **kwargs)
+            logging.trace ("%s unreachable: %s", dest, pkt)
             return False
 
     def dispatch (self, item):
@@ -382,7 +379,7 @@ class Phase2Routing (BaseRouter):
         and ignored otherwise.
         TODO: Intercept support.
         """
-        if isinstance (item, Received):
+        if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
                 item.rts = False
                 self.selfadj.send (item)
@@ -1106,6 +1103,7 @@ def Router (parent, config):
     """
     rtype = config.routing.type
     try:
-        return nodetypes[rtype] (parent, config)
+        c = nodetypes[rtype]
     except KeyError:
         logging.critical ("Unsupported routing type %s", rtype)
+    return c (parent, config)
