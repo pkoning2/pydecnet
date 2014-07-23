@@ -328,6 +328,9 @@ class Packet (metaclass = packet_encoding_meta):
     def decode_res (self, buf, flen):
         """Decode a reserved field.  Just skip it.
         """
+        if len (buf) < flen:
+            logging.debug ("Not %d bytes left for reserved field", flen)
+            raise MissingData
         return buf[flen:]
 
     def encode_type (self, field, t):
@@ -395,6 +398,9 @@ class Packet (metaclass = packet_encoding_meta):
         The field is decoded to a little endian unsigned integer.  Returns 
         the remaining buffer.
         """
+        if len (buf) < flen:
+            logging.debug ("Not %d bytes left for integer field", flen)
+            raise MissingData
         setattr (self, field, int.from_bytes (buf[:flen], LE))
         return buf[flen:]
 
@@ -409,6 +415,9 @@ class Packet (metaclass = packet_encoding_meta):
         The field is decoded to a little endian signed integer.  Returns 
         the remaining buffer.
         """
+        if len (buf) < flen:
+            logging.debug ("Not %d bytes left for integer field", flen)
+            raise MissingData
         setattr (self, field, int.from_bytes (buf[:flen], LE, signed = True))
         return buf[flen:]
 
@@ -452,6 +461,9 @@ class Packet (metaclass = packet_encoding_meta):
         triples: name, starting bit position, bit count.  The fields
         are decoded as unsigned integers.  Returns the remaining buffer.
         """
+        if len (buf) < flen:
+            logging.debug ("Not %d bytes left for bit mapped field", flen)
+            raise MissingData
         field = int.from_bytes (buf[:flen], LE)
         for name, start, bits in elements:
             val = (field >> start) & ((1 << bits) - 1)
@@ -480,6 +492,9 @@ class Packet (metaclass = packet_encoding_meta):
         """
         val = 0
         for i in range (maxlen):
+            if i >= len (buf):
+                logging.debug ("EX field extends beyond end of data")
+                raise MissingData
             b = buf[i]
             val |= (b & 0x7f) << (7 * i)
             if b < 0x80:
@@ -507,6 +522,9 @@ class Packet (metaclass = packet_encoding_meta):
         return retval
 
     def decode_bv (self, buf, field, flen):
+        if len (buf) < flen:
+            logging.debug ("Not %d bytes left for bit string field", flen)
+            raise MissingData
         setattr (self, field, bytes (buf[:flen]))
         return buf[flen:]
     
@@ -548,13 +566,17 @@ class Packet (metaclass = packet_encoding_meta):
                 raise MissingData
             try:
                 e, d, fieldargs = codedict[tag]
+                if d is Packet.decode_bm:
+                    fieldargs = vlen, fieldargs[1]
+                elif d is not Packet.decode_type:
+                    fieldargs = fieldargs[0], vlen
             except KeyError:
                 if wild:
                     # FIXME: This doesn't work, because the class
                     # has __slots__ defined so we can't make up
                     # attribute names on the fly.
                     e, d, fieldargs = ( Packet.encode_bs, Packet.decode_bs,
-                                        ( "field%d" % tag, 255 ) )
+                                        ( "field%d" % tag, vlen ) )
                 else:
                     logging.debug ("Unknown TLV tag %d", tag)
                     raise InvalidTag from None

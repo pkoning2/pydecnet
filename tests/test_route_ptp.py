@@ -103,6 +103,18 @@ class rtest (DnTest):
         except queue.Empty:
             pass
 
+    def shortpackets (self, pkt):
+        for l in range (len (pkt) - 1):
+            self.c.dispatch (Received (owner = self.c, src = self.c,
+                                       packet = pkt[:l]))
+            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
+            if self.c.state == self.c.ha:
+                self.dispatch ()
+                self.assertState ("ds")
+                self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                                    status = True))
+            self.assertState ("ri")
+
 class test_ph2 (rtest):
     phase = 2
     tiver = tiver_ph2
@@ -150,7 +162,34 @@ class test_ph2 (rtest):
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (130))
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (130))
-        
+        # Deliver an incoming packet
+        pkt = b"0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (1, element = self.r)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.srcnode, Nodeid (130))
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
+        self.assertEqual (spkt.visit, 1)
+        # Deliver an incoming packet, with route header
+        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (2, element = self.r)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.srcnode, Nodeid (130))
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
+        self.assertEqual (spkt.visit, 1)
+        # Try a bad route header
+        pkt = b"\x42\xf5LOCAL\x06REMOTE0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.lastdispatch (2, element = self.r)
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x42\xf5LOCA")
+
     def test_send (self):
         self.startup ()
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
@@ -221,16 +260,7 @@ class test_ph2 (rtest):
     def test_short (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
-        for l in range (len (pkt) - 1):
-            self.c.dispatch (Received (owner = self.c, src = self.c,
-                                       packet = pkt[:l]))
-            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
-            if self.c.state == self.c.ha:
-                self.dispatch ()
-                self.assertState ("ds")
-                self.c.dispatch (datalink.DlStatus (owner = self.c,
-                                                    status = True))
-            self.assertState ("ri")
+        self.shortpackets (pkt)
         
 class test_ph3 (rtest):
     phase = 3
@@ -370,6 +400,7 @@ class test_ph3 (rtest):
                           adjacent_node = [ Nodeid (66), "REMOTE" ])
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (66))
+        # Deliver an incoming packet
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -379,6 +410,17 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
+        # Deliver an incoming packet, with route header
+        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (2, element = self.r)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.srcnode, Nodeid (66))
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
+        self.assertEqual (spkt.visit, 1)
+        # Hello timer expiration
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
@@ -427,16 +469,7 @@ class test_ph3 (rtest):
         
     def test_short (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
-        for l in range (len (pkt) - 1):
-            self.c.dispatch (Received (owner = self.c, src = self.c,
-                                       packet = pkt[:l]))
-            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
-            if self.c.state == self.c.ha:
-                self.dispatch ()
-                self.assertState ("ds")
-                self.c.dispatch (datalink.DlStatus (owner = self.c,
-                                                    status = True))
-            self.assertState ("ri")
+        self.shortpackets (pkt)
         
 class test_ph4 (rtest):
     phase = 4
@@ -609,6 +642,7 @@ class test_ph4 (rtest):
                           adjacent_node = [ Nodeid (1, 66), "REMOTE" ])
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (1, 66))
+        # Deliver an incoming packet
         pkt = b"0x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
@@ -618,6 +652,17 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1, 66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
+        # Deliver an incoming packet, with route header
+        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (2, element = self.r)
+        self.assertIsInstance (spkt, ShortData)
+        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.srcnode, Nodeid (1, 66))
+        self.assertEqual (spkt.dstnode, self.r.nodeid)
+        self.assertEqual (spkt.visit, 1)
+        # Hello timer expiration
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
@@ -643,11 +688,28 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1, 1))
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
+        # Hello timer expiration
         self.c.dispatch (Timeout (owner = self.c))
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
         self.assertRegex (p.testdata, b"^\252+$")
+        # Packet with padding should be ignored
+        pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        self.lastdispatch (1, element = self.r)
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
+        # Long data with padding
+        pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
+              b"abcdef payload"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertState ("ru")
+        spkt = self.lastdispatch (1, element = self.r)
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
 
     def test_phx (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x03\x00\x00"
@@ -669,16 +731,7 @@ class test_ph4 (rtest):
         
     def test_short (self):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
-        for l in range (len (pkt) - 1):
-            self.c.dispatch (Received (owner = self.c, src = self.c,
-                                       packet = pkt[:l]))
-            self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
-            if self.c.state == self.c.ha:
-                self.dispatch ()
-                self.assertState ("ds")
-                self.c.dispatch (datalink.DlStatus (owner = self.c,
-                                                    status = True))
-            self.assertState ("ri")
+        self.shortpackets (pkt)
         
 class test_ph4verify (rtest):
     phase = 4
@@ -814,6 +867,13 @@ class test_ph4err (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
 
+    def test_padinit (self):
+        pkt = b"\x88Testing\x01\x00\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
+        self.assertState ("ri")
+
     def test_oor (self):
         if self.ntype != ENDNODE:
             pkt = b"\x01\xc9\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
@@ -924,6 +984,13 @@ class test_ph3err (rtest):
         pkt = b"\x01\x03\x04\x01\x10\x02\x01\x03\x00\x00"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ha")
+
+    def test_padinit (self):
+        pkt = b"\x88Testing\x01\x00\x04\x02\x10\x02\x01\x03\x00\x00"
+        self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
+        self.assertEvent (events.fmt_err, 
+                          packet_beginning = b"\x88Testi")
+        self.assertState ("ri")
 
 class test_ph3end_err (test_ph3err):
     phase = 3

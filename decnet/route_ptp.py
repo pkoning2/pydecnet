@@ -166,9 +166,17 @@ class PtpCircuit (statemachine.StateMachine):
                 # If we already parsed this, don't do it again
                 return True
             hdr = buf[0]
-            if (hdr & 0x80) != 0 and self.node.phase > 3:
+            if hdr & 0x80:
                 # Padding.  Skip over it.  Low 7 bits are the total pad
                 # length, pad header included.
+                if self.rphase < 4:
+                    # Padding is only valid with Phase IV, and then only
+                    # for packets other than Init.
+                    logging.debug ("Padding but not Phase IV on %s",
+                                   self.name)
+                    self.node.logevent (events.fmt_err, entity = self,
+                                        packet_beginning = buf[:6])
+                    return False
                 pad = hdr & 0x7f
                 if pad >= len (buf):
                     logging.debug ("Padding exceeds packet length on %s",
@@ -362,6 +370,7 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.open ()
             self.tiver = self.adj = None
             self.timer = 0     # No remote hello timer value received
+            self.rphase = 0    # Don't know the neighbor's phase yet
             self.node.timers.start (self, self.t3)
             return self.ds
 
