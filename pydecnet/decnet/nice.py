@@ -5,8 +5,9 @@
 """
 
 from collections.abc import Sequence
+from collections import namedtuple
 
-from .common import Nodeid
+from .common import *
 
 # NICE protocol function codes
 LOAD = 15          # Request down-line load
@@ -26,24 +27,38 @@ CIRCUIT = 3
 MODULE = 4
 AREA = 5
 
-class NiceNode (object):
+class NiceNode (Nodeid):
     """A node address with optional node name. """
-    def __init__ (self, nodeid = 0, name = ""):
-        self.nodeid = Nodeid (nodeid)
-        self.nodename = name
+    def __new__ (cls, nodeid, name = ""):
+        n = Nodeid.__new__ (cls, nodeid)
+        if not name:
+            name = getattr (nodeid, "nodename", None)
+        n.nodename = name
+        return n
 
-    def nice_val (self):
-        """Return the NICE parameter value(s) for this object."""
-        if self.nodename:
-            return (self.nodeid, self.nodename)
-        return (self.nodeid,)
+    def nice_val (self, cls):
+        """Return the NICE parameter value(s) for this object.
+        Make the return value be one suitable for "cls"."""
+        if self.nodename and not issubclass (cls, UIntParam):
+            return (self, self.nodename)
+        return self
     
     def __str__ (self):
         if self.nodename:
-            return "{0.nodeid} ({0.nodename})".format (self)
-        return "{0.nodeid}".format (self)
+            return "{} ({})".format (super ().__str__ (),
+                                                       self.nodename)
+        return super ().__str__ ()
 
-class param_meta (type):
+# NICE parameter codes
+def C (n): return 0x80 + n
+def CM (n): return 0xc0 + n
+def DU (n): return n
+def DS (n): return 0x10 + n
+def AI (n): return 0x40
+def H (n): return 0x20 + n
+def HI (n): return 0x20
+
+class codedparam_meta (type):
     def __new__ (cls, name, bases, classdict):
         values = classdict.get ("values", None)
         if values:
@@ -55,143 +70,63 @@ class param_meta (type):
             vnames.update (cvnames)
             classdict["vnames"] = vnames
         return type.__new__ (cls, name, bases, classdict)
-            
-class Param (object, metaclass = param_meta):
+
+class Param (object):
     """Base class for NICE response and event message parameters.
     These come with codes that express how to format them.  Unknown
     parameters are formatted accordingly.  Derived classes can override
     the formatting to do special actions more appropriate for the
     parameter in question (e.g., area.id formatting for node addresses).
     """
-    code = None
-    fmt = None
+    _code = None
+    _fmt = None
     _name = None
     # Dictionaries to map between values and value names
     values = vnames = {}
-    
-    def __init__ (self, val = None, fmt = None, code = None):
-        self.code = code or self.__class__.code
-        fmt = fmt or self.__class__.fmt
-        if isinstance (val, Sequence) and \
-               not isinstance (val, (str, bytes, bytearray)):
-            # Sequence, make it a coded multiple.  The format
-            # must be specified (in the class or as an argument)
-            # and must also be a sequence of at least the length
-            # of the parameter value.
-            l = len (val)
-            if l > 0x3f:
-                raise OverflowError ("Too many elements in sequence")
-            if len (fmt) < l:
-                raise ValueError ("Sequence values without matching format")
-            val = [ ( self.initvalue (val, fmt), fmt )
-                    for val, fmt in zip (val, fmt) ]
-            fmt = 0xc0 + l
-        elif val is not None:
-            val = self.initvalue (val, fmt)
-        self.val = val
-        self.fmt = fmt
 
-    def initvalue (self, val, fmt):
-        """Convert a single value according to the supplied format.
-        This handles such actions as converting HI-n parameters to
-        bytes type, or converting C-n value labels to integer.
-        """
-        if fmt == 0x20:
-            # HI-n, force bytes type
-            if isinstance (val, str):
-                val = bytes (val, encoding = "latin-1", errors = "ignore")
-            else:
-                val = bytes (val)
-        elif fmt == 0x40:
-            # AI-n, for str type
-            if isinstance (val, bytes):
-                val = str (val, encoding = "latin-1", errors = "ignore")
-            else:
-                val = str (val)
-        else:
-            if (fmt & 0xc0) == 0x80:
-                # C-n field, convert value name to number if name was given
-                if not isinstance (val, int):
-                    val = self.values[val]
-            if isinstance (val, bytes):
-                # Byte string, convert to integer
-                if (fmt & 0x30) == 0x10:
-                    val = int.from_bytes (val, "little", signed = True)
-                else:
-                    val = int.from_bytes (val, "little")
-        return val
-        
+    def __new__ (cls, val, *args):
+        val = cls.getniceval (val)
+        return super (__class__, cls).__new__ (cls, val)
+    
+    def __init__ (self, val, fmt = None, code = None):
+        if code is None:
+            code = self._code
+        if fmt is None:
+            fmt = self._fmt
+        if not fmt:
+            raise TypeError ("Missing format for parameter")
+        if code is None:
+            raise TypeError ("Missing code for parameter")
+        self.fmt = fmt
+        self.code = code
+
+    @classmethod
+    def getniceval (cls, val):
+        try:
+            return val.nice_val (cls)
+        except AttributeError:
+            return val
+
     @staticmethod
     def key (cls):
         return cls.code
     
-    def __str__ (self):
-        return self.format ()
-
-    def format (self, val = None, fmt = None):
-        """Format the NICE parameter value according to the format.
-        By default, processes the value and format stored in the object,
-        but can also be used with explicit value and format.   It calls
-        itself recursively to format CM-n items.
-
-        Override this to do item specific formatting in subclasses.
-        """
-        if val is None:
-            val = self.val
-        if fmt is None:
-            fmt = self.fmt
-        if fmt & 0x80:
-            # Coded field
-            if fmt & 0x40:
-                # CM-n.  n is in the low bits, when transmitted in
-                # the protocol, but we ignore that.  For CM-n,
-                # the value is a sequence of pairs, which are the
-                # value and format respectively of each item.
-                return ' '.join ([ self.format (v, f) for v, f in val ])
-            try:
-                return self.vnames[val]
-            except KeyError:
-                return str (val)
-        else:
-            # Not coded.
-            if fmt & 0x40:
-                # ASCII field.
-                return val
-            # Binary of some sort.
-            f = fmt & 0x30
-            if f == 0:
-                return "%u" % val
-            if f == 0x10:
-                return "%d" % val
-            if f == 0x20:
-                # Hex is used both as H-n (hex integer) and HI-n (byte string).
-                # Byte string we want to format as a sequence of hex byte
-                # values.
-                if fmt == 0x20:
-                    # HI-n, so format as hex byte string.
-                    return "-".join ([ "%02x" % i for i in val ])
-                return "%x" % val
-            return "%o" % val
-
     @property
     def name (self):
         if self._name:
             return self._name
-        if self.__class__.__base__ is object:
-            # Param base class, so it's an unknown parameter
-            return "Parameter # %d" % self.code
-        else:
+        if self.__class__._code is not None:
             return self.__class__.__name__.replace ("_", " ").capitalize ()
+        else:
+            # Unknown parameter
+            return "Parameter # %d" % self.code
         
-    def __repr__ (self):
+    def nameformat (self):
         """Format the value preceded by the parameter name, in NICE standard
         tabular form.
         """
-        return "%s = %s" % (self.name, self)
+        return "%s = %s" % (self.name, self.format ())
     
-    def __bytes__ (self):
-        return self.encode ()
-
     def valbytes (self, val, fmt):
         bits = val.bit_length ()
         signed = (fmt & 0xf0) == 0x10
@@ -205,116 +140,197 @@ class Param (object, metaclass = param_meta):
                 raise OverflowError ("Numeric value too large for field")
             l = fl
         return val.to_bytes (l, "little", signed = signed)
+
+    def encode (self):
+        return self.code.to_bytes (2, "little") + self.encodeval ()
     
-    def encode (self, val = None, fmt = None):
-        """Encode the NICE parameter value according to the format.
-        By default, processes the value and format stored in the object,
-        but can also be used with explicit value and format.
-        """
-        if val is None:
-            val = self.val
-        if fmt is None:
-            fmt = self.fmt
-        if fmt & 0x80:
-            # Coded field
-            if fmt & 0x40:
-                # Coded multiple
-                if isinstance (val, Sequence) and not isinstance (val, str):
-                    b = b''.join ([ self.encode (v, f) for v, f in val ])
-                    fmt = 0xc0 + len (val)
-                else:
-                    raise TypeError ("CM-n format but not sequence value")
-            else:
-                b = self.valbytes (val, fmt)
-        else:
-            # Not coded.
-            if fmt & 0x40:
-                # ASCII field.
-                b = bytes (val)
-                l = len (b)
-                if l > 255:
-                    raise OverflowError ("ASCII field too long")
-                b = l.to_bytes (1, "little") + b
-            else:
-                # Binary of some sort.
-                if isinstance (val, bytes):
-                    b = val
-                else:
-                    b = self.valbytes (val, fmt)
-                l = fmt & 0x0f
-                if not l:
-                    # Image field
-                    b = len (b).to_bytes (1, "little") + b
-        return fmt.to_bytes (1, "little") + b
-    
-    def decode (self, b):
+    @classmethod
+    def decode (cls, b, code = None):
         """Decode a byte string into a parameter. The argument is the
         NICE byte data stream starting with the DATA TYPE field.  In other
         words, by the time we get here the DATA ID field has already been
         processed.
+
+        Return value is a Param object containing the data, and the
+        remaining buffer.
         """
         if len (b) < 2:
             raise MissingData ("Data too short")
         fmt = b[0]
         b = b[1:]
-        if fmt & 0x80:
-            # coded
-            n = fmt & 0x3f
-            if fmt & 0x40:
-                # CM-n
-                val = list ()
-                for i in range (n):
-                    b = self.decode (b)
-                    val.append ((self.val, self.fmt))
-            else:
-                # C-n
-                if len (b) < n:
-                    raise ValueError ("Data too short")
-                val = int.from_bytes (b[:n], "little")
-                b = b[n:]
+        dcls = fmtparamclass (fmt)
+        if issubclass (dcls, cls):
+            cls = dcls
         else:
-            # not coded
-            n = fmt & 0x0f
-            if (fmt & 0x40) or n == 0:
-                # ASCII or binary image, so length is next byte
-                n = b[0]
-                b = b[1:]
-            if len (b) < n:
-                raise ValueError ("Data too short")
-            val = b[:n]
-            b = b[n:]
-            if fmt & 0x40:
-                # ASCII
-                val = str (val, encoding = "latin-1", errors = "ignore")
-            elif (fmt & 0x30) == 0x10:
-                val = int.from_bytes (val, "little", signed = True)
-            elif fmt == 0x20:
-                # HI-n, store the byte string directly
-                pass
-            else:
-                val = int.from_bytes (val, "little")
-        self.fmt = fmt
-        self.val = val
-        return b
+            if not issubclass (cls, dcls):
+                raise TypeError ("Wrong class for decoding format %d")
+        val, fmt, b = cls.decodeval (b, fmt)
+        p = cls (val, fmt, code)
+        return p, b
+    
+class _IntParam (Param, int):
+    _signed = False
 
-# NICE parameter codes
-def C (n): return 0x80 + n
-def CM (n): return 0xc0 + n
-def DU (n): return n
-def DS (n): return 0x10 + n
-def AI (n): return 0x40
-def H (n): return 0x20 + n
-def HI (n): return 0x20
+    def __new__ (cls, val, *args):
+        if isinstance (val, bytetypes):
+            val = int.from_bytes (val, "little", signed = cls._signed)
+        return super (__class__, cls).__new__ (cls, val)
+        
+    @classmethod
+    def decodeval (cls, b, fmt):
+        n = fmt & 0x0f
+        if len (b) < n:
+            raise MissingData ("Data too short for %d byte field" % n)
+        return int.from_bytes (b[:n], "little", signed = cls._signed), \
+               fmt, b[n:]
 
+    def encodeval (self):
+        n = self.fmt & 0x0f
+        return byte (self.fmt) + self.to_bytes (n, "little",
+                                                signed = self._signed)
+
+class UIntParam (_IntParam):
+
+    def format (self):
+        f = self.fmt & 0x30
+        if f == 0x20:
+            return "%x" % self
+        if f == 0x30:
+            return "%o" % self
+        return "%u" % self
+    
+class SIntParam (_IntParam):
+    _signed = True
+    
+    def format (self):
+        return "%d" % self
+
+class CParam (_IntParam, metaclass = codedparam_meta):
+
+    def __new__ (cls, val, *args):
+        val = cls.getniceval (val)
+        if not isinstance (val, int):
+            val = cls.values[val]
+        return super (__class__, cls).__new__ (cls, val)
+    
+    def format (self):
+        try:
+            return self.vnames[self]
+        except KeyError:
+            return str (self)
+
+class StrParam (Param, str):
+
+    @classmethod
+    def decodeval (cls, b, fmt):
+        n = b[0]
+        b = b[1:]
+        if len (b) < n:
+            raise MissingData ("Data too short for %d byte field" % n)
+        return str (b[:n], encoding = "latin1", errors = "ignore"), fmt, b[n:]
+
+    def encodeval (self):
+        b = bytes (self, encoding = "latin1", errors = "ignore")
+        return byte (self.fmt) + byte (len (b)) + b
+
+    def format (self):
+        return str (self)
+    
+class CMParam (Param, tuple):
+
+    def __new__ (cls, vals, fmts, *args):
+        vals = cls.getniceval (vals)
+        if not (isinstance (vals, Sequence) and not
+                isinstance (vals, strtypes)):
+            vals = (vals,)
+        if len (vals) > len (fmts):
+            raise TypeError ("Too few formats for values")
+        vlist = list ()
+        for v, f in zip (vals, fmts):
+            c = fmtparamclass (f)
+            # Third argument (code) is not used, but is required to
+            # satisfy the constructor
+            vlist.append (c (v, f, 9999))
+        return tuple.__new__ (cls, vlist)
+    
+    @classmethod
+    def decodeval (cls, b, fmt):
+        n = fmt & 0x0f
+        val = list ()
+        rfmt = list ()
+        for i in range (n):
+            # "code" argument is not used, but is required to
+            # satisfy the constructor
+            p, b = Param.decode (b, code = 9999)
+            val.append (p)
+            rfmt.append (p.fmt)
+        return val, rfmt, b
+
+    def encodeval (self):
+        ret = list ()
+        for v, f in zip (self, self.fmt):
+            ret.append (v.encodeval ())
+        return byte (0xc0 + len (self)) + b''.join (ret)
+
+    def format (self):
+        return ' '.join ([ v.format () for v in self ])
+        
+class BytesParam (Param, bytes):
+
+    @classmethod
+    def decodeval (cls, b, fmt):
+        n = b[0]
+        b = b[1:]
+        if len (b) < n:
+            raise MissingData ("Data too short for %d byte field" % n)
+        return b[:n], fmt, b[n:]
+
+    def encodeval (self):
+        b = bytes (self)
+        return byte (self.fmt) + byte (len (b)) + b
+
+    def format (self):
+        return "-".join ([ "%02x" % i for i in self ])
+        
+def fmtparamclass (fmt):
+    """Find the type-specific Param subclass for this format code.
+    None means invalid format code."""
+    if fmt == 0x40:
+        # AI-n
+        return StrParam
+    if fmt == 0x20:
+        # HI-n
+        return BytesParam
+    if fmt & 0x80:
+        # coded
+        n = fmt & 0x3f
+        if not n:
+            return None
+        if fmt & 0x40:
+            # CM-n
+            return CMParam
+        else:
+            # C-n
+            return CParam
+    else:
+        # not coded
+        n = fmt & 0x0f
+        if not n:
+            return None
+        if (fmt & 0xf0) == 0x10:
+            # DS-n
+            return SIntParam
+        return UIntParam
+    
 class nicemsg_meta (type):
     def __new__ (cls, name, bases, classdict):
         pdict = dict ()
         for c in classdict.values ():
             if c is not Param and \
-                   isinstance (c, param_meta) and \
+                   isinstance (c, type) and \
                    issubclass (c, Param) \
                    and not hasattr (c, "send_only"):
-                pdict[c.code] = c
+                pdict[c._code] = c
         if pdict:
             classdict["pdict"] = pdict
         return type.__new__ (cls, name, bases, classdict)
@@ -341,7 +357,6 @@ class NiceMsg (metaclass = nicemsg_meta):
             else:
                 did &= 0x0fff
                 pc = cls.pdict.get (did, Param)
-                p = pc (code = did)
-                b = p.decode (b)
+                p, b = pc.decode (b, code = did)
                 ret.append (p)
         return ret

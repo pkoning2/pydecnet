@@ -5,6 +5,7 @@ import os
 import time
 import random
 import collections
+from collections.abc import Sequence
 
 import unittest
 import unittest.mock
@@ -135,13 +136,12 @@ class DnTest (unittest.TestCase):
                 v = p.values[v]
             except (AttributeError, KeyError, TypeError):
                 pass
-            pval = p.val
-            if (p.fmt & 0xc0) == 0xc0:
-                # Multiple.  Keep just the values
-                pval = [ v for v, f in pval ]
-                if len (pval) == 1:
-                    pval = pval[0]
-            self.assertEqual (pval, v)
+            fmt = p.fmt
+            if isinstance (fmt, Sequence):
+                if not (isinstance (v, Sequence) and 
+                        not isinstance (v, strtypes)):
+                    v = (v,)
+            self.assertEqual (p, v)
         eparams = [ k for k, v in e.__dict__.items () if
                     isinstance (v, events.Param) and k not in kwds ]
         if eparams:
@@ -152,7 +152,7 @@ class DnTest (unittest.TestCase):
     def assertParam (self, p, value):
         if not isinstance (value, int):
             value = p.values[value]
-        self.assertEqual (p.val, value)
+        self.assertEqual (p, value)
 
     def lastdispatch (self, calls, element = None):
         element = element or self.node
@@ -164,4 +164,22 @@ class DnTest (unittest.TestCase):
 
     def eventcount (self, ec):
         return self.node.ecounts[ec]
+    
+    def short (self, b, cls, maxlen = None):
+        if not maxlen:
+            maxlen = len (b) - 1
+        for l in range (1, maxlen):
+            try:
+                ret = cls (b[:l])
+                self.fail ("Accepted truncated data: %d %s" % (l, ret))
+            except packet.DecodeError:
+                pass
+            except AssertionError:
+                raise
+            except Exception as e:
+                self.fail ("Unexpected exception %s for input %s (len %d)"
+                           % (e, b[:l], l))
+        ret = cls ()
+        ret.decode (b)
+        return ret
     

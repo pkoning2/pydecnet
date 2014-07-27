@@ -51,7 +51,20 @@ class FieldOverflow (DecodeError):
     """Value too large for field size."""
 class InvalidTag (DecodeError):
     """Unknown TLV tag field."""
-    
+
+# Tuple of bytestring types (used in isinstance checks when we need
+# to recognize some sort of byte buffer but don't know which specific
+# one of several types for that purpose we're dealing with)
+bytetypes = (bytes, bytearray, memoryview)
+
+# Tuple of string/byte types, similar to the above but also includes str.
+strtypes = (str, bytes, bytearray, memoryview)
+
+# It would be handy to have the bytes analog of chr() as a builtin,
+# but there isn't one, so make one.
+def byte (n):
+    return bytes ((n,))
+
 # List of file descriptors to keep open if we run as daemon
 files_preserve = list ()
 def dont_close (f):

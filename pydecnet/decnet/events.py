@@ -15,7 +15,7 @@ can be caught and then logged, resulting in the same output as for a simple
 import time
 import struct
 
-from .common import Nodeid
+from .common import *
 from . import logging
 from .nice import *
 
@@ -26,7 +26,7 @@ class Event (Exception, NiceMsg):
     """A DECnet event.  It is derived from Exception so it can be raised.
     """
     _entity_type = _label = None
-    _local_node = NiceNode ()    # Should normally be set by logevent call
+    _local_node = None    # Should normally be set by logevent call
     _ms_valid = True
     pdict = { }
     evtids = { }
@@ -55,6 +55,7 @@ class Event (Exception, NiceMsg):
         if source is not None:
             self.setsource (source)
         self._timestamp = time.time ()
+        self._sinks = 7
         self.setparams (params = params, **kwds)
 
     def setparams (self, params = None, **kwds):
@@ -69,13 +70,8 @@ class Event (Exception, NiceMsg):
             if v is None:
                 continue
             c = getattr (self.__class__, k, None)
-            if c and isinstance (c, param_meta):
-                try:
-                    v = v.nice_val ()
-                except AttributeError:
-                    pass
-                v = c (v)
-                setattr (self, k, v)
+            v = c (v, c._fmt)
+            setattr (self, k, v)
 
     def setsource (self, source):
         self._local_node = source
@@ -101,11 +97,11 @@ class Event (Exception, NiceMsg):
         else:
             l1 = "Event type {}.{}".format (self._class, self._code)
         ret = [ l1, "  From node {}, occurred {}".format (n, ts) ]
-        e = repr (self._entity)
+        e = self._entity.nameformat ()
         if e:
             ret.append ("  {}".format (e))
         for p in self.params ():
-            ret.append ("  {!r}".format (p))
+            ret.append ("  {}".format (p.nameformat ()))
         return '\n'.join (ret)
 
     evthdr = struct.Struct ("<BBHHHHHB")
@@ -125,7 +121,27 @@ class Event (Exception, NiceMsg):
         so they are ignored.
         """
         return divmod (evt & 0x7fdf, 64)
+
+    def encodets (self):
+        sec, ms = divmod (int ((self._timestamp - jbase) * 1000), 1000)
+        jhd, sec = divmod (sec, 12 * 60 * 60)
+        if not self._ms_valid:
+            ms = 0x8000
+        return jhd, sec, ms
         
+    def __bytes__ (self):
+        """Encode the event to a byte string."""
+        jhd, sec, ms = self.encodets ()
+        hdr = self.evthdr.pack (1, self._sinks, self.eventcode (),
+                                jhd, sec, ms, self._local_node,
+                                len (self._local_node.nodename))
+        ret = [ hdr, bytes(self._local_node.nodename, encoding = "latin1",
+                           errors = "ignore"),
+                self._entity.encode () ]
+        for p in self.params ():
+            ret.append (p.encode ())
+        return b''.join (ret)
+
     @classmethod
     def decode (cls, b):
         """Decode an event message.  Returns the resulting Event
@@ -178,48 +194,25 @@ class Event (Exception, NiceMsg):
     def entclass (cls, ent):
         if ent & 0x80:
             ent = 0x80
-        c = cls.entclasses.get (ent, EventEntity)
+        c = cls.entclasses.get (ent, StrEntity)
         return c
     
 # Event entity classes
 class EventEntity (object):
     label = None
-    
-    def __init__ (self, val):
-        assert (val)
-        if not isinstance (val, str):
-            val = val.name
-        self.val = val
 
-    def __str__ (self):
-        return str (self.val)
-
-    def __repr__ (self):
+    def nameformat (self):
         label = self.label
         if not label:
             label = "Entity # {}".format (self._code)
         return "{} = {}".format (label, self)
 
-    @classmethod
-    def decode (cls, b):
-        """Decode the entity encoding in b, and return a pair of
-        resulting entity object and remaining data.
-
-        The code here is the default case, for an entity encoded
-        as a string.
-        """
-        elen = b[0]
-        if elen > len (b):
-            raise MissingData ("Entity image field extends beyond packet end")
-        e = str (b[1:1 + elen], encoding = "latin-1", errors = "ignore")
-        return cls (e), b[1 + elen:]
-    
-class NodeEntity (EventEntity):
+class NodeEntity (EventEntity, NiceNode):
     _code = 0
     label = "Node"
 
-    def __init__ (self, val):
-        self.val = val
+    def __new__ (cls, val):
+        return NiceNode.__new__ (cls, val)
         
     @classmethod
     def decode (cls, b):
@@ -237,35 +230,59 @@ class NodeEntity (EventEntity):
         entity = NiceNode (eid, ename)
         e = cls (entity)
         return e, b[1 + elen:]
+
+    def encode (self):
+        bname = bytes (self.nodename, encoding = "latin1", errors = "none")
+        return byte (self._code) + self.to_bytes (2, "little") + \
+               byte (len (bname)) + bname
+
+class StrEntity (EventEntity, str):
+    # Base class for entities other than Node -- identified by a string
+    def __new__ (cls, val):
+        return str.__new__ (cls, val)
     
-class LineEntity (EventEntity):
+    @classmethod
+    def decode (cls, b):
+        """Decode the entity encoding in b, and return a pair of
+        resulting entity object and remaining data.
+        """
+        elen = b[0]
+        if elen > len (b):
+            raise MissingData ("Entity image field extends beyond packet end")
+        e = str (b[1:1 + elen], encoding = "latin-1", errors = "ignore")
+        return cls (e), b[1 + elen:]
+
+    def encode (self):
+        b = bytes (self, encoding = "latin1", errors = "none")
+        return byte (self._code) + byte (len (b)) + b
+
+class LineEntity (StrEntity):
     _code = 1
     label = "Line"
 
 # Code 2 is Logging, but that's not an event entity only a NICE entity.
 
-class CircuitEntity (EventEntity):
+class CircuitEntity (StrEntity):
     _code = 3
     label = "Circuit"
     
-class ModuleEntity (EventEntity):
+class ModuleEntity (StrEntity):
     _code = 4
     label = "Module"
 
-class AreaEntity (EventEntity):
+class AreaEntity (StrEntity):
     _code = 5
     label = "Area"
 
-    def __init__ (self, val):
-        self.val = str (val)
+    def __new__ (cls, val):
+        return StrEntity.__new__ (cls, str (val))
         
 class _NoEntity (EventEntity):
     _code = 0x80
     label = ""
-    def __init__ (self, val = None): pass
+
     def __bool__ (self): return False
-    def __str__ (self): return ""
-    def __repr__ (self): return ""
+    def nameformat (self): return ""
 
     @classmethod
     def decode (cls, b):
@@ -274,6 +291,11 @@ class _NoEntity (EventEntity):
         """
         return cls (), b
 
+    def __bytes__ (self):
+        return b"\x80"
+
+    encode = __bytes__
+    
 # This is a singleton used for when no entity is supplied
 NoEntity = _NoEntity ()
 
@@ -300,93 +322,93 @@ class AppEvent (Event):
     
 class SessionEvent (Event):
     _class = 2
-    class reason (Param):
-        code = 0
-        fmt = C (1)
+    class reason (CParam):
+        _code = 0
+        _fmt = C (1)
         values = { "operator_command" : 0,
                    "normal_operation" : 1}
 
-    class old_state (Param):
-        code = 1
-        fmt = C (1)
+    class old_state (CParam):
+        _code = 1
+        _fmt = C (1)
         values = { "on" : 0,
                    "off" : 1,
                    "shut" : 2,
                    "restricted" : 3, }
 
     class new_state (old_state):
-        code = 2
+        _code = 2
         
-    class source_node (Param):
-        code = 3
-        fmt = (DU (2), AI (6))
-        format = format_nodeid
+    class source_node (CMParam):
+        _code = 3
+        _fmt = (DU (2), AI (6))
+        #format = format_nodeid
         
-    class source_process (Param):
-        code = 4
-        fmt = (DU (1), DU (2), DU (2), AI (6))
+    class source_process (CMParam):
+        _code = 4
+        _fmt = (DU (1), DU (2), DU (2), AI (6))
     class destination_process (source_process):
-        code = 5
-    class user (Param):
-        code = 6
-        fmt = AI (39)
-    class password (Param):
-        code = 7
-        fmt = C (1)
+        _code = 5
+    class user (StrParam):
+        _code = 6
+        _fmt = AI (39)
+    class password (CParam):
+        _code = 7
+        _fmt = C (1)
         values = { "set" : 0 }
     class account (user):
-        code = 8
-        fmt = AI (39)
+        _code = 8
+        _fmt = AI (39)
 
 class EclEvent (Event):
     _class = 3
-    class message (Param):
-        code = 0
-        fmt = (H (1), DU (2), DU (2), HI (6))
-    class request_count (Param):
-        code = 1
-        fmt = DS (1)
-    class source_node (Param):
-        code = 2
-        fmt = (DU (2), AI (6))
-        format = format_nodeid
+    class message (CMParam):
+        _code = 0
+        _fmt = (H (1), DU (2), DU (2), HI (6))
+    class request_count (SIntParam):
+        _code = 1
+        _fmt = DS (1)
+    class source_node (CMParam):
+        _code = 2
+        _fmt = (DU (2), AI (6))
+        #format = format_nodeid
     
 class RoutingEvent (Event):
     _class = 4
     _entity_type = CircuitEntity
-    class packet_header (Param):
-        code = 0
-        fmt = (H (1), DU (2), DU (2), DU (1))
-        format = format_nodeid
-    class eth_packet_header (Param):
+    class packet_header (CMParam):
+        _code = 0
+        _fmt = (H (1), DU (2), DU (2), DU (1))
+        #format = format_nodeid
+    class eth_packet_header (CMParam):
         _name = "Packet header"
-        code =  0
+        _code =  0
         skip_eventdict = True
-        fmt = (H (1), DU (1), DU (1), HI (6), DU (1), DU (1), HI (6),
+        _fmt = (H (1), DU (1), DU (1), HI (6), DU (1), DU (1), HI (6),
                DU (1), DU (1), H (1), DU (1))
         send_only = True
     # Not in the spec, the next two are made up for Phase 2 headers
     class ni_packet_header (eth_packet_header):
-        fmt = (H (1), H (1), DU (2), AI (6))
-        format = format_nodeid
+        _fmt = (H (1), H (1), DU (2), AI (6))
+        #format = format_nodeid
     class nv_packet_header (eth_packet_header):
-        fmt = (H (1), H (1))
-    class packet_beginning (Param):
-        code = 1
-        fmt = HI (6)
-    class highest_address (Param):
-        code = 2
-        fmt = DU (2)
-        format = format_nodeid        
-    class node (Param):
-        code = 3
-        fmt = (DU (2), AI (6))
-        format = format_nodeid
+        _fmt = (H (1), H (1))
+    class packet_beginning (BytesParam):
+        _code = 1
+        _fmt = HI (6)
+    class highest_address (UIntParam):
+        _code = 2
+        _fmt = DU (2)
+        #format = format_nodeid        
+    class node (CMParam):
+        _code = 3
+        _fmt = (DU (2), AI (6))
+        #format = format_nodeid
     class expected_node (node):
-        code = 4
-    class reason (Param):
-        code = 5
-        fmt = C (1)
+        _code = 4
+    class reason (CParam):
+        _code = 5
+        _fmt = C (1)
         values = { "sync_lost" : 0,
                    "data_errors" : 1,
                    "unexpected_packet_type" : 2,
@@ -415,25 +437,25 @@ class RoutingEvent (Event):
                    13: "Verification password require for Phase III node",
                    14: "Dropped by adjacent node" }
         
-    class received_version (Param):
-        code = 6
-        fmt = (DU (1), DU (1), DU (1))
-    class status (Param):
-        code = 7
-        fmt = C (1)
+    class received_version (CMParam):
+        _code = 6
+        _fmt = (DU (1), DU (1), DU (1))
+    class status (CParam):
+        _code = 7
+        _fmt = C (1)
         values = { "reachable" : 0,
                    "unreachable" : 1 }
 
     class adjacent_node (node):
-        code = 8
+        _code = 8
     
 class DlEvent (Event):
     _class = 5
     _entity_type = CircuitEntity
 
-    class old_state (Param):
-        code = 0
-        fmt = C (1)
+    class old_state (CParam):
+        _code = 0
+        _fmt = C (1)
         values = { "halted" : 0,
                    "istrt" : 1,
                    "astrt" : 2,
@@ -441,7 +463,7 @@ class DlEvent (Event):
                    "maintenance" : 4 }
 
     class new_state (old_state):
-        code = 1
+        _code = 1
 
 class PhyEvent (Event):
     _class = 6
@@ -769,7 +791,7 @@ def _seteventdicts ():
                 except AttributeError:
                     pass
         elif isinstance (c, type) and issubclass (c, EventEntity) \
-             and c is not EventEntity:
+             and hasattr (c, "_code"):
             entclasses[c._code] = c
     Event.entclasses = entclasses
     Event.evtclasses = evtclasses

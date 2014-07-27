@@ -187,7 +187,7 @@ class SysId (MopHdr):
             if val not in (0, -1, -2):
                 logging.debug ("MOP C-n field integer not in -2..0")
                 raise events.fmt_err
-            val = val.to_bytes (1, packet.LE)
+            val = byte (val)
         else:
             if isinstance (val, str):
                 val = bytes (val, "latin-1", "ignore")
@@ -195,7 +195,7 @@ class SysId (MopHdr):
             if vl > maxlen:
                 logging.debug ("Value too long for %d byte field", maxlen)
                 raise events.fmt_err
-            val = vl.to_bytes (1, packet.LE) + val
+            val = byte (vl) + val
         return val
 
     def decode_c (self, buf, field, maxlen):
