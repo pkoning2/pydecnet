@@ -270,12 +270,22 @@ class ModuleEntity (StrEntity):
     _code = 4
     label = "Module"
 
-class AreaEntity (StrEntity):
+class AreaEntity (EventEntity, int):
     _code = 5
     label = "Area"
 
     def __new__ (cls, val):
-        return StrEntity.__new__ (cls, str (val))
+        return int.__new__ (cls, int (val))
+    
+    @classmethod
+    def decode (cls, b):
+        """Decode the entity encoding in b, and return a pair of
+        resulting entity object and remaining data.
+        """
+        return cls (b[0]), b[1:]
+
+    def encode (self):
+        return byte (self._code) + byte (self)
         
 class _NoEntity (EventEntity):
     _code = 0x80
