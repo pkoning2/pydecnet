@@ -12,24 +12,6 @@ rmax = 40
     
 class test_packets (DnTest):
 
-    def short (self, b, cls, maxlen = None):
-        if not maxlen:
-            maxlen = len (b) - 1
-        for l in range (1, maxlen):
-            try:
-                ret = cls (b[:l])
-                self.fail ("Accepted truncated data: %d %s" % (l, ret))
-            except packet.DecodeError:
-                pass
-            except AssertionError:
-                raise
-            except Exception as e:
-                self.fail ("Unexpected exception %s for input %s (len %d)"
-                           % (e, b[:l], l))
-        ret = cls ()
-        ret.decode (b)
-        return ret
-    
     def test_ackdata (self):
         p = b"\x04\x03\x00\x05\x01\x02\x80"
         ackdat = self.short (p, nsp.AckData, maxlen = 6)

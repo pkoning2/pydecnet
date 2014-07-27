@@ -12,24 +12,6 @@ class rptest (DnTest):
         self.assertEqual (logging.exception.call_count, 0)
         super ().tearDown ()
 
-    def short (self, b, cls, maxlen = None):
-        if not maxlen:
-            maxlen = len (b) - 1
-        for l in range (1, maxlen):
-            try:
-                ret = cls (b[:l])
-                self.fail ("Accepted truncated data: %d %s" % (l, ret))
-            except packet.DecodeError:
-                pass
-            except AssertionError:
-                raise
-            except Exception as e:
-                self.fail ("Unexpected exception %s for input %s (len %d)"
-                           % (e, b[:l], l))
-        ret = cls ()
-        ret.decode (b)
-        return ret
-    
 class test_shortdata (rptest):
     def test_decode (self):
         s = self.short (b"\x02\x03\x04\x01\x08\x11abcdef payload", ShortData,

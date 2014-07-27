@@ -353,7 +353,7 @@ class Packet (metaclass = packet_encoding_meta):
         if vl > maxlen:
             logging.debug ("Value too long for %d byte field", maxlen)
             raise FieldOverflow
-        return vl.to_bytes (1, LE) + val
+        return byte (vl) + val
 
     def decode_i (self, buf, field, maxlen):
         """Decode "field" from an image field with max length "maxlen".
@@ -464,9 +464,9 @@ class Packet (metaclass = packet_encoding_meta):
         val = getattr (self, field, 0)
         retval = [ ]
         while val >> 7:
-            retval.append (((val & 0x7f) | 0x80).to_bytes (1, LE))
+            retval.append (byte ((val & 0x7f) | 0x80))
             val >>= 7
-        retval.append (val.to_bytes (1, LE))
+        retval.append (byte (val))
         if len (retval) > maxlen:
             logging.debug ("Extensible field is longer than %d bytes", maxlen)
             raise FieldOverflow

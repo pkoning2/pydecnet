@@ -51,15 +51,18 @@ def evtpackethdr (pkt, exc = None):
     Optional argument "exc" is an exception instance, which
     may change the choice of parameter used.
     """
-    if isinstance (pkt, bytes):
-        buf = pkt
+    if isinstance (pkt, bytetypes):
+        buf = bytes (pkt)
     else:
         try:
             buf = pkt.decoded_from
         except Exception:
             return { }
     if exc is None or isinstance (exc, RoutingDecodeError):
-        if isinstance (pkt, (ShortData, bytes)):
+        if isinstance (pkt, bytetypes):
+            fields = splithdr (buf, (1, 2, 2, 1))
+            return { "packet_header" : fields }
+        elif isinstance (pkt, ShortData):
             fields = splithdr (buf, (1, 2, 2, 1))
             return { "packet_header" : fields }
         elif isinstance (pkt, LongData):
@@ -69,7 +72,9 @@ def evtpackethdr (pkt, exc = None):
             fields = splithdr (buf, (1, 2))
             return { "packet_header" : fields }
         elif isinstance (pkt, NodeInit):
-            fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, pkt.nodename ]
+            nodename = str (pkt.nodename, encoding = "latin1",
+                            errors = "ignore")
+            fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, nodename ]
             return { "ni_packet_header" : fields }
         elif isinstance (pkt, NodeVerify):
             fields = splithdr (buf, (1, 1))

@@ -251,10 +251,10 @@ class PtpCircuit (statemachine.StateMachine):
                         try:
                             work.packet = PtpInit3 (buf)
                         except InvalidAddress as e:
-                            nodeargs = (e.args[0],)
+                            n = self.optnode (e.args[0])
                             self.node.logevent (events.init_oper,
                                                 entity = self,
-                                                adjacent_node = nodeargs,
+                                                adjacent_node = n,
                                                 reason = "address_out_of_range",
                                                 **evtpackethdr (buf))
                             return CircuitDown (self)
@@ -314,10 +314,10 @@ class PtpCircuit (statemachine.StateMachine):
                                 try:
                                     work.packet = NodeInit (buf)
                                 except InvalidAddress as e:
-                                    nargs = (e.args[0],)
+                                    n = self.optnode (e.args[0])
                                     self.node.logevent (events.init_oper,
                                                         entity = self,
-                                                        adjacent_node = nargs,
+                                                        adjacent_node = n,
                                                         reason = "address_out"
                                                         "_of_range",
                                                         packet_beginning =
@@ -429,10 +429,10 @@ class PtpCircuit (statemachine.StateMachine):
                     logging.debug ("%s Phase II node id out of range: %d",
                                    self.name, pkt.srcnode)
                     self.init_fail += 1
-                    nodeargs = (pkt.srcnode,)
+                    n = self.optnode (pkt.srcnode)
                     return self.restart (events.init_oper,
                                          "node id out of range",
-                                         adjacent_node = nodeargs,
+                                         adjacent_node = n,
                                          reason = "address_out_of_range",
                                          **evtpackethdr (pkt))
                 if self.node.phase > 2:
@@ -502,10 +502,10 @@ class PtpCircuit (statemachine.StateMachine):
                         logging.debug ("%s Node address out of range: %s",
                                        self.name, pkt.srcnode)
                         self.init_fail += 1
-                        nodeargs = (pkt.srcnode,)
+                        n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
-                                             adjacent_node = nodeargs,
+                                             adjacent_node = n,
                                              reason = "address_out_of_range")
                     self.rphase = 4
                     self.timer = pkt.timer
@@ -532,19 +532,19 @@ class PtpCircuit (statemachine.StateMachine):
                         logging.debug ("%s Phase III node id out of range: %d",
                                        self.name, pkt.srcnode)
                         self.init_fail += 1
-                        nodeargs = (pkt.srcnode,)
+                        n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
-                                             adjacent_node = nodeargs,
+                                             adjacent_node = n,
                                              reason = "address_out_of_range")
                     if pkt.ntype == L1ROUTER and \
                        self.parent.ntype in { L1ROUTER, L2ROUTER } and \
                        pkt.blksize < self.parent.maxnodes * 2 + 6:
                         self.init_fail += 1
-                        nodeargs = (pkt.srcnode,)
+                        n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
-                                             adjacent_node = nodeargs,
+                                             adjacent_node = n,
                                              reason = "address_out_of_range")
                     self.rphase = 3
                     self.hellomsg = PtpHello (srcnode = self.parent.tid,
