@@ -251,7 +251,7 @@ class TestEventDecode (DnTest):
     def test_area_ent (self):
         # Event with Line entity
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
-            b"\x05\x0251"
+            b"\x05\x33"
         e = events.Event.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertFalse (e._ms_valid)
@@ -260,7 +260,7 @@ class TestEventDecode (DnTest):
         self.assertEqual (e._local_node, Nodeid (1, 3))
         self.assertEqual (e._local_node.nodename, "GROK")
         self.assertIsInstance (e._entity, events.AreaEntity)
-        self.assertEqual (e._entity, "51")
+        self.assertEqual (e._entity, 51)
         es = str (e)
         # Event type 0.8, Automatic counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
