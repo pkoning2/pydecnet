@@ -22,10 +22,17 @@ subparser = configparser.add_subparsers ()
 coll_init = set ()
 single_init = set ()
 
-def config_cmd (name, help, collection = False):
+class LoggingConfig (argparse.Namespace):
+
+    @property
+    def name (self):
+        return (self.sink_node, self.type)
+    
+def config_cmd (name, help, collection = False, namespace = None):
     cp = subparser.add_parser (name, add_help = False)
     cp.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
-    cp.set_defaults (collection = collection, attr = name)
+    cp.set_defaults (collection = collection, attr = name,
+                     namespace = namespace)
     if collection:
         coll_init.add (name)
     else:
@@ -130,6 +137,18 @@ cp.add_argument ("--nsp-weight", type = int, default = 3,
 cp.add_argument ("--nsp-delay", type = float, default = 2.0,
                  help = "NSP round trip delay factor (range 1..15.94)")
 
+cp = config_cmd ("logging", "Event logging configuration", collection = True,
+                 namespace = LoggingConfig)
+cp.add_argument ("type", choices = ("console", "file", "monitor"),
+                 help = "Sink type")
+cp.add_argument ("--sink-node", type = str,
+                 help = "Remote sink node (default: local)")
+cp.add_argument ("--sink-file", type = str, default = "events.dat",
+                 help = "File name for File sink")
+cp.add_argument ("--events", type = str, default = "",
+                 help = "Events to enable (default: known events for"
+                 " local console, none otherwise")
+
 class Config (object):
     """Container for configuration data.
     """
@@ -166,6 +185,8 @@ class Config (object):
                                f, msg, l)
                 ok = False
             else:
+                if p.namespace:
+                    p.__class__ = p.namespace
                 if p.collection:
                     getattr (self, p.attr)[p.name] = p
                 else:

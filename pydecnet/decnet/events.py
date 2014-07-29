@@ -183,6 +183,16 @@ class Event (Exception, NiceMsg):
         return e
 
     @classmethod
+    def known_events (cls):
+        """Return the known events (i.e., all defined events of this
+        implementation, so excluding any system specific events for
+        other system types), as an iterable of the event classes.
+        """
+        for c in cls.evtclasses.values ():
+            if c._class <= 31 or c._class >= 480:
+                yield from c.evtids.values ()
+                
+    @classmethod
     def evtclass (cls, evt):
         evtclass, evtid = cls.codesplit (evt)
         c = cls.evtclasses.get (evtclass, cls)
@@ -201,6 +211,10 @@ class Event (Exception, NiceMsg):
 class EventEntity (object):
     label = None
 
+    @staticmethod
+    def key (e):
+        return (e._code, e)
+    
     def nameformat (self):
         label = self.label
         if not label:
@@ -211,8 +225,8 @@ class NodeEntity (EventEntity, NiceNode):
     _code = 0
     label = "Node"
 
-    def __new__ (cls, val):
-        return NiceNode.__new__ (cls, val)
+    def __new__ (cls, val, name = ""):
+        return NiceNode.__new__ (cls, val, name)
         
     @classmethod
     def decode (cls, b):
@@ -222,7 +236,7 @@ class NodeEntity (EventEntity, NiceNode):
         if len (b) < 3:
             raise MissingData ("Node entity extends beyond packet end")
         eid = int.from_bytes (b[:2], "little")
-        elen = b[2]
+        elen = b[2] & 0x7f   # High bit means "executor node" so ignore that
         if elen > len (b) - 2:
             raise MissingData ("Entity image field extends beyond packet end")
         ename = str (b[3:3 + elen], encoding = "latin-1", errors = "ignore")
@@ -293,7 +307,12 @@ class _NoEntity (EventEntity):
 
     def __bool__ (self): return False
     def nameformat (self): return ""
-
+    def __repr__ (self): return "events.NoEntity"
+    
+    @staticmethod
+    def key (e):
+        return (-1, 0)
+    
     @classmethod
     def decode (cls, b):
         """Decode the entity encoding in b, and return a pair of
@@ -478,10 +497,10 @@ class DlEvent (Event):
 class PhyEvent (Event):
     _class = 6
     _entity_type = LineEntity
-    
+
 class PyEvent (Event):
     # DECnet/Python specific events
-    _class = 320
+    _class = 496
 
 # The actual event classes
 class events_lost (NetmanEvent):
@@ -768,6 +787,159 @@ class line_comm (PhyEvent):
 class line_perf (PhyEvent):
     _label = "Performance error"
     _code = 5
+
+
+# DECnet/E (RSTS) specific events
+
+class RstsAppEvent (Event):
+    _class = 33
+
+    class access (CParam):
+        _code = 0
+        _fmt = C (1)
+        values = { "local" : 0,
+                   "remote" : 1 }
+
+    class function (CParam):
+        _code = 1
+        _fmt = C (1)
+        values = { "illegal" : 0,
+                   "open_read" : 1,
+                   "open_write" : 2,
+                   "rename" : 3,
+                   "delete" : 4,
+                   "reserved" : 5,
+                   "directory" : 6,
+                   "submit" : 7,
+                   "execute" : 8 }
+        vnames = { 1 : "Open/read",
+                   2 : "Open/write" }
+
+    class remote_node (RoutingEvent.node):
+        _code = 3
+
+    class remote_process (UIntParam):
+        _code = 4
+        _fmt = DU (1)
+
+    class local_process (remote_process):
+        _code = 5
+
+    class user (StrParam):
+        _code = 6
+        _fmt = AI (39)
+
+    class password (CParam):
+        _code = 7
+        _fmt = C (1)
+        values = { "present" : 0 }
+        vnames = { 0 : "..." }
+
+    class account (user):
+        _code = 8
+
+    class file_accessed (StrParam):
+        _code = 9
+        _fmt = AI (255)
+        
+class RstsSessionEvent (Event):
+    _class = 34
+
+    class reason (CParam):
+        _code = 0
+        _fmt = C (1)
+        values = { "io_error" : 0,
+                   "spawn_fail" : 1,
+                   "unknown" : 2 }
+        vnames = { 0 : "I/O error on Object database",
+                   1 : "Spawn Directive failed",
+                   2 : "Unknown Object identification" }
+
+    # All the remaining parameters are the same as for class 33,
+    # apart from parameter name changes.  So use those definitions.
+    class source_node (RstsAppEvent.remote_node): pass
+    class source_process (RstsAppEvent.remote_process): pass
+    class dest_process (RstsAppEvent.remote_process):
+        _label = "Destination process"
+
+    class user (RstsAppEvent.user): pass
+    class password (RstsAppEvent.password): pass
+    class account (RstsAppEvent.account): pass
+
+class rsts_fal (RstsAppEvent):
+    _label = "Remote file access"
+    _code = 0
+
+class rsts_spawn (RstsSessionEvent):
+    _label = "Object spawned"
+    _code = 0
+
+class rsts_spawn_fail (RstsSessionEvent):
+    _label = "Object spawn failure"
+    _code = 1
+
+
+# RSX specific events.  These are just event codes, not the
+# associated parameters.  I found only that much in RSX manuals.
+
+class RsxEvent (Event):
+    _class = 64
+
+class rsx_rdb_corrupt (RsxEvent):
+    _code = 1
+    _label = "Routing database corrupt"
+
+class rsx_rdb_restored (RsxEvent):
+    _code = 2
+    _label = "Routing database restored"
+
+class rsx_93 (Event):
+    _class = 93
+
+class rsx_state_change (rsx_93):
+    _code = 0
+    _label = "State change"
+
+class rsx_94 (Event):
+    _class = 94
+    
+class rsx_dce_err (rsx_94):
+    _code = 0
+    _label = "DCE detected packet error"
+
+
+# VMS specific events.  These are just event codes, not the
+# associated parameters.  I found only that much in VMS manuals.
+
+class VmsEvent (Event):
+    _class = 128
+
+class vms_dap_crc (VmsEvent):
+    _code = 1
+    _label = "DAP CRC error detected"
+
+class vms_dup_ph2 (VmsEvent):
+    _code = 2
+    _label = "Duplicate PHASE 2 address error"
+
+class vms_proc_create (VmsEvent):
+    _code = 3
+    _label = "Process created"
+
+class vms_proc_term (VmsEvent):
+    _code = 4
+    _label = "Process terminated"
+
+class VmsDnsEvent (Event):
+    _class = 353
+
+class vms_dns_comm (VmsDnsEvent):
+    _code = 5
+    _label = "DECdns clerk unable to communicate with server"
+
+class vms_dns_advert (VmsDnsEvent):
+    _code = 20
+    _label = "Local DECdns Advertiser error"
 
 # ******************* the code below must be at the end of file
 

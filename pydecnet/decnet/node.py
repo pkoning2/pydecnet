@@ -20,6 +20,7 @@ from . import routing
 from . import apiserver
 from . import nsp
 from . import monitor
+from . import event_logger
 
 class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     """A container for node database entries.  This contains the attributes
@@ -53,7 +54,7 @@ class Node (object):
     it's certainly possible to create multiple ones (to emulate an
     entire network within a single process).
     """
-    startlist = ( "datalink", "mop", "routing", "nsp",
+    startlist = ( "event_logger", "datalink", "mop", "routing", "nsp",
                   "api", "monitor" )
 
     def __init__ (self, config):
@@ -82,6 +83,7 @@ class Node (object):
         self.initfilter ()
         # We now have a node.
         # Create its child entities in the appropriate order.
+        self.event_logger = event_logger.EventLogger (self, config)
         self.datalink = datalink.DatalinkLayer (self, config)
         self.mop = mop.Mop (self, config)
         self.routing = routing.Router (self, config)
@@ -90,17 +92,6 @@ class Node (object):
     def addnodeinfo (self, n):
         self.nodeinfo_byname[n.nodename] = n
         self.nodeinfo_byid[n] = n
-
-    def initfilter (self):
-        # Set up the event filter.  TODO: make this configurable.
-        # For now, just enable almost everything.
-        self.eventfilter = set ()
-        for i in (0, 1, 2, 3, 4, 5, 6, 320):
-            for j in range (32):
-                evtcode = (i << 6) + j
-                self.eventfilter.add (evtcode)
-        # Turn off a couple
-        #self.eventfilter.remove (events.Event.eventcode (events.fmt_err))
         
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be either
@@ -200,5 +191,5 @@ class Node (object):
             event.setparams (**kwds)
         else:
             event = event (entity, source = self.nodeid, **kwds)
-        if event.eventcode () in self.eventfilter:
-            logging.info (event)
+        self.event_logger.logevent (event)
+        

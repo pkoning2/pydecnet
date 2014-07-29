@@ -105,6 +105,40 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 --prio -1", "invalid choice")
         self.checkerr ("circuit foo-0 --prio 128", "invalid choice")
 
+class TestLogging (Logchecker):
+    req = """system
+    routing 1.1
+    nsp
+    """
+
+    def test_basic (self):
+        c = self.ctest ("logging console")
+        cc = c.logging[(None, "console")]
+        self.assertEqual (cc.type, "console")
+        self.assertIsNone (cc.sink_node)
+        self.assertEqual (cc.events, "")
+        self.assertEqual (cc.sink_file, "events.dat")
+
+    def test_allargs (self):
+        c = self.ctest ("logging file --sink-node foo --sink-file file.dat "
+                        "--events '1.2,2.2-7,4.*'")
+        cc = c.logging[("foo", "file")]
+        self.assertEqual (cc.type, "file")
+        self.assertEqual (cc.sink_node, "foo")
+        self.assertEqual (cc.events, "1.2,2.2-7,4.*")
+        self.assertEqual (cc.sink_file, "file.dat")
+        
+class TestLogging_err (Logchecker):
+    req = """system
+    routing 1.1
+    nsp
+    """
+    loglevel = logging.CRITICAL
+
+    def test_errors (self):
+        self.checkerr ("logging", "required: type")
+        self.checkerr ("logging wrongsink", "invalid choice")
+        
 class TestSystem (Logchecker):
     req = """routing 1.1
     nsp

@@ -17,6 +17,7 @@ from decnet import packet
 from decnet import events
 from decnet import logging
 from decnet import node
+from decnet import event_logger
 
 def testcases (tests):
     for t in tests:
@@ -57,7 +58,7 @@ class t_node (node.Node):
         self.timers = unittest.mock.Mock ()
         self.dispatch = unittest.mock.Mock ()
         self.ecounts = collections.Counter ()
-        node.Node.initfilter (self)
+        self.event_logger = event_logger.EventLogger (self, None)
         self.elist = list ()
         
     def start (self, mainthread = False): pass
