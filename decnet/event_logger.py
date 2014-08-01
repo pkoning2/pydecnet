@@ -146,7 +146,7 @@ class RemoteSink (EventSink):
 class EventLogger (Element):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
-        if not config:
+        if not config.logging:
             self.sinks = { (None, "console") :  LocalConsole () }
         else:
             self.sinks = dict ()

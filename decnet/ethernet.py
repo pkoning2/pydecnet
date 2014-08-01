@@ -244,7 +244,7 @@ class _XBridgeEth (_Ethernet):
         self.port = int (port)
         self.host = datalink.HostAddress (host)
         logging.trace ("Ethernet xbridge %s initialized on %d, to %s:%d",
-                       self.name, lport, host, port)
+                       self.name, lport, host, self.port)
         
     def open (self):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
@@ -306,7 +306,7 @@ class _XBridgeEth (_Ethernet):
             return
         try:
             self.socket.sendto (buf, (self.host.addr, self.port))
-        except (IOError, socket.error):
+        except (IOError, socket.error) as e:
             pass
         
 class _IBridgeEth (_Ethernet):

@@ -130,7 +130,7 @@ class LanCircuit (timers.Timer):
         else:
             hdr = ""
         if self.dr:
-            dr = self.node.nodeinfo (self.dr)
+            dr = self.dr.adjnode ()
         else:
             dr = ""
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
