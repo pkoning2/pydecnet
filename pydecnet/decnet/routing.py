@@ -58,13 +58,21 @@ def setinf (hops, cost):
 class SelfAdj (adjacency.Adjacency):
     """A pseudo-adjacency used to describe the local node.
     """
+    class SelfCirc (object):
+        hops = 1
+        cost = 1
+        name = "to NSP"
+        def setsrm (self, *args): pass
+        def setasrm (self, *args): pass
+        
     def __init__ (self, routing):
         Element.__init__ (self, routing)
         timers.Timer.__init__ (self)
         # Note that we don't call the Adjacency constructor
         # Instead, some of the things it does are done here in
         # a slightly different way, and a lot of things are omitted
-        self.circuit = None
+        self.hops = self.cost = 1
+        self.circuit = self.SelfCirc ()
         self.routing = routing
         self.nodeid = routing.nodeid
         self.ntype = routing.ntype
@@ -98,6 +106,8 @@ class Circuit (Element):
         self.routing = parent
         self.name = name
         self.config = config
+        self.cost = config.cost
+        self.t1 = config.t1
         # A subset of the counters defined by the architecture
         # We use the datalink (which is actually a Port) counter start time
         self.term_recv = self.orig_sent = 0
@@ -191,6 +201,7 @@ class LanL2Circuit (LanL1Circuit, L2Circuit):
     def __init__ (self, parent, name, datalink, config):
         LanL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
+        t1 = config.t1 or self.routing.config.t1
         self.aupdate = Update (self, t1, self.routing.aminhops,
                                self.routing.amincost, L2Routing)
         
@@ -395,19 +406,30 @@ class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
     separated out for easier access.
     """
-    def __init__ (self, adjacency, l2 = False):
-        self.adjacency = adjacency
-        circ = adjacency.circuit
-        if l2:
-            self.hops = adjacency.ahops
-            self.cost = adjacency.acost
-            self.setsrm = circ.setsrm
+    def __init__ (self, adjacency, maxidx, l2 = False):
+        self._adjacency = adjacency
+        self.hops, self.cost = allocvecs (maxidx)
+        if adjacency:
+            circ = adjacency.circuit
+            if l2:
+                self.setsrm = circ.setasrm
+            else:
+                self.setsrm = circ.setsrm
         else:
-            self.hops = adjacency.hops
-            self.cost = adjacency.cost
-            self.setsrm = circ.setasrm
+            self.setsrm = None
         self.nodeid = None
-            
+
+    def adjacency (self, id):
+        return self._adjacency
+
+class EndnodesRouteInfo (RouteInfo):
+    def __init__ (self, maxidx):
+        super ().__init__ (None, maxidx, False)
+        self.adjacencies = [ None ] * (maxidx + 1)
+
+    def adjacency (self, id):
+        return self.adjacencies[id]
+    
 class L1Router (BaseRouter):
     """Routing entity for level 1 routers.
     """
@@ -430,7 +452,8 @@ class L1Router (BaseRouter):
         self.l1info = dict ()
         # Create the special routeinfo column that is used
         # to record information for all the endnode adjacencies
-        self.l1info[ENDNODE] = RouteInfo (None, l2 = False)
+        # Note that this one also keeps a per-ID adjacency pointer.
+        self.l1info[ENDNODE] = EndnodesRouteInfo (self.maxnodes)
         
     def adj_up (self, adj):
         """Take the appropriate actions for an adjacency that has
@@ -438,14 +461,17 @@ class L1Router (BaseRouter):
         the routing control data we will need later.
         """
         super ().adj_up (adj)
+        logging.trace ("adj up, %s, type %s", adj, adj.ntype)
         if adj.ntype in { L1ROUTER, L2ROUTER }:
-            adj.routeinfo = RouteInfo (adj, l2 = False)
+            adj.routeinfo = RouteInfo (adj, self.maxnodes, l2 = False)
+            self.l1info[adj] = adj.routeinfo
             if adj is self.selfadj:
                 # The initial RouteInfo is all infinite, so set our
                 # own entries correctly.
-                tid = self.parent.nodeid.tid
-                self.routeinfo.hops[tid] = self.cost[tid] = 0
-                self.routeinfo.oadj[tid] = self
+                tid = self.nodeid.tid
+                self.selfadj.routeinfo.hops[tid] = 0
+                self.selfadj.routeinfo.cost[tid] = 0
+                self.oadj[tid] = self.selfadj
             self.route (0, self.maxnodes)
         else:
             # End node and Phase II node
@@ -459,7 +485,7 @@ class L1Router (BaseRouter):
                                ri.oadj[tid].circuit)
             ri.hops[tid] = 1
             ri.cost[tid] = adj.circuit.cost
-            ri.oadj[tid] = adj
+            ri.adjacencies[tid] = adj
             self.route (tid, tid)
 
     def adj_down (self, adj):
@@ -468,6 +494,7 @@ class L1Router (BaseRouter):
         """
         super ().adj_up (adj)
         if adj.ntype in { L1ROUTER, L2ROUTER }:
+            del self.l1info[adj]
             self.route (0, self.maxnodes)
         else:
             # End node and Phase II node
@@ -522,6 +549,7 @@ class L1Router (BaseRouter):
         pass
 
     def doroute (self, start, end, l2):
+        logging.trace ("Doing route from %d to %d, L2 = %s", start, end, l2)
         if l2:
             routeinfodict = self.l2info
             minhops = self.aminhops
@@ -544,7 +572,7 @@ class L1Router (BaseRouter):
                      (r.nodeid and r.nodeid > besta.nodeid))):
                     bestc = r.cost[i]
                     besth = r.hops[i]
-                    besta = r.adjacency
+                    besta = r.adjacency (i)
             if bestc > self.maxcost or besth > self.maxhops:
                 besth, bestc, besta = INFHOPS, INFCOST, None
             if minhops[i] != besth or mincost[i] != bestc:
@@ -638,12 +666,12 @@ class L1Router (BaseRouter):
             for i in range (self.maxnodes + 1):
                 if i == tid or (self.attached and i == 0):
                     assert ri.hops[i] == ri.cost[i] == 0
-                    assert ri.oadj[i] == self.selfadj
+                    assert self.oadj[i] == self.selfadj
                 else:
                     assert ri.hops[i] == INFHOPS and ri.cost[i] == INFCOST
         except AssertionError:
-            logging.critical ("Check failure on L1 entry %d: %d %d",
-                              i, self.ri.hops[i], self.ri.cost[i])
+            logging.critical ("Check failure on L1 entry %d: %d %d %s",
+                              i, ri.hops[i], ri.cost[i], self.oadj[i])
             sys.exit (1)
 
     def findoadj (self, dest):
@@ -695,7 +723,7 @@ class L1Router (BaseRouter):
             # Destination is reachable.  Send it, unless
             # we're at the visit limit
             limit = self.maxvisits
-            if a.circuit:
+            if a is not self.selfadj:
                 # Forwarding (as opposed to terminating)
                 if srcadj:
                     # Forwarding (as opposed to originating)
@@ -841,18 +869,21 @@ class L2Router (L1Router):
         just come up.  If it is an adjacency to a router, allocate
         the routing control data we will need later.
         """
-        super ().adj_up (adj)
         if adj.ntype == L2ROUTER:
-            adj.arouteinfo = RouteInfo (adj, l2 = True)
+            adj.arouteinfo = RouteInfo (adj, self.maxarea, l2 = True)
+            self.l2info[adj] = adj.arouteinfo
             if adj is self.selfadj:
                 # The initial RouteInfo is all infinite, so set our
                 # own entries correctly.
                 area = self.nodeid.area
-                self.arouteinfo.ahops[area] = self.acost[area] = 0
-                self.arouteinfo.aoadj[area] = None
-            self.aroute (1, self.maxarea)
+                self.selfadj.arouteinfo.hops[area] = 0
+                self.selfadj.arouteinfo.cost[area] = 0
+                self.aoadj[area] = None
         else:
             adj.arouteinfo = None
+        super ().adj_up (adj)
+        if adj.ntype == L2ROUTER:
+            self.aroute (1, self.maxarea)
 
     def adj_down (self, adj):
         """Take the appropriate actions for an adjacency that has
@@ -860,6 +891,7 @@ class L2Router (L1Router):
         """
         super ().adj_up (adj)
         if adj.ntype == L2ROUTER:
+            del self.l2info[adj]
             self.aroute (1, self.maxarea)
         
     def dispatch (self, item):
@@ -926,10 +958,10 @@ class L2Router (L1Router):
             for i in range (1, self.maxarea + 1):
                 ari = self.selfadj.arouteinfo
                 if i == area:
-                    assert self.ari.ahops[i] == self.ari.acost[i] == 0
+                    assert ari.hops[i] == ari.cost[i] == 0
                 else:
-                    assert self.ari.ahops[i] == INFHOPS and \
-                           self.ari.acost[i] == INFCOST
+                    assert ari.hops[i] == INFHOPS and \
+                           ari.cost[i] == INFCOST
         except AssertionError:
             logging.critical ("Check failure on L2 entry %d: %d %d",
                               i, self.ari.ahops[i], self.ari.acost[i])
@@ -1027,7 +1059,7 @@ class Update (Element, timers.Timer):
         minhops = self.minhops
         mincost = self.mincost
         pkt = self.pkttype
-        if pkt == L1Routing and not self.routing.ph4:
+        if pkt == L1Routing and self.node.phase == 3:
             pkt = PhaseIIIRouting
         seg = pkt.segtype
         if seg:

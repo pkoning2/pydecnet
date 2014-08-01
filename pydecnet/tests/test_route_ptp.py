@@ -58,6 +58,7 @@ class rtest (DnTest):
         self.cp.start_works = True
         self.dl.create_port.return_value = self.cp
         self.config = container ()
+        self.config.t1 = 300
         self.config.t3 = 10
         self.config.cost = 1
         self.config.verify = self.verify

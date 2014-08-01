@@ -51,13 +51,16 @@ cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (range 1..25, default 1)",
                  choices = range (1, 26), default = 1)
 cp.add_argument ("--t1", type = int, 
-                 help = "Background routing message interval (overrides exec setting)")
+                 help = "Background routing message interval "
+                 "(overrides exec setting)")
 cp.add_argument ("--t3", type = int,
                  help = "Hello interval (default = 10 for LAN else 60)")
 cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
-datalinks = sorted ([ d.__name__ for d in datalink.Datalink.leafclasses () ])
+datalinks = [ d.__name__ for d in datalink.Datalink.leafclasses () ]
+datalinks.append ("Ethernet")
+datalinks.sort ()
 cp.add_argument ("--type", default = "Ethernet", choices = datalinks,
                  help = "Datalink type (default: Ethernet)")
 cp.add_argument ("--device",
@@ -84,7 +87,8 @@ cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  help = "Port number for HTTP monitoring, 0 to disable")
 cp.add_argument ("--https-port", metavar = "S", default = 8001,
                  type = int, choices = range (65536),
-                 help = "Port number for HTTPS monitoring/control, 0 to disable")
+                 help = "Port number for HTTPS monitoring/control, "
+                 "0 to disable")
 
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
@@ -149,6 +153,11 @@ cp.add_argument ("--events", type = str, default = "",
                  help = "Events to enable (default: known events for"
                  " local console, none otherwise")
 
+cp = config_cmd ("bridge", "LAN bridge layer")
+cp.add_argument ("name", type = str, help = "Bridge name")
+cp.add_argument ("circuit", nargs = "+",
+                 help = "Circuit names assigned to this bridge")
+
 class Config (object):
     """Container for configuration data.
     """
@@ -156,6 +165,11 @@ class Config (object):
         if not f:
             f = open (DEFCONFIG, "rt")
         logging.debug ("Reading config %s", f.name)
+
+        # Remove routing and bridge from single_init set, because we
+        # handle those separately.
+        single_init.discard ("routing")
+        single_init.discard ("bridge")
         
         # First supply empty dicts for each collection config component
         for name in coll_init:
@@ -195,12 +209,19 @@ class Config (object):
         if not nested:
             if not ok:
                 sys.exit (1)
-            # See if anything is missing
+            # See if anything is missing.  The only required elements
+            # are single-instance elements (the layers), and then only
+            # if they have at least one required argument.  For example,
+            # "routing" is required because node address is required,
+            # but "system" is optional because it has no required arguments.
             for name in single_init:
                 p = getattr (self, name, None)
                 if not p:
                     logging.error ("Missing config element: %s", name)
                     ok = False
+            if not hasattr (self, "bridge") and not hasattr (self, "routing"):
+                logging.error ("Either routing or bridge elements required")
+                ok = False
             if not ok:
                 sys.exit (1)
         return ok

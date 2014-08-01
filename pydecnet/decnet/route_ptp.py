@@ -704,7 +704,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # TODO: handle intercept mode operation.
                     pkt = ShortData (dstnode = self.parent.nodeid,
                                      srcnode = self.id, rts = 0, visit = 1,
-                                     payload = item.packet, src = self)
+                                     payload = item.packet, src = self.adj)
                     logging.trace ("Phase II data packet to routing: %s", pkt)
                     self.parent.dispatch (pkt)
                     return
@@ -728,7 +728,7 @@ class PtpCircuit (statemachine.StateMachine):
                            pkt.dstnode.area == 0:
                         pkt.dstnode = Nodeid (self.parent.homearea,
                                               pkt.dstnode.tid)
-                pkt.src = self
+                pkt.src = self.adj
                 self.parent.dispatch (pkt)
             elif isinstance (pkt, PtpHello) and self.node.phase > 2:
                 if not testdata_re.match (pkt.testdata):

@@ -156,9 +156,9 @@ class Datalink (Element, metaclass = ABCMeta):
         if scl:
             for sc in scl:
                 yield from sc.leafclasses ()
-        else:
+        elif cls.__name__[0] != '_':
             yield cls
-            
+
     @abstractmethod
     def create_port (self, *args):
         """Create a port.  Returns an instance of the Port subclass

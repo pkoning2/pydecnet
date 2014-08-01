@@ -33,7 +33,7 @@ class Nodeinfo (nsp.NSPNode, nice.NiceNode):
         assert (nodeid is not None)
         return nice.NiceNode.__new__ (cls, nodeid)
 
-    def __init__ (self, c, nodeid):
+    def __init__ (self, c, nodeid = None):
         nsp.NSPNode.__init__ (self)
         if c:
             self.overif = c.outbound_verification
@@ -80,7 +80,6 @@ class Node (object):
         self.api = apiserver.ApiServer (self, sock)
         self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()
-        self.initfilter ()
         # We now have a node.
         # Create its child entities in the appropriate order.
         self.event_logger = event_logger.EventLogger (self, config)
