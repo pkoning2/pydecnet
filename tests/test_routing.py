@@ -32,13 +32,19 @@ class rtest (DnTest):
             self.config.routing.id = Nodeid (5)
         self.config.routing.t1 = 50
         self.config.routing.bct1 = 10
+        self.config.routing.maxnodes = 100
+        self.config.routing.maxhops = 5
+        self.config.routing.maxcost = 20
+        self.config.routing.maxvisits = 30
         self.config.circuit = dict ()
         self.node.datalink = container ()
         self.node.datalink.circuits = dict ()
         self.node.nsp = unittest.mock.Mock ()
+        self.node.nodeid = self.config.routing.id
         i = 1
         for n, lan in self.circ:
             self.config.circuit[n] = container ()
+            self.config.circuit[n].t1 = None
             self.config.circuit[n].t3 = 10
             self.config.circuit[n].cost = 1
             self.config.circuit[n].priority = 32
@@ -565,6 +571,146 @@ class test_ph2 (rtest):
         w = self.lastwork (4)
         self.assertEqual (w.packet, b"\x00Other payload")
         self.assertEqual (w.src, Nodeid (44))
+        self.assertFalse (w.rts)
+
+class test_ph4l1a (rtest):
+    ntype = "l1router"
+    phase = 4
+    circ = (( "ptp-0", False ),
+            ( "ptp-1", False ))
+    
+    def setUp (self):
+        super ().setUp ()
+        self.assertState (self.c1, "ha")
+        self.assertState (self.c2, "ha")
+        w1 = self.lastwork (2, back = 1, itype = route_ptp.Start)
+        w2 = self.lastwork (2, itype = route_ptp.Start)
+        self.c1.dispatch (w1)
+        self.assertState (self.c1, "ds")
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = True))
+        self.assertState (self.c1, "ri")        
+        self.c2.dispatch (w2)
+        self.assertState (self.c2, "ds")
+        self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = True))
+        self.assertState (self.c2, "ri")        
+        
+    def assertState (self, c, name):
+        self.assertEqual (c.state.__name__, name, "Circuit state")
+
+    def test_init_ph4 (self):
+        # Send phase4 init for endnode
+        pkt = b"\x01\x02\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
+        self.c1.dispatch (Received (owner = self.c1, src = self.c1,
+                                    packet = pkt))
+        self.assertState (self.c1, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 1)
+        self.assertEqual (self.eventcount (events.reach_chg), 1)
+        self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
+        self.assertEvent (events.reach_chg, back = 1,
+                          entity = Nodeid (1, 2), status = "reachable")
+        self.assertEqual (self.c1.rphase, 4)
+        self.assertEqual (self.c1.id, Nodeid (1, 2))
+        pkt = b"\x01\x03\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
+        self.c2.dispatch (Received (owner = self.c2, src = self.c2,
+                                    packet = pkt))
+        self.assertState (self.c2, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 2)
+        self.assertEqual (self.eventcount (events.reach_chg), 2)
+        self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
+        self.assertEvent (events.reach_chg, back = 1,
+                          entity = Nodeid (1, 3), status = "reachable")
+        self.assertEqual (self.c2.rphase, 4)
+        self.assertEqual (self.c2.id, Nodeid (1, 3))
+
+    def test_init_ph3 (self):
+        # Send phase3 init
+        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        self.c1.dispatch (Received (owner = self.c1, src = self.c1,
+                                    packet = pkt))
+        self.assertState (self.c1, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 1)
+        self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
+        self.assertEqual (self.c1.rphase, 3)
+        self.assertEqual (self.c1.id, Nodeid (1, 2))
+
+    def test_send_ph2 (self):
+        # Send phase2 init to ptp-0
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c1.dispatch (Received (owner = self.c1, src = self.c1,
+                                    packet = pkt))
+        self.assertState (self.c1, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 1)
+        self.assertEvent (events.circ_up,
+                          adjacent_node = Nodeid (1, 66))
+        self.assertEqual (self.c1.rphase, 2)
+        self.assertEqual (self.c1.id, Nodeid (1, 66))
+        # Try sending a packet to the neighbor on ptp-0
+        ok = self.r.send (b"payload", Nodeid (1, 66))
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.d1, 3, ptype = bytes)
+        self.assertEqual (p, b"payload")
+        # Try sending to some other address (not currently reachable)
+        ok = self.r.send (b"payload", Nodeid (1, 44))
+        self.assertFalse (ok)
+        self.lastsent (self.d1, 3, ptype = bytes)
+        # Now send phase2 init to ptp-1
+        pkt = b"\x58\x01\x2c\x05REM44\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c2.dispatch (Received (owner = self.c2, src = self.c2,
+                                    packet = pkt))
+        self.assertState (self.c2, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 2)
+        self.assertEvent (events.circ_up,
+                          adjacent_node = Nodeid (1, 44))
+        self.assertEqual (self.c2.rphase, 2)
+        self.assertEqual (self.c2.id, Nodeid (1, 44))
+        # Try sending to the new neighbor on ptp-1
+        ok = self.r.send (b"payload2", Nodeid (1, 44))
+        self.assertTrue (ok)
+        p, dest = self.lastsent (self.d2, 3, ptype = bytes)
+        self.assertEqual (p, b"payload2")
+
+    def test_recvdata_ph2 (self):
+        # Send phase2 init on ptp-0
+        pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c1.dispatch (Received (owner = self.c1, src = self.c1,
+                                    packet = pkt))
+        self.assertState (self.c1, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 1)
+        self.assertEvent (events.circ_up,
+                          adjacent_node = Nodeid (1, 66))
+        self.assertEqual (self.c1.rphase, 2)
+        self.assertEqual (self.c1.id, Nodeid (1, 66))
+        # Deliver a packet.  Note that the first byte needs to be a valid
+        # NSP header byte (which this is -- 00 means data segment,
+        # no BOP, no EOP).
+        pkt = b"\x00abcdef payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        w = self.lastwork (3)
+        self.assertEqual (w.packet, b"\x00abcdef payload")
+        self.assertEqual (w.src, Nodeid (1, 66))
+        self.assertFalse (w.rts)
+        # Send phase2 init on ptp-1
+        pkt = b"\x58\x01\x2c\x05REM44\x00\x00\x04\x02\x01\x02\x40\x00" \
+              b"\x00\x00\x00\x03\x01\x00\x00"
+        self.c2.dispatch (Received (owner = self.c2, src = self.c2,
+                                    packet = pkt))
+        self.assertState (self.c2, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 2)
+        self.assertEvent (events.circ_up,
+                          adjacent_node = Nodeid (1, 44))
+        self.assertEqual (self.c2.rphase, 2)
+        self.assertEqual (self.c2.id, Nodeid (1, 44))
+        # Deliver a packet.  Note that the first byte needs to be a valid
+        # NSP header byte (which this is -- 00 means data segment,
+        # no BOP, no EOP).
+        pkt = b"\x00Other payload"
+        self.c2.dispatch (Received (owner = self.c2, packet = pkt))
+        w = self.lastwork (4)
+        self.assertEqual (w.packet, b"\x00Other payload")
+        self.assertEqual (w.src, Nodeid (1, 44))
         self.assertFalse (w.rts)
 
 if __name__ == "__main__":

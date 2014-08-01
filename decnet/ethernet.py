@@ -9,6 +9,8 @@ import random
 import select
 import socket
 import struct
+import os
+import sys
 
 from .common import *
 from . import datalink
@@ -66,56 +68,27 @@ ifreq = struct.Struct ("=16sH")
 sizeof_ifreq = 32
 SIOCSIFFLAGS = 0x80000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 16
 SIOCGIFFLAGS = 0xc0000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 17
-ETH_TMO = 100    # ms
 ETH_MTU = 1518
+ETH_TMO = 100    # ms
 
-class Ethernet (datalink.BcDatalink, StopThread):
+class _Ethernet (datalink.BcDatalink, StopThread):
     """DEC Ethernet datalink.
     """
     port_class = EthPort
     
-    def __init__ (self, owner, name, config):
+    def __init__ (self, owner, name, dev, config):
         tname = "{}.{}".format (owner.node.nodename, name)
         StopThread.__init__ (self, name = tname)
         datalink.BcDatalink.__init__ (self, owner, name, config)
-        dev = config.device or name
-        if dev.startswith ("tap:"):
-            self.api = "tap"
-            dev = dev[4:]
-        else:
-            self.api = "pcap"
         self.dev = dev
         if config.random_address:
-            self.hwaddr = Macaddr (((random.getrandbits (46) << 2) + 2).to_bytes (6, "little"))
+            r = (random.getrandbits (46) << 2) + 2
+            self.hwaddr = Macaddr (r.to_bytes (6, "little"))
         else:
             self.hwaddr = NULLID
         self.randaddr = config.random_address
-        self.pcap = pcap.pcapObject ()
     
     def open (self):
-        if self.api == "pcap":
-            # Always set promiscuous mode
-            self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
-            dont_close (self.pcap)
-        else:
-            # tap
-            fd = os.open (self.dev, os.O_RDWR)
-            dont_close (fd)
-            oldflags = fcntl (fd, F_GETFL, 0)
-            fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
-            self.tap = fd
-            self.sellist = ( fd, )
-            # Turn the interface on -- needed only on Mac OS
-            if sys.platform == "darwin":
-                req = bytearray (sizeof_ifreq)
-                devname = os.path.basename (self.dev)
-                ifreq.pack_into (req, 0, devname.encode ("ascii"), 0)
-                s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
-                ioctl (s, SIOCGIFFLAGS, req)
-                name, flags = ifreq.unpack_from (req)
-                ifreq.pack_into (req, 0, name, flags | 1)
-                ioctl (s, SIOCSIFFLAGS, req)
-        # Find our hardware address, if not generated
         if not self.randaddr:
             for dname, desc, addrs, flags in pcap.findalldevs ():
                 if dname == self.dev and addrs:
@@ -127,56 +100,10 @@ class Ethernet (datalink.BcDatalink, StopThread):
         
     def close (self):
         self.stop ()
-        # Don't do the close yet, it crashes for reasons yet unknown
-        #self.pcap.close ()
         
     def create_port (self, owner, proto, pad = True):
         return super ().create_port (owner, proto, pad)
 
-    def send_frame (self, buf):
-        """Send an Ethernet frame.  Ignore any errors, because that's
-        the DECnet way.
-        """
-        try:
-            if self.api == "pcap":
-                l2 = self.pcap.inject (buf)
-            else:
-                # tap
-                os.write (self.tap, buf)
-        except IOError:
-            pass
-        
-    def run (self):
-        if self.api == "pcap":
-            while True:
-                if self.stopnow:
-                    break
-                try:
-                    cnt = self.pcap.dispatch (0, self.receive)
-                except pcap._pcap.error:
-                    break
-        else:
-            # tap
-            while True:
-                if self.stopnow:
-                    break
-                try:
-                    # Note: for some reason, the timeout does nothing
-                    # on Mac OS.
-                    try:
-                        r, w, x = select.select (self.sellist, (),
-                                                 self.sellist, ETH_TMO)
-                    except select.error:
-                        x = True
-                    if not r and not x:
-                        continue
-                    pkt = os.read (self.tap, 1518)
-                    if not pkt:
-                        continue
-                    self.receive (len (pkt), pkt, None)
-                except OSError:
-                    break
-            
     def receive (self, plen, packet, ts):
         if not packet:
             # pcap_next returns None if we got a timeout
@@ -204,7 +131,8 @@ class Ethernet (datalink.BcDatalink, StopThread):
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
                 if plen < plen2 + 16:
-                    logging.debug ("On %s, packet length field %d inconsistent with packet length %d",
+                    logging.debug ("On %s, packet length field %d "
+                                   "inconsistent with packet length %d",
                                    self.name, plen2, plen)
                     return
                 packet = memoryview (packet)[16:16 + plen2]
@@ -212,3 +140,198 @@ class Ethernet (datalink.BcDatalink, StopThread):
                 packet = memoryview (packet)[14:]
             self.node.addwork (Received (port.owner,
                                          src = src, packet = packet))
+
+# API specific classes
+
+class _TapEth (_Ethernet):
+    def open (self):
+        fd = os.open (self.dev, os.O_RDWR)
+        dont_close (fd)
+        oldflags = fcntl (fd, F_GETFL, 0)
+        fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
+        self.tap = fd
+        self.sellist = ( fd, )
+        # Turn the interface on -- needed only on Mac OS
+        if sys.platform == "darwin":
+            req = bytearray (sizeof_ifreq)
+            devname = os.path.basename (self.dev)
+            ifreq.pack_into (req, 0, devname.encode ("ascii"), 0)
+            s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
+            ioctl (s, SIOCGIFFLAGS, req)
+            name, flags = ifreq.unpack_from (req)
+            ifreq.pack_into (req, 0, name, flags | 1)
+            ioctl (s, SIOCSIFFLAGS, req)
+            s.close ()
+        super ().open ()
+        
+    def close (self):
+        super ().close ()
+        os.close (self.tap)
+        self.tap = None
+        
+    def send_frame (self, buf):
+        """Send an Ethernet frame.  Ignore any errors, because that's
+        the DECnet way.
+        """
+        try:
+            os.write (self.tap, buf)
+        except IOError:
+            pass
+        
+    def run (self):
+        while True:
+            if self.stopnow:
+                break
+            try:
+                try:
+                    # ETH_TMO is in ms, but select timeout is in seconds.
+                    r, w, x = select.select (self.sellist, (),
+                                             self.sellist, ETH_TMO / 1000)
+                except select.error as e:
+                    r = True
+                if not r:
+                    continue
+                pkt = os.read (self.tap, 1518)
+                if not pkt:
+                    continue
+                self.receive (len (pkt), pkt, None)
+            except OSError as e:
+                break
+            
+class _PcapEth (_Ethernet):
+    def __init__ (self, owner, name, dev, config):
+        super ().__init__ (owner, name, dev, config)
+        self.pcap = pcap.pcapObject ()
+
+    def open (self):
+        # Always set promiscuous mode
+        self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
+        dont_close (self.pcap)
+        super ().open ()
+
+    def close (self):
+        super ().close ()
+        # Don't do the close yet, it crashes for reasons yet unknown
+        #self.pcap.close ()
+
+    def send_frame (self, buf):
+        """Send an Ethernet frame.  Ignore any errors, because that's
+        the DECnet way.
+        """
+        try:
+            l2 = self.pcap.inject (buf)
+        except IOError:
+            pass
+        
+    def run (self):
+        while True:
+            if self.stopnow:
+                break
+            try:
+                cnt = self.pcap.dispatch (0, self.receive)
+            except pcap._pcap.error:
+                break
+
+class _XBridgeEth (_Ethernet):
+    """Class for talking to a Johnny Billquist bridge (somewhere else,
+    external to this process), via UDP packets each carrying an
+    Ethernet datagram.
+    """
+    def __init__ (self, owner, name, dev, config):
+        super ().__init__ (owner, name, dev, config)
+        lport, host, port = dev.split (":")
+        self.lport = int (lport)
+        self.port = int (port)
+        self.host = datalink.HostAddress (host)
+        logging.trace ("Ethernet xbridge %s initialized on %d, to %s:%d",
+                       self.name, lport, host, port)
+        
+    def open (self):
+        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
+                                     socket.IPPROTO_UDP)
+        dont_close (self.socket)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        super ().open ()
+        
+    def close (self):
+        super ().close ()
+        try:
+            self.socket.close ()
+        except Exception:
+            pass
+        self.socket = None
+
+    def run (self):
+        logging.trace ("Ethernet xbridge %s receive thread started", self.name)
+        sock = self.socket
+        if not sock:
+            return
+        sellist = [ sock.fileno () ]
+        try:
+            self.socket.bind (("", self.lport))
+        except (OSError, socket.error):
+            logging.trace ("Ethernet xbridge %s bind %d failed",
+                           self.name, self.lport)
+            return
+        logging.trace ("Ethernet xbridge %s bound to %d",
+                       self.name, self.lport)
+        
+        while True:
+            # Look for traffic
+            try:
+                r, w, e = select.select (sellist, [], sellist, 1)
+            except select.error:
+                e = True
+            if self.stopnow or e:
+                break
+            if r:
+                try:
+                    msg, addr = sock.recvfrom (1514)
+                except socket.error:
+                    msg = None
+                if not msg or len (msg) <= 4:
+                    self.disconnected ()
+                    return
+                host, port = addr
+                if not self.host.valid (host):
+                    # Not from peer, ignore
+                    continue
+                self.receive (len (msg), msg, None)
+
+    def send_frame (self, buf):
+        """Send an Ethernet frame.  Ignore any errors, because that's
+        the DECnet way.
+        """
+        if not self.socket:
+            return
+        try:
+            self.socket.sendto (buf, (self.host.addr, self.port))
+        except (IOError, socket.error):
+            pass
+        
+class _IBridgeEth (_Ethernet):
+    """Class for talking to an instance of Bridge (which is our
+    implementation of the Johnny Billquist bridge protocol).
+    """
+
+# Factory class -- returns an instance of the appropriate _Ethernet
+# subclass instance given the specific device flavor specified.
+class Ethernet (datalink.Datalink):
+    def __new__ (cls, owner, name, config):
+        dev = config.device or name
+        api, dev = dev.split (":", 1)
+        if api == "tap":
+            c = _TapEth
+        elif api == "pcap":
+            c = _PcapEth
+        elif api == "xbridge" or api == "udp":
+            # External bridge, i.e., IP connection to a bridge in
+            # another host or process.  Allow "udp" because that's how
+            # SIMH refers to it.
+            c = _XBridgeEth
+        elif api == "ibridge":
+            # "Null modem" connection to a bridge port in this process
+            c = _IBridgeEth
+        else:
+            raise ValueError ("Unknown Ethernet circuit subtype %s" % api)
+        return c (owner, name, dev, config)

@@ -126,11 +126,13 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, itype)
         return w
 
-    def assertEvent (self, evt = None, **kwds):
+    def assertEvent (self, evt = None, back = 0, entity = None, **kwds):
         self.assertTrue (self.node.elist)
-        e = self.node.elist[-1]
+        e = self.node.elist[-1 - back]
         if evt:
             self.assertEqual (type (e), evt)
+        if entity:
+            self.assertEqual (e._entity, entity)
         for k, v in kwds.items ():
             p = getattr (e, k)
             try:

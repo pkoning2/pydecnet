@@ -150,7 +150,7 @@ class EventLogger (Element):
             self.sinks = { (None, "console") :  LocalConsole () }
         else:
             self.sinks = dict ()
-            for dest, c in config.values ():
+            for dest, c in config.logging.items ():
                 print (c)
                 sn, st = dest
                 if sn:
@@ -175,6 +175,9 @@ class EventLogger (Element):
                     pass
             
     def start (self):
+        pass
+
+    def stop (self):
         pass
 
     def logevent (self, evt):

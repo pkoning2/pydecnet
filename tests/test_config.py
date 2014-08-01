@@ -14,6 +14,8 @@ def errmsg ():
     return args[2]
 
 class Logchecker (DnTest):
+    req = ""
+    
     def ctest (self, s):
         # Supply a config file which has the given entries, plus
         # enough other stuff to keep Config happy.
@@ -26,9 +28,7 @@ class Logchecker (DnTest):
         self.assertRegex (errmsg (), re)
         
 class TestCircuit (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """routing 1.1
     """
     
     def test_basic (self):
@@ -87,9 +87,7 @@ class TestCircuit (Logchecker):
                                              "MUL-0", "DMC-0" })
 
 class TestCircuit_err (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """routing 1.1
     """
     loglevel = logging.CRITICAL
     
@@ -106,9 +104,7 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 --prio 128", "invalid choice")
 
 class TestLogging (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """bridge br-0 eth-0 eth-1
     """
 
     def test_basic (self):
@@ -129,23 +125,21 @@ class TestLogging (Logchecker):
         self.assertEqual (cc.sink_file, "file.dat")
         
 class TestLogging_err (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """routing 1.1
     """
     loglevel = logging.CRITICAL
 
     def test_errors (self):
         self.checkerr ("logging", "required: type")
         self.checkerr ("logging wrongsink", "invalid choice")
-        
+        self.checkerr ("logging console --frob", "unrecognized argument")
+
 class TestSystem (Logchecker):
     req = """routing 1.1
-    nsp
     """
     
     def test_basic (self):
-        c = self.ctest ("system").system
+        c = self.ctest ("").system
         self.assertEqual (c.api_socket, "decnetsocket")
         self.assertEqual (c.http_port, 8000)
         self.assertEqual (c.https_port, 8001)
@@ -158,7 +152,6 @@ class TestSystem (Logchecker):
 
 class TestSystem_err (Logchecker):
     req = """routing 1.1
-    nsp
     """
     loglevel = logging.CRITICAL
     
@@ -170,10 +163,6 @@ class TestSystem_err (Logchecker):
         self.checkerr ("system --https-port 65536", "invalid choice")
         
 class TestRouting (Logchecker):
-    req = """system
-    nsp
-    """
-    
     def test_basic (self):
         c = self.ctest ("routing 1.1").routing
         self.assertEqual (c.id, Nodeid (1, 1))
@@ -206,9 +195,6 @@ class TestRouting (Logchecker):
         self.assertEqual (c.bct1, 17)
 
 class TestRouting_err (Logchecker):
-    req = """system
-    nsp
-    """
     loglevel = logging.CRITICAL
     
     def test_errors (self):
@@ -232,9 +218,7 @@ class TestRouting_err (Logchecker):
         self.checkerr ("routing 1.1 --t1 wrong", "invalid int value")
 
 class TestNode (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """routing 1.1
     """
     
     def test_basic (self):
@@ -253,9 +237,7 @@ class TestNode (Logchecker):
         self.assertEqual (cc.outbound_verification, "baz")
 
 class TestNode_err (Logchecker):
-    req = """system
-    routing 1.1
-    nsp
+    req = """routing 1.1
     """
     loglevel = logging.CRITICAL
     
@@ -265,12 +247,11 @@ class TestNode_err (Logchecker):
         self.checkerr ("node 1.2 foo --frob", "unrecognized argument")
 
 class TestNSP (Logchecker):
-    req = """system
-    routing 1.1
+    req = """routing 1.1
     """
     
     def test_basic (self):
-        c = self.ctest ("nsp").nsp
+        c = self.ctest ("").nsp
         self.assertEqual (c.max_connections, 4095)
         self.assertEqual (c.nsp_weight, 3)
         self.assertEqual (c.nsp_delay, 2.0)
@@ -283,8 +264,7 @@ class TestNSP (Logchecker):
         self.assertEqual (c.nsp_delay, 13.5)
 
 class TestNSP_err (Logchecker):
-    req = """system
-    routing 1.1
+    req = """routing 1.1
     """
     loglevel = logging.CRITICAL
     
@@ -294,5 +274,27 @@ class TestNSP_err (Logchecker):
         self.checkerr ("nsp --nsp-weight -1", "invalid choice")
         self.checkerr ("nsp --nsp-weight 256", "invalid choice")
 
+class TestBridge (Logchecker):
+
+    def test_basic (self):
+        c = self.ctest ("bridge br-0 eth-0").bridge
+        self.assertEqual (c.name, "br-0")
+        self.assertEqual (c.circuit, [ "eth-0" ])
+        
+    def test_all (self):
+        c = self.ctest ("bridge br-0 eth-0 eth-1 eth-2").bridge
+        self.assertEqual (c.name, "br-0")
+        self.assertEqual (c.circuit, [ "eth-0", "eth-1", "eth-2" ])
+
+class TestBridge_err (Logchecker):
+    loglevel = logging.CRITICAL
+    
+    def test_errors (self):
+        self.checkerr ("bridge", "arguments are required")
+        self.checkerr ("bridge", "name")
+        self.checkerr ("bridge br-0", "arguments are required")
+        self.checkerr ("bridge br-0", "circuit")
+        self.checkerr ("bridge -frob br-0 cir-0", "unrecognized argument")
+        
 if __name__ == "__main__":
     unittest.main ()
