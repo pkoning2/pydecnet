@@ -90,14 +90,15 @@ class SelfAdj (adjacency.Adjacency):
         # Note that local packets (originating here and terminating
         # here as well) are not counted since there isn't any circuit
         # on which to count them.
-        # ***FIXME
-        #if pkt.src.circuit:
-        #    pkt.src.circuit.term_recv += 1
+        if pkt.src and pkt.src.circuit:
+            pkt.src.circuit.term_recv += 1
         work = Received (self.node.nsp, packet = pkt.payload,
                          src = pkt.srcnode, rts = pkt.rts)
         self.node.addwork (work, self.node.nsp)
         
-
+    def __str__ (self):
+        return "Self"
+    
 class Circuit (Element):
     """Base class for all routing layer circuits.
     """
@@ -201,7 +202,7 @@ class LanL2Circuit (LanL1Circuit, L2Circuit):
     def __init__ (self, parent, name, datalink, config):
         LanL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
-        t1 = config.t1 or self.routing.config.t1
+        t1 = config.t1 or self.routing.config.bct1
         self.aupdate = Update (self, t1, self.routing.aminhops,
                                self.routing.amincost, L2Routing)
         
@@ -379,7 +380,8 @@ class Phase2Routing (BaseRouter):
             # Destination matches this adjacency, send
             logging.trace ("Sending %d byte packet to %s: %s",
                            len (pkt), a, pkt)
-            pkt = ShortData (payload = pkt, srcnode = self.nodeid)
+            pkt = ShortData (payload = pkt, srcnode = self.nodeid,
+                             src = None)
             return a.circuit.send (pkt, dest)
         except KeyError:
             logging.trace ("%s unreachable: %s", dest, pkt)
@@ -411,12 +413,6 @@ class RouteInfo (object):
         self.hops, self.cost = allocvecs (maxidx)
         if adjacency:
             circ = adjacency.circuit
-            if l2:
-                self.setsrm = circ.setasrm
-            else:
-                self.setsrm = circ.setsrm
-        else:
-            self.setsrm = None
         self.nodeid = None
 
     def adjacency (self, id):
@@ -471,7 +467,7 @@ class L1Router (BaseRouter):
                 tid = self.nodeid.tid
                 self.selfadj.routeinfo.hops[tid] = 0
                 self.selfadj.routeinfo.cost[tid] = 0
-                self.oadj[tid] = self.selfadj
+            self.setsrm (0, self.maxnodes)
             self.route (0, self.maxnodes)
         else:
             # End node and Phase II node
@@ -492,9 +488,12 @@ class L1Router (BaseRouter):
         """Take the appropriate actions for an adjacency that has
         just gone down. 
         """
-        super ().adj_up (adj)
+        super ().adj_down (adj)
         if adj.ntype in { L1ROUTER, L2ROUTER }:
-            del self.l1info[adj]
+            try:
+                del self.l1info[adj]
+            except KeyError:
+                pass
             self.route (0, self.maxnodes)
         else:
             # End node and Phase II node
@@ -502,7 +501,7 @@ class L1Router (BaseRouter):
             tid = adj.nodeid.tid
             ri.hops[tid] = INFHOPS
             ri.cost[tid] = INFCOST
-            ri.oadj[tid] = None
+            ri.adjacencies[tid] = None
             self.route (tid, tid)
         
     def up (self):
@@ -526,7 +525,7 @@ class L1Router (BaseRouter):
             oldv = info.hops[k], info.cost[k]
             if oldv != v:
                 info.hops[k], info.cost[k] = v
-                route (k)
+                route (k, k)
         if maxreach:
             self.node.logevent (events.rout_upd_loss, adj.circuit,
                                 highest_address = maxreach,
@@ -549,7 +548,6 @@ class L1Router (BaseRouter):
         pass
 
     def doroute (self, start, end, l2):
-        logging.trace ("Doing route from %d to %d, L2 = %s", start, end, l2)
         if l2:
             routeinfodict = self.l2info
             minhops = self.aminhops
@@ -585,23 +583,29 @@ class L1Router (BaseRouter):
                                besta and besta.nodeid)
             if besta != oadj[i]:
                 oadj[i] = besta
+                # Note that reachable events are not logged if the
+                # output adjacency is SelfAdj.  Those happen at
+                # startup.
                 if l2:
-                    if besta:
-                        self.node.logevent (events.area_chg, i,
-                                            status = "reachable")
-                    else:
+                    if not besta:
                         self.node.logevent (events.area_chg, i,
                                             status = "unreachable")
+                    elif besta is not self.selfadj:
+                        self.node.logevent (events.area_chg, i,
+                                            status = "reachable")
                 elif i:
                     # That check for 0 is there so reachability changes
                     # of "nearest L2 router" aren't logged.
                     nod = self.node.nodeinfo (Nodeid (self.homearea, i))
-                    if besta:
-                        self.node.logevent (events.reach_chg, nod,
-                                            status = "reachable")
-                    else:
+                    if not besta:
                         self.node.logevent (events.reach_chg, nod,
                                             status = "unreachable")
+                    elif besta is not self.selfadj:
+                        self.node.logevent (events.reach_chg, nod,
+                                            status = "reachable")
+
+    def usecol (self, adj, l2):
+        return l2 or adj.nodeid.area == self.homearea
 
     def html_matrix (self, l2):
         if l2:
@@ -609,19 +613,22 @@ class L1Router (BaseRouter):
             end = self.maxarea
             routeinfodict = self.l2info
             what = "Area"
+            selfcol = [ self.selfadj ]
         else:
             start = 0
             end = self.maxnodes
             routeinfodict = self.l1info
             what = "Level 1"
+            selfcol = [ self.selfadj, ENDNODE ]
         ret = list ()
-        row = [ None ] * len (routeinfodict)
         INF = ( INFHOPS, INFCOST )
-        rk1 = sorted ((k for k in routeinfodict.keys ()
-                       if isinstance (k, Circuit)), key = str)
-        rk2 = sorted ((k for k in routeinfodict.keys ()
-                       if isinstance (k, adjacency.Adjacency)), key = str)
-        rkeys = [ self ] + rk1 + rk2
+        rkeys = sorted ((k for k in routeinfodict.keys ()
+                       if k is not self.selfadj and
+                         isinstance (k, adjacency.Adjacency) and
+                         self.usecol (k, l2)),
+                        key = str)
+        rkeys = selfcol + rkeys
+        row = [ None ] * len (rkeys)
         first = True
         for i in range (start, end + 1):
             inf = True
@@ -638,10 +645,10 @@ class L1Router (BaseRouter):
                 <table border=1 cellspacing=0 cellpadding=4>
                 <tr><th>Dest</th>""".format (what))
                 for rk in rkeys:
-                    if rk is self:
-                        s = "Self"
+                    if rk is ENDNODE:
+                        s = "Endnodes"
                     else:
-                        s = "{}".format (rk)
+                        s = "{!s}".format (rk)
                     ret.append ("<th colspan=2>{}</th>".format (s))
                 ret.append ("</tr>")
                 first = False
@@ -666,7 +673,6 @@ class L1Router (BaseRouter):
             for i in range (self.maxnodes + 1):
                 if i == tid or (self.attached and i == 0):
                     assert ri.hops[i] == ri.cost[i] == 0
-                    assert self.oadj[i] == self.selfadj
                 else:
                     assert ri.hops[i] == INFHOPS and ri.cost[i] == INFCOST
         except AssertionError:
@@ -834,7 +840,7 @@ class L1Router (BaseRouter):
                         first = False
                     hops, cost, adj = self.minhops[i], self.mincost[i], self.oadj[i]
                     ret.append ("""<tr><td>{}</td><td>{}</td>
-                    <td>{}</td><td>{}</td></tr>""".format (name, hops, cost, adj))
+                    <td>{}</td><td>{!s}</td></tr>""".format (name, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
             ret.append (self.html_matrix (False))
@@ -878,20 +884,24 @@ class L2Router (L1Router):
                 area = self.nodeid.area
                 self.selfadj.arouteinfo.hops[area] = 0
                 self.selfadj.arouteinfo.cost[area] = 0
-                self.aoadj[area] = None
+                self.aoadj[area] = self.selfadj
         else:
             adj.arouteinfo = None
         super ().adj_up (adj)
         if adj.ntype == L2ROUTER:
+            self.setasrm (1, self.maxarea)
             self.aroute (1, self.maxarea)
 
     def adj_down (self, adj):
         """Take the appropriate actions for an adjacency that has
         just gone down. 
         """
-        super ().adj_up (adj)
+        super ().adj_down (adj)
         if adj.ntype == L2ROUTER:
-            del self.l2info[adj]
+            try:
+                del self.l2info[adj]
+            except KeyError:
+                pass
             self.aroute (1, self.maxarea)
         
     def dispatch (self, item):
@@ -933,11 +943,13 @@ class L2Router (L1Router):
         if attached != self.attached:
             logging.debug ("L2 attached state changed to %s", attached)
             self.attached = attached
+            ri = self.selfadj.routeinfo
             if attached:
-                self.hops[0] = self.cost[0] = 0
+                ri.hops[0] = ri.cost[0] = 0
             else:
-                self.hops[0] = INFHOPS
-                self.cost[0] = INFCOST
+                ri.hops[0] = INFHOPS
+                ri.cost[0] = INFCOST
+            self.setsrm (0)
             self.route (0, 0)
 
     def findoadj (self, dest):
@@ -980,7 +992,7 @@ class L2Router (L1Router):
                         first = False
                     hops, cost, adj = self.aminhops[i], self.amincost[i], self.aoadj[i]
                     ret.append ("""<tr><td>{}</td><td>{}</td>
-                    <td>{}</td><td>{}</td></tr>""".format (i, hops, cost, adj))
+                    <td>{}</td><td>{!s}</td></tr>""".format (i, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
             ret.append (self.html_matrix (True))

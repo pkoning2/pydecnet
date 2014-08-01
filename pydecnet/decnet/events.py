@@ -666,6 +666,7 @@ class adj_rej (RoutingEvent):
 
 class area_chg (RoutingEvent):
     _label = "Area reachability change"
+    _entity_type = AreaEntity
     _code = 17
     # Status
 
