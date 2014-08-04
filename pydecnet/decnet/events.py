@@ -580,7 +580,6 @@ class db_reuse (EclEvent):
 class aged_drop (RoutingEvent):
     _label = "Aged packet loss"
     _code = 0
-    _entity_type = NodeEntity
     # Packet header
 
 class unreach_drop (RoutingEvent):
