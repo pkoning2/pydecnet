@@ -208,7 +208,7 @@ class test_end (lantest):
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (1, 17),
                          srcnode = Nodeid (1, 1), visit = 1,
                          payload = b"new payload")
-        self.c.send (pkt, pkt.dstnode)
+        self.c.send (pkt, None)
         p, dest = self.lastsent (self.cp, 2)
         self.assertEqual (dest, Macaddr (Nodeid (1, 17)))
         self.assertIsInstance (p, LongData)
@@ -223,7 +223,7 @@ class test_end (lantest):
         s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (1, 17),
                       srcnode = Nodeid (1, 1), visit = 1,
                       payload = b"new payload")
-        self.c.send (s, s.dstnode)
+        self.c.send (s, None)
         p, dest = self.lastsent (self.cp, 3)
         self.assertIs (s, p)
         # Deliver a packet from that destination
@@ -235,7 +235,7 @@ class test_end (lantest):
         self.assertEqual (self.c.prevhops[Nodeid (1, 17)].prevhop,
                           Macaddr (Nodeid (1, 1)))
         # Send the packet again, should go to prev hop
-        self.c.send (pkt, pkt.dstnode)
+        self.c.send (pkt, None)
         p, dest = self.lastsent (self.cp, 4)
         self.assertEqual (dest, Macaddr (Nodeid (1, 1)))
         # Deliver a router hello to set DR
@@ -248,14 +248,14 @@ class test_end (lantest):
                                    packet = rhi))
         self.assertEqual (self.c.dr.macid, Macaddr (Nodeid (1, 2)))
         # Send the packet again, should still go by previous hop
-        self.c.send (pkt, pkt.dstnode)
+        self.c.send (pkt, None)
         p, dest = self.lastsent (self.cp, 5)
         self.assertEqual (dest, Macaddr (Nodeid (1, 1)))
         # Expire the cache entry
         self.c.prevhops[Nodeid (1, 17)].dispatch (Timeout (self.c))
         self.assertFalse (self.c.prevhops)
         # Send again, this should go to DR
-        self.c.send (pkt, pkt.dstnode)
+        self.c.send (pkt, None)
         p, dest = self.lastsent (self.cp, 6)
         self.assertEqual (dest, Macaddr (Nodeid (1, 2)))
 

@@ -32,7 +32,6 @@ class LanCircuit (timers.Timer):
     ph4 = True
     ph2 = False
     T3MULT = BCT3MULT
-    pkttype = LongData
     
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
@@ -55,6 +54,17 @@ class LanCircuit (timers.Timer):
     def stop (self):
         pass
     
+    def send (self, pkt, nexthop, tryhard = False):
+        """Send pkt to nexthop.  Always returns True because it always
+        works (we don't know of "unreachable").
+        """
+        assert nexthop
+        logging.trace ("Sending %d byte packet to %s: %s",
+                       len (pkt), nexthop, pkt)
+        if isinstance (pkt, ShortData):
+            pkt = LongData (copy = pkt, payload = pkt.payload)
+        self.datalink.send (pkt, nexthop)
+
     def common_dispatch (self, work):
         if isinstance (work, datalink.Received):
             if work.src == self.parent.nodemacaddr:
@@ -253,27 +263,30 @@ class EndnodeLanCircuit (LanCircuit):
         except KeyError:
             pass
         
-    def send (self, pkt, dstnode, tryhard = False):
-        """Send pkt to dstnode.  Always returns True because it always
+    def send (self, pkt, nexthop, tryhard = False):
+        """Send pkt to nexthop.  Always returns True because it always
         works (we don't know of "unreachable").
         """
-        logging.trace ("Sending %d byte packet to %s: %s",
-                       len (pkt), dstnode, pkt)
-        if isinstance (pkt, ShortData):
-            pkt = LongData (copy = pkt, payload = pkt.payload)
-        if tryhard:
-            self.cache_expire (dstnode)
+        if nexthop:
+            super ().send (pkt, nexthop)
         else:
-            try:
-                prev = self.prevhops[dstnode].prevhop
-                self.datalink.send (pkt, prev)
-                return
-            except KeyError:
-                pass
-        if self.dr:
-            self.dr.send (pkt)
-        else:
-            self.datalink.send (pkt, Macaddr (dstnode))
+            # No nexthop has been set (originating endnode packet case)
+            # so consult the cache to find out what it should be.
+            dstnode = pkt.dstnode
+            if tryhard:
+                self.cache_expire (dstnode)
+            else:
+                try:
+                    prev = self.prevhops[dstnode].prevhop
+                    super ().send (pkt, prev)
+                    return
+                except KeyError:
+                    pass
+            if self.dr:
+                # Send to the DR adjacency
+                self.dr.send (pkt)
+            else:
+                super ().send (pkt, Macaddr (dstnode))
         return True
 
 # Adjacency states
