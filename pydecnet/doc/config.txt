@@ -154,11 +154,11 @@ circuit type:
         tap:devname -- TUN/TAP accessing the named TAP device
 	pcap:devname -- Use the specified Ethernet device via the
 	    PCAP library
-	ibridge:name -- Attach this Ethernet to the named internal
-	    bridge (see Component "bridge" for more)
-        xbridge:localport:host:port -- Attach this Ethernet to the 
+        bridge:localport:host:port -- Attach this Ethernet to the 
             Billquist bridge at the specified IP address and UDP port,
             sending from and receiving on the specific localport.
+	    For those used to SIMH notation, "udp" is a synonym for 
+	    "bridge".
 
     SimhDMC: either host:port or host:port:secondary.  The first form
     defines a primary mode DMC-11 emulation connection: the host and
