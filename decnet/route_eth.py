@@ -163,6 +163,10 @@ class NiCacheEntry (timers.Timer):
 class EndnodeLanCircuit (LanCircuit):
     """The datalink dependent sublayer for broadcast circuits on an endnode.
     """
+    class DummyAdj (object):
+        def __init__ (self, circ):
+            self.circuit = circ
+            
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ (parent, name, datalink, config)
         self.hello = EndnodeHello (tiver = parent.tiver,
@@ -172,6 +176,11 @@ class EndnodeLanCircuit (LanCircuit):
         self.datalink.add_multicast (ALL_ENDNODES)
         self.dr = None
         self.prevhops = dict ()
+        # We need this because the routing module wants packets to
+        # come with their source adjacency, and we don't have such a thing.
+        # It doesn't really need anything other than the adjacency's
+        # circuit, so we'll give it that much.
+        self.dadj = self.DummyAdj (self)
 
     def adj_timeout (self, adj):
         # Called from the common routing code when an adjacency down
@@ -235,6 +244,7 @@ class EndnodeLanCircuit (LanCircuit):
                 except KeyError:
                     self.prevhops[item.srcnode] = NiCacheEntry (item.srcnode,
                                                                 item.src, self)
+            item.src = self.dadj
             self.parent.dispatch (item)
 
     def cache_expire (self, id):

@@ -232,7 +232,7 @@ class _PcapEth (_Ethernet):
             except pcap._pcap.error:
                 break
 
-class _XBridgeEth (_Ethernet):
+class _BridgeEth (_Ethernet):
     """Class for talking to a Johnny Billquist bridge (somewhere else,
     external to this process), via UDP packets each carrying an
     Ethernet datagram.
@@ -243,7 +243,7 @@ class _XBridgeEth (_Ethernet):
         self.lport = int (lport)
         self.port = int (port)
         self.host = datalink.HostAddress (host)
-        logging.trace ("Ethernet xbridge %s initialized on %d, to %s:%d",
+        logging.trace ("Ethernet bridge %s initialized on %d, to %s:%d",
                        self.name, lport, host, self.port)
         
     def open (self):
@@ -262,7 +262,7 @@ class _XBridgeEth (_Ethernet):
         self.socket = None
 
     def run (self):
-        logging.trace ("Ethernet xbridge %s receive thread started", self.name)
+        logging.trace ("Ethernet bridge %s receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -270,10 +270,10 @@ class _XBridgeEth (_Ethernet):
         try:
             self.socket.bind (("", self.lport))
         except (OSError, socket.error):
-            logging.trace ("Ethernet xbridge %s bind %d failed",
+            logging.trace ("Ethernet bridge %s bind %d failed",
                            self.name, self.lport)
             return
-        logging.trace ("Ethernet xbridge %s bound to %d",
+        logging.trace ("Ethernet bridge %s bound to %d",
                        self.name, self.lport)
         
         while True:
@@ -309,11 +309,6 @@ class _XBridgeEth (_Ethernet):
         except (IOError, socket.error) as e:
             pass
         
-class _IBridgeEth (_Ethernet):
-    """Class for talking to an instance of Bridge (which is our
-    implementation of the Johnny Billquist bridge protocol).
-    """
-
 # Factory class -- returns an instance of the appropriate _Ethernet
 # subclass instance given the specific device flavor specified.
 class Ethernet (datalink.Datalink):
@@ -324,14 +319,11 @@ class Ethernet (datalink.Datalink):
             c = _TapEth
         elif api == "pcap":
             c = _PcapEth
-        elif api == "xbridge" or api == "udp":
+        elif api == "bridge" or api == "udp":
             # External bridge, i.e., IP connection to a bridge in
             # another host or process.  Allow "udp" because that's how
             # SIMH refers to it.
-            c = _XBridgeEth
-        elif api == "ibridge":
-            # "Null modem" connection to a bridge port in this process
-            c = _IBridgeEth
+            c = _BridgeEth
         else:
             raise ValueError ("Unknown Ethernet circuit subtype %s" % api)
         return c (owner, name, dev, config)
