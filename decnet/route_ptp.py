@@ -43,7 +43,6 @@ class PtpCircuit (statemachine.StateMachine):
     """
     prio = 0    # For commonality with BC circuit hello processing
     T3MULT = PTP_T3MULT
-    pkttype = ShortData
     
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
@@ -116,8 +115,8 @@ class PtpCircuit (statemachine.StateMachine):
     def stop (self):
         self.node.addwork (Shutdown (self))
 
-    def send (self, pkt, dstnode, tryhard = False):
-        """Send packet to the specified destination.  Returns True
+    def send (self, pkt, nexthop = None, tryhard = False):
+        """Send packet. "nexthop" is not used here. Returns True
         if it worked.  "Worked" means the circuit is up and the
         neighbor is a router or the destination address matches
         the neighbor address.
@@ -128,6 +127,7 @@ class PtpCircuit (statemachine.StateMachine):
             # Note: this check has to be made before dstnode is changed
             # to the older form (if needed) because internally we store
             # the neighbor ID according to our phase, not its phase.
+            dstnode = pkt.dstnode
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
                 logging.debug ("Sending packet %s to wrong address %s "
                                "(expected %s)", pkt, dstnode, self.id)

@@ -109,7 +109,7 @@ class DnTest (unittest.TestCase):
         else:
             a, k = port.send.call_args
         if len (a) > 1:
-            w, dest = a
+            w, dest, *extra = a
         else:
             w = a[0]
             dest = None

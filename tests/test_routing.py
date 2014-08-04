@@ -80,8 +80,9 @@ class test_ethend (rtest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (self.c1.dr.macid, Macaddr ("aa:00:04:00:02:04"))
+        self.assertEqual (self.c1.dr.nodeid, Nodeid (1, 2))
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1,17))
+        ok = self.r.send (b"payload", Nodeid (1, 17))
         self.assertTrue (ok)
         self.assertEqual (self.c1.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 2)
@@ -728,14 +729,23 @@ class test_ph4l1a (rtest):
         p, dest = self.lastsent (self.d2, 3)
         self.assertEqual (p.encode (), b"\x02\x03\x04\x05\x04\x00payload2")
         # Originating to unreachable
-        ok = self.r.send (b"foo", Nodeid (1,7))
+        ok = self.r.send (b"foo", Nodeid (1, 7))
         self.assertFalse (ok)
         self.assertEqual (self.c1.orig_sent, 1)
         self.assertEqual (self.c2.orig_sent, 1)
+        # long data, converted to short when forwarded
+        pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
+              b"\x00\x00\xaa\x00\x04\x00\x02\x04\x00\x11\x00\x00" \
+              b"abc payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 5)
+        self.assertEqual (self.c2.trans_sent, 2)
+        p, dest = self.lastsent (self.d2, 4)
+        self.assertEqual (p.encode (), b"\x02\x03\x04\x02\x04\x12abc payload")
         
     def test_init_ph3 (self):
-        # Send phase3 init
-        pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
+        # Send phase3 endnode init
+        pkt = b"\x01\x02\x00\x03\x10\x02\x01\x03\x00\x00"
         self.c1.dispatch (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
         self.assertState (self.c1, "ru")
@@ -743,6 +753,33 @@ class test_ph4l1a (rtest):
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
+        # Make the other neighbor phase 4
+        pkt = b"\x01\x03\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
+        self.c2.dispatch (Received (owner = self.c2, src = self.c2,
+                                    packet = pkt))
+        self.assertState (self.c2, "ru")
+        self.assertEqual (self.eventcount (events.circ_up), 2)
+        #self.assertEqual (self.eventcount (events.reach_chg), 2)
+        self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
+        #self.assertEvent (events.reach_chg, back = 1,
+        #                  entity = Nodeid (1, 3), status = "reachable")
+        self.assertEqual (self.c2.rphase, 4)
+        self.assertEqual (self.c2.id, Nodeid (1, 3))
+        # Try some forwarded traffic
+        # Forward c1 to c2
+        pkt = b"\x02\x03\x00\x02\x00\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 1)
+        self.assertEqual (self.c2.trans_sent, 1)
+        p, dest = self.lastsent (self.d2, 2)
+        self.assertEqual (p.encode (), b"\x02\x03\x04\x02\x04\x12Other payload")
+        # Forward c2 to c1
+        pkt = b"\x02\x02\x04\x03\x04\x11ph4 payload"
+        self.c2.dispatch (Received (owner = self.c2, packet = pkt))
+        self.assertEqual (self.c2.trans_recv, 1)
+        self.assertEqual (self.c1.trans_sent, 1)
+        p, dest = self.lastsent (self.d1, 3)
+        self.assertEqual (p.encode (), b"\x02\x02\x00\x03\x00\x12ph4 payload")
 
     def test_send_ph2 (self):
         # Send phase2 init to ptp-0

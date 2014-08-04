@@ -100,10 +100,6 @@ class Adjacency (Element, timers.Timer):
     def send (self, pkt):
         """Send the supplied packet on this adjacency.  
         """
-        logging.trace ("Sending %d byte packet to %s on %s: %s",
-                       len (pkt), self.macid, self.circuit.name, pkt)
-        if self.ntype == PHASE2:
-            pkt = pkt.payload
-        elif not isinstance (pkt, self.circuit.pkttype):
-            pkt = self.circuit.pkttype (copy = pkt, payload = pkt.payload)
-        self.circuit.datalink.send (pkt, self.macid)
+        logging.trace ("Sending %d byte packet to nexthop %s on %s: %s",
+                       len (pkt), self.nodeid, self.circuit.name, pkt)
+        self.circuit.send (pkt, self.macid)

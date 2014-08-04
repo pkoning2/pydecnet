@@ -335,7 +335,7 @@ class EndnodeRouting (BaseRouter):
                         payload = data, src = None)
         logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
         self.circuit.orig_sent += 1
-        return self.circuit.send (pkt, dest, tryhard)
+        return self.circuit.send (pkt, None, tryhard)
 
     def dispatch (self, item):
         """A received packet is sent up to NSP if it is for this node,
@@ -382,8 +382,10 @@ class Phase2Routing (BaseRouter):
             logging.trace ("Sending %d byte packet to %s: %s",
                            len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
-                             src = None)
+                             dstnode = dest, src = None)
             a.circuit.orig_sent += 1
+            # For now, destination is also nexthop.  If we do intercept,
+            # that will no longer be true.
             return a.circuit.send (pkt, dest)
         except KeyError:
             logging.trace ("%s unreachable: %s", dest, pkt)
