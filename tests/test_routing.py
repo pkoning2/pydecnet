@@ -83,6 +83,7 @@ class test_ethend (rtest):
         # Try sending a packet
         ok = self.r.send (b"payload", Nodeid (1,17))
         self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 2)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (1,17))
@@ -96,6 +97,7 @@ class test_ethend (rtest):
         # Try sending a packet.  Note that out of area makes no difference.
         ok = self.r.send (b"payload2", Nodeid (3,17))
         self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 2)
         p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (3,17))
@@ -128,7 +130,7 @@ class test_ethend (rtest):
         self.assertTrue (p.ie)
         self.assertEqual (p.payload, b"payload")
         self.assertEqual (dest, Macaddr ("aa:00:04:00:11:04"))
-        # Check the hellp with the DR no longer mentioned
+        # Check the hello with the DR no longer mentioned
         self.c1.dispatch (Timeout (owner = self.c1))
         p, dest = self.lastsent (self.d1, 6)
         self.assertIsInstance (p, EndnodeHello)
@@ -153,6 +155,7 @@ class test_ethend (rtest):
         self.c1.dispatch (Received (owner = self.c1,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (1)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -165,6 +168,7 @@ class test_ethend (rtest):
         self.c1.dispatch (Received (owner = self.c1,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
+        self.assertEqual (self.c1.term_recv, 2)
         w = self.lastwork (2)
         spkt = w.packet
         self.assertEqual (w.packet, b"abcdef payload")
@@ -180,6 +184,7 @@ class test_ethend (rtest):
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Check that last received count doesn't change
+        self.assertEqual (self.c1.term_recv, 2)
         self.lastwork (2)
         
     def test_longdata (self):
@@ -189,6 +194,7 @@ class test_ethend (rtest):
         self.c1.dispatch (Received (owner = self.c1,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (1)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -203,6 +209,7 @@ class test_ethend (rtest):
         self.c1.dispatch (Received (owner = self.c1,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
+        self.assertEqual (self.c1.term_recv, 2)
         w = self.lastwork (2)
         spkt = w.packet
         self.assertEqual (w.packet, b"Other payload")
@@ -221,6 +228,7 @@ class test_ethend (rtest):
                                    packet = pkt))
         # Check that last received count doesn't change
         self.lastwork (2)
+        self.assertEqual (self.c1.term_recv, 2)
         
 class test_ptpend (rtest):
     ntype = "endnode"
@@ -272,6 +280,7 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x02\x05\x04\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -279,6 +288,7 @@ class test_ptpend (rtest):
         # ditto but with padding
         pkt = b"\x88Testing\x02\x05\x04\x01\x08\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 2)
         w = self.lastwork (3)
         spkt = w.packet
         self.assertEqual (w.packet, b"Other payload")
@@ -288,6 +298,7 @@ class test_ptpend (rtest):
         pkt = b"\x02\x01\x04\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
+        self.assertEqual (self.c1.term_recv, 2)
         self.lastwork (3)
 
     def test_longdata_ph4 (self):
@@ -304,6 +315,7 @@ class test_ptpend (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -313,6 +325,7 @@ class test_ptpend (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 2)
         w = self.lastwork (3)
         spkt = w.packet
         self.assertEqual (w.packet, b"Other payload")
@@ -324,6 +337,7 @@ class test_ptpend (rtest):
               b"abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
+        self.assertEqual (self.c1.term_recv, 2)
         self.lastwork (3)
     
     def test_send_ph3 (self):
@@ -339,6 +353,7 @@ class test_ptpend (rtest):
         # Try sending a packet
         ok = self.r.send (b"payload", Nodeid (1, 17))
         self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 1)        
         p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, ShortData)
         self.assertEqual (p.dstnode, Nodeid (17))
@@ -360,6 +375,7 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x02\x05\x00\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -367,6 +383,7 @@ class test_ptpend (rtest):
         # Packet with padding, should be ignored as invalid
         pkt = b"\x88Testing\x02\x05\x00\x01\x00\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         self.lastwork (2)
         self.assertEvent (events.fmt_err, 
                           packet_beginning = b"\x88Testi")
@@ -374,6 +391,7 @@ class test_ptpend (rtest):
         pkt = b"\x02\x01\x00\x01\x08\x11abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
+        self.assertEqual (self.c1.term_recv, 1)
         self.lastwork (2)
 
     def test_longdata_ph3 (self):
@@ -390,6 +408,7 @@ class test_ptpend (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"abcdef payload")
         self.assertEqual (w.src, Nodeid (2, 1))
@@ -399,6 +418,7 @@ class test_ptpend (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         self.lastwork (2)
         self.assertEvent (events.fmt_err, 
                           packet_beginning = b"\x88Testi")
@@ -408,6 +428,7 @@ class test_ptpend (rtest):
               b"abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
+        self.assertEqual (self.c1.term_recv, 1)
         self.lastwork (2)
         
     def test_send_ph2 (self):
@@ -425,6 +446,7 @@ class test_ptpend (rtest):
         # Try sending a packet
         ok = self.r.send (b"payload", Nodeid (1, 66))
         self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 3, ptype = bytes)
         self.assertEqual (p, b"payload")
         ok = self.r.send (b"payload", Nodeid (1, 44))
@@ -448,6 +470,7 @@ class test_ptpend (rtest):
         # no BOP, no EOP).
         pkt = b"\x00abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"\x00abcdef payload")
         self.assertEqual (w.src, Nodeid (1, 66))
@@ -508,6 +531,7 @@ class test_ph2 (rtest):
         # Try sending a packet to the neighbor on ptp-0
         ok = self.r.send (b"payload", Nodeid (66))
         self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 2, ptype = bytes)
         self.assertEqual (p, b"payload")
         # Try sending to some other address (not currently reachable)
@@ -528,6 +552,7 @@ class test_ph2 (rtest):
         # Try sending to the new neighbor on ptp-1
         ok = self.r.send (b"payload2", Nodeid (44))
         self.assertTrue (ok)
+        self.assertEqual (self.c2.orig_sent, 1)
         p, dest = self.lastsent (self.d2, 2, ptype = bytes)
         self.assertEqual (p, b"payload2")
 
@@ -548,6 +573,7 @@ class test_ph2 (rtest):
         # no BOP, no EOP).
         pkt = b"\x00abcdef payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
         w = self.lastwork (3)
         self.assertEqual (w.packet, b"\x00abcdef payload")
         self.assertEqual (w.src, Nodeid (66))
@@ -568,6 +594,7 @@ class test_ph2 (rtest):
         # no BOP, no EOP).
         pkt = b"\x00Other payload"
         self.c2.dispatch (Received (owner = self.c2, packet = pkt))
+        self.assertEqual (self.c2.term_recv, 1)
         w = self.lastwork (4)
         self.assertEqual (w.packet, b"\x00Other payload")
         self.assertEqual (w.src, Nodeid (44))
@@ -621,7 +648,91 @@ class test_ph4l1a (rtest):
                           entity = Nodeid (1, 3), status = "reachable")
         self.assertEqual (self.c2.rphase, 4)
         self.assertEqual (self.c2.id, Nodeid (1, 3))
-
+        # Try some forwarded traffic
+        # Forward c1 to c2
+        pkt = b"\x88Testing\x02\x03\x04\x02\x04\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 1)
+        self.assertEqual (self.c2.trans_sent, 1)
+        p, dest = self.lastsent (self.d2, 2)
+        self.assertEqual (p.encode (), b"\x02\x03\x04\x02\x04\x12Other payload")
+        # Unreachable destination
+        pkt = b"\x02\x42\x04\x02\x04\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 1)
+        self.assertEqual (self.r.unreach_loss, 1)
+        self.assertEvent (events.unreach_drop, adjacent_node = Nodeid (1, 2),
+                          packet_header = (2, 1090, 1026, 17))
+        # Node number out of range
+        pkt = b"\x02\xfe\x04\x02\x04\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 1)
+        self.assertEqual (self.r.node_oor_loss, 1)
+        self.assertEvent (events.oor_drop, adjacent_node = Nodeid (1, 2),
+                          packet_header = (2, 1278, 1026, 17))
+        # Too many visits
+        pkt = b"\x02\x03\x04\x02\x04\x1eOther payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 1)
+        self.assertEqual (self.r.aged_loss, 1)
+        self.assertEvent (events.aged_drop, adjacent_node = Nodeid (1, 2),
+                          packet_header = (2, 1027, 1026, 30))
+        # Similar but rqr set.  The packet will bounce back, and the
+        # error counters and count of error events is unchanged from above
+        # (i.e., still one).
+        # Unreachable destination
+        pkt = b"\x0a\x42\x04\x02\x04\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 2)
+        self.assertEqual (self.c1.trans_sent, 1)
+        self.assertEqual (self.r.unreach_loss, 1)
+        self.assertEqual (self.eventcount (events.unreach_drop), 1)
+        p, dest = self.lastsent (self.d1, 2)
+        self.assertEqual (p.encode (), b"\x12\x02\x04\x42\x04\x12Other payload")
+        # Node number out of range
+        pkt = b"\x0a\xfe\x04\x02\x04\x11Other payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 3)
+        self.assertEqual (self.c1.trans_sent, 2)
+        self.assertEqual (self.r.node_oor_loss, 1)
+        self.assertEqual (self.eventcount (events.oor_drop), 1)
+        p, dest = self.lastsent (self.d1, 3)
+        self.assertEqual (p.encode (), b"\x12\x02\x04\xfe\x04\x12Other payload")
+        # Too many visits
+        pkt = b"\x0a\x03\x04\x02\x04\x1eOther payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.trans_recv, 4)
+        self.assertEqual (self.c1.trans_sent, 3)
+        self.assertEqual (self.r.aged_loss, 1)
+        self.assertEqual (self.eventcount (events.aged_drop), 1)
+        p, dest = self.lastsent (self.d1, 4)
+        self.assertEqual (p.encode (), b"\x12\x02\x04\x03\x04\x1fOther payload")
+        # Terminating packet
+        pkt = b"\x02\x05\x04\x02\x04\x1eOther payload"
+        self.c1.dispatch (Received (owner = self.c1, packet = pkt))
+        self.assertEqual (self.c1.term_recv, 1)
+        w = self.lastwork (3)
+        self.assertEqual (w.packet, b"Other payload")
+        self.assertEqual (w.src, Nodeid (1, 2))
+        self.assertFalse (w.rts)
+        # Originating packet
+        ok = self.r.send (b"payload2", Nodeid (1, 2))
+        self.assertTrue (ok)
+        self.assertEqual (self.c1.orig_sent, 1)
+        p, dest = self.lastsent (self.d1, 5)
+        self.assertEqual (p.encode (), b"\x02\x02\x04\x05\x04\x00payload2")
+        # Originating to the other neighbor
+        ok = self.r.send (b"payload2", Nodeid (1, 3))
+        self.assertTrue (ok)
+        self.assertEqual (self.c2.orig_sent, 1)
+        p, dest = self.lastsent (self.d2, 3)
+        self.assertEqual (p.encode (), b"\x02\x03\x04\x05\x04\x00payload2")
+        # Originating to unreachable
+        ok = self.r.send (b"foo", Nodeid (1,7))
+        self.assertFalse (ok)
+        self.assertEqual (self.c1.orig_sent, 1)
+        self.assertEqual (self.c2.orig_sent, 1)
+        
     def test_init_ph3 (self):
         # Send phase3 init
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"

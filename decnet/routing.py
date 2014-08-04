@@ -334,6 +334,7 @@ class EndnodeRouting (BaseRouter):
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
         logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
+        self.circuit.orig_sent += 1
         return self.circuit.send (pkt, dest, tryhard)
 
     def dispatch (self, item):
@@ -382,6 +383,7 @@ class Phase2Routing (BaseRouter):
                            len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
                              src = None)
+            a.circuit.orig_sent += 1
             return a.circuit.send (pkt, dest)
         except KeyError:
             logging.trace ("%s unreachable: %s", dest, pkt)
@@ -720,7 +722,6 @@ class L1Router (BaseRouter):
 
         If orig is True, and the destination is known to be unreachable,
         return False and don't try to send the packet.
-        "pkt.src" is None.
         """
         dest = pkt.dstnode
         srcadj = pkt.src
@@ -730,22 +731,22 @@ class L1Router (BaseRouter):
             # we're at the visit limit
             limit = self.maxvisits
             if a is not self.selfadj:
-                # Forwarding (as opposed to terminating)
-                if srcadj:
+                # Forwarding or originating (as opposed to terminating)
+                if not orig:
                     # Forwarding (as opposed to originating)
-                    pkt.visit += 1
                     if srcadj.circuit != a.circuit:
                         # Mark "not intra-Ethernet"
                         pkt.ie = 0
                     if pkt.rts:
                         limit *= 2
-                if pkt.visit <= limit:
+                if pkt.visit < limit:
                     # Visit limit still ok, send it and exit
-                    if srcadj:
+                    if orig:
+                        a.circuit.orig_sent += 1
+                    else:
                         srcadj.circuit.trans_recv += 1
                         a.circuit.trans_sent += 1
-                    else:
-                        a.circuit.orig_sent += 1
+                        pkt.visit += 1
                     logging.trace ("Sending %d byte packet to %s: %s",
                        len (pkt), a, pkt)
                     a.send (pkt)
@@ -770,11 +771,19 @@ class L1Router (BaseRouter):
         kwargs = evtpackethdr (pkt)
         if a:
             # Reachable, so the problem was max visits
-            self.node.logevent (events.aged_drop, **kwargs)
+            self.aged_loss += 1
+            # The architecture spec doesn't mention the source adjacency
+            # argument, but that seems like a mistake so put it in.
+            self.node.logevent (events.aged_drop, srcadj.circuit,
+                                adjacent_node = srcadj.nodeid,
+                                **kwargs)
         else:
-            c = events.unreach_drop
             if a is False:
                 c = events.oor_drop
+                self.node_oor_loss += 1
+            else:
+                c = events.unreach_drop
+                self.unreach_loss += 1
             self.node.logevent (c, srcadj.circuit,
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
