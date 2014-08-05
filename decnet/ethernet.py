@@ -244,7 +244,7 @@ class _BridgeEth (_Ethernet):
         self.port = int (port)
         self.host = datalink.HostAddress (host)
         logging.trace ("Ethernet bridge %s initialized on %d, to %s:%d",
-                       self.name, lport, host, self.port)
+                       self.name, self.lport, host, self.port)
         
     def open (self):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,

@@ -131,6 +131,7 @@ class EthTest (DnTest):
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
         self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
         self.rport.set_promiscuous (True)
+        # Individual address
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         w = self.lastwork (1)
@@ -140,7 +141,7 @@ class EthTest (DnTest):
         self.assertEqual (self.eth.mcbytes_recv, 0)
         self.assertEqual (self.eth.bytes_recv, 60)
         self.assertEqual (self.rport.bytes_recv, 60)
-        # Multicast and mistmatch
+        # Multicast and mismatch
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         w = self.lastwork (2)
@@ -160,6 +161,51 @@ class EthTest (DnTest):
         self.assertEqual (self.eth.mcbytes_recv, 60)
         self.assertEqual (self.eth.bytes_recv, 180)
         self.assertEqual (self.rport.bytes_recv, 180)
+        # Individual address, wrong protocol number
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x04" + self.lelen (self.tdata) + self.tdata)
+        self.lastwork (3)
+        
+    def test_multiproto (self):
+        rcirc = self.circ ()
+        self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
+        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.add_proto (LATPROTO)
+        self.rport.add_proto (MOPDLPROTO)
+        # Routing packet
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
+        w = self.lastwork (1)
+        self.assertEqual (w.owner, rcirc)
+        self.assertEqual (bytes (w.packet), self.tdata)
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 60)
+        self.assertEqual (self.rport.bytes_recv, 60)
+        # MOP DL packet
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x02" + self.lelen (self.tdata) + self.tdata)
+        w = self.lastwork (2)
+        self.assertEqual (w.owner, rcirc)
+        self.assertEqual (bytes (w.packet), self.tdata)
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv,0)
+        self.assertEqual (self.eth.bytes_recv, 120)
+        self.assertEqual (self.rport.bytes_recv, 120)
+        # LAT packet
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x60\x04" + self.lelen (self.tdata) + self.tdata)
+        w = self.lastwork (3)
+        self.assertEqual (w.owner, rcirc)
+        self.assertEqual (bytes (w.packet), self.tdata)
+        self.assertEqual (self.eth.unk_dest, 0)
+        self.assertEqual (self.eth.mcbytes_recv, 0)
+        self.assertEqual (self.eth.bytes_recv, 180)
+        self.assertEqual (self.rport.bytes_recv, 180)
+        # Loop packet (not an enabled protocol)
+        self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
+                         b"\x90\x00" + self.lelen (self.tdata) + self.tdata)
+        w = self.lastwork (3)
         
     def test_rcvmc (self):
         rcirc = self.circ ()
