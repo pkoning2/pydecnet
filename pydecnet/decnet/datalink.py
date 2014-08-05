@@ -283,7 +283,11 @@ class BcDatalink (Datalink):
         return self.combine ("pkts_recv")
 
     def combine (self, attr):
-        return sum (getattr (v, attr) for v in self.ports.values ())
+        # Note that a given port can appear more than once in the
+        # ports dictionary.  Count it only once here, under its
+        # primary port number (the one given at port create time).
+        return sum (getattr (v, attr) for k, v in self.ports.items ()
+                    if v.proto == k)
     
     def create_port (self, owner, proto, *args):
         port = super ().create_port (owner, proto, *args)
@@ -318,13 +322,10 @@ class BcPort (Port):
         self.multicast = set ()
         self.promisc = False
         self._update_filter ()
-        if isinstance (proto, int):
-            proto = proto.to_bytes (2, "big")
-        else:
-            proto = bytes (proto)
-            if len (proto) != 2:
-                raise ValueError ("Protocol type length is wrong")
+        proto = self.protobytes (proto)
         self.proto = proto
+        self.protoset = set ()
+        self.protoset.add (proto)
         # A subset of the counters defined by the architecture
         self.ctr_zero_time = time.time ()
         self.bytes_sent = self.pkts_sent = 0
@@ -356,3 +357,26 @@ class BcPort (Port):
     def set_macaddr (self, addr):
         self.macaddr = addr
         self._update_filter ()
+
+    def protobytes (self, proto):
+        if isinstance (proto, int):
+            proto = proto.to_bytes (2, "big")
+        else:
+            proto = bytes (proto)
+            if len (proto) != 2:
+                raise ValueError ("Protocol type length is wrong")
+        return proto
+    
+    def add_proto (self, proto):
+        proto = self.protobytes (proto)
+        if proto in self.protoset:
+            raise KeyError ("Protocol type already enabled")
+        if proto in self.parent.ports:
+            raise RuntimeError ("Protocol type in use by another port")
+        self.parent.ports[proto] = self
+        self.protoset.add (proto)
+        
+    def remove_protoset (self, proto):
+        proto = self.protobytes (proto)
+        self.protoset.remove (proto)
+        del self.parents.ports[proto]
