@@ -135,11 +135,16 @@ class _Ethernet (datalink.BcDatalink, StopThread):
                                    "inconsistent with packet length %d",
                                    self.name, plen2, plen)
                     return
-                packet = memoryview (packet)[16:16 + plen2]
+                payload = memoryview (packet)[16:16 + plen2]
             else:
-                packet = memoryview (packet)[14:]
+                payload = memoryview (packet)[14:]
+            # Pass the payload as "packet" but also pass up the whole
+            # PDU for users like the bridge.  Also the third argument,
+            # which is timestamp for Pcap (not interesting) but source
+            # host/port for Bridge (which we'll need for flooding)
             self.node.addwork (Received (port.owner,
-                                         src = src, packet = packet))
+                                         src = src, packet = payload,
+                                         pdu = packet, extra = ts))
 
 # API specific classes
 
@@ -169,7 +174,7 @@ class _TapEth (_Ethernet):
         os.close (self.tap)
         self.tap = None
         
-    def send_frame (self, buf):
+    def send_frame (self, buf, skip = None):
         """Send an Ethernet frame.  Ignore any errors, because that's
         the DECnet way.
         """
@@ -214,7 +219,7 @@ class _PcapEth (_Ethernet):
         # Don't do the close yet, it crashes for reasons yet unknown
         #self.pcap.close ()
 
-    def send_frame (self, buf):
+    def send_frame (self, buf, skip = None):
         """Send an Ethernet frame.  Ignore any errors, because that's
         the DECnet way.
         """
@@ -232,6 +237,16 @@ class _PcapEth (_Ethernet):
             except pcap._pcap.error:
                 break
 
+def pairs (i):
+    i = iter (i)
+    while True:
+        try:
+            a = next (i)
+            b = next (i)
+            yield a, b
+        except StopIteration:
+            return
+    
 class _BridgeEth (_Ethernet):
     """Class for talking to a Johnny Billquist bridge (somewhere else,
     external to this process), via UDP packets each carrying an
@@ -239,12 +254,19 @@ class _BridgeEth (_Ethernet):
     """
     def __init__ (self, owner, name, dev, config):
         super ().__init__ (owner, name, dev, config)
-        lport, host, port = dev.split (":")
+        lport, *peers = dev.split (":")
         self.lport = int (lport)
-        self.port = int (port)
-        self.host = datalink.HostAddress (host)
-        logging.trace ("Ethernet bridge %s initialized on %d, to %s:%d",
-                       self.name, self.lport, host, self.port)
+        self.peers = list ()
+        self.mac = dict ()
+        print (peers)
+        for h, p in pairs (peers):
+            p = int (p)
+            hp = (datalink.HostAddress (h), p)
+            self.peers.append (hp)
+        if len (self.peers) > 1 and self.node.decnet:
+            raise ValueError ("Multiple peers only valid on bridge")
+        logging.debug ("Ethernet bridge %s initialized on %d, to %s",
+                       self.name, self.lport, self.peers)
         
     def open (self):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
@@ -293,21 +315,54 @@ class _BridgeEth (_Ethernet):
                     self.disconnected ()
                     return
                 host, port = addr
-                if not self.host.valid (host):
-                    # Not from peer, ignore
-                    continue
-                self.receive (len (msg), msg, None)
+                good = False
+                for h, p in self.peers:
+                    if p != port or not h.valid (host):
+                        # Not from peer, ignore
+                        continue
+                    good = True
+                    break
+                if good:
+                    source = (host, port)
+                    if msg[6] & 1:
+                        continue   # source routed???
+                    srcmac = Macaddr (msg[6:12])
+                    logging.trace ("Learning %s on %s:%d", srcmac, host, port)
+                    self.mac[srcmac] = source
+                    self.receive (len (msg), msg, source)
 
-    def send_frame (self, buf):
+    def send_frame (self, buf, skip = None):
         """Send an Ethernet frame.  Ignore any errors, because that's
         the DECnet way.
         """
         if not self.socket:
             return
+        dest = Macaddr (buf[0:6])
         try:
-            self.socket.sendto (buf, (self.host.addr, self.port))
-        except (IOError, socket.error) as e:
+            h, p = self.mac[dest]
+            h = str (h)
+            if (h, p) == skip:
+                logging.trace ("Skipping send to %s:%d", h, p)
+                return
+            logging.trace ("Sending %d bytes to %s:%d", len (buf), h, p)
+            try:
+                self.socket.sendto (buf, (h, p))
+            except (IOError, socket.error) as e:
+                pass
+            return
+        except KeyError:
             pass
+        for h, p in self.peers:
+            h = str (h)
+            if (h, p) == skip:
+                logging.trace ("Skipping flooding to %s:%d", h, p)
+                continue
+            logging.trace ("Flooding %d bytes to %s:%d", len (buf), h, p)
+            try:
+                self.socket.sendto (buf, (h, p))
+            except (IOError, socket.error) as e:
+                pass
+        
         
 # Factory class -- returns an instance of the appropriate _Ethernet
 # subclass instance given the specific device flavor specified.

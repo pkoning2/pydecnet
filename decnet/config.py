@@ -78,6 +78,8 @@ cp.add_argument ("--priority", metavar = "P", type = int,
                  help = "Designated router priority (range 0..127)")
 cp.add_argument ("--verify", action = "store_true", default = False,
                  help = "Require routing verification (point to point only)")
+cp.add_argument ("--mop", action = "store_true", default = False,
+                 help = "Enable MOP and LAT (bridge circuit only)")
 
 cp = config_cmd ("system", "Overall system configuration")
 cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
@@ -155,8 +157,8 @@ cp.add_argument ("--events", type = str, default = "",
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", type = str, help = "Bridge name")
-cp.add_argument ("circuit", nargs = "+",
-                 help = "Circuit names assigned to this bridge")
+#cp.add_argument ("circuit", nargs = "+",
+#                 help = "Circuit names assigned to this bridge")
 
 class Config (object):
     """Container for configuration data.
