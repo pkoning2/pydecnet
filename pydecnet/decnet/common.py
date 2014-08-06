@@ -19,7 +19,7 @@ DEFAPISOCKET = "decnetsocket"
 
 # Important constants
 
-MOPDLPROTO   = 0x6002
+MOPDLPROTO   = 0x6001
 MOPCONSPROTO = 0x6002
 ROUTINGPROTO = 0x6003
 LATPROTO     = 0x6004   # used by bridge
@@ -58,6 +58,8 @@ class InvalidTag (DecodeError):
 bytetypes = (bytes, bytearray, memoryview)
 
 # Tuple of string/byte types, similar to the above but also includes str.
+# Basically, these are types that collections.abc calls Sequence but that
+# we would treat as non-sequence (single value).
 strtypes = (str, bytes, bytearray, memoryview)
 
 # It would be handy to have the bytes analog of chr() as a builtin,

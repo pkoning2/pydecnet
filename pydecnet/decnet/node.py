@@ -21,6 +21,7 @@ from . import apiserver
 from . import nsp
 from . import monitor
 from . import event_logger
+from . import bridge
 
 class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     """A container for node database entries.  This contains the attributes
@@ -55,24 +56,35 @@ class Node (object):
     entire network within a single process).
     """
     startlist = ( "event_logger", "datalink", "mop", "routing", "nsp",
-                  "api", "monitor" )
+                  "bridge", "api", "monitor" )
 
     def __init__ (self, config):
         self.node = self
         self.config = config
-        self.phase = phases[config.routing.type]
-        if self.phase == 4:
-            self.nodeid = config.routing.id
-        else:
-            # Not phase IV, so make sure node ID is an old style (8 bit) value
-            self.nodeid = NodeId (0, config.routing.id.tid)
-        # Build node lookup dictionaries
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
-        for n in config.node.values ():
-            n = Nodeinfo (n)
-            self.addnodeinfo (n)
-        self.nodename = self.nodeinfo (self.nodeid).nodename
+        self.decnet = hasattr (config, "routing")
+        if self.decnet:
+            # This is a DECnet node.
+            self.bridge = None
+            self.phase = phases[config.routing.type]
+            if self.phase == 4:
+                self.nodeid = config.routing.id
+            else:
+                # Not phase IV, so make sure node ID is an old style
+                # (8 bit) value
+                self.nodeid = NodeId (0, config.routing.id.tid)
+            # Build node lookup dictionaries
+            for n in config.node.values ():
+                n = Nodeinfo (n)
+                self.addnodeinfo (n)
+            self.nodename = self.nodeinfo (self.nodeid).nodename
+        else:
+            # bridge, dummy up some attributes
+            self.mop = self.routing = self.nsp = None
+            self.phase = 0
+            self.nodeid = None
+            self.nodename = config.bridge.name
         threading.current_thread ().name = self.nodename
         logging.debug ("Initializing node %s", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
@@ -84,10 +96,13 @@ class Node (object):
         # Create its child entities in the appropriate order.
         self.event_logger = event_logger.EventLogger (self, config)
         self.datalink = datalink.DatalinkLayer (self, config)
-        self.mop = mop.Mop (self, config)
-        self.routing = routing.Router (self, config)
-        self.nsp = nsp.NSP (self, config)
-
+        if self.decnet:
+            self.mop = mop.Mop (self, config)
+            self.routing = routing.Router (self, config)
+            self.nsp = nsp.NSP (self, config)
+        else:
+            self.bridge = bridge.Bridge (self, config)
+            
     def addnodeinfo (self, n):
         self.nodeinfo_byname[n.nodename] = n
         self.nodeinfo_byid[n] = n

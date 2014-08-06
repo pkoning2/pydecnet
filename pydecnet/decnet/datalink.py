@@ -73,7 +73,10 @@ class HostAddress (object):
         """
         self.check_interval ()
         return self._addr
-        
+
+    def __str__ (self):
+        return str (self.addr)
+    
 class DatalinkLayer (Element):
     """The datalink layer.  This is mainly a container for the individual
     datalink circuits.
@@ -341,6 +344,7 @@ class BcPort (Port):
         """Set (default) or clear (promisc = False) promiscuous mode.
         """
         self.promisc = promisc
+        logging.trace ("%s promiscuous mode set to %s", self, promisc)
         self._update_filter ()
         
     def add_multicast (self, addr):
@@ -348,10 +352,12 @@ class BcPort (Port):
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
+        logging.trace ("%s multicast address %s added", self, addr)
         self._update_filter ()
         
     def remove_multicast (self, addr):
         self.multicast.remove (addr)
+        logging.trace ("%s multicast address %s removed", self, addr)
         self._update_filter ()
 
     def set_macaddr (self, addr):
@@ -375,8 +381,10 @@ class BcPort (Port):
             raise RuntimeError ("Protocol type in use by another port")
         self.parent.ports[proto] = self
         self.protoset.add (proto)
+        logging.trace ("%s protocol %s added", self, proto)
         
     def remove_protoset (self, proto):
         proto = self.protobytes (proto)
         self.protoset.remove (proto)
         del self.parents.ports[proto]
+        logging.trace ("%s protocol %s removed", self, proto)
