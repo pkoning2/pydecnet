@@ -184,7 +184,7 @@ class EthTest (DnTest):
         self.assertEqual (self.rport.bytes_recv, 60)
         # MOP DL packet
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
-                         b"\x60\x02" + self.lelen (self.tdata) + self.tdata)
+                         b"\x60\x01" + self.lelen (self.tdata) + self.tdata)
         w = self.lastwork (2)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)

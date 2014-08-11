@@ -58,7 +58,7 @@ class AckNum (object):
     XACK = 2
     XNAK = 3
     def __init__ (self, num, qual = ACK):
-        if qual not in { 0, 1, 2, 3 }:
+        if not 0 <= qual <= 3:
             raise ValueError ("Invalid QUAL value %s" % qual)
         self.qual = qual
         self.num = Seq (num)
@@ -71,7 +71,7 @@ class AckNum (object):
                 # ACK field is present.  Always advance past it.
                 buf = buf[2:]
                 qual = (v >> 12) & 7
-                if qual in { 0, 1, 2, 3 }:
+                if 0 <= qual <= 3:
                     # Use the field only if QUAL is valid
                     return cls (v, qual), buf
         return None, buf

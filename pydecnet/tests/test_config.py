@@ -104,7 +104,7 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 --prio 128", "invalid choice")
 
 class TestLogging (Logchecker):
-    req = """bridge br-0 eth-0 eth-1
+    req = """bridge br-0
     """
 
     def test_basic (self):
@@ -277,14 +277,8 @@ class TestNSP_err (Logchecker):
 class TestBridge (Logchecker):
 
     def test_basic (self):
-        c = self.ctest ("bridge br-0 eth-0").bridge
+        c = self.ctest ("bridge br-0").bridge
         self.assertEqual (c.name, "br-0")
-        self.assertEqual (c.circuit, [ "eth-0" ])
-        
-    def test_all (self):
-        c = self.ctest ("bridge br-0 eth-0 eth-1 eth-2").bridge
-        self.assertEqual (c.name, "br-0")
-        self.assertEqual (c.circuit, [ "eth-0", "eth-1", "eth-2" ])
 
 class TestBridge_err (Logchecker):
     loglevel = logging.CRITICAL
@@ -292,8 +286,6 @@ class TestBridge_err (Logchecker):
     def test_errors (self):
         self.checkerr ("bridge", "arguments are required")
         self.checkerr ("bridge", "name")
-        self.checkerr ("bridge br-0", "arguments are required")
-        self.checkerr ("bridge br-0", "circuit")
         self.checkerr ("bridge -frob br-0 cir-0", "unrecognized argument")
         
 if __name__ == "__main__":

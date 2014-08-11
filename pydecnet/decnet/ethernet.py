@@ -258,7 +258,6 @@ class _BridgeEth (_Ethernet):
         self.lport = int (lport)
         self.peers = list ()
         self.mac = dict ()
-        print (peers)
         for h, p in pairs (peers):
             p = int (p)
             hp = (datalink.HostAddress (h), p)
