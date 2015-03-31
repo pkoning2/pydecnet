@@ -19,10 +19,11 @@ DECnet communication services.
 
 PyDECnet allows communication over Ethernet LANs (virtual or real),
 SIMH emulated DMC connections, and asynchronous DDCMP connections via
-a supported UART.  It was developed using Python 3.2 on Mac OS 10.6;
-it should work with Python 3.2 or later (but not with any earlier
-version of Python) on any Unix-like operating system.  It may or may
-not work on Windows.
+a supported UART.  It was developed using Python 3.3 on Mac OS 10.6
+and 10.10; it should work with Python 3.3 or later (but not with any
+earlier version of Python) on any Unix-like operating system.  It may
+or may not work on Windows; if you try that, I would be interested in
+hearing the results.
 
 The implementation is written to conform to the Digital Network
 Architecture, Phase IV, as published by Digital Equipment
@@ -36,12 +37,14 @@ See file LICENSE for details.
 "DECnet" may be a trademark.  "PyDECnet" is not, to the best of my
 knowledge. 
 
-Dependencies: Async DDCMP support requires the "serial" package.
+Dependencies: Async DDCMP support, over an actual serial port (as
+opposed to a Telnet connection) requires the "serial" package.
 Ethernet support requires libpcap or TAP support.  TAP support has
-only been done for Mac OS X at this time; it depends on the "tuntaposx"
-package by Mattias Nissler (see http://tuntaposx.sourceforge.net/ for
-details).  The sample program "rcexpect" depends on the "pexpect"
-package, modified for Python 3 support.
+only been done for Mac OS X at this time; it depends on the
+"tuntaposx" package by Mattias Nissler (see
+http://tuntaposx.sourceforge.net/ for details).  The sample program
+"rcexpect" depends on the "pexpect" package, modified for Python 3
+support.
 
 A note on pcap: The original implementation used a modified version of
 the pylibpcap package (changed for Python 3 support and to add the
