@@ -2,6 +2,9 @@
 
 """Installer for decnet module
 
+Copyright (c) 2013-2015 G. Paul Koning.
+
+Licensed under open source license terms stated in file LICENSE.
 """
 
 from distutils.core import setup
