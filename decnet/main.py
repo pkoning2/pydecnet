@@ -109,7 +109,7 @@ def main ():
             print ("--daemon requires --log-file")
             sys.exit (1)
         h = logging.StreamHandler (sys.stderr)
-    logging.basicConfig (handler = h, level = p.log_level,
+    logging.basicConfig (handlers = [ h ], level = p.log_level,
                          format = "%(asctime)s: %(threadName)s: %(message)s")
     # Read all the configs
     logging.info ("Starting DECnet/Python")
