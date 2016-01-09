@@ -240,6 +240,14 @@ class Macaddr (bytes):
         return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (self)
 
     __repr__ = __str__
+
+    def islocal (self):
+        """True if the address is from the locally administered address space."""
+        return (self[0] & 0x02) != 0
+    
+    def ismulti (self):
+        """True if the address is a multicast address."""
+        return (self[0] & 0x01) != 0
     
 NULLID = Macaddr (bytes (6))
 

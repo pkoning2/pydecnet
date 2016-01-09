@@ -142,8 +142,9 @@ class Datalink (Element, metaclass = ABCMeta):
         the instance; "owner" is its owner; "config" is the configuration
         data for this circuit.
         The owner will receive notifications of received data,
-        transmit completions, and other applicable upcalls by calls
-        to its dl_notification method.
+        transmit completions, and other applicable events by work
+        items delivered via the node work queue to the "dispatch"
+        method of the owner.
         """
         super ().__init__ (owner)
         self.name = name
@@ -255,7 +256,7 @@ class PtpDatalink (Datalink):
 class BcDatalink (Datalink):
     """Base class for broadcast (LAN) datalinks.
     """
-    use_mop = True     # True if we want MOP to run on this type of datalink
+    use_mop = True     # True since we want MOP to run on this type of datalink
 
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
@@ -349,6 +350,8 @@ class BcPort (Port):
         
     def add_multicast (self, addr):
         addr = Macaddr (addr)
+        if not addr.ismulti ():
+            raise ValueError ("Address {} is not a multicast address".format (addr))
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
@@ -356,11 +359,15 @@ class BcPort (Port):
         self._update_filter ()
         
     def remove_multicast (self, addr):
+        addr = Macaddr (addr)
         self.multicast.remove (addr)
         logging.trace ("%s multicast address %s removed", self, addr)
         self._update_filter ()
 
     def set_macaddr (self, addr):
+        addr = Macaddr (addr)
+        if addr.ismulti ():
+            raise ValueError ("Address {} is not an individual address".format (addr))
         self.macaddr = addr
         self._update_filter ()
 
