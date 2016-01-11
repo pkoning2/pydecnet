@@ -31,8 +31,7 @@ Corporation.  Note that Digital and its successors have no involvement
 in this implementation (other than by virtue of having published the
 protocol specifications, which are available to the general public).
 
-PyDECnet is licensed under a license analogous to the Python license.
-See file LICENSE for details.
+PyDECnet is licensed under the BSD 3-part license.
 
 "DECnet" may be a trademark.  "PyDECnet" is not, to the best of my
 knowledge. 
