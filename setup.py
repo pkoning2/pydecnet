@@ -7,6 +7,11 @@ Copyright (c) 2013-2015 G. Paul Koning.
 Licensed under open source license terms stated in file LICENSE.
 """
 
+import sys
+if sys.version_info[0] < 3 or sys.version_info[1] < 3:
+    print ("PyDECnet requires Python 3.3 or later")
+    sys.exit (1)
+
 from setuptools import setup
 
 Version = "1.0"
