@@ -450,7 +450,10 @@ class PtpCircuit (statemachine.StateMachine):
                 self.rphase = 2
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
-                self.blksize = self.minrouterblk = pkt.blksize
+                # Technically we only need to obey the received blocksize,
+                # but since some implementations send silly values,
+                # instead use its size or ours, whichever is less.
+                self.blksize = self.minrouterblk = min (pkt.blksize, MTU)
                 if self.node.phase == 4:
                     self.id = Nodeid (self.parent.homearea, pkt.srcnode)
                 else:
@@ -568,7 +571,10 @@ class PtpCircuit (statemachine.StateMachine):
                     else:
                         self.id = Nodeid (pkt.srcnode.tid)
                 self.ntype = pkt.ntype
-                self.blksize = self.minrouterblk = pkt.blksize
+                # Technically we only need to obey the received blocksize,
+                # but since some implementations send silly values,
+                # instead use its size or ours, whichever is less.
+                self.blksize = self.minrouterblk = min (pkt.blksize, MTU)
                 self.tiver = pkt.tiver
                 if pkt.verif:
                     # Verification requested
@@ -825,9 +831,13 @@ class PtpCircuit (statemachine.StateMachine):
         else:
             neighbor = ""
         ntype = ntypestrings[self.ntype]
+        if self.adj:
+            t4 = self.adj.t4
+        else:
+            t4 = ""
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{1}</td><td>{2}</td><td>{0.t3}</td><td>{0.blksize}</td>
-        <td>{0.adj.t4}</td><td>{0.tiver}</td>
-        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype)
+        <td>{2}</td><td>{0.tiver}</td>
+        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype, t4)
         return hdr + s
     
