@@ -15,7 +15,6 @@ DNVERSION = "DECnet/Python V1.0"
 # Defaults
 
 DEFCONFIG = "pydecnet.conf"
-DEFAPISOCKET = "decnetsocket"
 
 # Important constants
 

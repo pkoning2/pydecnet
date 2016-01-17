@@ -89,7 +89,14 @@ class Node (object):
         logging.debug ("Initializing node %s", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
         sock = config.system.api_socket
-        self.api = apiserver.ApiServer (self, sock)
+        # API only if enabled, and then only on DECnet nodes
+        if sock:
+            if self.decnet:
+                self.api = apiserver.ApiServer (self, sock)
+            else:
+                logging.warning ("Ignoring --api-socket on bridge node")
+        else:
+            self.api = None
         self.monitor = monitor.Monitor (self, config)
         self.workqueue = queue.Queue ()
         # We now have a node.
