@@ -2,6 +2,7 @@ include MANIFEST.in
 include LICENSE
 include README.txt
 include samples/pydecnet.conf
+include samples/bridge.conf
 include pydecnet
 recursive-include decnet *.py
 recursive-include samples *.py
