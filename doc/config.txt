@@ -52,13 +52,13 @@ monitoring.  Default is 8000.
 
 Component "routing"
 
-This required component describes the DNA Routing layer.  Many of the
-parameters correspond to those mentioned in the DNA Routing
-specification, generally by the same name.  Please refer to that
-specification for a full description.  Note that some DNA Routing
-layer parameters are not used by PyDECnet; for example, some are used
-to implement size limitations on tables where PyDECnet has no need to
-limit those tables.
+This component is required for a DECnet node.  It describes the DNA
+Routing layer.  Many of the parameters correspond to those mentioned
+in the DNA Routing specification, generally by the same name.  Please
+refer to that specification for a full description.  Note that some
+DNA Routing layer parameters are not used by PyDECnet; for example,
+some are used to implement size limitations on tables where PyDECnet
+has no need to limit those tables.
 
 Argument: node ID.  The "routing" entry requires the node address of
 this node as argument.  The node address has the usual form, either an
@@ -152,18 +152,13 @@ circuit type:
     for speaking Ethernet, and dest is the device or destination to be
     used.  Acceptable values are:
         tap:devname -- TUN/TAP accessing the named TAP device
-	pcap:devname -- Use the specified Ethernet device via the
+	pcap:ifname -- Use the specified Ethernet interface via the
 	    PCAP library
-        bridge:localport:host:port... -- Attach this Ethernet to the 
-            Billquist bridge at the specified IP address and UDP port,
+        bridge:localport:host:port -- Attach this Ethernet to the 
+            Bilquist bridge at the specified IP address and UDP port,
             sending from and receiving on the specific localport.
 	    For those used to SIMH notation, "udp" is a synonym for 
-	    "bridge".  The host:port element may be repeated if this
-	    circuit is part of a bridge; in that case, the host:port
-	    pairs correspond to multiple peers that are treated as
-	    part of a single LAN (and packets are flooded to them
-	    as appropriate).  For a DECnet circuit, there can be only
-	    one remote host:port.
+	    "bridge".  
 
     SimhDMC: either host:port or host:port:secondary.  The first form
     defines a primary mode DMC-11 emulation connection: the host and
@@ -240,3 +235,15 @@ terminate at this node.  Allowed values are 255, 511, 1023, 2047,
 specification, specifically the section discussing "intercept"
 operation. 
 
+Component "bridge"
+
+This component is required for a Bilquist bridge node.  Its only
+argument is the name of the bridge.
+
+A bridge has one or more circuits, which must be Ethernet.  A "system"
+component may be specified to define an HTTP port for monitoring; no
+other components are applicable.  It will provide simple bridge
+services among all those circuits, flooding multicast and unknown
+address packets, and directly forwarding packets whose destination
+address is known.  It is compatible with the C based bridge
+implementation by Johnny Bilquist.

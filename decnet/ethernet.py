@@ -237,16 +237,6 @@ class _PcapEth (_Ethernet):
             except pcap._pcap.error:
                 break
 
-def pairs (i):
-    i = iter (i)
-    while True:
-        try:
-            a = next (i)
-            b = next (i)
-            yield a, b
-        except StopIteration:
-            return
-    
 class _BridgeEth (_Ethernet):
     """Class for talking to a Johnny Billquist bridge (somewhere else,
     external to this process), via UDP packets each carrying an
@@ -254,18 +244,12 @@ class _BridgeEth (_Ethernet):
     """
     def __init__ (self, owner, name, dev, config):
         super ().__init__ (owner, name, dev, config)
-        lport, *peers = dev.split (":")
+        lport, host, rport = dev.split (":")
         self.lport = int (lport)
-        self.peers = list ()
-        self.mac = dict ()
-        for h, p in pairs (peers):
-            p = int (p)
-            hp = (datalink.HostAddress (h), p)
-            self.peers.append (hp)
-        if len (self.peers) > 1 and self.node.decnet:
-            raise ValueError ("Multiple peers only valid on bridge")
-        logging.debug ("Ethernet bridge %s initialized on %d, to %s",
-                       self.name, self.lport, self.peers)
+        self.host = datalink.HostAddress (host)
+        self.rport = int (rport)
+        logging.debug ("Ethernet bridge %s initialized on %d, to %s %s",
+                       self.name, self.lport, self.host, self.rport)
         
     def open (self):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
@@ -315,20 +299,13 @@ class _BridgeEth (_Ethernet):
                     return
                 host, port = addr
                 good = False
-                for h, p in self.peers:
-                    if p != port or not h.valid (host):
-                        # Not from peer, ignore
-                        continue
-                    good = True
-                    break
-                if good:
-                    source = (host, port)
-                    if msg[6] & 1:
-                        continue   # source routed???
-                    srcmac = Macaddr (msg[6:12])
-                    logging.trace ("Learning %s on %s:%d", srcmac, host, port)
-                    self.mac[srcmac] = source
-                    self.receive (len (msg), msg, source)
+                if port != self.rport or not self.host.valid (host):
+                    # Not from peer, ignore
+                    continue
+                source = (host, port)
+                if msg[6] & 1:
+                    continue   # source routed???  ignore it
+                self.receive (len (msg), msg, source)
 
     def send_frame (self, buf, skip = None):
         """Send an Ethernet frame.  Ignore any errors, because that's
@@ -336,31 +313,12 @@ class _BridgeEth (_Ethernet):
         """
         if not self.socket:
             return
-        dest = Macaddr (buf[0:6])
+        logging.trace ("Sending %d bytes to %s:%d", len (buf),
+                       self.host, self.rport)
         try:
-            h, p = self.mac[dest]
-            h = str (h)
-            if (h, p) == skip:
-                logging.trace ("Skipping send to %s:%d", h, p)
-                return
-            logging.trace ("Sending %d bytes to %s:%d", len (buf), h, p)
-            try:
-                self.socket.sendto (buf, (h, p))
-            except (IOError, socket.error) as e:
-                pass
-            return
-        except KeyError:
+            self.socket.sendto (buf, (self.host.addr, self.rport))
+        except (IOError, socket.error) as e:
             pass
-        for h, p in self.peers:
-            h = str (h)
-            if (h, p) == skip:
-                logging.trace ("Skipping flooding to %s:%d", h, p)
-                continue
-            logging.trace ("Flooding %d bytes to %s:%d", len (buf), h, p)
-            try:
-                self.socket.sendto (buf, (h, p))
-            except (IOError, socket.error) as e:
-                pass
         
         
 # Factory class -- returns an instance of the appropriate _Ethernet

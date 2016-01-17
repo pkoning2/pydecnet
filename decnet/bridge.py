@@ -107,19 +107,17 @@ class Bridge (Element):
             if dest == src:
                 return
             proto = packet[12:14]
+            # TODO: address database entry expiration
             self.dest[src] = circ
             logging.trace ("Received packet from %s on %s", src, circ)
             if dest in self.dest:
                 out = self.dest[dest]
-                if out is not circ or \
-                       isinstance (out.datalink.parent, ethernet._BridgeEth):
+                if out is not circ:
                     logging.trace ("Forwarding to %s", out)
                     out.send_frame (packet, work.extra)
             else:
                 for c in self.circuits.values ():
-                    if c is not circ or \
-                           isinstance (c.datalink.parent,
-                                       ethernet._BridgeEth):
+                    if c is not circ:
                         logging.trace ("Flooding packet to %s", c)
                         c.send_frame (packet, work.extra)
 
@@ -145,8 +143,8 @@ class Bridge (Element):
         <table border=1 cellspacing=0 cellpadding=4>
         <tr><th>Address</th><th>Circuit</th></tr>\n"""
         f = list ()
-        for circ, addr in sorted (((str (c), a) for a, c
-                                   in self.dest.items ())):
+        for addr, circ in sorted (self.dest.items (),
+                                  key = lambda x: str (x[1])):
             f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
         f = ''.join (f) + "</table>"
         return hdr + ctab + clist + ftab + f
