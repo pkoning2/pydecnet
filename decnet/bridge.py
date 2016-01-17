@@ -23,6 +23,9 @@ class BridgeCircuit (Element):
         self.name = name
         self.datalink = datalink.create_port (self, ROUTINGPROTO,
                                               pad = False)
+        # Check that it's a good one
+        if not isinstance (self.datalink, ethernet.EthPort):
+            raise TypeError ("Circuit must be Ethernet type")
         # Remember whether MOP and friends are allowed on this circuit
         self.mop = config.mop
         if self.mop:
@@ -73,6 +76,7 @@ class Bridge (Element):
                 logging.debug ("Initialized bridge circuit %s", name)
             except Exception:
                 logging.exception ("Error initializing bridge circuit %s", name)
+                del dlcirc[name]
         
     def __str__ (self):
         return "{0.name}".format (self)
