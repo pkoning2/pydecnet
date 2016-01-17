@@ -44,7 +44,9 @@ switches are:
 --api-socket: requires a file name argument.  This file name will be
 used to create a Unix domain socket that implements the PyDECnet API.
 The file must not exist at startup.  On exit, PyDECnet will delete the
-socket.  Default is "decnetsocket".
+socket.  Default is not to enable the PyDECnet API in this node.  Note
+that this switch is not applicable (and will be ignored with a
+warning) in bridge nodes.
 
 --http-port: requires an integer argument in the range 1 to 65535.
 This specifies the port number on which PyDECnet provides HTTP based
