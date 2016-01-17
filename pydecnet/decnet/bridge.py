@@ -51,7 +51,61 @@ class BridgeCircuit (Element):
     def send_frame (self, pdu, skip = None):
         logging.trace ("Sending %d bytes to %s: %s", len (pdu), self, pdu)
         self.datalink.parent.send_frame (pdu, skip)
+
+class AddrEnt (timers.Timer):
+    """An entry in the bridge address database.  This is basically a
+    combination of a MAC address (the database key), a circuit (what
+    that Mac address points to) and a timer that will remove the entry
+    from the database on expiration.
+    """
+    Timeout = 60
+    
+    def __init__ (self, db, addr, circ):
+        """Add an entry for address "addr", pointing to circuit "circ".
+        It will be entered in address database "db".  Timer expiration
+        will remove it from "db".
+        """
+        super ().__init__ ()
+        self.addr = addr
+        self.owner = db
+        self.circuit = circ
+        self.alive()
+        logging.debug ("New MAC address %s on circuit %s" % (addr, circ))
+
+    def alive (self):
+        self.owner.timers.start (self, self.Timeout)
+
+    def update (self, circ):
+        logging.debug ("MAC address %s moved from circuit %s to %s" %
+                       (addr, self.circuit, circ))
+        self.circuit = circ
+        self.alive ()
+
+    def dispatch (self, item):
+        # Timer expiration
+        logging.debug ("MAC address %s timed out on circuit %s" %
+                       (self.addr, self.circuit))
+        del self.owner[self.addr]
         
+class AddrDb (dict):
+    """The address database.  This contains AddrEnt elements, keyed
+    by MAC address.
+    """
+    def __init__ (self, node):
+        super ().__init__ ()
+        self.node = node
+        self.timers = node.timers
+
+    def learn (self, addr, circ):
+        try:
+            ent = self[addr]
+            if ent.circuit is circ:
+                ent.alive ()
+            else:
+                ent.update (circ)
+        except KeyError:
+            self[addr] = AddrEnt (self, addr, circ)
+
 class Bridge (Element):
     """A bridge.  This is roughly a "simple bridge" (no spanning tree
     protocol).  But more precisely, it's a Python version of Johnny
@@ -64,8 +118,8 @@ class Bridge (Element):
         logging.debug ("Initializing bridge %s", self.name)
         self.config = config.bridge
         # Counters?  TBD
-        # Dictionary of known destination addresses
-        self.dest = dict ()
+        # Database of known destination addresses
+        self.dest = AddrDb (node)
         # Find our circuits
         self.circuits = dict ()
         dlcirc = self.node.datalink.circuits
@@ -76,7 +130,6 @@ class Bridge (Element):
                 logging.debug ("Initialized bridge circuit %s", name)
             except Exception:
                 logging.exception ("Error initializing bridge circuit %s", name)
-                del dlcirc[name]
         
     def __str__ (self):
         return "{0.name}".format (self)
@@ -111,8 +164,7 @@ class Bridge (Element):
             if dest == src:
                 return
             proto = packet[12:14]
-            # TODO: address database entry expiration
-            self.dest[src] = circ
+            self.dest.learn (src, circ)
             logging.trace ("Received packet from %s on %s", src, circ)
             if dest in self.dest:
                 out = self.dest[dest]
@@ -147,8 +199,8 @@ class Bridge (Element):
         <table border=1 cellspacing=0 cellpadding=4>
         <tr><th>Address</th><th>Circuit</th></tr>\n"""
         f = list ()
-        for addr, circ in sorted (self.dest.items (),
-                                  key = lambda x: str (x[1])):
+        for circ, addr in sorted ([ (str (ent.circuit), addr) for
+                                    addr, ent in self.dest.items () ]):
             f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
         f = ''.join (f) + "</table>"
         return hdr + ctab + clist + ftab + f
