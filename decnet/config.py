@@ -45,8 +45,14 @@ def config_cmd (name, help, collection = False, namespace = None):
 # paying attention to layering, so for example a "circuit" gives things
 # relating to the datalink layer, routing layer, and so on.
 
+datalinks = [ d.__name__ for d in datalink.Datalink.leafclasses () ]
+datalinks.sort ()
+
 cp = config_cmd ("circuit", "Circuit configuration", collection = True)
 cp.add_argument ("name", help = "Circuit name", type = circname)
+cp.add_argument ("type", choices = datalinks, metavar = "type",
+                 help = "Datalink type; one of %s." % ", ".join (datalinks))
+cp.add_argument ("device", help = "Device or connection string")
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (range 1..25, default 1)",
                  choices = range (1, 26), default = 1)
@@ -58,13 +64,6 @@ cp.add_argument ("--t3", type = int,
 cp.add_argument ("--console", const = bytes (8), metavar = "V",
                  nargs = "?", type = scan_ver,
                  help = "Enable MOP console (V = verification)")
-datalinks = [ d.__name__ for d in datalink.Datalink.leafclasses () ]
-datalinks.append ("Ethernet")
-datalinks.sort ()
-cp.add_argument ("--type", default = "Ethernet", choices = datalinks,
-                 help = "Datalink type (default: Ethernet)")
-cp.add_argument ("--device",
-                 help = "Device or connection string (default: same as name)")
 cp.add_argument ("--random-address", action = "store_true", default = False,
                  help = "Generate random \"hardware address\" (Ethernet only)")
 # The spec says the valid range is 0..255 but that is wrong, because the list
@@ -82,8 +81,8 @@ cp.add_argument ("--mop", action = "store_true", default = False,
                  help = "Enable MOP and LAT (bridge circuit only)")
 
 cp = config_cmd ("system", "Overall system configuration")
-cp.add_argument ("--api-socket", metavar = "S", default = DEFAPISOCKET,
-                 help = "Unix socket name for DECnet API")
+cp.add_argument ("--api-socket", metavar = "S", default = None,
+                 help = "Unix socket name for DECnet API (default: no API)")
 cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  type = int, choices = range (65536),
                  help = "Port number for HTTP monitoring, 0 to disable")

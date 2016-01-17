@@ -28,10 +28,10 @@ class SimhDMC (datalink.PtpDatalink):
     data prefixed by the packet length, as a two byte network order
     (big endian) integer.  There is no support for Maintenance mode.
 
-    The --device config parameter is required.  The device argument is
-    either "host:portnum" or "host:portnum:secondary", the former for
-    primary mode.  For secondary mode, where connections are inbound,
-    the host name/address is used to verify incoming connection addresses.
+    The device argument is either "host:portnum" or "host:portnum:secondary",
+    the former for primary mode.  For secondary mode, where connections
+    are inbound, the host name/address is used to verify incoming connection
+    addresses.
     """
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
@@ -40,7 +40,7 @@ class SimhDMC (datalink.PtpDatalink):
         self.config = config
         host, port, *sec = config.device.split (':')
         if sec:
-            if sec[0] == "secondary":
+            if sec == [ "secondary" ]:
                 self.primary = False
             else:
                 raise RuntimeError ("Invalid device string %s" % config.device)

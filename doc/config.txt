@@ -137,16 +137,14 @@ is converted to upper case.  There is a DECnet convention that circuit
 names consist of a device name, hyphen, and unit number, for example
 ETH-0.  
 
---type: Circuit type.  One of "Ethernet", "SimhDMC", "Multinet",
+Argument: Circuit type.  One of "Ethernet", "SimhDMC", "Multinet",
 "GRE".  Default is Ethernet.  Ethernet and GRE are "LAN" type
 circuits, SimDMC and Multinet are point to point type circuits.  Note
 that Multinet does not work well (defective protocol design, there's
 nothing the implementation can do about that) and is not recommended.
 
---device: Device name or connection data.  Defaults to the circuit
-name, but in many cases that is not a useful default so this switch
-typically is required.  The meaning of this string depends on the
-circuit type:
+Argument: Device name or connection data.  The meaning of this string
+depends on the circuit type:
 
     Ethernet: subtype:dest where subtype indicates a particular method
     for speaking Ethernet, and dest is the device or destination to be
