@@ -157,8 +157,6 @@ cp.add_argument ("--events", type = str, default = "",
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", type = str, help = "Bridge name")
-#cp.add_argument ("circuit", nargs = "+",
-#                 help = "Circuit names assigned to this bridge")
 
 class Config (object):
     """Container for configuration data.
@@ -167,7 +165,8 @@ class Config (object):
         if not f:
             f = open (DEFCONFIG, "rt")
         logging.debug ("Reading config %s", f.name)
-
+        self.configfilename = f.name
+        
         # Remove routing and bridge from single_init set, because we
         # handle those separately.
         single_init.discard ("routing")
@@ -222,7 +221,7 @@ class Config (object):
                     logging.error ("Missing config element: %s", name)
                     ok = False
             if not hasattr (self, "bridge") and not hasattr (self, "routing"):
-                logging.error ("Either routing or bridge elements required")
+                logging.error ("Either routing or bridge elements required, config file %s" % self.configfilename)
                 ok = False
             if not ok:
                 sys.exit (1)

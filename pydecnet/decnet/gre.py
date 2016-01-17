@@ -21,6 +21,9 @@ class GREPort (datalink.BcPort):
         f = self.frame = bytearray (1504)
         f[0:2] = greflags
         f[2:4] = self.proto
+
+    def set_promiscuous (self, promisc = True):
+        raise RuntimeError ("GRE does not support promiscuous mode")
                 
     def send (self, msg, dest):
         """Send an "Ethernet" frame to the specified address.  Since GRE
