@@ -8,9 +8,8 @@ number arithmetic (as in RFC 1982).
 """
 
 class _mod_meta (type):
-    """Metaclass for modular arithmetic.  It implements the
-    "mod" keyword when defining subclasses of "Mod".
-    """
+    # Metaclass for modular arithmetic.  It implements the
+    # "mod" keyword when defining subclasses of "Mod".
     def __new__ (cls, name, bases, classdict, mod = None):
         if not mod:
             if bases != ( int, ):
@@ -37,9 +36,15 @@ class _mod_meta (type):
 class Mod (int, metaclass = _mod_meta):
     """Modular arithmetic, specifically sequence number arithmetic.
 
+    To use this, subclass Mod with the keyword argument "mod" which is
+    the modulus to be used.  That subclass then implements sequence
+    number arithmetic modulo "mod".  For example, for TCP sequence
+    numbers:
+        class Seq (Mod, mod = 1 << 32): pass
+
     Comparisons are done according to the rules of sequence number
     arithmetic, when both operands are instances of this class, and
-    the moduli is the same.  If the moduli are different, the values
+    the moduli are the same.  If the moduli are different, the values
     are not ordered.  If one is a plain (not modular) int, comparison
     is done as plain ints.
     """
@@ -113,10 +118,20 @@ class Mod (int, metaclass = _mod_meta):
         return self.__class__ ((int (self) << int (other)) % self.modulus)
 
     def __truediv__ (self, other):
+        "Not supported"
         return NotImplemented
-    __and__ = __truediv__
-    __or__ = __truediv__
-    __xor__ = __truediv__
+    
+    def __and__ (self, other):
+        "Not supported"
+        return NotImplemented
+    
+    def __or__ (self, other):
+        "Not supported"
+        return NotImplemented
+    
+    def __xor__ (self, other):
+        "Not supported"
+        return NotImplemented
 
     def __divmod__ (self, other):
         return self / other, self % other
