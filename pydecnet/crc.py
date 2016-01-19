@@ -68,7 +68,7 @@ class _CRCMeta (type):
         classdict["poly"] = poly
         classdict["initial"] = initial
         classdict["final"] = final
-        classdict["crctable"] = maketable (poly, width, reversed)
+        classdict["crctable"] = _maketable (poly, width, reversed)
         nc = type.__new__ (cls, name, bases, classdict)
         # Now nc is the new class.
         # Define the "update" method.  We do it this way to avoid
