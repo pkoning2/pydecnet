@@ -6,7 +6,8 @@ This defines a general mechanism to compute CRCs for any polynomial, using
 the well known 256 entry lookup table technique.
 
 Credit for some of the details goes to Ross Williams; refer to his document
-"A Painless Guide to CRC Error Detection Algorithms" for more details.
+"A Painless Guide to CRC Error Detection Algorithms" at
+http://www.ross.net/crc/crcpaper.html for more details.
 """
 
 import collections.abc
@@ -57,8 +58,6 @@ class _CRCMeta (type):
                     break
         if not poly < (1 << width):
             raise ValueError ("Width is too small for specified polynomial")
-        if width not in (8, 16, 32, 64):
-            raise ValueError ("Width is not 8, 16, 32, or 64")
         if initial is True:
             initial = (1 << width) - 1
         if final is True:
@@ -83,7 +82,7 @@ class _CRCMeta (type):
         c1.update (bytes (c1))
         check = c1.value
         # Confirm it
-        c2 = nc (b"\x01")
+        c2 = nc (b"\x01\x42")
         c2.update (bytes (c2))
         if check != c2.value:
             raise RuntimeError ("Unable to find good CRC check value")
@@ -109,11 +108,12 @@ class CRC (metaclass = _CRCMeta):
         the actual CRC value,  defaults to zero.  As with initial, "True" 
         means to complement the value (XOR with all ones).
     reversed: True if the CRC is defined to operate on the data bits in
-        order from least to most significant.  Defaults to True.
+        order from least to most significant.  Defaults to True, which
+        is the choice used for many well known CRCs.
     width: width in bits of the CRC.  Unused if the polynomial is given as
         a sequence, and may be omitted if the width is obvious from the
-        polynomial as an integer value.  Legal values are currently
-        8, 16, 32, or 64.
+        polynomial as an integer value.  The current implementation only
+        works with widths that are a multiple of 8.
 
     Some example polynomials:
         0x8005:     CRC-16
