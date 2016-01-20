@@ -72,10 +72,12 @@ class _CRCMeta (type):
         # Now nc is the new class.
         # Define the "update" method.  We do it this way to avoid
         # having to check "reversed" each time a CRC is calculated.
+        doc = nc.update.__doc__
         if reversed:
             nc.update = nc._update_reversed
         else:
             nc.update = nc._update_forward
+        nc.update.__doc__ = doc
         # Make an instance of that so we can find the "good CRC" check
         # value.
         c1 = nc (b'\x00')
@@ -154,7 +156,7 @@ class CRC (metaclass = _CRCMeta):
         This will adjust "value" and "good" to reflect the new data.
         """
         # Will be replaced at subclass definition time by one of the
-        # two following methods.
+        # four following methods.
 
     def _update_forward (self, data):
         c = self._value
