@@ -22,6 +22,7 @@ def _reverse (value, width):
 def _maketable (poly, width, reflect):
     ret = list ()
     tb = 1 << (width - 1)
+    mask = (1 << width) - 1
     for i in range (256):
         if reflect:
             i = _reverse (i, 8)
@@ -31,6 +32,7 @@ def _maketable (poly, width, reflect):
                 i = (i << 1) ^ poly
             else:
                 i <<= 1
+            i &= mask
         if reflect:
             i = _reverse (i, width)
         ret.append (i)
@@ -56,24 +58,29 @@ class _CRCMeta (type):
             for width in 8, 16, 32, 64:
                 if poly < (1 << width):
                     break
-        if not poly < (1 << width):
+        crcmask = (1 << width) - 1
+        if poly > crcmask:
             raise ValueError ("Width is too small for specified polynomial")
         if initial is True:
-            initial = (1 << width) - 1
+            initial = crcmask
         if final is True:
-            final = (1 << width) - 1
+            final = crcmask
         classdict["width"] = width
         classdict["widthb"] = width // 8  # width in bytes
         classdict["poly"] = poly
         classdict["initial"] = initial
         classdict["final"] = final
+        classdict["crcmask"] = crcmask
+        classdict["reversed"] = reversed
         classdict["crctable"] = _maketable (poly, width, reversed)
         nc = type.__new__ (cls, name, bases, classdict)
         # Now nc is the new class.
         # Define the "update" method.  We do it this way to avoid
         # having to check "reversed" each time a CRC is calculated.
         doc = nc.update.__doc__
-        if reversed:
+        if width <= 8:
+            nc.update = nc._update_short
+        elif reversed:
             nc.update = nc._update_reversed
         else:
             nc.update = nc._update_forward
@@ -142,7 +149,9 @@ class CRC (metaclass = _CRCMeta):
 
     def __bytes__ (self):
         """The CRC value for the data processed so far, as a byte string."""
-        return self.value.to_bytes (self.widthb, "little")
+        if self.reversed:
+            return self.value.to_bytes (self.widthb, "little")
+        return self.value.to_bytes (self.widthb, "big")
     
     @property
     def good (self):
@@ -156,13 +165,13 @@ class CRC (metaclass = _CRCMeta):
         This will adjust "value" and "good" to reflect the new data.
         """
         # Will be replaced at subclass definition time by one of the
-        # four following methods.
+        # three following methods.
 
     def _update_forward (self, data):
         c = self._value
         sh = self.width - 8
         for b in data:
-            c = self.crctable[(c >> sh) ^ b] ^ (c << 8)
+            c = self.crctable[(c >> sh) ^ b] ^ ((c << 8) & self.crcmask)
         self._value = c
         
     def _update_reversed (self, data):
@@ -171,3 +180,9 @@ class CRC (metaclass = _CRCMeta):
             c = self.crctable[(c & 0xff) ^ b] ^ (c >> 8)
         self._value = c
         
+    # The next two are for CRC widths of 8 or less
+    def _update_short (self, data):
+        c = self._value
+        for b in data:
+            c = self.crctable[c ^ b]
+        self._value = c
