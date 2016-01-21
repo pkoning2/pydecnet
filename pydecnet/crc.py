@@ -20,27 +20,21 @@ def _reverse (value, width):
     return ret
 
 def _maketable (poly, width, reflect):
+    # The easiest way to make this work consistently is to have the
+    # "reversed" case be the normal one, i.e., shift bits out the bottom
+    # rather than the top.  That way one bit of logic works for all cases,
+    # including those where the polynomial is less than 8 bits wide.
     ret = list ()
-    mask = (1 << width) - 1
-    if width < 8:
-        poly <<= 8 - width
-        tb = 0x80
-    else:
-        tb = 1 << (width - 1)
+    poly = _reverse (poly, width)
     for i in range (256):
-        if reflect:
+        if not reflect:
             i = _reverse (i, 8)
-        if width > 8:
-            i <<= width - 8
         for j in range (8):
-            if i & tb:
-                i = (i << 1) ^ poly
+            if i & 1:
+                i = (i >> 1) ^ poly
             else:
-                i <<= 1
-            if width < 8:
-                i >>= 8 - width
-            i &= mask
-        if reflect:
+                i >>= 1
+        if not reflect:
             i = _reverse (i, width)
         ret.append (i)
     return ret
@@ -130,9 +124,10 @@ class CRC (metaclass = _CRCMeta):
         order from least to most significant.  Defaults to True, which
         is the choice used for many well known CRCs.
     width: width in bits of the CRC.  Unused if the polynomial is given as
-        a sequence, and may be omitted if the width is obvious from the
-        polynomial as an integer value.  The current implementation only
-        works with widths that are a multiple of 8.
+        a sequence, and may be omitted if the width is 8, 16, 32, or 64 and
+        obvious from the polynomial (i.e., the correct value is the smallest
+        width that will hold the polynomial's value).  Width may be any
+        integer > 0.
 
     Some example polynomials:
         0x8005:     CRC-16
@@ -186,56 +181,51 @@ class CRC (metaclass = _CRCMeta):
     def update_bits (self, data, bits):
         """Update the CRC state using the first "bits" bits in the
         supplied data.  This is like "update" if "bits" is a multiple
-        of 8.
+        of 8.  If not, then the first bits/8 bytes of the buffer are
+        the initial bits, and the last mod(bits, 8) bits of data are
+        in the final byte (in the low order bits if the default reversed
+        mode is in effect, or in the high order bits if not).
         """
         by, bi = divmod (bits, 8)
-        if bi:
-            if isinstance (data, int):
-                if self.reversed:
-                    data = data.to_bytes (by + 1, "little")
-                else:
-                    data = data.to_bytes (by + 1, "big")
-            elif len (data) < by + 1:
-                raise ValueError ("Data too short for bit count")
+        tb = (bits + 7) // 8
+        if isinstance (data, int):
             if self.reversed:
-                # The whole bytes come first, so process those now
-                self.update (data[:by])
-                p = self.crctable[128]
-                # Now process the remaining bits in the last byte, serially
-                v = self._value
-                b = data[by]
-                for i in range (bi):
-                    if (b ^ v) & 1:
-                        v = (v >> 1) ^ p
-                    else:
-                        v >>= 1
-                    b >>= 1
-                self._value = v
+                data = data.to_bytes (tb, "little")
             else:
-                # First process the odd bits in the first byte, serially
-                v = self._value
-                b = data[0]
-                for i in range (bi):
-                    # shift the next bit of the data and the top bit
-                    # of the CRC both down to the bottom for testing
-                    # their XOR:
-                    if ((b >> (bi - i - 1)) ^ (v >> (self.width - 1))) & 1:
-                        v = (v << 1) ^ self.poly
-                    else:
-                        v <<= 1
-                    v &= self.crcmask
-                self._value = v
-                # Now process the remaining (lower order, full) bytes
-                self.update (data[1:by + 1])
-        else:
-            if isinstance (data, int):
-                if self.reversed:
-                    data = data.to_bytes (by, "little")
-                else:
-                    data = data.to_bytes (by, "big")
-            elif len (data) < by:
+                if bi:
+                    # Left-align the last bits in the last byte
+                    data <<= 8 - bi
+                data = data.to_bytes (tb, "big")
+        elif len (data) < tb:
                 raise ValueError ("Data too short for bit count")
-            self.update (data[:by])
+        # See if just whole bytes
+        if not bi:
+            self.update (data)
+            return
+        # The whole bytes come first, so process those now.
+        self.update (data[:by])
+        # Now process the remaining bits in the last byte, serially
+        b = data[by]
+        v = self._value
+        if self.reversed:
+            p = self.crctable[128]
+            for i in range (bi):
+                if (b ^ v) & 1:
+                    v = (v >> 1) ^ p
+                else:
+                    v >>= 1
+                b >>= 1
+        else:
+            for i in range (bi):
+                # shift the next bit of the data and the top bit
+                # of the CRC both down to the bottom for testing
+                # their XOR:
+                if ((b >> (7 - i)) ^ (v >> (self.width - 1))) & 1:
+                    v = (v << 1) ^ self.poly
+                else:
+                    v <<= 1
+                v &= self.crcmask
+        self._value = v
             
     def _update_forward (self, data):
         c = self._value
