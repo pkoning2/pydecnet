@@ -35,14 +35,15 @@ class TestCircuit (Logchecker):
         # Test the basic parsing, multiple entries, defaults.
         # Note that some defaults are handled at a higher layer, so
         # those defaulted values end up as None here. 
-        c = self.ctest ("circuit test-0\ncircuit test-1 --cost 5")
+        c = self.ctest ("circuit test-0 Ethernet foo\n"
+                        "circuit test-1 Multinet bar --cost 5")
         cc = c.circuit["TEST-0"]
         self.assertEqual (cc.cost, 1)
         self.assertIsNone (cc.t1)
         self.assertIsNone (cc.t3)
         self.assertIsNone (cc.console)
         self.assertEqual (cc.type, "Ethernet")
-        self.assertIsNone (cc.device)
+        self.assertEqual (cc.device, "foo")
         self.assertFalse (cc.random_address)
         self.assertFalse (cc.verify)
         self.assertEqual (cc.nr, 10)
@@ -52,17 +53,17 @@ class TestCircuit (Logchecker):
         self.assertIsNone (cc.t1)
         self.assertIsNone (cc.t3)
         self.assertIsNone (cc.console)
-        self.assertEqual (cc.type, "Ethernet")
-        self.assertIsNone (cc.device)
+        self.assertEqual (cc.type, "Multinet")
+        self.assertEqual (cc.device, "bar")
         self.assertFalse (cc.random_address)
         self.assertEqual (cc.nr, 10)
         self.assertEqual (cc.priority, 64)
         self.assertEqual (set (c.circuit), { "TEST-0", "TEST-1" })
 
     def test_allargs (self):
-        c = self.ctest ("circuit test-0 --cost 2 --t1 5 --t3 15 " \
-                        "--console 'abcdef' --type GRE " \
-                        "--device foo --random-address --nr 15 " \
+        c = self.ctest ("circuit test-0 GRE foo --cost 2 --t1 5 --t3 15 " \
+                        "--console 'abcdef' " \
+                        "--random-address --nr 15 " \
                         "--priority 12 --verify")
         cc = c.circuit["TEST-0"]
         self.assertEqual (cc.cost, 2)
@@ -78,13 +79,13 @@ class TestCircuit (Logchecker):
 
     def test_alltypes (self):
         # Check that all datalink types are accepted
-        c = self.ctest ("""circuit eth-0
-        circuit eth-1 --type Ethernet
-        circuit gre-0 --type GRE
-        circuit mul-0 --type Multinet
-        circuit dmc-0 --type SimhDMC""")
-        self.assertEqual (set (c.circuit), { "ETH-0", "ETH-1", "GRE-0",
-                                             "MUL-0", "DMC-0" })
+        c = self.ctest ("""circuit eth-0 Ethernet dev
+        circuit gre-0 GRE dev
+        circuit mul-0 Multinet dev
+        circuit dmc-0 SimhDMC dev
+        circuit dmc-1 DDCMP dev""")
+        self.assertEqual (set (c.circuit), { "ETH-0", "GRE-0",
+                                             "MUL-0", "DMC-0", "DMC-1" })
 
 class TestCircuit_err (Logchecker):
     req = """routing 1.1
@@ -93,15 +94,17 @@ class TestCircuit_err (Logchecker):
     
     def test_errors (self):
         self.checkerr ("circuit", "arguments are required")
-        self.checkerr ("circuit foo-0 --frob", "unrecognized argument")
-        self.checkerr ("circuit foo-0 --t1 wrong", "invalid int value")
-        self.checkerr ("circuit foo-0 --console wrongstring",
+        self.checkerr ("circuit name", "arguments are required")
+        self.checkerr ("circuit name Ethernet", "arguments are required")
+        self.checkerr ("circuit foo-0 GRE foo --frob", "unrecognized argument")
+        self.checkerr ("circuit foo-0 GRE foo --t1 wrong", "invalid int value")
+        self.checkerr ("circuit foo-0 GRE foo --console wrongstring",
                        "invalid scan_ver value")
-        self.checkerr ("circuit foo-0 --type unknown", "invalid choice")
-        self.checkerr ("circuit foo-0 --nr 0", "invalid choice")
-        self.checkerr ("circuit foo-0 --nr 35", "invalid choice")
-        self.checkerr ("circuit foo-0 --prio -1", "invalid choice")
-        self.checkerr ("circuit foo-0 --prio 128", "invalid choice")
+        self.checkerr ("circuit foo-0 unknown foo", "invalid choice")
+        self.checkerr ("circuit foo-0 GRE foo --nr 0", "invalid choice")
+        self.checkerr ("circuit foo-0 GRE foo --nr 35", "invalid choice")
+        self.checkerr ("circuit foo-0 GRE foo --prio -1", "invalid choice")
+        self.checkerr ("circuit foo-0 GRE foo --prio 128", "invalid choice")
 
 class TestLogging (Logchecker):
     req = """bridge br-0
@@ -140,7 +143,7 @@ class TestSystem (Logchecker):
     
     def test_basic (self):
         c = self.ctest ("").system
-        self.assertEqual (c.api_socket, "decnetsocket")
+        self.assertIsNone (c.api_socket)
         self.assertEqual (c.http_port, 8000)
         self.assertEqual (c.https_port, 8001)
         
