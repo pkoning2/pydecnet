@@ -62,7 +62,7 @@ class Multinet (datalink.PtpDatalink):
         self.config = config
         m = dev_re.match (config.device)
         if not m:
-            logging.error ("Invalid --device value for Multinet datalink %s",
+            logging.error ("Invalid device value for Multinet datalink %s",
                            self.name)
             raise ValueError
         host, port, cmode, lmode, lport = m.groups ()
