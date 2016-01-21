@@ -19,13 +19,15 @@ config file reading.  Each top level config file defines a single
 node, so a typical invocation (one config file argument) runs a single
 node.
 
-Each config file line resembles a Unix command invocation:
+Each config file line resembles a Unix command invocation, with
+GNU-style flexible order:
 
-     component --switch swarg --switch2 cmdarg cmdarg2
+     component --switch swarg --switch cmdarg cmdarg2
+     component --switch cmdarg cmdarg2 swarg --switch
 
 for example:
 
-    circuit eth-1 --device en1 --cost 3
+    circuit eth-1 Ethernet en1 --cost 3
 
 The components roughly correspond to those listed in the DECnet
 architecture specifications, and many of the switch names are taken
@@ -139,11 +141,14 @@ is converted to upper case.  There is a DECnet convention that circuit
 names consist of a device name, hyphen, and unit number, for example
 ETH-0.  
 
-Argument: Circuit type.  One of "Ethernet", "SimhDMC", "Multinet",
-"GRE".  Default is Ethernet.  Ethernet and GRE are "LAN" type
-circuits, SimDMC and Multinet are point to point type circuits.  Note
-that Multinet does not work well (defective protocol design, there's
-nothing the implementation can do about that) and is not recommended.
+Argument: Circuit type.  One of "DDCMP", "Ethernet", "SimhDMC",
+"Multinet", "GRE".  Default is Ethernet.  Ethernet and GRE are "LAN"
+type circuits; DDCMP, SimhDMC and Multinet are point to point type
+circuits.  Note that Multinet does not work well (defective protocol
+design, there's nothing the implementation can do about that) and is
+not recommended.  SimhDMC implements the payload-only original DMC-11
+emulation that existed in some prerelease versions of SimH V3.9.  It
+is still part of PyDECnet but is deprecated.
 
 Argument: Device name or connection data.  The meaning of this string
 depends on the circuit type:
@@ -170,14 +175,33 @@ depends on the circuit type:
     the way the addresses are specified is different and somewhat
     simplere here than it is in the SIMH configuration file.)
 
-    Multinet: either host or host:port.  This specifies a Multinet
-    over UDP circuit to the specified host.  In the first form, the
-    port number is 700 (the default); in the second, the port number
-    is the specified value.  See below for "Multinet considerations".
+    Multinet: this can use UDP or TCP.  For UDP, the device argument
+    is host or host:port.  In the first form, the port number is 700
+    (the default); in the second, the port number is the specified
+    value.  For TCP, the device argument is host::mode or
+    host:port:mode, with the port number interpreted as above, and
+    mode is either "listen" to expect an incoming TCP connection, or
+    "connect" to initiate an outgoing connection.  One of the two
+    sides must be configured to connect, the other to listen.
 
     GRE: host.  This specifies GRE encapsulation to the specified
     host.  The IP protocol type is always 47 (the assigned value for
     the GRE protocol).
+
+    DDCMP: mode:lport:host:rport.  lport is the local port number,
+    host specifies the remote host address, and rport is the remote
+    port number.  mode is udp, tcp, or telnet.  For udp, communication
+    is by UDP datagrams between the local port and the specified host
+    and remote port.  Otherwise, communication is by a TCP
+    connection.  Unlike the other datalink types, DDCMP will listen on
+    the specified local port while also attempting to connect to the
+    designated host and remote port.  This matches what is done in the
+    DMC emulation in SimH V4.0.  Telnet mode is used when the remote
+    host is a telnet server connected to a DDCMP interface; in this
+    mode, correct Telnet character escape processing is done.  In
+    regular TCP mode, the connection is treated as a transparent raw
+    connection.  (For use with SimH, "tcp" mode should be used.)
+    [ Note: Telnet mode is not yet implemented ]
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
 default is 1.  
