@@ -2,10 +2,13 @@
 
 """Payload-only SIMH 3.9 "DMC emulation" datalink
 
+Note: This module is deprecated, since the corresponding SimH support
+never made it to an official release.
 """
 
 import select
 import socket
+import warnings
 
 from .common import *
 from . import datalink
@@ -39,6 +42,7 @@ class SimhDMC (datalink.PtpDatalink):
         super ().__init__ (owner, name, config)
         self.config = config
         host, port, *sec = config.device.split (':')
+        warnings.warn ("SimhDMC circuit type is deprecated", DeprecationWarning)
         if sec:
             if sec == [ "secondary" ]:
                 self.primary = False

@@ -10,10 +10,16 @@ from decnet import simdmc
 
 class SimhDMCBase (DnTest):
     testsdu = b"four score and seven years ago"
-    
+
+    def constructit (self, *args):
+        # We need this method because "assertWarns" doesn't have a way
+        # to store the result of the callable it checks.
+        self.dmc = simdmc.SimhDMC (*args)
+        
     def setUp (self):
         super ().setUp ()
-        self.dmc = simdmc.SimhDMC (self.node, "dmc-0", self.tconfig)
+        self.assertWarns (DeprecationWarning, self.constructit,
+                          self.node, "dmc-0", self.tconfig)
         self.rport = self.dmc.create_port (self.node)
         
     def tearDown (self):
