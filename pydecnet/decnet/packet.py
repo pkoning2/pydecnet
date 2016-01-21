@@ -206,6 +206,11 @@ class packet_encoding_meta (type):
                 slots |= addslots
             classdict["__slots__"] = slots
         result = type.__new__ (cls, name, bases, classdict)
+        # Remember the set of all slots (of the inheritance hierarchy)
+        # because sometimes we need to know whether a particular attribute
+        # can be set in instances of this class, and a particular field
+        # may be defined in a base class.
+        result.__allslots__ = result.allslots () - set (classdict)
         # Look for an existing _codetable.  If we find one, that means
         # this class is derived from another Packet subclass, and we
         # will either use its layout as-is (if this class doesn't define

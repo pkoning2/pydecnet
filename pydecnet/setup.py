@@ -2,7 +2,7 @@
 
 """Installer for decnet module
 
-Copyright (c) 2013-2015 G. Paul Koning.
+Copyright (c) 2013-2016, Paul Koning.
 
 Licensed under open source license terms stated in file LICENSE.
 """
@@ -28,6 +28,7 @@ setup (author = "Paul Koning",
        version = Version,
        packages = [ "decnet" ],
        scripts = [ "pydecnet" ],
+       py_modules = [ "crc" ],
        install_requires = [ "python-daemon-3K" ],
        classifiers=[
            "Development Status :: 3 - Alpha",

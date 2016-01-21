@@ -5,4 +5,4 @@
 """
 
 __all__ = ( "common", "packet", "node", "mop", "timers", "datalink",
-            "config" )
+            "config", "logging" )
