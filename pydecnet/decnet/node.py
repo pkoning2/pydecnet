@@ -204,7 +204,8 @@ class Node (object):
         When requests matching this command are subsequently dispatched,
         they will come to the owner in the form of ApiRequest work items.
         """
-        return self.api.register_api (command, handler, help)
+        if self.api:
+            return self.api.register_api (command, handler, help)
 
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
