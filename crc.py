@@ -21,17 +21,24 @@ def _reverse (value, width):
 
 def _maketable (poly, width, reflect):
     ret = list ()
-    tb = 1 << (width - 1)
     mask = (1 << width) - 1
+    if width < 8:
+        poly <<= 8 - width
+        tb = 0x80
+    else:
+        tb = 1 << (width - 1)
     for i in range (256):
         if reflect:
             i = _reverse (i, 8)
-        i <<= width - 8
+        if width > 8:
+            i <<= width - 8
         for j in range (8):
             if i & tb:
                 i = (i << 1) ^ poly
             else:
                 i <<= 1
+            if width < 8:
+                i >>= 8 - width
             i &= mask
         if reflect:
             i = _reverse (i, width)
@@ -66,7 +73,7 @@ class _CRCMeta (type):
         if final is True:
             final = crcmask
         classdict["width"] = width
-        classdict["widthb"] = width // 8  # width in bytes
+        classdict["widthb"], classdict["rbits"] = divmod (width, 8)
         classdict["poly"] = poly
         classdict["initial"] = initial
         classdict["final"] = final
@@ -77,6 +84,9 @@ class _CRCMeta (type):
         # Now nc is the new class.
         # Define the "update" method.  We do it this way to avoid
         # having to check "reversed" each time a CRC is calculated.
+        # Note we do it via class attribute access rather than by
+        # operating on the classdict because we need to access
+        # methods defined in the base class, not the new class.
         doc = nc.update.__doc__
         if width <= 8:
             nc.update = nc._update_short
@@ -88,11 +98,11 @@ class _CRCMeta (type):
         # Make an instance of that so we can find the "good CRC" check
         # value.
         c1 = nc (b'\x00')
-        c1.update (bytes (c1))
+        c1.update_bits (c1.value, width)
         check = c1.value
         # Confirm it
         c2 = nc (b"\x01\x42")
-        c2.update (bytes (c2))
+        c2.update_bits (c2.value, width)
         if check != c2.value:
             raise RuntimeError ("Unable to find good CRC check value")
         nc.goodvalue = check
@@ -150,7 +160,13 @@ class CRC (metaclass = _CRCMeta):
     def __bytes__ (self):
         """The CRC value for the data processed so far, as a byte string."""
         if self.reversed:
+            if self.rbits:
+                return self.value.to_bytes (self.widthb + 1, "little")
             return self.value.to_bytes (self.widthb, "little")
+        # Forward
+        if self.rbits:
+            v = self.value << (8 - self.rbits)
+            return self.value.to_bytes (self.widthb + 1, "big")
         return self.value.to_bytes (self.widthb, "big")
     
     @property
@@ -167,6 +183,60 @@ class CRC (metaclass = _CRCMeta):
         # Will be replaced at subclass definition time by one of the
         # three following methods.
 
+    def update_bits (self, data, bits):
+        """Update the CRC state using the first "bits" bits in the
+        supplied data.  This is like "update" if "bits" is a multiple
+        of 8.
+        """
+        by, bi = divmod (bits, 8)
+        if bi:
+            if isinstance (data, int):
+                if self.reversed:
+                    data = data.to_bytes (by + 1, "little")
+                else:
+                    data = data.to_bytes (by + 1, "big")
+            elif len (data) < by + 1:
+                raise ValueError ("Data too short for bit count")
+            if self.reversed:
+                # The whole bytes come first, so process those now
+                self.update (data[:by])
+                p = self.crctable[128]
+                # Now process the remaining bits in the last byte, serially
+                v = self._value
+                b = data[by]
+                for i in range (bi):
+                    if (b ^ v) & 1:
+                        v = (v >> 1) ^ p
+                    else:
+                        v >>= 1
+                    b >>= 1
+                self._value = v
+            else:
+                # First process the odd bits in the first byte, serially
+                v = self._value
+                b = data[0]
+                for i in range (bi):
+                    # shift the next bit of the data and the top bit
+                    # of the CRC both down to the bottom for testing
+                    # their XOR:
+                    if ((b >> (bi - i - 1)) ^ (v >> (self.width - 1))) & 1:
+                        v = (v << 1) ^ self.poly
+                    else:
+                        v <<= 1
+                    v &= self.crcmask
+                self._value = v
+                # Now process the remaining (lower order, full) bytes
+                self.update (data[1:by + 1])
+        else:
+            if isinstance (data, int):
+                if self.reversed:
+                    data = data.to_bytes (by, "little")
+                else:
+                    data = data.to_bytes (by, "big")
+            elif len (data) < by:
+                raise ValueError ("Data too short for bit count")
+            self.update (data[:by])
+            
     def _update_forward (self, data):
         c = self._value
         sh = self.width - 8
