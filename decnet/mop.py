@@ -314,39 +314,42 @@ class Mop (Element):
         self.reservation = None
         self.circuits = dict ()
         loop = parent.register_api ("loop", self, "MOP Loop operation")
-        loop.set_defaults (final_handler = "loophandler")
-        loop.add_argument ("circuit", help = "Interface to loop")
-        loop.add_argument ("dest", nargs = "?", default = LOOPMC,
-                           type = Macaddr,
-                           help = "Destination (default = CF-00-00-00-00-00)")
-        loop.add_argument ("-c", "--count", type = int, default = 1,
-                           help = "Count of packets to loop (default: 1)")
-        loop.add_argument ("-f", "--fast", action = "store_true", default = False,
-                           help = "Send packets at full speed (default: 1/s)")
-        cons = parent.register_api ("console", self, "MOP Console Carrier client")
-        cons.set_defaults (final_handler = "carrier_client")
-        cons.add_argument ("circuit", help = "Interface to use")
-        cons.add_argument ("dest", type = Macaddr,
-                           help = "Destination address")
-        cons.add_argument ("verification", type = scan_ver,
-                           help = "Verification value")
-        showid = parent.register_api ("sysid", self, "Show SysId data")
-        showid.set_defaults (final_handler = "sysid")
-        showid.add_argument ("circuit", help = "Interface to query")
-        showid.add_argument ("--brief", action = "store_const",
-                             dest = "size", const = 0, default = 0,
-                             help = "Brief display (default)")
-        showid.add_argument ("--medium", action = "store_const",
-                             dest = "size", const = 1,
-                             help = "Medium display")
-        showid.add_argument ("--full", action = "store_const",
-                             dest = "size", const = 2,
-                             help = "Extended display")
-        reqctr = parent.register_api ("counters", self, "Request Counters")
-        reqctr.set_defaults (final_handler = "sysid")
-        reqctr.add_argument ("circuit", help = "Interface to query")
-        reqctr.add_argument ("dest", type = Macaddr,
-                             help = "Destination address")
+        if loop:
+            loop.set_defaults (final_handler = "loophandler")
+            loop.add_argument ("circuit", help = "Interface to loop")
+            loop.add_argument ("dest", nargs = "?", default = LOOPMC,
+                               type = Macaddr,
+                               help = "Destination (default = CF-00-00-00-00-00)")
+            loop.add_argument ("-c", "--count", type = int, default = 1,
+                               help = "Count of packets to loop (default: 1)")
+            loop.add_argument ("-f", "--fast", action = "store_true",
+                               default = False,
+                               help = "Send packets at full speed (default: 1/s)")
+            cons = parent.register_api ("console", self,
+                                        "MOP Console Carrier client")
+            cons.set_defaults (final_handler = "carrier_client")
+            cons.add_argument ("circuit", help = "Interface to use")
+            cons.add_argument ("dest", type = Macaddr,
+                               help = "Destination address")
+            cons.add_argument ("verification", type = scan_ver,
+                               help = "Verification value")
+            showid = parent.register_api ("sysid", self, "Show SysId data")
+            showid.set_defaults (final_handler = "sysid")
+            showid.add_argument ("circuit", help = "Interface to query")
+            showid.add_argument ("--brief", action = "store_const",
+                                 dest = "size", const = 0, default = 0,
+                                 help = "Brief display (default)")
+            showid.add_argument ("--medium", action = "store_const",
+                                 dest = "size", const = 1,
+                                 help = "Medium display")
+            showid.add_argument ("--full", action = "store_const",
+                                 dest = "size", const = 2,
+                                 help = "Extended display")
+            reqctr = parent.register_api ("counters", self, "Request Counters")
+            reqctr.set_defaults (final_handler = "sysid")
+            reqctr.add_argument ("circuit", help = "Interface to query")
+            reqctr.add_argument ("dest", type = Macaddr,
+                                 help = "Destination address")
         
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
