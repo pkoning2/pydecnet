@@ -4,6 +4,7 @@ include README.txt
 include samples/pydecnet.conf
 include samples/bridge.conf
 include pydecnet
+include crc.py
 recursive-include decnet *.py
 recursive-include samples *.py
 recursive-include tests *.py

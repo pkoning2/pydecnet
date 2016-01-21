@@ -304,7 +304,6 @@ class BcDatalink (Datalink):
     
 # Broadcast datalink port
 
-
 class _Any (object):
     """Emulates a container that contains everything -- set this as
     the address filter to be promiscuous.
