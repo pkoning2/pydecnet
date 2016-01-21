@@ -13,9 +13,14 @@ import re
 from .common import *
 
 def Monitor (node, config):
-    if config.system.http_port or config.system.https_port:
+    if config.system.http_port: # or config.system.https_port:
         tname = "{}.httpd".format (node.nodename)
-        logging.debug ("Initializing HTTP server")
+        ports = list ()
+        if config.system.http_port:
+            ports.append ("{}".format (config.system.http_port))
+        #if config.system.https_port:
+        #    ports.append ("{}".format (config.system.https_port))
+        logging.debug ("Initializing HTTP server on %s", ", ".join (ports))
         t = StopThread (target = http_thread, name = tname,
                         args = (node, config))
     else:
