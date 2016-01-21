@@ -8,6 +8,7 @@ import select
 import socket
 from random import random
 import queue
+import errno
 
 import crc
 
@@ -263,8 +264,6 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         except (OSError, socket.error):
             logging.trace ("DDCMP %s bind/listen failed", self.name)
             self.socket.close ()
-            if self.tcp:
-                self.connsocket.close ()
             return
         logging.trace ("DDCMP %s listen to %d active",
                        self.name, self.rport)
@@ -284,9 +283,14 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.connsocket.connect ((self.host.addr, self.rport))
             logging.trace ("DDCMP %s connect to %s %d in progress",
                            self.name, self.host.addr, self.rport)
-        except socket.error:
-            logging.trace ("DDCMP %s connect to %s %d rejected",
-                           self.name, self.host.addr, self.rport)
+        except socket.error as e:
+            if e.errno == errno.EINPROGRESS:
+                logging.trace ("DDCMP %s connect to %s %d in progress",
+                               self.name, self.host.addr, self.rport)
+            else:
+                logging.trace ("DDCMP %s connect to %s %d rejected",
+                               self.name, self.host.addr, self.rport)
+                self.connsocket = None
         # Wait a random time (60-120 seconds) for the outbound connection
         # to succeed.  If we get a timeout, give up on it and try again.
         self.node.timers.start (self, random () * UDPTMR + UDPTMR)
@@ -364,14 +368,18 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         self.try_connect ()
         poll = select.poll ()
         sfn = self.socket.fileno ()
-        cfn = self.connsocket.fileno ()
+        if self.connsocket:
+            cfn = self.connsocket.fileno ()
+            poll.register (cfn, select.POLLOUT | select.POLLERR)
+        else:
+            cfn = None
         poll.register (sfn, select.POLLIN | select.POLLERR)
-        poll.register (cfn, select.POLLOUT | select.POLLERR)
         # We try to establish an outgoing connection while also looking
         # for an incoming one, so look for both ready to read on the
         # listen socket (incoming) and ready to write on the connect socket
         # (outbound connect completed).
-        while True:
+        connected = False
+        while not connected:
             plist = poll.poll (1)
             if (self.rthread and self.rthread.stopnow):
                 self.disconnected ()
@@ -381,25 +389,38 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                     self.disconnected ()
                     return
                 if fd == cfn:
+                    if event & select.POLLHUP:
+                        # Connection was closed, ignore this
+                        poll.unregister (cfn)
+                        self.connsocket = None
+                        continue
                     # Outbound connection went through.  Stop listening,
                     # and use that connection for data.
                     self.socket.close ()
                     self.socket = self.connsocket
                     self.socket.setblocking (True)
                     self.connsocket = None
+                    logging.trace ("DDCMP %s outbound connection made", self.name)
+                    # Drop out of the outer loop
+                    connected = True
                     break
-                else:
+                elif fd == sfn:
                     # Ready on inbound socket.  Accept the connection.
                     try:
-                        sock, ainfo = sock.accept ()
+                        sock, ainfo = self.socket.accept ()
                         host, port = ainfo
                         if self.host.valid (host):
                             # Good connection, stop looking
                             self.socket.close ()
-                            self.connsocket.close ()
+                            if self.connsocket:
+                                self.connsocket.close ()
                             # The socket we use from now on is the data socket
                             self.socket = sock
                             self.connsocket = None
+                            logging.trace ("DDCMP %s inbound connection accepted",
+                                           self.name)
+                            # Drop out of the outer loop
+                            connected = True
                             break
                         # If the connect is from someplace we don't want
                         logging.trace ("DDCMP %s connect received from "
@@ -675,16 +696,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             elif isinstance (data, (AckMsg, DataMsg)):
                 # Set running state, stop the timer, then process
                 # the received data or ACK message as usual
-                self.state = self.running
-                self.node.timers.stop (self)
+                self.state = self.running_state ()
                 self.running (data)
-                return None
+                return self.state    # Make state change explicit in trace
             elif isinstance (data, MaintMsg):
                 # Set state to Maintenance, then process the message
                 # as for that state
                 self.state = self.Maint
                 self.Maint (data)
-                return None
+                return self.state    # Make state change explicit in trace
             else:
                 # Unexpected message, we use the option of ignoring it
                 # (rather than resending the Stack message immediately).
