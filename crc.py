@@ -82,12 +82,16 @@ class _CRCMeta (type):
         # operating on the classdict because we need to access
         # methods defined in the base class, not the new class.
         doc = nc.update.__doc__
-        if width <= 8:
-            nc.update = nc._update_short
-        elif reversed:
-            nc.update = nc._update_reversed
+        if reversed:
+            if width <= 8:
+                nc.update = nc._update_short_reversed
+            else:
+                nc.update = nc._update_reversed
         else:
-            nc.update = nc._update_forward
+            if width <= 8:
+                nc.update = nc._update_short_forward
+            else:
+                nc.update = nc._update_forward
         nc.update.__doc__ = doc
         # Make an instance of that so we can find the "good CRC" check
         # value.
@@ -171,13 +175,6 @@ class CRC (metaclass = _CRCMeta):
         """
         return self.value == self.goodvalue
 
-    def update (self, data):
-        """Update the CRC state with the additional data supplied.
-        This will adjust "value" and "good" to reflect the new data.
-        """
-        # Will be replaced at subclass definition time by one of the
-        # three following methods.
-
     def update_bits (self, data, bits):
         """Update the CRC state using the first "bits" bits in the
         supplied data.  This is like "update" if "bits" is a multiple
@@ -226,7 +223,16 @@ class CRC (metaclass = _CRCMeta):
                     v <<= 1
                 v &= self.crcmask
         self._value = v
-            
+
+    def update (self, data):
+        """Update the CRC state with the additional data supplied.
+        This will adjust "value" and "good" to reflect the new data.
+        """
+        # Will be replaced at subclass definition time by one of the
+        # four following methods.
+
+    # Update the CRC register from a sequence of bytes, for regular
+    # and reversed bit order respectively.
     def _update_forward (self, data):
         c = self._value
         sh = self.width - 8
@@ -240,8 +246,17 @@ class CRC (metaclass = _CRCMeta):
             c = self.crctable[(c & 0xff) ^ b] ^ (c >> 8)
         self._value = c
         
-    # The next two are for CRC widths of 8 or less
-    def _update_short (self, data):
+    # Update the CRC register from a sequence of bytes when the CRC
+    # width is 8 or less, for regular and reversed bit order
+    # respectively.
+    def _update_short_forward (self, data):
+        c = self._value
+        sh = 8 - self.width
+        for b in data:
+            c = self.crctable[((c << sh) & 0xff) ^ b]
+        self._value = c
+
+    def _update_short_reversed (self, data):
         c = self._value
         for b in data:
             c = self.crctable[c ^ b]
