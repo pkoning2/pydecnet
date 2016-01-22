@@ -428,7 +428,15 @@ class Test_CRC_64_ISO (crctestbase):
     reversed = False
 class Test_CRC_64_ISO_r (Test_CRC_64_ISO):
     reversed = True
-
+# These two are from
+# http://mathforum.org/kb/thread.jspa?threadID=508110&messageID=1553817
+class Test_CRC_128_Zimmerman (crctestbase):
+    poly = 0x9b9346606fb953db45da2af80fb518cf
+    width = 128
+    reversed = False
+class Test_CRC_128_Zimmerman_r (Test_CRC_128_Zimmerman):
+    reversed = True
+    
 if __name__ == "__main__":
     unittest.main ()
     
