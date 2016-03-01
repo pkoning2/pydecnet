@@ -69,6 +69,7 @@ class DMMsg (packet.Packet):
                ( "b", "num", 1 ),
                ( "b", "addr", 1 ))
     _layout = baselayout + (( "bv", "hcrc", 2 ),)
+    addr = 1
 DMMsg.basetable = packet.process_layout (DMMsg, DMMsg.baselayout)
 
 class DataMsg (DMMsg):
@@ -100,6 +101,7 @@ class CtlMsg (packet.Packet):
                ( "b", "addr", 1 ))
     _layout = baselayout + (( "bv", "hcrc", 2 ),)
     enq = ENQ
+    addr = 1
 CtlMsg.basetable = packet.process_layout (CtlMsg, CtlMsg.baselayout)
 
 HDRLEN = len (CtlMsg ())
@@ -467,6 +469,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                     if crc.good:
                         # Header CRC is valid.  Construct a packet object
                         # of the correct class.
+                        if not self.insync:
+                            logging.trace ("Back in sync on %s", self.name)
                         self.insync = True
                         if h == ENQ:
                             # Control packet.
@@ -505,6 +509,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         if self.insync:
                             self.insync = False
                             self.node.addwork (Err (R_HCRC))
+                            logging.trace ("Lost sync on %s", self.name)
+                        else:
+                            logging.trace ("Out of sync, another HCRC error on %s", self.name)
 
     def run_udp (self):
         """Receive thread for the UDP case.

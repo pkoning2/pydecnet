@@ -388,7 +388,7 @@ class NodeInit (packet.Packet):
     _layout = (( "b", "msgflag", 1 ),
                ( "b", "starttype", 1 ),
                ( "ex", "srcnode", 2 ),
-               ( "i", "nodename", 6 ),
+               ( "a", "nodename", 6 ),
                ( "bm",
                  ( "int", 0, 3 )),
                ( "bm",
@@ -399,7 +399,7 @@ class NodeInit (packet.Packet):
                ( "b", "maxlnks", 2 ),
                ( Version, "routver" ),
                ( Version, "commver" ),
-               ( "i", "sysver", 32 ))
+               ( "a", "sysver", 32 ))
     msgflag = 0x58
     starttype = 1
     # These two are field of Phase 3/4 messages, but are implied here.
@@ -429,8 +429,8 @@ class NopMsg (packet.Packet):
 class RouteHdr (packet.Packet):
     _addslots = { "payload" }
     _layout = (( "b", "msgflag", 1 ),
-               ( "i", "dstnode", 6 ),
-               ( "i", "srcnode", 6 ))
+               ( "a", "dstnode", 6 ),
+               ( "a", "srcnode", 6 ))
                
 # Regexp used to validate "testdata" field.
 testdata_re = re.compile (b"^\252*$")

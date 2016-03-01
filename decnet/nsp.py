@@ -359,19 +359,20 @@ class NSP (Element):
             # to a port (Connection object), see NSP 4.0.1 spec
             # section 6.2 (receive dispatcher)
             buf = item.packet
-            logging.trace ("NSP packet received from %s: %s",
-                           item.src, item.packet)
             msgflg = buf[0]
             try:
                 t = msgmap[msgflg]
             except KeyError:
                 # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
+                logging.trace ("NSP packet received from %s: %s",
+                               item.src, item.packet)
                 logging.trace ("Unrecognized msgflg value %d, ignored", msgflg)
                 # FIXME: this needs to log the message in the right format
-                self.node.logevent (events.inv_msg, buf, item.src)
+                self.node.logevent (events.inv_msg, message = buf, source_node = item.src)
                 return
             if not t:
                 # NOP message to be ignored, do so.
+                logging.trace ("NSP NOP packet received from %s: %s", item.src, item.packet)
                 return
             pkt = t (buf)
             if t is DiscConf:
@@ -384,13 +385,15 @@ class NSP (Element):
                     # Parse it as a generic DiscConf packet
                     pass
                 pkt = t (buf)
+            logging.trace ("NSP packet received from %s: %s", item.src, pkt)
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
                 if pkt.dstaddr != 0:
                     logging.trace ("CI with nonzero dstaddr")
                     # FIXME: this needs to log the message in the right format
-                    self.node.logevent (events.inv_msg, buf, item.src)
+                    self.node.logevent (events.inv_msg, message = buf,
+                                        source_node = item.src)
                     return
                 if item.rts:
                     try:
