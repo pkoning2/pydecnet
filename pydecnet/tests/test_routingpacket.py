@@ -273,7 +273,7 @@ class test_ph2init (rptest):
         s = self.short (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
                         b"\x00\x00\x00\x03\x01\x00\x00", NodeInit)
         self.assertEqual (s.srcnode, 7)
-        self.assertEqual (s.nodename, b"TEST")
+        self.assertEqual (s.nodename, "TEST")
         self.assertEqual (s.int, 0)
         self.assertEqual (s.verif, 0)
         self.assertEqual (s.rint, 0)
@@ -281,13 +281,13 @@ class test_ph2init (rptest):
         self.assertEqual (s.nspsize, 513)
         self.assertEqual (s.maxlnks, 64)
         self.assertEqual (s.commver, nspver_ph2)
-        self.assertEqual (s.sysver, b"")
+        self.assertEqual (s.sysver, "")
 
     def test_encode (self):
-        s = NodeInit (srcnode = 17, nodename = b"FOO", verif = 1, maxlnks = 128,
+        s = NodeInit (srcnode = 17, nodename = "FOO", verif = 1, maxlnks = 128,
                       blksize = 516, nspsize = 511,
                       routver = tiver_ph2, commver = nspver_ph2,
-                      sysver = b"TESTING")
+                      sysver = "TESTING")
         b = bytes (s)
         self.assertEqual (b, b"\x58\x01\x11\x03FOO\x00\x01\x04\x02\xff\x01"
                           b"\x80\x00\x00\x00\x00\x03\x01\x00\x07TESTING")
