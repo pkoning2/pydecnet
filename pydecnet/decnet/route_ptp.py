@@ -60,7 +60,9 @@ class PtpCircuit (statemachine.StateMachine):
                                      verif = self.verif,
                                      routver = tiver_ph2,
                                      commver = nspver_ph2,
-                                     blksize = MTU, nspsize = MTU,
+                                     blksize = MTU,
+                                     nspsize = MTU,
+                                     int = 7,   # Offer intercept services
                                      sysver = "DECnet/Python")
         else:
             if self.node.phase == 3:
@@ -132,17 +134,34 @@ class PtpCircuit (statemachine.StateMachine):
                 logging.debug ("Sending packet %s to wrong address %s "
                                "(expected %s)", pkt, dstnode, self.id)
                 return False
-            if self.rphase < 4:
-                # Neighbor is Phase 3 or older, so we have its address
-                # as an 8-bit value.  Force destination address to
-                # the old form.
+            if self.rphase == 3:
+                # Neighbor is Phase 3, so we have its address as an
+                # 8-bit value.  Force destination address to the old
+                # form.
                 dstnode = Nodeid (dstnode.tid)
                 pkt.dstnode = dstnode
                 # Ditto for source address, if in area
                 if pkt.srcnode.area == self.routing.homearea:
                     pkt.srcnode = Nodeid (pkt.srcnode.tid)
             if self.ntype == PHASE2:
-                pkt = pkt.payload
+                # See if routing ("intercept") was requested.
+                if self.rint == 3:
+                    # It was.  Convert the supplied Phase III/IV style
+                    # header to a Phase II routing header.
+                    src = self.node.nodeinfo (pkt.srcnode)
+                    pkt = RouteHdr (dstnode = self.rnodename,
+                                    srcnode = src.nodename,
+                                    msgflag = 0x46,
+                                    payload = pkt.payload)
+                    logging.trace ("Forwarding from %s %s to Phase II: %s", pkt.srcnode, src, pkt)
+                else:
+                    # No routing, so the source must be this node.
+                    if srcnode != self.id:
+                        logging.debug ("forwarding packet %s from "
+                                       "unreachable source %s",
+                                       pkt, srcnode)
+                        return False
+                    pkt = pkt.payload
             elif isinstance (pkt, LongData):
                 pkt = ShortData (copy = pkt, payload = pkt.payload)
             self.datalink.send (pkt)
@@ -443,6 +462,7 @@ class PtpCircuit (statemachine.StateMachine):
                                         commver = nspver_ph2,
                                         blksize = MTU,
                                         nspsize = MTU,
+                                        int = 7,   # Offer intercept services
                                         sysver = "DECnet/Python")
                     self.initmsg = initmsg
                     self.datalink.send (initmsg)
@@ -458,6 +478,15 @@ class PtpCircuit (statemachine.StateMachine):
                 else:
                     self.id = Nodeid (pkt.srcnode)
                 self.tiver = pkt.tiver
+                # Remember if intercept was requested.
+                self.rint = pkt.rint
+                # See if the sender has a different notion of its node
+                # name than we do, and remember what it said.
+                self.rnodename = pkt.nodename
+                rnode = self.node.nodeinfo (self.id)
+                if rnode.nodename != self.rnodename:
+                    logging.debug ("Remote node name %s does not match ours: %s",
+                                   self.rnodename, rnode)
                 # Create the adjacency.  Note that it is not set to "up"
                 # yet, that happens on transition to RU state.
                 self.adj = adjacency.Adjacency (self, self)
@@ -711,7 +740,8 @@ class PtpCircuit (statemachine.StateMachine):
                         dest = self.node.nodeinfo (payload.dstnode)
                         if not dest:
                             dest = self.parent.nodeid
-                    pkt = ShortData (dstnode = dest, srcnode = src, rts = 0, visit = 1,
+                    pkt = ShortData (dstnode = dest, srcnode = src,
+                                     rts = 0, rqr = 0, visit = 1,
                                      payload = payload.payload, src = self.adj)
                     logging.trace ("Phase II data packet to routing: %s", pkt)
                     self.parent.dispatch (pkt)
@@ -723,8 +753,8 @@ class PtpCircuit (statemachine.StateMachine):
                     # there is no routing header so the attributes that
                     # normally relate to routing header fields are
                     # made up here instead.
-                    pkt = ShortData (dstnode = self.parent.nodeid,
-                                     srcnode = self.id, rts = 0, visit = 1,
+                    pkt = ShortData (dstnode = self.parent.nodeid, visit = 1,
+                                     srcnode = self.id, rts = 0, rqr = 0,
                                      payload = item.packet, src = self.adj)
                     logging.trace ("Phase II data packet to routing: %s", pkt)
                     self.parent.dispatch (pkt)
