@@ -91,7 +91,7 @@ class DnTest (unittest.TestCase):
             p.start ()
             self.lpatches.append (p)                                     
         h = logging.StreamHandler (sys.stdout)
-        logging.basicConfig (handler = h, level = self.loglevel)
+        logging.basicConfig (handlers = [ h ], level = self.loglevel)
         self.setloglevel (self.loglevel)
         
     def setloglevel (self, level):

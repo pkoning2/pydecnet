@@ -72,9 +72,7 @@ def evtpackethdr (pkt, exc = None):
             fields = splithdr (buf, (1, 2))
             return { "packet_header" : fields }
         elif isinstance (pkt, NodeInit):
-            nodename = str (pkt.nodename, encoding = "latin1",
-                            errors = "ignore")
-            fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, nodename ]
+            fields = splithdr (buf, (1, 1)) + [ pkt.srcnode, pkt.nodename ]
             return { "ni_packet_header" : fields }
         elif isinstance (pkt, NodeVerify):
             fields = splithdr (buf, (1, 1))

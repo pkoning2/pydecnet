@@ -32,7 +32,9 @@ class rtest (DnTest):
         else:
             self.r.nodeid = Nodeid (5)
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
-        self.r.nodename = "testnd"
+        info = Nodeinfo (None, self.r.nodeid)
+        info.nodename = "LOCAL"
+        self.node.addnodeinfo (info)
         info = Nodeinfo (None, Nodeid (66))
         info.nodename = "REMOTE"
         info.iverif = b"IVERIF"
@@ -139,7 +141,7 @@ class test_ph2 (rtest):
 
     def test_noverify (self):
         self.startup ()
-        pkt = b"0x08\252\252\252"
+        pkt = b"\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (1, element = self.r)
@@ -164,7 +166,7 @@ class test_ph2 (rtest):
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (130))
         # Deliver an incoming packet
-        pkt = b"0x08\252\252\252"
+        pkt = b"\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (1, element = self.r)
@@ -174,17 +176,18 @@ class test_ph2 (rtest):
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
+        # Payload will be just the part after the route header
+        self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (130))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Try a bad route header
-        pkt = b"\x42\xf5LOCAL\x06REMOTE0x08\252\252\252"
+        pkt = b"\x42\xf5LOCAL\x06REMOTE\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         self.lastdispatch (2, element = self.r)
@@ -402,7 +405,7 @@ class test_ph3 (rtest):
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (66))
         # Deliver an incoming packet
-        pkt = b"0x08\252\252\252"
+        pkt = b"\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (1, element = self.r)
@@ -412,12 +415,12 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
@@ -644,7 +647,7 @@ class test_ph4 (rtest):
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (1, 66))
         # Deliver an incoming packet
-        pkt = b"0x08\252\252\252"
+        pkt = b"\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (1, element = self.r)
@@ -654,12 +657,12 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE0x08\252\252\252"
+        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru")
         spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
+        self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (1, 66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
