@@ -85,8 +85,10 @@ def process_layout (cls, layout):
     of bit position.  The size of the field is taken to be the minimal 
     number of bytes needed to hold all the bit fields.
 
-    "I", "B", "EX": description is name and length.  For I and EX,
-    length means the maximum length.
+    "I", "A", "B", "EX": description is name and length.  For I, A,
+    and EX, length means the maximum length.  "A" means the value is
+    interpreted as text (str type); for the others, the value is
+    type "bytes".
 
     "SIGNED" is like "B" except that the value is interpreted as a
     signed rather than an unsigned integer.
@@ -377,6 +379,27 @@ class Packet (metaclass = packet_encoding_meta):
             logging.debug ("Not %d bytes left for image field", flen)
             raise MissingData
         setattr (self, field, v)
+        return buf[flen + 1:]
+
+    encode_a = encode_i
+    def decode_a (self, buf, field, maxlen):
+        """Decode "field" from an image field with max length "maxlen".
+        If the field is too large, packet format error is signalled.
+        The value found is converted to a Latin-1 string.
+        Returns the remaining buffer.
+        """
+        if not buf:
+            logging.debug ("No data left for image field")
+            raise MissingData
+        flen = buf[0]
+        if flen > maxlen:
+            logging.debug ("Image field longer than max length %d", maxlen)
+            raise FieldOverflow
+        v = buf[1:flen + 1]
+        if len (v) != flen:
+            logging.debug ("Not %d bytes left for image field", flen)
+            raise MissingData
+        setattr (self, field, str (v, encoding = "latin1"))
         return buf[flen + 1:]
 
     def encode_b (self, field, flen):

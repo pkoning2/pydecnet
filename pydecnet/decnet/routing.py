@@ -1028,7 +1028,7 @@ class Update (Element, timers.Timer):
         self.node.timers.start (self, self.t1)
             
     def setsrm (self, tid, endtid = None):
-        if self.parent.ntype != ENDNODE:
+        if self.parent.ntype != ENDNODE and self.parent.ntype != PHASE2:
             endtid = endtid or tid
             logging.trace ("Setsrm (%s): %d to %d", self.pkttype.__name__,
                            tid, endtid)
@@ -1046,7 +1046,8 @@ class Update (Element, timers.Timer):
             self.node.timers.start (self, delta)
 
     def dispatch (self, item):
-        if isinstance (item, timers.Timeout) and self.parent.ntype != ENDNODE:
+        if isinstance (item, timers.Timeout) and self.parent.ntype != ENDNODE \
+          and self.parent.ntype != PHASE2:
             # If anysrm is set, that means setsrm was called to
             # request sending of specific updates.  If not, then this
             # is a periodic (all destinations) update

@@ -192,18 +192,17 @@ class PtpCircuit (statemachine.StateMachine):
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
-            p2route = None
             if (hdr & 0xf3) == 0x42:
                 # Phase 2 routing header
                 try:
-                    p2route = RouteHdr (buf)
+                    work.packet = RouteHdr (buf)
                 except packet.DecodeError:
                     # If parsing the packet raises a DecodeError
                     # exception, log a format error
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
-                buf = p2route.payload
+                buf = work.packet.payload
                 hdr = buf[0]
                 if hdr & 0x83:
                     # Invalid bits set, complain
@@ -212,7 +211,7 @@ class PtpCircuit (statemachine.StateMachine):
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
-                logging.trace ("Phase II packet with route header: %s", p2route)
+                logging.trace ("Phase II packet with route header: %s", work.packet)
             if (hdr & 1) != 0 and self.node.phase > 2:
                 # Routing (phase 3 or 4) control packet.  Figure out which one
                 code = (hdr >> 1) & 7
@@ -700,6 +699,23 @@ class PtpCircuit (statemachine.StateMachine):
         elif isinstance (item, Received):
             if self.rphase == 2:
                 # Process received packet from Phase II node.
+                payload = item.packet
+                if isinstance (payload, RouteHdr):
+                    # Data packet with Phase II routing header.
+                    # Pick it apart to make up the corresponding
+                    # short data routing header.
+                    src = self.id
+                    # default to destination = this node
+                    dest = self.parent.nodeid
+                    if payload.dstnode:
+                        dest = self.node.nodeinfo (payload.dstnode)
+                        if not dest:
+                            dest = self.parent.nodeid
+                    pkt = ShortData (dstnode = dest, srcnode = src, rts = 0, visit = 1,
+                                     payload = payload.payload, src = self.adj)
+                    logging.trace ("Phase II data packet to routing: %s", pkt)
+                    self.parent.dispatch (pkt)
+                    return
                 if not isinstance (item.packet, packet.Packet):
                     # Data packet (not something we matched as a packet
                     # type we know).  Give it to NSP.  Wrap it in a
@@ -707,7 +723,6 @@ class PtpCircuit (statemachine.StateMachine):
                     # there is no routing header so the attributes that
                     # normally relate to routing header fields are
                     # made up here instead.
-                    # TODO: handle intercept mode operation.
                     pkt = ShortData (dstnode = self.parent.nodeid,
                                      srcnode = self.id, rts = 0, visit = 1,
                                      payload = item.packet, src = self.adj)
@@ -828,16 +843,16 @@ class PtpCircuit (statemachine.StateMachine):
             hdr = ""
         if self.state == self.ru:
             neighbor = str (self.optnode ())
+            ntype = ntypestrings[self.ntype]
         else:
-            neighbor = ""
-        ntype = ntypestrings[self.ntype]
+            neighbor = ntype = "-"
         if self.adj:
             t4 = self.adj.t4
         else:
-            t4 = ""
+            t4 = "-"
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{1}</td><td>{2}</td><td>{0.t3}</td><td>{0.blksize}</td>
-        <td>{2}</td><td>{0.tiver}</td>
+        <td>{3}</td><td>{0.tiver}</td>
         <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype, t4)
         return hdr + s
     
