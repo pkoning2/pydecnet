@@ -197,7 +197,7 @@ class test_ph2 (rtest):
     def test_send (self):
         self.startup ()
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
-                         srcnode = Nodeid (1), visit = 1,
+                         srcnode = Nodeid (5), visit = 1,
                          payload = b"new payload")
         ok = self.c.send (pkt, pkt.dstnode)
         self.assertTrue (ok)
@@ -205,15 +205,16 @@ class test_ph2 (rtest):
         self.assertEqual (p, pkt.payload)
         # Try long data
         s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (66),
-                      srcnode = Nodeid (1), visit = 1,
+                      srcnode = Nodeid (5), visit = 1,
                       payload = b"new payload")
         ok = self.c.send (s, s.dstnode)
         self.assertTrue (ok)
         p, dest = self.lastsent (self.cp, 3, ptype = bytes)
         self.assertEqual (p, s.payload)
-        # Send to non-neighbor should fail (for now)
+        # Send to non-neighbor should fail (assuming neighbor does not
+        # advertise intercept services)
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
-                         srcnode = Nodeid (1), visit = 1,
+                         srcnode = Nodeid (5), visit = 1,
                          payload = b"new payload")
         ok = self.c.send (pkt, pkt.dstnode)
         self.assertFalse (ok)
@@ -431,7 +432,7 @@ class test_ph3 (rtest):
         self.assertRegex (p.payload, b"^\252+$")
         # Send some packets
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (66),
-                         srcnode = Nodeid (1), visit = 1,
+                         srcnode = Nodeid (5), visit = 1,
                          payload = b"new payload")
         ok = self.c.send (pkt, pkt.dstnode)
         self.assertTrue (ok)
@@ -439,7 +440,7 @@ class test_ph3 (rtest):
         self.assertEqual (p, pkt.payload)
         # Try long data
         s = LongData (rqr = 1, rts = 0, ie = 1, dstnode = Nodeid (66),
-                      srcnode = Nodeid (1), visit = 1,
+                      srcnode = Nodeid (5), visit = 1,
                       payload = b"new payload")
         ok = self.c.send (s, s.dstnode)
         self.assertTrue (ok)
@@ -447,7 +448,7 @@ class test_ph3 (rtest):
         self.assertEqual (p, s.payload)
         # Send to non-neighbor should fail (for now)
         pkt = ShortData (rqr = 1, rts = 0, dstnode = Nodeid (44),
-                         srcnode = Nodeid (1), visit = 1,
+                         srcnode = Nodeid (5), visit = 1,
                          payload = b"new payload")
         ok = self.c.send (pkt, pkt.dstnode)
         self.assertFalse (ok)
