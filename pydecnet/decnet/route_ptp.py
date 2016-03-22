@@ -156,10 +156,10 @@ class PtpCircuit (statemachine.StateMachine):
                     logging.trace ("Forwarding from %s %s to Phase II: %s", pkt.srcnode, src, pkt)
                 else:
                     # No routing, so the source must be this node.
-                    if srcnode != self.id:
+                    if pkt.srcnode != self.routing.nodeid:
                         logging.debug ("forwarding packet %s from "
                                        "unreachable source %s",
-                                       pkt, srcnode)
+                                       pkt, pkt.srcnode)
                         return False
                     pkt = pkt.payload
             elif isinstance (pkt, LongData):
