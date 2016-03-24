@@ -167,7 +167,7 @@ class Bridge (Element):
             self.dest.learn (src, circ)
             logging.trace ("Received packet from %s on %s", src, circ)
             if dest in self.dest:
-                out = self.dest[dest]
+                out = self.dest[dest].circuit
                 if out is not circ:
                     logging.trace ("Forwarding to %s", out)
                     out.send_frame (packet, work.extra)
