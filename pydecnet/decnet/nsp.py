@@ -9,6 +9,7 @@ from collections import deque
 
 from .common import *
 from .routing_packets import ShortData, LongData
+from . import logging
 from . import events
 from . import packet
 from . import timers
@@ -57,12 +58,16 @@ class AckNum (object):
     NAK = 1
     XACK = 2
     XNAK = 3
+    _labels = ( "ACK", "NAK", "XACK", "XNAK" )
     def __init__ (self, num, qual = ACK):
         if not 0 <= qual <= 3:
             raise ValueError ("Invalid QUAL value %s" % qual)
         self.qual = qual
         self.num = Seq (num)
-        
+
+    def __str__ (self):
+        return "{} {}".format (self._labels[self.qual], self.num)
+    
     @classmethod
     def decode (cls, buf):
         if len (buf) >= 2:

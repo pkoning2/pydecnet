@@ -8,6 +8,7 @@ import select
 import socket
 
 from .common import *
+from . import logging
 from . import datalink
 
 greflags = bytes (2)

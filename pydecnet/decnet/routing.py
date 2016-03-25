@@ -10,6 +10,7 @@ import sys
 
 from .common import *
 from .routing_packets import *
+from . import logging
 from . import events
 from . import adjacency
 from . import datalink

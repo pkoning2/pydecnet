@@ -9,6 +9,7 @@ Ethernet ports and Ethernet packets over UDP.
 """
 
 from .common import *
+from . import logging
 from . import ethernet
 from . import events
 from . import timers
@@ -49,7 +50,8 @@ class BridgeCircuit (Element):
         self.parent.dispatch (item)
 
     def send_frame (self, pdu, skip = None):
-        logging.trace ("Sending %d bytes to %s: %s", len (pdu), self, pdu)
+        logging.tracepkt ("Sending %d bytes to %s: " % (len (pdu), self), pdu)
+        #logging.trace ("Sending %d bytes to %s: %s", len (pdu), self, pdu)
         self.datalink.parent.send_frame (pdu, skip)
 
 class AddrEnt (timers.Timer):
