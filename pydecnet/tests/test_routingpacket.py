@@ -3,16 +3,7 @@
 from tests.dntest import *
 from decnet.routing_packets import *
 
-class rptest (DnTest):
-    def setUp (self):
-        super ().setUp ()
-        logging.exception = unittest.mock.Mock ()
-
-    def tearDown (self):
-        self.assertEqual (logging.exception.call_count, 0)
-        super ().tearDown ()
-
-class test_shortdata (rptest):
+class test_shortdata (DnTest):
     def test_decode (self):
         s = self.short (b"\x02\x03\x04\x01\x08\x11abcdef payload", ShortData,
                         maxlen = 5)
@@ -30,7 +21,7 @@ class test_shortdata (rptest):
         b = bytes (s)
         self.assertEqual (b, b"\x0a\x02\x08\x01\x04\x01new payload")
         
-class test_longdata (rptest):
+class test_longdata (DnTest):
     def test_decode (self):
         s = self.short (b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04"
                         b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00"
@@ -52,7 +43,7 @@ class test_longdata (rptest):
                           b"\x00\x00\xaa\x00\x04\x00\x01\x04\x00\x01"
                           b"\x00\x00new payload")
 
-class test_ptpinit (rptest):
+class test_ptpinit (DnTest):
     def test_decode (self):
         s = self.short (b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x20\x00\x00",
                         PtpInit)
@@ -88,7 +79,7 @@ class test_ptpinit (rptest):
         b = s.encode ()
         self.assertEqual (b, b"\x01\x05\x00\x02\x01\x02\x01\x03\x02\x00")
 
-class test_ptpver (rptest):
+class test_ptpver (DnTest):
     def test_decode (self):
         s = self.short (b"\x03\x02\x0c\x04abcd", PtpVerify)
         self.assertEqual (s.srcnode, Nodeid (3, 2))
@@ -99,7 +90,7 @@ class test_ptpver (rptest):
         b = bytes (s)
         self.assertEqual (b, b"\x03\x03\x08\x06foobar")
         
-class test_ptphello (rptest):
+class test_ptphello (DnTest):
     def test_decode (self):
         s = self.short (b"\x05\x02\x00\x04abcd", PtpHello)
         self.assertEqual (s.srcnode, Nodeid (2))
@@ -110,7 +101,7 @@ class test_ptphello (rptest):
         b = bytes (s)
         self.assertEqual (b, b"\x05\x03\x00\x06foobar")
 
-class test_rhello (rptest):
+class test_rhello (DnTest):
     def test_decode (self):
         s = self.short (b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02"
                         b"\x10\x02\x40\x00\x80\x00\x00"
@@ -143,7 +134,7 @@ class test_rhello (rptest):
                           b"\x16\x00\x00\x00\x00\x00\x00\x00"
                           b"\x0e\xaa\x00\x04\x00\x02\x08\x20"
                           b"\xaa\x00\x04\x00\x01\x08\xc0")
-class test_ehello (rptest):
+class test_ehello (DnTest):
     def test_decode (self):
         s = self.short (b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x01\x0c\x03\x04\x02"
                         b"\x00\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -166,7 +157,7 @@ class test_ehello (rptest):
                           b"\x03\x01\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00"
                           b"\xaa\x00\x04\x00\x01\x0c\x0f\x00\x00\x08forgetit")
 
-class routingmsg (rptest):
+class routingmsg (DnTest):
     def setUp (self):
         super ().setUp ()
         self.circ = unittest.mock.Mock ()
@@ -268,7 +259,7 @@ class test_l2routing (routingmsg):
         self.assertEqual (b, b"\x09\x04\x00\x00\x02\x00\x03\x00"
                           b"\x05\x04\x63\x14\x6e\x18")
 
-class test_ph2init (rptest):
+class test_ph2init (DnTest):
     def test_decode (self):
         s = self.short (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
                         b"\x00\x00\x00\x03\x01\x00\x00", NodeInit)
@@ -292,7 +283,7 @@ class test_ph2init (rptest):
         self.assertEqual (b, b"\x58\x01\x11\x03FOO\x00\x01\x04\x02\xff\x01"
                           b"\x80\x00\x00\x00\x00\x03\x01\x00\x07TESTING")
         
-class test_ph2verify (rptest):
+class test_ph2verify (DnTest):
     def test_decode (self):
         s = self.short (b"\x58\x02\x00PASSWORD", NodeVerify)
         self.assertEqual (s.password, b"PASSWORD")
@@ -302,7 +293,7 @@ class test_ph2verify (rptest):
         b = bytes (s)
         self.assertEqual (b, b"\x58\x02\x00TESTING\x00")
         
-class test_ph2nop (rptest):
+class test_ph2nop (DnTest):
     def test_decode (self):
         s = NopMsg ()
         s.decode (b"\x08TESTDATA")

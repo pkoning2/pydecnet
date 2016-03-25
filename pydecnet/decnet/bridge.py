@@ -14,6 +14,7 @@ from . import ethernet
 from . import events
 from . import timers
 from . import datalink
+from . import pktlogging
 
 def protostr (proto):
     return "{0[0]:02x}-{0[1]:02x}".format (proto)
@@ -50,7 +51,7 @@ class BridgeCircuit (Element):
         self.parent.dispatch (item)
 
     def send_frame (self, pdu, skip = None):
-        logging.tracepkt ("Sending %d bytes to %s: " % (len (pdu), self), pdu)
+        pktlogging.tracepkt ("Sending %d bytes to %s: " % (len (pdu), self), pdu)
         #logging.trace ("Sending %d bytes to %s: %s", len (pdu), self, pdu)
         self.datalink.parent.send_frame (pdu, skip)
 

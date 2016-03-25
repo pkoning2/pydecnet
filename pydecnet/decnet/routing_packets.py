@@ -5,6 +5,7 @@
 """
 
 from .common import *
+from . import logging
 from . import events
 from . import packet
 
