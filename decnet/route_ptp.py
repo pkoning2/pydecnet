@@ -9,6 +9,7 @@ import re
 from .common import *
 from . import packet
 from .routing_packets import *
+from . import logging
 from . import events
 from . import adjacency
 from . import datalink

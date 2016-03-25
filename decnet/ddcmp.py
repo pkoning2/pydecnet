@@ -13,6 +13,7 @@ import errno
 import crc
 
 from .common import *
+from . import logging
 from . import timers
 from . import datalink
 from . import packet

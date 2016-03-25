@@ -11,6 +11,7 @@ recursive import.
 from .common import *
 from .events import *
 from .routing_packets import *
+from . import logging
 from . import timers
 
 class Adjacency (Element, timers.Timer):

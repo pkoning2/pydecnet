@@ -703,14 +703,19 @@ class Packet (metaclass = packet_encoding_meta):
         """
         pass
     
-    def __str__ (self):
+    def format (self, exclude = {}):
         ret = list ()
         for a in self.allslots ():
+            if a in exclude:
+                continue
             v = getattr (self, a, None)
             if v is not None:
                 ret.append ("{}={}".format (a, v))
         return "{}({})".format (self.__class__.__name__, ", ".join (ret))
 
+    def __str__ (self):
+        return self.format ()
+    
     __repr__ = __str__
 
     def __eq__ (self, other):

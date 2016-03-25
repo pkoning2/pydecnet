@@ -8,8 +8,6 @@ import re
 import threading
 import struct
 
-from . import logging
-
 DNVERSION = "DECnet/Python V1.0"
 
 # Defaults
@@ -319,6 +317,9 @@ class StopThread (threading.Thread):
         super ().__init__ (**kwargs)
         self.stopnow = False
         self.daemon = True
+        # This is a hack, but it avoids circular imports
+        global logging
+        from . import logging
         
     def stop (self, wait = False):
         """Stop the thread.  This is called from another thread. The actual

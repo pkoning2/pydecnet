@@ -13,6 +13,7 @@ import os
 import sys
 
 from .common import *
+from . import logging
 from . import datalink
 from . import pcap
 

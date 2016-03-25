@@ -11,6 +11,7 @@ import socket
 import warnings
 
 from .common import *
+from . import logging
 from . import datalink
 
 # SimhDMC link states

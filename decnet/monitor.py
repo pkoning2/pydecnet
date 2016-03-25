@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import re
 
 from .common import *
+from . import logging
 
 def Monitor (node, config):
     if config.system.http_port: # or config.system.https_port:
