@@ -63,11 +63,11 @@ def proc_layoutelem (cls, e):
             # Find the field length in bytes
             topbit = -1
             fields = args
-            for name, start, bits in fields:
+            for name, start, bits, *ftype in fields:
                 topbit = max (topbit, start + bits - 1)
             flen = (topbit + 8) // 8
-            args = ( flen, [ ( name, start, bits)
-                             for name, start, bits in fields if name ] )
+            args = ( flen, [ ( name, start, bits, ftype[0] if ftype else None)
+                             for name, start, bits, *ftype in fields if name ] )
         return [ enc, dec, args ]
         
 def process_layout (cls, layout):
@@ -78,9 +78,10 @@ def process_layout (cls, layout):
     (case insensitive), followed by a description for that field.  The
     format of the description depends on the field code:
 
-    "BM": description is a sequence of triples, which together make
-    up the bit field elements of the protocol field.  Each triple 
-    consists of name, start bit position, and bit count.
+    "BM": description is a sequence of tuples, which together make
+    up the bit field elements of the protocol field.  Each tuple
+    consists of name, start bit position, bit count, and optionally
+    the field type.  If omitted, the type is unsigned integer.
     The bit fields must be listed together and given in ascending order 
     of bit position.  The size of the field is taken to be the minimal 
     number of bytes needed to hold all the bit fields.
@@ -143,7 +144,7 @@ def proc_slotelem (e):
         return ret, wild
     else:
         if code == "bm":
-            return { name for name, start, bits in args if name }, False
+            return { name for name, *rest in args if name }, False
         elif code == "res":
             return set (), False
         else:
@@ -372,8 +373,9 @@ class Packet (metaclass = packet_encoding_meta):
             raise MissingData
         flen = buf[0]
         if flen > maxlen:
-            logging.debug ("Image field longer than max length %d", maxlen)
-            raise FieldOverflow
+            logging.debug ("Image field length %d longer than max length %d",
+                           flen, maxlen)
+            raise FieldOverflow (flen, maxlen)
         v = buf[1:flen + 1]
         if len (v) != flen:
             logging.debug ("Not %d bytes left for image field", flen)
@@ -459,11 +461,14 @@ class Packet (metaclass = packet_encoding_meta):
 
     def encode_bm (self, flen, elements):
         """Encode a bitmap field.  "elements" is a sequence of
-        triples: name, starting bit position, bit count.
+        tuples: name, starting bit position, bit count, field type.
         """
         field = 0
-        for name, start, bits in elements:
+        for name, start, bits, ftype in elements:
             val = getattr (self, name, 0)
+            if ftype:
+                # If not integer already, convert to (little endian) integer
+                val = int (val)
             if val >> bits:
                 logging.debug ("Field %s value %d too large for %d bit field",
                                name, val, bits)
@@ -473,15 +478,18 @@ class Packet (metaclass = packet_encoding_meta):
 
     def decode_bm (self, buf, flen, elements):
         """Decode a bitmap field.  "elements" is a sequence of
-        triples: name, starting bit position, bit count.  The fields
-        are decoded as unsigned integers.  Returns the remaining buffer.
+        tuples: name, starting bit position, bit count, field type.
+        The fields are decoded according to ftype if give, otherwise
+        as unsigned integers.  Returns the remaining buffer.
         """
         if len (buf) < flen:
             logging.debug ("Not %d bytes left for bit mapped field", flen)
             raise MissingData
         field = int.from_bytes (buf[:flen], LE)
-        for name, start, bits in elements:
+        for name, start, bits, ftype in elements:
             val = (field >> start) & ((1 << bits) - 1)
+            if ftype:
+                val = ftype (val)
             setattr (self, name, val)
         return buf[flen:]
 

@@ -4,11 +4,25 @@ from tests.dntest import *
 
 from decnet import packet
 
+class BE2 (int):
+    """2-byte big endian integer.
+    """
+    def __new__ (cls, val, bval = None):
+        if bval is None:
+            val = int.from_bytes (val.to_bytes (2, "little"), "big")
+        else:
+            val = bval
+        return int.__new__ (cls, val)
+
+    def __int__ (self):
+        return int.from_bytes (self.to_bytes (2, "little"), "big")
+    
 class alltypes (packet.Packet):
     _layout = (( "bm",
                  ( "bit1", 0, 1 ),
                  ( "bit2", 1, 2 ),
-                 ( "bit6", 3, 6 )),
+                 ( "bit6", 3, 6 ),
+                 ( "be", 9, 16, BE2 )),
                ( "i", "image", 10 ),
                ( "b", "int6", 6 ),
                ( "ex", "extended", 7 ),
@@ -19,7 +33,7 @@ class alltypes (packet.Packet):
                ( Nodeid, "node" ))
 class allpayload (alltypes): _addslots = { "payload" }
 
-testdata = b"\025\001\006abcdef\001\000\000\001\000\000\200\003" \
+testdata = b"\025\x21\xc2\x01\006abcdef\001\000\000\001\000\000\200\003" \
            b"\012\377bytesX\001\001\000\000\003\004"
 # In the above, X is the value for the one-byte "res" (reserved) field,
 # which is don't care on decode but 0 on encode.  So construct the
@@ -107,6 +121,7 @@ class TestPacket (DnTest):
         self.assertEqual (a.bit1, 1)
         self.assertEqual (a.bit2, 2)
         self.assertEqual (a.bit6, 34)
+        self.assertEqual (a.be, 4321)
         self.assertEqual (a.image, b"abcdef")
         self.assertEqual (a.int6, 16777217)
         self.assertEqual (a.extended, 384)
@@ -130,19 +145,20 @@ class TestPacket (DnTest):
                            % (e, testdata[:l], l))
         
     def test_alltypes_e (self):
-        a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18,
+        a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18, be = BE2 (0, 511),
                       image = b"defghi", int6 = 32767,
                       extended = 12, sint = -2,
                       byte5 = b"hound", int4 = 511,
                       node = Nodeid (2, 2))
+        print (a)
         b = bytes (a)
-        self.assertEqual (b, b"\x95\000\006defghi\377\177\000\000\000\000"
+        self.assertEqual (b, b"\x95\x02\xfe\x01\006defghi\377\177\000\000\000\000"
                           b"\014\376\377hound\000\377\001\000\000\002\010")
 
     def test_alltypes_def (self):
         a = alltypes (node = Nodeid (1))    # Default what can be
         b = bytes (a)
-        self.assertEqual (b, b"\000\000\000\000\000\000\000\000\000"
+        self.assertEqual (b, b"\000\000\000\000\000\000\000\000\000\000\000"
                           b"\000\000\000\000\000\000\000\000\000"
                           b"\000\000\000\000\001\000")
 
@@ -172,6 +188,7 @@ class TestPacket (DnTest):
         self.assertEqual (a.bit1, 1)
         self.assertEqual (a.bit2, 2)
         self.assertEqual (a.bit6, 34)
+        self.assertEqual (a.be, 4321)
         self.assertEqual (a.image, b"foobar")
         self.assertEqual (a.int6, 16777217)
         self.assertEqual (a.extended, 384)
@@ -202,7 +219,7 @@ class TestPacket (DnTest):
     def test_truncated_tlv (self):
         for l in range (1, len (tlvdata) - 1):
             try:
-                a = alltypes (tlvdata[:l])
+                a = alltlv (tlvdata[:l])
                 # Truncated TLV still works if data ends on field boundary
             except packet.DecodeError:
                 pass
