@@ -10,7 +10,6 @@ from decnet import routing
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
-from decnet import logging
 from decnet.nice import NiceNode
 
 rcount = 5000

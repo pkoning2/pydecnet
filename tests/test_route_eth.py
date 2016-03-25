@@ -8,7 +8,6 @@ from decnet import routing
 from decnet import datalink
 from decnet.timers import Timeout
 from decnet.node import Nodeinfo
-from decnet import logging
 
 rcount = 5000
 rmin = 0
