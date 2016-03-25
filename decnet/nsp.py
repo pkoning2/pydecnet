@@ -184,7 +184,9 @@ class AckConn (NspHdr):
     
 class DataSeg (AckHdr):
     _addslots = { "payload" }
-    _layout = (( Seq, "segnum" ),)
+    _layout = (( "bm",
+                 ( "segnum", 0, 12, Seq ),
+                 ( "dly", 12, 1 )),)
     type = NspHdr.DATA
     int_ls = 0
     

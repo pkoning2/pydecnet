@@ -13,9 +13,9 @@ import unittest.mock
 sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
 
 from decnet.common import *
+from decnet import logging
 from decnet import packet
 from decnet import events
-from decnet import logging
 from decnet import node
 from decnet import event_logger
 
