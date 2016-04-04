@@ -21,7 +21,7 @@ class TestModulo (DnTest):
         with self.assertRaises (OverflowError):
             b = mod16 (16)
 
-    def test_eq (self):
+    def test_eq16 (self):
         a = mod16 (1)
         self.assertTrue (a == a)
         self.assertTrue (a <= a)
@@ -30,7 +30,7 @@ class TestModulo (DnTest):
         self.assertFalse (a < a)
         self.assertFalse (a > a)
 
-    def test_ne (self):
+    def test_ne16 (self):
         a = mod16 (1)
         b = mod16 (8)
         self.assertTrue (a < b)
@@ -47,7 +47,33 @@ class TestModulo (DnTest):
         self.assertTrue (a >= c)
         self.assertFalse (a == c)
 
-    def test_undef (self):
+    def test_eq15 (self):
+        a = mod15 (1)
+        self.assertTrue (a == a)
+        self.assertTrue (a <= a)
+        self.assertTrue (a >= a)
+        self.assertFalse (a != a)
+        self.assertFalse (a < a)
+        self.assertFalse (a > a)
+
+    def test_ne15 (self):
+        a = mod15 (1)
+        b = mod15 (8)
+        self.assertTrue (a < b)
+        self.assertTrue (a <= b)
+        self.assertTrue (a != b)
+        self.assertFalse (a > b)
+        self.assertFalse (a >= b)
+        self.assertFalse (a == b)
+        c = mod15 (9)
+        self.assertFalse (a < c)
+        self.assertFalse (a <= c)
+        self.assertTrue (a != c)
+        self.assertTrue (a > c)
+        self.assertTrue (a >= c)
+        self.assertFalse (a == c)
+
+    def test_undef16 (self):
         a = mod16 (1)
         b = mod16 (9)
         with self.assertRaises (TypeError):
