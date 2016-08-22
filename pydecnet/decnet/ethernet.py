@@ -4,7 +4,10 @@
 
 """
 
-from fcntl import *
+try:
+    from fcntl import *
+except ImportError:
+    fcntl = None
 import random
 import select
 import socket
@@ -148,62 +151,64 @@ class _Ethernet (datalink.BcDatalink, StopThread):
                                          pdu = packet, extra = ts))
 
 # API specific classes
+if fcntl:
+    class _TapEth (_Ethernet):
+        def open (self):
+            fd = os.open (self.dev, os.O_RDWR)
+            dont_close (fd)
+            oldflags = fcntl (fd, F_GETFL, 0)
+            fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
+            self.tap = fd
+            self.sellist = ( fd, )
+            # Turn the interface on -- needed only on Mac OS
+            if sys.platform == "darwin":
+                req = bytearray (sizeof_ifreq)
+                devname = os.path.basename (self.dev)
+                ifreq.pack_into (req, 0, devname.encode ("ascii"), 0)
+                s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
+                ioctl (s, SIOCGIFFLAGS, req)
+                name, flags = ifreq.unpack_from (req)
+                ifreq.pack_into (req, 0, name, flags | 1)
+                ioctl (s, SIOCSIFFLAGS, req)
+                s.close ()
+            super ().open ()
 
-class _TapEth (_Ethernet):
-    def open (self):
-        fd = os.open (self.dev, os.O_RDWR)
-        dont_close (fd)
-        oldflags = fcntl (fd, F_GETFL, 0)
-        fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
-        self.tap = fd
-        self.sellist = ( fd, )
-        # Turn the interface on -- needed only on Mac OS
-        if sys.platform == "darwin":
-            req = bytearray (sizeof_ifreq)
-            devname = os.path.basename (self.dev)
-            ifreq.pack_into (req, 0, devname.encode ("ascii"), 0)
-            s = socket.socket (socket.AF_INET, socket.SOCK_DGRAM, 0)
-            ioctl (s, SIOCGIFFLAGS, req)
-            name, flags = ifreq.unpack_from (req)
-            ifreq.pack_into (req, 0, name, flags | 1)
-            ioctl (s, SIOCSIFFLAGS, req)
-            s.close ()
-        super ().open ()
-        
-    def close (self):
-        super ().close ()
-        os.close (self.tap)
-        self.tap = None
-        
-    def send_frame (self, buf, skip = None):
-        """Send an Ethernet frame.  Ignore any errors, because that's
-        the DECnet way.
-        """
-        try:
-            os.write (self.tap, buf)
-        except IOError:
-            pass
-        
-    def run (self):
-        while True:
-            if self.stopnow:
-                break
+        def close (self):
+            super ().close ()
+            os.close (self.tap)
+            self.tap = None
+
+        def send_frame (self, buf, skip = None):
+            """Send an Ethernet frame.  Ignore any errors, because that's
+            the DECnet way.
+            """
             try:
+                os.write (self.tap, buf)
+            except IOError:
+                pass
+
+        def run (self):
+            while True:
+                if self.stopnow:
+                    break
                 try:
-                    # ETH_TMO is in ms, but select timeout is in seconds.
-                    r, w, x = select.select (self.sellist, (),
-                                             self.sellist, ETH_TMO / 1000)
-                except select.error as e:
-                    r = True
-                if not r:
-                    continue
-                pkt = os.read (self.tap, 1518)
-                if not pkt:
-                    continue
-                self.receive (len (pkt), pkt, None)
-            except OSError as e:
-                break
-            
+                    try:
+                        # ETH_TMO is in ms, but select timeout is in seconds.
+                        r, w, x = select.select (self.sellist, (),
+                                                 self.sellist, ETH_TMO / 1000)
+                    except select.error as e:
+                        r = True
+                    if not r:
+                        continue
+                    pkt = os.read (self.tap, 1518)
+                    if not pkt:
+                        continue
+                    self.receive (len (pkt), pkt, None)
+                except OSError as e:
+                    break
+else:
+    _TapEth = None
+     
 class _PcapEth (_Ethernet):
     def __init__ (self, owner, name, dev, config):
         super ().__init__ (owner, name, dev, config)
@@ -328,7 +333,7 @@ class Ethernet (datalink.Datalink):
     def __new__ (cls, owner, name, config):
         dev = config.device or name
         api, dev = dev.split (":", 1)
-        if api == "tap":
+        if api == "tap" and _TapEth:
             c = _TapEth
         elif api == "pcap":
             c = _PcapEth

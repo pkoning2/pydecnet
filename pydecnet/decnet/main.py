@@ -18,8 +18,11 @@ except ImportError:
 import time
 import threading
 import os
-from daemon import DaemonContext
-
+try:
+    from daemon import DaemonContext
+except ImportError:
+    DaemonContext = None
+    
 from . import common
 from . import config
 from . import node
@@ -32,9 +35,10 @@ dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
                        metavar = "CFN", nargs = "*",
                        help = "Configuration file")
-dnparser.add_argument ("-d", "--daemon", action = "store_true",
-                       default = False,
-                       help = "Run as daemon.  Requires a log file name to be specified.")
+if DaemonContext:
+    dnparser.add_argument ("-d", "--daemon", action = "store_true",
+                           default = False,
+                           help = "Run as daemon.  Requires a log file name to be specified.")
 dnparser.add_argument ("--pid-file", metavar = "FN",
                        default = DEFPIDFILE,
                        help = "PID file (default: %s)" % DEFPIDFILE)
@@ -81,6 +85,8 @@ def main ():
     parts of DECnet.
     """
     p = dnparser.parse_args ()
+    if not DaemonContext:
+        p.daemon = False
     if p.config_help is not None:
         if p.config_help:
             args = p.config_help, "-h"

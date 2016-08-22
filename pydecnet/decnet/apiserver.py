@@ -11,7 +11,6 @@ import socketserver
 import shlex
 import socket
 import select
-from fcntl import *
 
 from .common import *
 from . import logging
@@ -227,70 +226,75 @@ class dnparser (argparse.ArgumentParser):
         except dnparser_error as e:
             return False, e.args[0]
 
-class ApiServer (Element, socketserver.ThreadingUnixStreamServer):
-    """A class for the Unix socket server for the DECnet API.
-    """
-    def __init__ (self, parent, name):
-        logging.debug ("Initializing API server on %s", name)
-        if os.path.exists (name):
-            raise RuntimeError ("Another socket server is already running")
-        Element.__init__ (self, parent)
-        self.daemon_threads = True
-        socketserver.ThreadingUnixStreamServer.__init__ (self, name, ApiRequest,
-                                                         bind_and_activate = False)
-        dont_close (self.socket)
-        self.socketname = name
-        # It might seem redundant to have a parser per node rather than
-        # a single global variable.  Two reasons for doing it that way:
-        # 1. Each child entity registers its API as part of its
-        #    initialization, and that happens per node, not one time.
-        # 2. The set of child entities, and therefore the set of available
-        #    APIs, depends on the node config.
-        self.apiparser = dnparser (prog = "")
-        self.dncommands = self.apiparser.add_subparsers (help = "Commands")
-        
-    def start (self):
-        """Start a thread with the server -- that thread will then start one
-        more thread for each request.
+try:
+    from fcntl import *
+
+    class ApiServer (Element, socketserver.ThreadingUnixStreamServer):
+        """A class for the Unix socket server for the DECnet API.
         """
-        try:
-            self.server_bind ()
-            self.server_activate ()
-        except Exception:
-            logging.exception ("Error binding to API socket")
-            return
-        tname = "{}.API".format (self.node.nodename)
-        self.server_thread = threading.Thread (target = self.serveapi,
-                                               name = tname)
-        # Exit the server thread when the main thread terminates
-        self.server_thread.daemon = True
-        self.server_thread.start ()
-        logging.debug ("API server started")
+        def __init__ (self, parent, name):
+            logging.debug ("Initializing API server on %s", name)
+            if os.path.exists (name):
+                raise RuntimeError ("Another socket server is already running")
+            Element.__init__ (self, parent)
+            self.daemon_threads = True
+            socketserver.ThreadingUnixStreamServer.__init__ (self, name, ApiRequest,
+                                                             bind_and_activate = False)
+            dont_close (self.socket)
+            self.socketname = name
+            # It might seem redundant to have a parser per node rather than
+            # a single global variable.  Two reasons for doing it that way:
+            # 1. Each child entity registers its API as part of its
+            #    initialization, and that happens per node, not one time.
+            # 2. The set of child entities, and therefore the set of available
+            #    APIs, depends on the node config.
+            self.apiparser = dnparser (prog = "")
+            self.dncommands = self.apiparser.add_subparsers (help = "Commands")
 
-    def serveapi (self):
-        try:
-            self.serve_forever ()
-        finally:
-            self.stop (False)
-            
-    def stop (self, wait = True):
-        try:
-            os.remove (self.socketname)
-            logging.debug ("API shut down")
-        except Exception:
-            logging.exception ("Error removing API socket %s", self.socketname)
+        def start (self):
+            """Start a thread with the server -- that thread will then start one
+            more thread for each request.
+            """
+            try:
+                self.server_bind ()
+                self.server_activate ()
+            except Exception:
+                logging.exception ("Error binding to API socket")
+                return
+            tname = "{}.API".format (self.node.nodename)
+            self.server_thread = threading.Thread (target = self.serveapi,
+                                                   name = tname)
+            # Exit the server thread when the main thread terminates
+            self.server_thread.daemon = True
+            self.server_thread.start ()
+            logging.debug ("API server started")
 
-    def register_api (self, command, handler, help = None):
-        """Register a command under the DECnet/Python API.  Arguments
-        are the command name, the handler element (where requests for this
-        command will be dispatched to) and optional help text.  The
-        function returns an argparse subparser object, which the caller
-        should populate with any command arguments desired.
+        def serveapi (self):
+            try:
+                self.serve_forever ()
+            finally:
+                self.stop (False)
 
-        When requests matching this command are subsequently dispatched,
-        they will come to the owner in the form of ApiRequest work items.
-        """
-        sp = self.dncommands.add_parser (command, help = help)
-        sp.set_defaults (command = command, handler = handler)
-        return sp
+        def stop (self, wait = True):
+            try:
+                os.remove (self.socketname)
+                logging.debug ("API shut down")
+            except Exception:
+                logging.exception ("Error removing API socket %s", self.socketname)
 
+        def register_api (self, command, handler, help = None):
+            """Register a command under the DECnet/Python API.  Arguments
+            are the command name, the handler element (where requests for this
+            command will be dispatched to) and optional help text.  The
+            function returns an argparse subparser object, which the caller
+            should populate with any command arguments desired.
+
+            When requests matching this command are subsequently dispatched,
+            they will come to the owner in the form of ApiRequest work items.
+            """
+            sp = self.dncommands.add_parser (command, help = help)
+            sp.set_defaults (command = command, handler = handler)
+            return sp
+except (ImportError, AttributeError):
+    # On Windows you don't get this part
+    pass
