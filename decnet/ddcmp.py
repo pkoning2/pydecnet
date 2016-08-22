@@ -222,7 +222,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         pass
     
     def port_open (self):
-        if self.state != self.s0:
+        if self.state != self.s0 and self.state != self.reconnect:
             # Already open, ignore
             return
         # Initialize DDCMP protocol state; the names are by and large taken
@@ -313,6 +313,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     def port_close (self):
         if self.state != self.s0:
             self.rthread.stop ()
+            self.rthread.join (5)
             self.rthread = None
             self.close_sockets ()
 
@@ -362,6 +363,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.run_tcp ()
         else:
             self.run_udp ()
+        logging.trace ("DDCMP datalink %s receive thread stopped", self.name)
 
     def run_tcp (self):
         """Receive thread for the TCP case.
@@ -390,6 +392,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             for fd, event in plist:
                 if event & select.POLLERR:
                     self.disconnected ()
+                    self.state = self.reconnect
                     return
                 if fd == cfn:
                     if event & select.POLLHUP:
@@ -431,6 +434,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         sock.close ()
                     except (OSError, socket.error):
                         self.disconnected ()
+                        self.state = self.reconnect
                         return
         logging.trace ("DDCMP %s connected", self.name)
         # At this point we're using just one socket, the data socket.
@@ -451,12 +455,18 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 return
             for fd, event in plist:
                 if event & select.POLLERR:
+                    pstate = self.state
                     self.disconnected ()
+                    if pstate == self.Istart:
+                        self.state = self.reconnect
                     return
                 # Not error, so it's incoming data.  Get the first byte.
                 c = sock.recv (1)
                 if not c:
+                    pstate = self.state
                     self.disconnected ()
+                    if pstate == self.Istart:
+                        self.state = self.reconnect
                     return
                 h = c[0]
                 if h == SYN or h == DEL:
@@ -652,6 +662,16 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         """
         return None
 
+    def reconnect (self, data):
+        """State machine for the case where a connection failed (or was
+        never really made) during Istart.  That connection is closed, and
+        the receive thread exited, so we need to start that all over.
+        """
+        if isinstance (data, timers.Timeout):
+            self.port_open ()
+        # Anything other than timeout should not come here but is ignored.
+        return None    # no change in state
+        
     def connecting (self, data):
         """State machine for the connecting state -- this applies to TCP
         mode operation while we're still looking for a connection from
