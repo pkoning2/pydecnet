@@ -8,6 +8,8 @@ import time
 import logging
 import logging.handlers
 from .common import *
+import traceback
+import os
 
 # Expose part of the standard logging objects
 
@@ -48,7 +50,10 @@ def formatTime(self, record, datefmt = None):
 logging.Formatter.formatTime = formatTime
 
 def trace (msg, *args, **kwargs):
-    logging.log (TRACE, msg, *args, **kwargs)
+    caller = traceback.extract_stack (limit = 2)[0]
+    logging.log (TRACE, "{}:{}: {}".format (os.path.basename (caller.filename),
+                                            caller.lineno, msg),
+                 *args, **kwargs)
     
 logging.addLevelName (TRACE, "TRACE")
 
