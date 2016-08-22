@@ -718,16 +718,16 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if isinstance (data, (timers.Timeout, StartMsg)):
             self.send_stack ()
         elif isinstance (data, Received):
-            data = data.packet
-            if isinstance (data, StackMsg):
+            pkt = data.packet
+            if isinstance (pkt, StackMsg):
                 return self.running_state ()
-            elif isinstance (data, (AckMsg, DataMsg)):
+            elif isinstance (pkt, (AckMsg, DataMsg)):
                 # Set running state, stop the timer, then process
                 # the received data or ACK message as usual
                 self.state = self.running_state ()
                 self.running (data)
                 return self.state    # Make state change explicit in trace
-            elif isinstance (data, MaintMsg):
+            elif isinstance (pkt, MaintMsg):
                 # Set state to Maintenance, then process the message
                 # as for that state
                 self.state = self.Maint
@@ -749,6 +749,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
                                                   status = True))
+        logging.trace ("Enter DDCMP running state on %s", self.name)
         self.node.timers.stop (self)
         # Send an ack to tell the other end
         self.send_ack ()
