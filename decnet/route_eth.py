@@ -16,8 +16,13 @@ from . import adjacency
 from . import timers
 
 # Some well known Ethernet addresses
-ALL_ROUTERS = Macaddr ("AB-00-00-03-00-00")
-ALL_ENDNODES = Macaddr ("AB-00-00-04-00-00")
+ALL_ROUTERS    = Macaddr ("AB-00-00-03-00-00")
+ALL_ENDNODES   = Macaddr ("AB-00-00-04-00-00")
+# Phase IV plus
+ALL_L2_ROUTERS = Macaddr ("09-00-2B-02-00-00")
+# Phase IV prime (arbitrary MAC address variant of Phase IV)
+ALL_PR_ROUTERS = Macaddr ("09-00-2B-02-01-0A")
+PR_UNK_DEST    = Macaddr ("09-00-2B-02-01-0B")
 
 def sortkey (adj):
     return adj.priority, adj.nodeid

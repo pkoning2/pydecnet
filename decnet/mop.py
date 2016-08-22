@@ -6,7 +6,6 @@
 
 from random import randint
 import time
-from fcntl import *
 import socket
 import os
 
@@ -18,6 +17,9 @@ from . import datalink
 from . import timers
 from . import statemachine
 from . import logging
+
+if not WIN:
+    from fcntl import *
 
 # Some well known Ethernet addresses
 CONSMC = Macaddr ("AB-00-00-02-00-00")

@@ -61,9 +61,12 @@ cp.add_argument ("--t1", type = int,
                  "(overrides exec setting)")
 cp.add_argument ("--t3", type = int,
                  help = "Hello interval (default = 10 for LAN else 60)")
-cp.add_argument ("--console", const = bytes (8), metavar = "V",
-                 nargs = "?", type = scan_ver,
-                 help = "Enable MOP console (V = verification)")
+if WIN:
+    cp.set_defaults (console = None)
+else:
+    cp.add_argument ("--console", const = bytes (8), metavar = "V",
+                     nargs = "?", type = scan_ver,
+                     help = "Enable MOP console (V = verification)")
 cp.add_argument ("--random-address", action = "store_true", default = False,
                  help = "Generate random \"hardware address\" (Ethernet only)")
 # The spec says the valid range is 0..255 but that is wrong, because the list
