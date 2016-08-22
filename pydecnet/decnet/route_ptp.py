@@ -429,6 +429,18 @@ class PtpCircuit (statemachine.StateMachine):
         else:
             pkt.srcnode = self.parent.tid
 
+    def checksrc (self, src):
+        """Verify the SRCNODE value in a received packet.  It must match
+        the value received in the Init message.
+
+        Returns True if ok, False if not.
+        """
+        if self.rphase == 4:
+            expected = self.id
+        else:
+            expected = self.id.tid
+        return src == expected
+    
     def ri (self, item):
         """Routing layer initialize state.  Wait for a point to point
         init message.
@@ -672,6 +684,14 @@ class PtpCircuit (statemachine.StateMachine):
                                      adjacent_node = self.optnode (),
                                      reason = "verification_required")
             if isinstance (pkt, PtpVerify) and self.rphase > 2:
+                if self.rphase > 2 and not self.checksrc (pkt.srcnode):
+                    logging.debug ("%s packet from wrong node %s",
+                                   self.name, pkt.srcnode)
+                    self.init_fail += 1
+                    return self.restart (events.adj_down, 
+                                         "adjacency down",
+                                         adjacent_node = self.optnode (),
+                                         reason = "address_out_of_range")
                 if pkt.fcnval != verif:
                     logging.debug ("%s verification value mismatch",
                                    self.name)
@@ -763,6 +783,15 @@ class PtpCircuit (statemachine.StateMachine):
             # Process received packet.  Restart the listen timer if not phase 2.
             self.adj.alive ()
             pkt = item.packet
+            # Check source address
+            if isinstance (pkt, (PtpHello, L1Routing, L2Routing)) \
+              and self.rphase > 2 and not self.checksrc (pkt.srcnode):
+                logging.debug ("%s packet from wrong node %s",
+                               self.name, pkt.srcnode)
+                return self.restart (events.adj_down, 
+                                     "adjacency down",
+                                     adjacent_node = self.optnode (),
+                                     reason = "address_out_of_range")
             if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
                and self.rphase > 2:
                 logging.trace ("%s data packet to routing: %s", self.name, pkt)
