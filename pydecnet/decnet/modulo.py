@@ -13,7 +13,7 @@ class _mod_meta (type):
     def __new__ (cls, name, bases, classdict, mod = None):
         if not mod:
             if bases != ( int, ):
-                raise TypeError ("No modulus defined for class %s" % name)
+                raise TypeError ("No modulus defined for class {}".format (name))
         else:
             classdict["modulus"] = mod
             q, r = divmod (mod, 2)
@@ -51,7 +51,7 @@ class Mod (int, metaclass = _mod_meta):
     def __new__ (cls, val):
         if not hasattr (cls, "modulus"):
             raise TypeError ("Can't instantiate object of " \
-                             "class %s" % cls.__name__)
+                             "class {}".format (cls.__name__))
         if 0 <= val < cls.modulus:
             return int.__new__ (cls, val)
         raise OverflowError

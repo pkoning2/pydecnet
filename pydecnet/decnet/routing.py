@@ -235,9 +235,9 @@ class BaseRouter (Element):
             dl = dlcirc[name]
             try:
                 self.circuits[name] = self.routing_circuit (name, dl, c)
-                logging.debug ("Initialized routing circuit %s", name)
+                logging.debug ("Initialized routing circuit {}", name)
             except Exception:
-                logging.exception ("Error initializing routing circuit %s", name)
+                logging.exception ("Error initializing routing circuit {}", name)
 
     def routing_circuit (self, name, dl, c):
         """Factory function for circuit objects.  Depending on the datalink
@@ -257,9 +257,9 @@ class BaseRouter (Element):
         for name, c in self.circuits.items ():
             try:
                 c.start ()
-                logging.debug ("Started Routing circuit %s", name)
+                logging.debug ("Started Routing circuit {}", name)
             except Exception:
-                logging.exception ("Error starting Routing circuit %s", name)
+                logging.exception ("Error starting Routing circuit {}", name)
         self.node.logevent (events.node_state, reason = "operator_command",
                             old_state = "off", new_state = "on")
     
@@ -268,9 +268,9 @@ class BaseRouter (Element):
         for name, c in self.circuits.items ():
             try:
                 c.stop ()
-                logging.debug ("Stopped Routing circuit %s", name)
+                logging.debug ("Stopped Routing circuit {}", name)
             except Exception:
-                logging.exception ("Error stopping Routing circuit %s", name)
+                logging.exception ("Error stopping Routing circuit {}", name)
         self.node.logevent (events.node_state, reason = "operator_command",
                             old_state = "on", new_state = "off")
     
@@ -313,8 +313,7 @@ class EndnodeRouting (BaseRouter):
     def __init__ (self, parent, config):
         super ().__init__ (parent, config)
         if len (self.circuits) != 1:
-            raise ValueError ("End node must have 1 circuit, found %d" % \
-                              len (self.circuits))
+            raise ValueError ("End node must have 1 circuit, found {}".format (len (self.circuits)))
         # Remember that one circuit for easier access
         for c in self.circuits.values ():
             self.circuit = c
@@ -334,7 +333,7 @@ class EndnodeRouting (BaseRouter):
         pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
-        logging.trace ("Sending %d byte packet: %s", len (pkt), pkt)
+        logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.orig_sent += 1
         return self.circuit.send (pkt, None, tryhard)
 
@@ -342,7 +341,7 @@ class EndnodeRouting (BaseRouter):
         """A received packet is sent up to NSP if it is for this node,
         and ignored otherwise.
         """
-        logging.trace ("%s: processessing work item %s", self.name, item)
+        logging.trace ("{}: processessing work item {}", self.name, item)
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
                 self.selfadj.send (item)
@@ -380,7 +379,7 @@ class Phase2Routing (BaseRouter):
         try:
             a = self.adjacencies[dest]
             # Destination matches this adjacency, send
-            logging.trace ("Sending %d byte packet to %s: %s",
+            logging.trace ("Sending {} byte packet to {}: {}",
                            len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
                              dstnode = dest, src = None)
@@ -389,7 +388,7 @@ class Phase2Routing (BaseRouter):
             # that will no longer be true.
             return a.circuit.send (pkt, dest)
         except KeyError:
-            logging.trace ("%s unreachable: %s", dest, pkt)
+            logging.trace ("{} unreachable: {}", dest, pkt)
             return False
 
     def dispatch (self, item):
@@ -462,7 +461,7 @@ class L1Router (BaseRouter):
         the routing control data we will need later.
         """
         super ().adj_up (adj)
-        logging.trace ("adj up, %s, type %s", adj, adj.ntype)
+        logging.trace ("adj up, {}, type {}", adj, adj.ntype)
         if adj.ntype in { L1ROUTER, L2ROUTER }:
             adj.routeinfo = RouteInfo (adj, self.maxnodes, l2 = False)
             self.l1info[adj] = adj.routeinfo
@@ -481,7 +480,7 @@ class L1Router (BaseRouter):
             tid = adj.nodeid.tid
             if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj:
                 # We already have an endnode here.  Curious.
-                logging.debug ("Possible duplicate endnode %s on %s and %s",
+                logging.debug ("Possible duplicate endnode {} on {} and {}",
                                adj.nodeid, adj.circuit,
                                ri.oadj[tid].circuit)
             ri.hops[tid] = 1
@@ -582,7 +581,7 @@ class L1Router (BaseRouter):
                 minhops[i] = besth
                 mincost[i] = bestc
                 setsrm (i)
-                logging.trace ("Node %d, cost %d, hops %d via %s %s",
+                logging.trace ("Node {}, cost {}, hops {} via {} {}",
                                i, bestc, besth,
                                besta and besta.circuit.name,
                                besta and besta.nodeid)
@@ -681,7 +680,7 @@ class L1Router (BaseRouter):
                 else:
                     assert ri.hops[i] == INFHOPS and ri.cost[i] == INFCOST
         except AssertionError:
-            logging.critical ("Check failure on L1 entry %d: %d %d %s",
+            logging.critical ("Check failure on L1 entry {}: {} {} {}",
                               i, ri.hops[i], ri.cost[i], self.oadj[i])
             sys.exit (1)
 
@@ -750,7 +749,7 @@ class L1Router (BaseRouter):
                         srcadj.circuit.trans_recv += 1
                         a.circuit.trans_sent += 1
                         pkt.visit += 1
-                    logging.trace ("Sending %d byte packet to %s: %s",
+                    logging.trace ("Sending {} byte packet to {}: {}",
                        len (pkt), a, pkt)
                     a.send (pkt)
                     return True
@@ -953,7 +952,7 @@ class L2Router (L1Router):
                 attached = True
                 break
         if attached != self.attached:
-            logging.debug ("L2 attached state changed to %s", attached)
+            logging.debug ("L2 attached state changed to {}", attached)
             self.attached = attached
             ri = self.selfadj.routeinfo
             if attached:
@@ -987,7 +986,7 @@ class L2Router (L1Router):
                     assert ari.hops[i] == INFHOPS and \
                            ari.cost[i] == INFCOST
         except AssertionError:
-            logging.critical ("Check failure on L2 entry %d: %d %d",
+            logging.critical ("Check failure on L2 entry {}: {} {}",
                               i, self.ari.ahops[i], self.ari.acost[i])
             sys.exit (1)
         
@@ -1031,7 +1030,7 @@ class Update (Element, timers.Timer):
     def setsrm (self, tid, endtid = None):
         if self.parent.ntype != ENDNODE and self.parent.ntype != PHASE2:
             endtid = endtid or tid
-            logging.trace ("Setsrm (%s): %d to %d", self.pkttype.__name__,
+            logging.trace ("Setsrm ({}): {} to {}", self.pkttype.__name__,
                            tid, endtid)
             for i in range (tid, endtid + 1):
                 self.srm[i] = 1
@@ -1041,7 +1040,7 @@ class Update (Element, timers.Timer):
     def update_soon (self):
         if not self.holdoff:
             delta = max (T2 - (time.time () - self.lastupdate), 0)
-            logging.trace ("Scheduling update (%s) in %.1f",
+            logging.trace ("Scheduling update ({}) in {:.1f}",
                            self.pkttype.__name__, delta)
             self.holdoff = True
             self.node.timers.start (self, delta)
@@ -1056,7 +1055,7 @@ class Update (Element, timers.Timer):
             self.startpos += 1
             startpos = self.startpos % len (pkts)
             pkts = pkts[startpos:] + pkts[:startpos]
-            logging.trace ("Sending %d update (%s) packets",
+            logging.trace ("Sending {} update ({}) packets",
                            len (pkts), self.pkttype.__name__)
             for p in pkts:
                 self.parent.datalink.send (p, dest = route_eth.ALL_ROUTERS)
@@ -1162,5 +1161,5 @@ def Router (parent, config):
     try:
         c = nodetypes[rtype]
     except KeyError:
-        logging.critical ("Unsupported routing type %s", rtype)
+        logging.critical ("Unsupported routing type {}", rtype)
     return c (parent, config)

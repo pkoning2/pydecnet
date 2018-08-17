@@ -4,7 +4,7 @@
 
 """
 
-import time
+import datetime
 import logging
 import logging.handlers
 from .common import *
@@ -31,23 +31,19 @@ ERROR = logging.ERROR
 WARNING = logging.WARNING
 INFO = logging.INFO
 DEBUG = logging.DEBUG
+Formatter = logging.Formatter
 
 # Additional level
 TRACE = 2
 
-# This one is like the one in the "logging" module but with the
-# decimal comma corrected to a decimal point.
-def formatTime(self, record, datefmt = None):
-    """Return the creation time of the specified LogRecord as formatted text.
-    """
-    ct = self.converter (record.created)
-    if datefmt:
-        s = time.strftime (datefmt, ct)
-    else:
-        t = time.strftime ("%Y-%m-%d %H:%M:%S", ct)
-        s = "%s.%03d" % (t, record.msecs) # the use of % here is internal
-    return s
-logging.Formatter.formatTime = formatTime
+# We want not just overall log record formatting, but also message string formatting
+# to be done with "format".  The "style" argument of Formatter doesn't do that, instead
+# we have to override getMessage in the LogRecord class to make that work.
+class DecnetLogRecord (logging.LogRecord):
+    def getMessage (self):
+        return str (self.msg).format (*self.args)
+
+logging.setLogRecordFactory (DecnetLogRecord)
 
 def trace (msg, *args, **kwargs):
     caller = traceback.extract_stack (limit = 2)[0]

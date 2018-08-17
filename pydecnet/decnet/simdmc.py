@@ -48,12 +48,12 @@ class SimhDMC (datalink.PtpDatalink):
             if sec == [ "secondary" ]:
                 self.primary = False
             else:
-                raise RuntimeError ("Invalid device string %s" % config.device)
+                raise RuntimeError ("Invalid device string {}".format (config.device))
         else:
             self.primary = True
         self.host = datalink.HostAddress (host)
         self.portnum = int (port)
-        logging.trace ("SimhDMC datalink %s initialized as %s to %s:%d",
+        logging.trace ("SimhDMC datalink {} initialized as {} to {}:{}",
                        self.name, ("secondary", "primary")[self.primary],
                        host, self.portnum)
         self.status = OFF
@@ -83,10 +83,10 @@ class SimhDMC (datalink.PtpDatalink):
         if self.primary:
             try:
                 self.socket.connect ((self.host.addr, self.portnum))
-                logging.trace ("SimhDMC %s connect to %s %d in progress",
+                logging.trace ("SimhDMC {} connect to {} {} in progress",
                                self.name, self.host.addr, self.portnum)
             except socket.error:
-                logging.trace ("SimhDMC %s connect to %s %d rejected",
+                logging.trace ("SimhDMC {} connect to {} {} rejected",
                                self.name, self.host.addr, self.portnum)
                 self.status = OFF
                 return
@@ -95,10 +95,10 @@ class SimhDMC (datalink.PtpDatalink):
                 self.socket.bind (("", self.portnum))
                 self.socket.listen (1)
             except (OSError, socket.error):
-                logging.trace ("SimhDMC %s bind/listen failed", self.name)
+                logging.trace ("SimhDMC {} bind/listen failed", self.name)
                 self.status = OFF
                 return
-            logging.trace ("SimhDMC %s listen to %d active",
+            logging.trace ("SimhDMC {} listen to {} active",
                            self.name, self.portnum)
         self.rthread.start ()
 
@@ -126,7 +126,7 @@ class SimhDMC (datalink.PtpDatalink):
         self.status = OFF
 
     def run (self):
-        logging.trace ("SimhDMC datalink %s receive thread started", self.name)
+        logging.trace ("SimhDMC datalink {} receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -143,7 +143,7 @@ class SimhDMC (datalink.PtpDatalink):
                     self.disconnected ()
                     return
                 if w:
-                    logging.trace ("SimhDMC %s connected", self.name)
+                    logging.trace ("SimhDMC {} connected", self.name)
                     break
         else:
             # Wait for an incoming connection.
@@ -164,12 +164,12 @@ class SimhDMC (datalink.PtpDatalink):
                         # Good connection, stop looking
                         break
                     # If the connect is from someplace we don't want
-                    logging.trace ("SimhDMC %s connect received from unexpected address %s", self.name, host)
+                    logging.trace ("SimhDMC {} connect received from unexpected address {}", self.name, host)
                     sock.close ()
                 except (OSError, socket.error):
                     self.disconnected ()
                     return
-            logging.trace ("SimhDMC %s connected", self.name)
+            logging.trace ("SimhDMC {} connected", self.name)
             # Stop listening:
             self.socket.close ()
             # The socket we care about now is the data socket
@@ -213,7 +213,7 @@ class SimhDMC (datalink.PtpDatalink):
                         self.disconnected ()
                         return
                     msg += m
-                logging.trace ("Received DMC message len %d: %r",
+                logging.trace ("Received DMC message len {}: {!r}",
                                len (msg), msg)
                 if self.port:
                     self.bytes_recv += len (msg)
@@ -225,7 +225,7 @@ class SimhDMC (datalink.PtpDatalink):
     def send (self, msg, dest = None):
         if self.status == RUN:
             msg = bytes (msg)
-            logging.trace ("Sending DMC message len %d: %r", len (msg), msg)
+            logging.trace ("Sending DMC message len {}: {!r}", len (msg), msg)
             mlen = len (msg).to_bytes (2, "big")
             self.bytes_sent += len (msg)
             self.pkts_sent += 1

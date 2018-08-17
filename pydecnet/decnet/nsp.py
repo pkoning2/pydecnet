@@ -61,7 +61,7 @@ class AckNum (object):
     _labels = ( "ACK", "NAK", "XACK", "XNAK" )
     def __init__ (self, num, qual = ACK):
         if not 0 <= qual <= 3:
-            raise ValueError ("Invalid QUAL value %s" % qual)
+            raise ValueError ("Invalid QUAL value {}".format (qual))
         self.qual = qual
         self.num = Seq (num)
 
@@ -127,14 +127,16 @@ class NspHdr (packet.Packet):
     CC = 2
     DI = 3
     DC = 4
-    #NI = 5    # Phase 2 node init (doesn't come to NSP)
+    #NI = 5    # Phase 2 node init (handled in routing, doesn't come to NSP)
     RCI = 6    # Retransmitted CI
 
 class AckHdr (NspHdr):
     """The standard packet beginning for packets that have link addresses
     and acknum fields.  Note that the second ACK field is called "acknum2"
     rather than "ackoth" or "ackdat" since those names don't make sense if
-    we use this header interchangeably for all packet layouts.
+    we use this header interchangeably for all packet layouts.  And while
+    it is typical to use the first field for "this subchannel" and the 
+    second for "the other subchannel", that isn't required.
     """
     _layout = (( "b", "dstaddr", 2 ),
                ( "b", "srcaddr", 2 ),
@@ -159,7 +161,9 @@ class AckHdr (NspHdr):
 # will match an object of a subclass of the supplied class.  To keep
 # the actual message classes distinct, in the hierarchy below they are
 # almost always derived from a base class that is not in itself an
-# actual message class.
+# actual message class.  However, we can reuse some of the methods of
+# other classes (those that we didn't want to use as base class) without
+# causing trouble -- consider AckData.check for example.
 
 class AckData (AckHdr):
     type = NspHdr.ACK
@@ -198,7 +202,7 @@ class IntMsg (AckHdr):
     int_ls = 1
     int = 1
 
-# Link Service message is a variation on interrupt message.
+# Link Service message also uses the interrupt subchannel.
 class LinkSvcMsg (AckHdr):
     _layout = (( Seq, "segnum" ),
                ( "bm",
@@ -222,9 +226,9 @@ class LinkSvcMsg (AckHdr):
             logging.debug ("Reserved LSFLAGS value")
             raise InvalidLS
 
-# Control messages.  0 (NOP) and 5 (Node init) are handled
-# in route_ptp since they are really datalink dependent routing
-# layer messages.
+# Control messages.  5 (Node init) is handled in route_ptp since it is
+# a datalink dependent routing layer message.  0 (NOP) is here,
+# however.
 
 # Common parts of CI, RCI, and CC
 class ConnMsg (NspHdr):
@@ -371,15 +375,15 @@ class NSP (Element):
                 t = msgmap[msgflg]
             except KeyError:
                 # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
-                logging.trace ("NSP packet received from %s: %s",
+                logging.trace ("NSP packet received from {}: {}",
                                item.src, item.packet)
-                logging.trace ("Unrecognized msgflg value %d, ignored", msgflg)
+                logging.trace ("Unrecognized msgflg value {}, ignored", msgflg)
                 # FIXME: this needs to log the message in the right format
                 self.node.logevent (events.inv_msg, message = buf, source_node = item.src)
                 return
             if not t:
                 # NOP message to be ignored, do so.
-                logging.trace ("NSP NOP packet received from %s: %s", item.src, item.packet)
+                logging.trace ("NSP NOP packet received from {}: {}", item.src, item.packet)
                 return
             pkt = t (buf)
             if t is DiscConf:
@@ -392,7 +396,7 @@ class NSP (Element):
                     # Parse it as a generic DiscConf packet
                     pass
                 pkt = t (buf)
-            logging.trace ("NSP packet received from %s: %s", item.src, pkt)
+            logging.trace ("NSP packet received from {}: {}", item.src, pkt)
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
@@ -717,7 +721,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                               fcopt = ConnMsg.SVC_NONE,
                               info = self.parent.nspver,
                               segsize = MSS)
-        logging.trace ("Connecting to %s: %s", dest, payload)
+        logging.trace ("Connecting to {}: {}", dest, payload)
         # Send it on the data subchannel
         self.data.send (ci)
         self.state = self.ci
@@ -735,7 +739,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.data.close ()
         self.other.close ()
         self.state = None
-        logging.trace ("Deleted connection %s to %s", self.srcaddr, self.dest)
+        logging.trace ("Deleted connection {} to {}", self.srcaddr, self.dest)
         return True
 
     def accept (self, payload = b""):
@@ -748,7 +752,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                               fcopt = ConnMsg.SVC_NONE,
                               info = self.parent.nspver,
                               segsize = MSS)
-        logging.trace ("Accepting to %s: %s", dest, payload)
+        logging.trace ("Accepting to {}: {}", dest, payload)
         # Send it on the data subchannel
         self.data.send (cc)
         self.state = self.cc
@@ -772,7 +776,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         if reason < 0 or reason > 255 or reason in reservedreasons:
             raise RangeError
         di = self.makepacket (DiscInit, reason = reason, data_ctl = payload)
-        logging.trace ("Disconnecting (or rejecting) to %s: %s", dest, payload)
+        logging.trace ("Disconnecting (or rejecting) to {}: {}", dest, payload)
         # Send it on the data subchannel
         self.data.send (di)
         
@@ -841,7 +845,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                                segnum = sc.seqnum)
         sc.send (pkt)
         # It was accepted, so increment the sequence number
-        logging.trace ("sent interrupt seq %d", sc.seqnum)
+        logging.trace ("sent interrupt seq {}", sc.seqnum)
         sc.seqnum += 1
         return True
     
@@ -880,7 +884,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.parent.routing.send (pkt, self.dest)
 
     def validate (self, item):
-        logging.trace ("Processing %s in connection %s", item, self)
+        logging.trace ("Processing {} in connection {}", item, self)
         return True
     
     def s0 (self, item):

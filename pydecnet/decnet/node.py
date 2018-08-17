@@ -86,7 +86,7 @@ class Node (object):
             self.nodeid = None
             self.nodename = config.bridge.name
         threading.current_thread ().name = self.nodename
-        logging.debug ("Initializing node %s", self.nodename)
+        logging.debug ("Initializing node {}", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
         sock = config.system.api_socket
         # API only if enabled, and then only on DECnet nodes
@@ -147,7 +147,7 @@ class Node (object):
         and then the node main loop.
         """
         threading.current_thread ().name = self.nodename
-        logging.debug ("Starting node %s", self.nodename)
+        logging.debug ("Starting node {}", self.nodename)
         for m in self.startlist:
             c = getattr (self, m)
             if c:

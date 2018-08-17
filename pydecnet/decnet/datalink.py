@@ -95,15 +95,15 @@ class DatalinkLayer (Element):
             try:
                 kind = datalinks[c.type]
             except KeyError:
-                logging.error ("Invalid datalink type %r", kind)
+                logging.error ("Invalid datalink type {!r}", kind)
                 continue
             kindname = kind.__name__
             try:
                 dl = kind (self, name, c)
                 self.circuits[name] = dl
-                logging.debug ("Initialized %s datalink %s", kindname, name)
+                logging.debug ("Initialized {} datalink {}", kindname, name)
             except Exception:
-                logging.exception ("Error initializing %s datalink %s",
+                logging.exception ("Error initializing {} datalink {}",
                                    kindname, name)
 
     def start (self):
@@ -114,9 +114,9 @@ class DatalinkLayer (Element):
         for name, c in self.circuits.items ():
             try:
                 c.open ()
-                logging.debug ("Started datalink %s", name)
+                logging.debug ("Started datalink {}", name)
             except Exception:
-                logging.exception ("Error starting datalink %s", name)
+                logging.exception ("Error starting datalink {}", name)
     
     
     def stop (self):
@@ -127,9 +127,9 @@ class DatalinkLayer (Element):
         for name, c in self.circuits.items ():
             try:
                 c.close ()
-                logging.debug ("Stopped datalink %s", name)
+                logging.debug ("Stopped datalink {}", name)
             except Exception:
-                logging.exception ("Error stopping datalink %s", name)
+                logging.exception ("Error stopping datalink {}", name)
     
     
 class Datalink (Element, metaclass = ABCMeta):
@@ -202,7 +202,7 @@ class DlStatus (Work):
     "status".  The status attribute is True for up, False for down.
     """
     def __str__ (self):
-        return "DLStatus: %s" % self.status
+        return "DLStatus: {}".format (self.status)
     
 # Point to point port
 
@@ -297,8 +297,7 @@ class BcDatalink (Datalink):
         port = super ().create_port (owner, proto, *args)
         proto = port.proto
         if proto in self.ports:
-            raise RuntimeError ("Creating port for proto %r which is in use" \
-                                % proto)
+            raise RuntimeError ("Creating port for proto {!r} which is in use".format (proto))
         self.ports[proto] = port
         return port
     
@@ -344,7 +343,7 @@ class BcPort (Port):
         """Set (default) or clear (promisc = False) promiscuous mode.
         """
         self.promisc = promisc
-        logging.trace ("%s promiscuous mode set to %s", self, promisc)
+        logging.trace ("{} promiscuous mode set to {}", self, promisc)
         self._update_filter ()
         
     def add_multicast (self, addr):
@@ -354,13 +353,13 @@ class BcPort (Port):
         if addr in self.multicast:
             raise KeyError ("Multicast address already enabled")
         self.multicast.add (addr)
-        logging.trace ("%s multicast address %s added", self, addr)
+        logging.trace ("{} multicast address {} added", self, addr)
         self._update_filter ()
         
     def remove_multicast (self, addr):
         addr = Macaddr (addr)
         self.multicast.remove (addr)
-        logging.trace ("%s multicast address %s removed", self, addr)
+        logging.trace ("{} multicast address {} removed", self, addr)
         self._update_filter ()
 
     def set_macaddr (self, addr):
@@ -387,10 +386,10 @@ class BcPort (Port):
             raise RuntimeError ("Protocol type in use by another port")
         self.parent.ports[proto] = self
         self.protoset.add (proto)
-        logging.trace ("%s protocol %s added", self, proto)
+        logging.trace ("{} protocol {} added", self, proto)
         
     def remove_protoset (self, proto):
         proto = self.protobytes (proto)
         self.protoset.remove (proto)
         del self.parents.ports[proto]
-        logging.trace ("%s protocol %s removed", self, proto)
+        logging.trace ("{} protocol {} removed", self, proto)

@@ -194,7 +194,7 @@ class L1Segment (packet.Packet):
 
     def validate (self):
         if self.count + self.startid > 1024 or self.count == 0:
-            logging.debug ("Invalid L1 segment, start %d, count %d",
+            logging.debug ("Invalid L1 segment, start {}, count {}",
                            self.startid, self.count)
             raise FormatError
         
@@ -224,7 +224,7 @@ class L2Segment (L1Segment):
     def validate (self):
         if self.count + self.startid > 64 or \
                self.startid == 0 or self.count == 0:
-            logging.debug ("Invalid L2 segment, start %d, count %d",
+            logging.debug ("Invalid L2 segment, start {}, count {}",
                            self.startid, self.count)
             raise FormatError
     
@@ -253,7 +253,7 @@ class L1Routing (CtlHdr):
         s = (s & 0xffff) + (s >> 16)
         check = int.from_bytes (segs[-2:], packet.LE)
         if s != check:
-            logging.debug ("Routing packet checksum error (%04x not %04x)",
+            logging.debug ("Routing packet checksum error ({:0>4x} not {:0>4x})",
                            s, check)
             raise ChecksumError
 

@@ -270,7 +270,7 @@ class SysId (MopHdr):
                 val = bytes (val, "latin-1", "ignore")
             vl = len (val)
             if vl > maxlen:
-                logging.debug ("Value too long for %d byte field", maxlen)
+                logging.debug ("Value too long for {} byte field", maxlen)
                 raise events.fmt_err
             val = byte (vl) + val
         return val
@@ -283,10 +283,10 @@ class SysId (MopHdr):
         """
         flen = buf[0]
         if flen < -2:
-            logging.debug ("Image field with negative length %d", flen)
+            logging.debug ("Image field with negative length {}", flen)
             raise events.fmt_err
         elif flen > maxlen:
-            logging.debug ("Image field longer than max length %d", maxlen)
+            logging.debug ("Image field longer than max length {}", maxlen)
             raise events.fmt_err
         elif flen < 0:
             v = flen
@@ -294,7 +294,7 @@ class SysId (MopHdr):
         else:
             v = buf[1:flen + 1]
             if len (v) != flen:
-                logging.debug ("Not %d bytes left for image field", flen)
+                logging.debug ("Not {} bytes left for image field", flen)
                 raise events.fmt_err
             v = bytes (v).decode ()
         setattr (self, field, v)
@@ -434,44 +434,44 @@ class Mop (Element):
             if dl.use_mop:
                 try:
                     self.circuits[name] = MopCircuit (self, name, dl, c)
-                    logging.debug ("Initialized MOP circuit %s", name)
+                    logging.debug ("Initialized MOP circuit {}", name)
                 except Exception:
-                    logging.exception ("Error initializing MOP circuit %s", name)
+                    logging.exception ("Error initializing MOP circuit {}", name)
 
     def start (self):
         logging.debug ("Starting MOP layer")
         for name, c in self.circuits.items ():
             try:
                 c.start ()
-                logging.debug ("Started MOP circuit %s", name)
+                logging.debug ("Started MOP circuit {}", name)
             except Exception:
-                logging.exception ("Error starting MOP circuit %s", name)
+                logging.exception ("Error starting MOP circuit {}", name)
     
     def stop (self):
         logging.debug ("Stopping MOP layer")
         for name, c in self.circuits.items ():
             try:
                 c.stop ()
-                logging.debug ("Stopped MOP circuit %s", name)
+                logging.debug ("Stopped MOP circuit {}", name)
             except Exception:
-                logging.exception ("Error stopping MOP circuit %s", name)
+                logging.exception ("Error stopping MOP circuit {}", name)
     
     def dispatch (self, work):
         """API requests come here.
         """
         if isinstance (work, ApiRequest):
-            logging.debug ("Processing API request %s %s", work.command,
+            logging.debug ("Processing API request {} {}", work.command,
                            work.circuit)
             try:
                 port = self.circuits[work.circuit]
             except KeyError:
-                work.reject ("Unknown circuit %s" % work.circuit)
+                work.reject ("Unknown circuit {}".format (work.circuit))
                 return
             # Redirect this to the correct handler for final action
             h = getattr (port, work.final_handler, None)
             if h is None:
-                work.reject ("No %s handler for circuit %s" % (work.command,
-                                                               work.circuit))
+                work.reject ("No {} handler for circuit {}".format (work.command,
+                                                                    work.circuit))
                 return
             del work.final_handler     # to make it die if we somehow loop
             self.node.addwork (work, h)
@@ -519,7 +519,7 @@ class MopCircuit (Element):
     def start (self):
         if self.datalink.use_mop:
             # Do this only on datalinks where we want MOP (Ethernet, basically)
-            logging.debug ("Starting mop for %s %s",
+            logging.debug ("Starting mop for {} {}",
                            self.datalink.__class__.__name__, self.name)
             self.loophandler = LoopHandler (self, self.datalink)
             # The various MOP console handlers share a port, so we'll
@@ -536,7 +536,7 @@ class MopCircuit (Element):
                 self.carrier_server = None
 
     def stop (self):
-        logging.debug ("Stopping mop for %s %s",
+        logging.debug ("Stopping mop for {} {}",
                        self.datalink.__class__.__name__, self.name)
         if self.carrier_server:
             self.carrier_server.release ()
@@ -545,14 +545,14 @@ class MopCircuit (Element):
         if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
-                logging.debug ("Null MOP packet received on %s", self.name)
+                logging.debug ("Null MOP packet received on {}", self.name)
                 return
             header = MopHdr (buf[:1])
             msgcode = header.code
             try:
                 parsed = packetformats[msgcode] (buf)
             except KeyError:
-                logging.debug ("MOP packet with unknown message code %d on %s",
+                logging.debug ("MOP packet with unknown message code {} on {}",
                                msgcode, self.name)
                 return
             parsed.src = work.src
@@ -624,7 +624,7 @@ class SysIdHandler (Element, timers.Timer):
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
-        logging.debug ("Initialized sysid handler for %s", parent.name)
+        logging.debug ("Initialized sysid handler for {}", parent.name)
 
     def id_self_delay (self):
         return randint (8 * 60, 12 * 60)
@@ -634,10 +634,10 @@ class SysIdHandler (Element, timers.Timer):
             src = pkt.src
             if isinstance (pkt, SysId):
                 if src in self.heard:
-                    logging.debug ("Sysid update on %s from %s",
+                    logging.debug ("Sysid update on {} from {}",
                                    self.parent.name, src)
                 else:
-                    logging.debug ("Sysid on %s from new node %s",
+                    logging.debug ("Sysid on {} from new node {}",
                                    self.parent.name, src)
                 self.heard[src] = pkt
             elif isinstance (pkt, RequestId):
@@ -645,7 +645,7 @@ class SysIdHandler (Element, timers.Timer):
             elif isinstance (pkt, RequestCounters):
                 self.send_ctrs (src, pkt.receipt)
         elif isinstance (pkt, timers.Timeout):
-            logging.debug ("Sending periodic sysid on %s", self.parent.name)
+            logging.debug ("Sending periodic sysid on {}", self.parent.name)
             self.send_id (CONSMC, 0)
             self.node.timers.start (self, self.id_self_delay ())
         elif isinstance (pkt, ApiRequest):
@@ -663,7 +663,7 @@ class SysIdHandler (Element, timers.Timer):
                                 pkt.dest)
                 pkt.done ()
             else:
-                pkt.reject ("unknown API request %s"% pkt.command)
+                pkt.reject ("unknown API request {}".format (pkt.command))
 
     def send_id (self, dest, receipt):
         sysid = SysId (receipt = receipt,
@@ -729,7 +729,7 @@ class CarrierClient (Element, statemachine.StateMachine):
         statemachine.StateMachine.__init__ (self)
         self.req = None
         self.port = port
-        logging.debug ("Initialized console carrier client for %s", parent.name)
+        logging.debug ("Initialized console carrier client for {}", parent.name)
 
     def validate (self, item):
         if self.state != self.s0 and isinstance (item, ApiRequest):
@@ -770,10 +770,10 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.sendmsg ()
                 return self.reserve
             if not item.carrier:
-                self.req.reject ("Node %s does not support console carrier",
+                self.req.reject ("Node {} does not support console carrier",
                                  self.deststr)
             else:
-                self.req.reject ("Node %s console carrier reserved by %s",
+                self.req.reject ("Node {} console carrier reserved by {}",
                                  self.deststr, item.console_user)
             self.node.timers.stop (self)
             self.req = None
@@ -784,7 +784,7 @@ class CarrierClient (Element, statemachine.StateMachine):
             if self.retries:
                 self.sendmsg (self.retries)
             else:
-                self.req.reject ("No response from node %s" % self.deststr)
+                self.req.reject ("No response from node {}".format (self.deststr))
                 self.req = None
                 return self.s0
             
@@ -810,8 +810,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.port.send (self.msg2, self.req.dest)
                 self.sendmsg (self.retries)
             else:
-                self.req.reject ("Reservation request timed out for node %s" % \
-                                 self.deststr)
+                self.req.reject ("Reservation request timed out for node {}".format (self.deststr))
                 self.req = None
                 return self.s0
 
@@ -855,7 +854,7 @@ class CarrierClient (Element, statemachine.StateMachine):
             if self.retries:
                 self.sendpoll ()
             else:
-                self.req.reject ("No answer from %s" % self.deststr)
+                self.req.reject ("No answer from {}".format (self.deststr))
                 self.req = None
                 return self.s0
         elif isinstance (item, ApiWork):
@@ -895,8 +894,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.port.send (self.msg2, self.req.dest)
                 self.sendmsg (self.retries)
             else:
-                self.req.reject ("Release request timed out for node %s" % \
-                                 self.deststr)
+                self.req.reject ("Release request timed out for node {}".format (self.deststr))
                 self.req = None
                 return self.s0
 
@@ -915,7 +913,7 @@ class CarrierServer (Element, timers.Timer):
         self.pty = None
         self.response = None
         self.pendinginput = self.pendingoutput = None
-        logging.debug ("Initialized console carrier server for %s", parent.name)
+        logging.debug ("Initialized console carrier server for {}", parent.name)
 
     def release (self):
         self.node.timers.stop (self)
@@ -987,7 +985,7 @@ class CarrierServer (Element, timers.Timer):
                         if pid:
                             # Parent process.  Save the pty fd and set it
                             # to non-blocking mode
-                            logging.debug ("Started console client process %d", pid)
+                            logging.debug ("Started console client process {}", pid)
                             self.pendingoutput = b""
                             self.pty = fd
                             oldflags = fcntl (fd, F_GETFL, 0)
@@ -1009,7 +1007,7 @@ class LoopHandler (Element, timers.Timer):
         self.port = port = datalink.create_port (self, LOOPPROTO, pad = False)
         port.add_multicast (LOOPMC)
         self.pendingreq = None
-        logging.debug ("Initialized loop handler for %s", parent.name)
+        logging.debug ("Initialized loop handler for {}", parent.name)
         
     def dispatch (self, item):
         """Work item handler
@@ -1043,8 +1041,8 @@ class LoopHandler (Element, timers.Timer):
                         # reply to an assistance multicast loop.
                         return
                     try:
-                        print ("%d bytes from %s, time= %.1f ms" %
-                               (len (f.payload), item.src, delta),
+                        print ("{} bytes from {}, time= {:.1f} ms".format (
+                               (len (f.payload), item.src, delta)),
                                file = req.wfile)
                     except (OSError, ValueError, socket.error):
                         logging.debug ("API socket closed")
@@ -1058,7 +1056,7 @@ class LoopHandler (Element, timers.Timer):
             req = self.pendingreq
             if req:
                 if self.sendtime:
-                    print ("Loop %d timed out" % self.loopcount, file = req.wfile)
+                    print ("Loop {} timed out".format (self.loopcount), file = req.wfile)
                 self.sendloop (req, True)
         elif isinstance (item, ApiRequest):
             if self.pendingreq:

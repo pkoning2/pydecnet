@@ -64,7 +64,7 @@ class Event (Exception, NiceMsg):
                 try:
                     name = self.pdict[p.code].__name__
                 except KeyError:
-                    name = "param_%d" % p.code
+                    name = "param_{}".format (p.code)
                 setattr (self, name, p)
         for k, v in kwds.items ():
             if v is None:
@@ -150,7 +150,7 @@ class Event (Exception, NiceMsg):
         fun, sinks, evt, jhd, sec, ms, srcid, srcnlen = \
              cls.evthdr.unpack_from (b)
         if fun != 1:
-            raise TypeError ("Not event message, function = %d" % fun)
+            raise TypeError ("Not event message, function = {}".format (fun))
         srcnam = str (b[cls.evthdr.size:cls.evthdr.size + srcnlen],
                       encoding = "latin-1", errors = "ignore")
         b = b[cls.evthdr.size + srcnlen:]
