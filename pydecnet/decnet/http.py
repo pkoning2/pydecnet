@@ -1,6 +1,6 @@
 #!
 
-"""DECnet/Python monitoring via HTTP
+"""DECnet/Python access via HTTP
 
 """
 
@@ -12,6 +12,13 @@ import re
 
 from .common import *
 from . import logging
+
+# Robots.txt response: we want to disallow all web walkers because
+# everything here is dynamic content; it doesn't make any sense to try
+# to index it.
+robots_txt = b"""User-agent: *
+Disallow: /
+"""
 
 def Monitor (node, config):
     if config.system.http_port: # or config.system.https_port:
@@ -49,7 +56,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         self.excepthook = cgitb.Hook (file = self.wtfile)
         
     def log_message (self, fmt, *args):
-        logging.trace (fmt, *args)
+        logging.trace (fmt % (args))
         
     def do_GET (self):
         try:
@@ -61,26 +68,31 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             p = p.path
             logging.trace ("http from {} get {}", self.client_address, p)
             ret = [ self.common_start () ]
-            m = psplit_re.match (p)
-            if not m:
-                logging.trace ("Invalid path: {}", self.path)
-                return
-            if p == "/":
-                ret.append (self.summary ())
-            elif m.group (1) == "routing":
-                ret.append (self.routing (m.group (2)))
-            elif m.group (1) == "bridge":
-                ret.append (self.bridge (m.group (2)))
-            elif m.group (1) == "mop":
-                ret.append (self.mop (m.group (2)))
+            if p == "/robots.txt":
+                ret = robots_txt
+                ctype = "text/plain"
             else:
-                self.send_error(404, "File not found")
-                return
-            ret.append (self.common_end ())
-            ret = '\n'.join (ret).encode ("utf-8", "ignore")
-            self.send_response(200)
-            self.send_header("Content-type", "text/html")
-            self.send_header("Content-Length", str(len (ret)))
+                m = psplit_re.match (p)
+                if not m:
+                    logging.trace ("Invalid path: {}", self.path)
+                    return
+                ctype = "text/html"
+                if p == "/":
+                    ret.append (self.summary ())
+                elif m.group (1) == "routing":
+                    ret.append (self.routing (m.group (2)))
+                elif m.group (1) == "bridge":
+                    ret.append (self.bridge (m.group (2)))
+                elif m.group (1) == "mop":
+                    ret.append (self.mop (m.group (2)))
+                else:
+                    self.send_error(404, "File not found")
+                    return
+                ret.append (self.common_end ())
+                ret = '\n'.join (ret).encode ("utf-8", "ignore")
+            self.send_response (200)
+            self.send_header ("Content-type", ctype)
+            self.send_header ("Content-Length", str(len (ret)))
             self.end_headers ()
             self.wfile.write (ret)
         except Exception:
