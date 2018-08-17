@@ -119,13 +119,13 @@ class Param (object):
             return self.__class__.__name__.replace ("_", " ").capitalize ()
         else:
             # Unknown parameter
-            return "Parameter # %d" % self.code
+            return "Parameter # {}".format (self.code)
         
     def nameformat (self):
         """Format the value preceded by the parameter name, in NICE standard
         tabular form.
         """
-        return "%s = %s" % (self.name, self.format ())
+        return "{} = {}".format (self.name, self.format ())
     
     def valbytes (self, val, fmt):
         bits = val.bit_length ()
@@ -163,7 +163,7 @@ class Param (object):
             cls = dcls
         else:
             if not issubclass (cls, dcls):
-                raise TypeError ("Wrong class for decoding format %d")
+                raise TypeError ("Wrong class for decoding byte string")
         val, fmt, b = cls.decodeval (b, fmt)
         p = cls (val, fmt, code)
         return p, b
@@ -180,7 +180,7 @@ class _IntParam (Param, int):
     def decodeval (cls, b, fmt):
         n = fmt & 0x0f
         if len (b) < n:
-            raise MissingData ("Data too short for %d byte field" % n)
+            raise MissingData ("Data too short for {} byte field".format (n))
         return int.from_bytes (b[:n], "little", signed = cls._signed), \
                fmt, b[n:]
 
@@ -194,16 +194,18 @@ class UIntParam (_IntParam):
     def format (self):
         f = self.fmt & 0x30
         if f == 0x20:
-            return "%x" % self
-        if f == 0x30:
-            return "%o" % self
-        return "%u" % self
+            fs = "{:x}"
+        elif f == 0x30:
+            fs = "{:o}"
+        else:
+            fs = "{}"
+        return fs.format (self)
     
 class SIntParam (_IntParam):
     _signed = True
     
     def format (self):
-        return "%d" % self
+        return "{}".format (self)
 
 class CParam (_IntParam, metaclass = codedparam_meta):
 
@@ -226,7 +228,7 @@ class StrParam (Param, str):
         n = b[0]
         b = b[1:]
         if len (b) < n:
-            raise MissingData ("Data too short for %d byte field" % n)
+            raise MissingData ("Data too short for {} byte field".format (n))
         return str (b[:n], encoding = "latin1", errors = "ignore"), fmt, b[n:]
 
     def encodeval (self):
@@ -282,7 +284,7 @@ class BytesParam (Param, bytes):
         n = b[0]
         b = b[1:]
         if len (b) < n:
-            raise MissingData ("Data too short for %d byte field" % n)
+            raise MissingData ("Data too short for {} byte field".format (n))
         return b[:n], fmt, b[n:]
 
     def encodeval (self):
@@ -290,7 +292,7 @@ class BytesParam (Param, bytes):
         return byte (self.fmt) + byte (len (b)) + b
 
     def format (self):
-        return "-".join ([ "%02x" % i for i in self ])
+        return "-".join ([ "{:0>2x}".format (i) for i in self ])
         
 def fmtparamclass (fmt):
     """Find the type-specific Param subclass for this format code.

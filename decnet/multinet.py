@@ -62,7 +62,7 @@ class Multinet (datalink.PtpDatalink):
         self.config = config
         m = dev_re.match (config.device)
         if not m:
-            logging.error ("Invalid device value for Multinet datalink %s",
+            logging.error ("Invalid device value for Multinet datalink {}",
                            self.name)
             raise ValueError
         host, port, cmode, lmode, lport = m.groups ()
@@ -81,10 +81,11 @@ class Multinet (datalink.PtpDatalink):
             # Tell the point to point datalink dependent sublayer to
             # work around the fact that Multinet in UDP mode violates
             # most of the point to point datalink requirements.
+            logging.warn ("Multinet UDP mode not recommended since it violates DECnet architecture")
             self.start_works = False
             if lport:
                 self.lport = int (lport[1:])
-        logging.trace ("Multinet datalink %s initialized to %s:%d, %s",
+        logging.trace ("Multinet datalink {} initialized to {}:{}, {}",
                        self.name, host, port, mode)
         self.seq = 0
         self.status = OFF
@@ -135,7 +136,7 @@ class Multinet (datalink.PtpDatalink):
         self.status = OFF
 
     def run (self):
-        logging.trace ("Multinet datalink %s receive thread started", self.name)
+        logging.trace ("Multinet datalink {} receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -144,10 +145,10 @@ class Multinet (datalink.PtpDatalink):
             # Connect to the remote host
             try:
                 self.socket.connect ((self.host.addr, self.portnum))
-                logging.trace ("Multinet %s connect to %s %d in progress",
+                logging.trace ("Multinet {} connect to {} {} in progress",
                                self.name, self.host.addr, self.portnum)
             except socket.error:
-                logging.trace ("Multinet %s connect to %s %d rejected",
+                logging.trace ("Multinet {} connect to {} {} rejected",
                                self.name, self.host.addr, self.portnum)
                 self.disconnected ()
                 return            
@@ -162,14 +163,14 @@ class Multinet (datalink.PtpDatalink):
                     self.disconnected ()
                     return
                 if w:
-                    logging.trace ("Multinet %s connected", self.name)
+                    logging.trace ("Multinet {} connected", self.name)
                     break
         else:
             # Listen or UDP mode
             try:
                 self.socket.bind (("", self.lport))
             except (OSError, socket.error):
-                logging.trace ("Multinet %s bind %d failed",
+                logging.trace ("Multinet {} bind {} failed",
                                self.name, self.lport)
                 self.disconnected ()
                 return
@@ -178,10 +179,10 @@ class Multinet (datalink.PtpDatalink):
                 try:
                     self.socket.listen (1)
                 except (OSError, socket.error):
-                    logging.trace ("Multinet %s listen failed", self.name)
+                    logging.trace ("Multinet {} listen failed", self.name)
                     self.disconnected ()
                     return
-                logging.trace ("Multinet %s listen to %d active",
+                logging.trace ("Multinet {} listen to {} active",
                                self.name, self.lport)
                 while True:
                     try:
@@ -200,21 +201,21 @@ class Multinet (datalink.PtpDatalink):
                             # Good connection, stop looking
                             break
                         # If the connect is from someplace we don't want
-                        logging.trace ("Multinet %s connect received from " \
-                                       "unexpected address %s",
+                        logging.trace ("Multinet {} connect received from " \
+                                       "unexpected address {}",
                                        self.name, host)
                         sock.close ()
                     except (OSError, socket.error):
                         self.disconnected ()
                         return
-                logging.trace ("Multinet %s connected", self.name)
+                logging.trace ("Multinet {} connected", self.name)
                 # Stop listening:
                 self.socket.close ()
                 # The socket we care about now is the data socket
                 sellist = [ sock.fileno () ]
                 self.socket = sock
             else:
-                logging.trace ("Multinet %s (UDP) bound to %d",
+                logging.trace ("Multinet {} (UDP) bound to {}",
                                self.name, self.lport)
         # Tell the routing init layer that this datalink is running
         self.status = RUN
@@ -270,7 +271,7 @@ class Multinet (datalink.PtpDatalink):
                         continue
                     # Check header?  For now just skip it.
                     msg = msg[4:]
-                logging.trace ("Received Multilink message len %d: %r",
+                logging.trace ("Received Multilink message len {}: {!r}",
                                len (msg), msg)
                 if self.port:
                     self.bytes_recv += len (msg)
@@ -284,7 +285,7 @@ class Multinet (datalink.PtpDatalink):
         if sock and self.status == RUN:
             msg = bytes (msg)
             mlen = len (msg)
-            logging.trace ("Sending Multinet message len %d: %r",
+            logging.trace ("Sending Multinet message len {}: {!r}",
                            mlen, msg)
             self.bytes_sent += mlen
             self.pkts_sent += 1

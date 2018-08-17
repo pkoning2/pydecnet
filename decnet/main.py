@@ -41,7 +41,7 @@ if DaemonContext:
                            help = "Run as daemon.  Requires a log file name to be specified.")
 dnparser.add_argument ("--pid-file", metavar = "FN",
                        default = DEFPIDFILE,
-                       help = "PID file (default: %s)" % DEFPIDFILE)
+                       help = "PID file (default: {})".format (DEFPIDFILE))
 dnparser.add_argument ("-L", "--log-file", metavar = "FN",
                        help = "Log file (default: log to stderr)")
 # Note that we set the default level to INFO rather than the conventional
@@ -68,16 +68,16 @@ class pidfile:
         try:
             f = open (self.fn, "wt")
         except Exception as exc:
-            logging.exception ("failure creating pidfile %s", self.fn)
+            logging.exception ("failure creating pidfile {}", self.fn)
             return
-        f.write ("%d\n" % os.getpid ())
+        f.write ("{}\n".format (os.getpid ()))
         f.close ()
 
     def __exit__ (self, exc_type, exc_value, traceback):
         try:
             os.remove (self.fn)
         except Exception as exc:
-            logging.exception ("error removing pidfile %s", self.fn)
+            logging.exception ("error removing pidfile {}", self.fn)
             return
         
 def main ():
@@ -115,8 +115,11 @@ def main ():
             print ("--daemon requires --log-file")
             sys.exit (1)
         h = logging.StreamHandler (sys.stderr)
-    logging.basicConfig (handlers = [ h ], level = p.log_level,
-                         format = "%(asctime)s: %(threadName)s: %(message)s")
+    # Create a formatter using {} formatting, and set the message format we want
+    fmt = logging.Formatter (fmt = "{asctime}: {threadName}: {message}", style = '{')
+    fmt.default_msec_format = "%s.%03d"
+    h.setFormatter (fmt)
+    logging.basicConfig (handlers = [ h ], level = p.log_level)
     # Read all the configs
     logging.info ("Starting DECnet/Python")
     configs = [ config.Config (c) for c in p.configfile ]
@@ -136,7 +139,7 @@ def main ():
             daemoncontext.open ()
         nodes[-1].start (mainthread = True)
     except SystemExit as exc:
-        logging.info ("Exiting: %s", exc)
+        logging.info ("Exiting: {}", exc)
     except Exception:
         logging.exception ("Exception caught in main")
     finally:

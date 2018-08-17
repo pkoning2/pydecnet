@@ -105,7 +105,7 @@ class TimerWheel (Element, StopThread):
         """
         ticks = int (timeout / self.tick) or 1
         if ticks >= self.maxtime:
-            raise OverflowError ("Timeout %d too large" % timeout)
+            raise OverflowError ("Timeout {} too large".format (timeout))
         if not isinstance (item, Timer):
             raise TypeError ("Timer item is not of Timer type")
         self.lock.acquire ()
@@ -113,7 +113,7 @@ class TimerWheel (Element, StopThread):
         item.remove ()
         self.wheel[pos].add (item)
         self.lock.release ()
-        logging.trace ("Started %d second timeout for %s", timeout, item)
+        logging.trace ("Started {} second timeout for {}", timeout, item)
         
     def run (self):
         """Tick handler.
@@ -138,7 +138,7 @@ class TimerWheel (Element, StopThread):
             item.remove ()
             self.lock.release ()
             if item is not qh:
-                logging.trace ("Timeout for %s", item)
+                logging.trace ("Timeout for {}", item)
                 self.node.addwork (Timeout (item))
                 count += 1
         return count
@@ -151,7 +151,7 @@ class TimerWheel (Element, StopThread):
         """
         if not isinstance (item, Timer):
             raise TypeError ("Timer item is not of Timer type")
-        logging.trace ("Stopped timeout for %s", item)
+        logging.trace ("Stopped timeout for {}", item)
         self.lock.acquire ()
         item.remove ()
         self.lock.release ()

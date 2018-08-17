@@ -77,7 +77,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
         msg += '\n'
         if isinstance (msg, str) and self.binary:
             msg = msg.encode ("latin-1", "ignore")
-        #logging.debug ("Sending reply %r", msg)
+        #logging.debug ("Sending reply {!r}", msg)
         try:
             self.wfile.write (msg)
         except (OSError, ValueError, socket.error):
@@ -145,7 +145,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
             if not req:
                 logging.debug ("No API request received")
                 return
-            logging.debug ("API request: %s", req)
+            logging.debug ("API request: {}", req)
         except Exception:
             logging.exception ("Exception reading API request")
             return
@@ -183,7 +183,7 @@ class ApiRequest (Work, socketserver.StreamRequestHandler):
                     req = self.rfile.read (256)
                     if req is None:
                         break
-                    #logging.debug ("API data: %r", req)
+                    #logging.debug ("API data: {!r}", req)
                     w = ApiWork (self.worker, data = req)
                     self.node.addwork (w)
                     if not req:
@@ -233,7 +233,7 @@ try:
         """A class for the Unix socket server for the DECnet API.
         """
         def __init__ (self, parent, name):
-            logging.debug ("Initializing API server on %s", name)
+            logging.debug ("Initializing API server on {}", name)
             if os.path.exists (name):
                 raise RuntimeError ("Another socket server is already running")
             Element.__init__ (self, parent)
@@ -280,7 +280,7 @@ try:
                 os.remove (self.socketname)
                 logging.debug ("API shut down")
             except Exception:
-                logging.exception ("Error removing API socket %s", self.socketname)
+                logging.exception ("Error removing API socket {}", self.socketname)
 
         def register_api (self, command, handler, help = None):
             """Register a command under the DECnet/Python API.  Arguments

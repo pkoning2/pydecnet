@@ -65,7 +65,7 @@ class LanCircuit (timers.Timer):
         works (we don't know of "unreachable").
         """
         assert nexthop
-        logging.trace ("Sending %d byte packet to %s: %s",
+        logging.trace ("Sending {} byte packet to {}: {}",
                        len (pkt), nexthop, pkt)
         if isinstance (pkt, ShortData):
             pkt = LongData (copy = pkt, payload = pkt.payload)
@@ -78,7 +78,7 @@ class LanCircuit (timers.Timer):
                 return
             buf = work.packet
             if not buf:
-                logging.debug ("Null routing layer packet received on %s",
+                logging.debug ("Null routing layer packet received on {}",
                                self.name)
                 return
             hdr = buf[0]
@@ -87,12 +87,12 @@ class LanCircuit (timers.Timer):
                 # length, pad header included.
                 buf = buf[hdr & 0x7f:]
                 if not buf:
-                    logging.debug ("Null packet after padding on %s",
+                    logging.debug ("Null packet after padding on {}",
                                    self.name)
                     return
                 hdr = buf[0]
                 if hdr & 0x80:
-                    logging.debug ("Double padded packet received on %s",
+                    logging.debug ("Double padded packet received on {}",
                                    self.name)
                     return
             if hdr & 1:
@@ -101,7 +101,7 @@ class LanCircuit (timers.Timer):
                 try:
                     work = bccontrolpackets[code] (buf, src = work.src)
                 except KeyError:
-                    logging.debug ("Unknown routing control packet %d from %s",
+                    logging.debug ("Unknown routing control packet {} from {}",
                                    code, self.name)
                     return
                 except packet.DecodeError:
@@ -120,7 +120,7 @@ class LanCircuit (timers.Timer):
                         # just for grins (and because the spec allows it).
                         work = ShortData (buf, src = work.src)
                     else:
-                        logging.debug ("Unknown routing packet %d from %s",
+                        logging.debug ("Unknown routing packet {} from {}",
                                        code, self.name)
                         return
                 except packet.DecodeError:
@@ -219,7 +219,7 @@ class EndnodeLanCircuit (LanCircuit):
         self.node.timers.start (self, self.hellotime)
 
     def dispatch (self, item):
-        logging.trace ("%s: processessing work item %s", self.name, item)
+        logging.trace ("{}: processessing work item {}", self.name, item)
         item = self.common_dispatch (item)
         if not item:
             # Rejected by common code
@@ -250,7 +250,7 @@ class EndnodeLanCircuit (LanCircuit):
                                     adjacent_node = self.dr.adjnode ())
                 self.dr.up ()
         elif isinstance (item, EndnodeHello):
-            logging.debug ("Endnode hello from %s received by endnode",
+            logging.debug ("Endnode hello from {} received by endnode",
                            item.src)
             return
         else:
@@ -374,7 +374,7 @@ class RoutingLanCircuit (LanCircuit):
             self.calcdr ()
             self.sendhello ()
         elif isinstance (item, (EndnodeHello, RouterHello)):
-            logging.trace ("LAN hello message received: %s", item)
+            logging.trace ("LAN hello message received: {}", item)
             id = item.id
             t4 = item.timer * BCT3MULT
             if id.area != self.parent.homearea and \
@@ -408,7 +408,7 @@ class RoutingLanCircuit (LanCircuit):
                 # Router hello.  Add its adjacency if it's new.
                 if a is None:
                     a = self.adjacencies[id] = adjacency.Adjacency (self, item)
-                    logging.trace ("New adjacency from %s", item)
+                    logging.trace ("New adjacency from {}", item)
                     a.state = INIT
                     # Check that the RSlist is not too long
                     rslist = list (self.routers ())
@@ -416,7 +416,7 @@ class RoutingLanCircuit (LanCircuit):
                         # The list is full.  Remove the lowest priority one
                         # (which may be the new one).
                         a2 = min (rslist, key = sortkey)
-                        logging.trace ("Dropped adjacency %s", a2)
+                        logging.trace ("Dropped adjacency {}", a2)
                         # There's supposed to be a REASON parameter
                         # in this event, the routing and netman specs
                         # both agree, but then later on the netman spec
@@ -452,7 +452,7 @@ class RoutingLanCircuit (LanCircuit):
                     rslist = ent.decode (rslist)
                     if ent.router == self.parent.nodeid:
                         if ent.prio != self.prio:
-                            logging.error ("Node %s has our prio as %d rather than %d",
+                            logging.error ("Node {} has our prio as {} rather than {}",
                                            id, ent.prio, self,prio)
                             self.deladj (a, reason = "data_errors")
                             return
@@ -461,7 +461,7 @@ class RoutingLanCircuit (LanCircuit):
                 if selfent:
                     # We're listed, which means two way communication,
                     # so set the adjacency "up"
-                    logging.trace ("self entry in received hello is %s",
+                    logging.trace ("self entry in received hello is {}",
                                    selfent)
                     if a.state == INIT:
                         a.state = UP
@@ -502,11 +502,11 @@ class RoutingLanCircuit (LanCircuit):
                     break
             if a and a.state == UP:
                 item.src = a
-                logging.trace ("Routing LAN message received from %s: %s",
+                logging.trace ("Routing LAN message received from {}: {}",
                                a, item)
                 self.parent.dispatch (item)
             else:
-                logging.trace ("%s packet dropped, no adjacency",
+                logging.trace ("{} packet dropped, no adjacency",
                                item.__class__.__name__)
 
     def findbestdr (self):
@@ -532,7 +532,7 @@ class RoutingLanCircuit (LanCircuit):
             # Tag, we're it, but don't act on that for DRDELAY seconds,
             # and don't do it again if the DR timer is already running
             if not self.isdr and not self.drtimer.islinked ():
-                logging.debug ("Designated router on %s will be self, %d second delay",
+                logging.debug ("Designated router on {} will be self, {} second delay",
                                self.name, DRDELAY)
                 self.node.timers.start (self.drtimer, DRDELAY)
         else:
@@ -542,7 +542,7 @@ class RoutingLanCircuit (LanCircuit):
             if self.dr != dr:
                 self.node.timers.stop (self.drtimer)
                 self.dr = dr
-                logging.debug ("Designated router on %s is %s",
+                logging.debug ("Designated router on {} is {}",
                                self.name, dr.nodeid)
 
     def becomedr (self, arg):
@@ -552,7 +552,7 @@ class RoutingLanCircuit (LanCircuit):
         # Note we don't just call calcdr() right away because that does
         # some more things and generates more messages for the first case.
         if self.findbestdr () is self:
-            logging.debug ("Designated router on %s is self", self.name)
+            logging.debug ("Designated router on {} is self", self.name)
             self.newhello ()
         else:
             self.calcdr ()

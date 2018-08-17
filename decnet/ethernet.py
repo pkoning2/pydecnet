@@ -42,7 +42,7 @@ class EthPort (datalink.BcPort):
         if len (destb) != 6:
             raise ValueError ("Invalid destination address length")
         l = len (msg)
-        logging.trace ("Sending %d byte %s packet to %s",
+        logging.trace ("Sending {} byte {} packet to {}",
                        l, msg.__class__.__name__, dest)
         f = self.frame
         f[0:6] = destb
@@ -97,7 +97,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             for dname, desc, addrs, flags in pcap.findalldevs ():
                 if dname == self.dev and addrs:
                     self.hwaddr = Macaddr (addrs[0][0])
-        logging.debug ("Ethernet %s hardware address is %s",
+        logging.debug ("Ethernet {} hardware address is {}",
                        self.name, self.hwaddr)
         # start receive thread
         self.start ()
@@ -135,8 +135,8 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
                 if plen < plen2 + 16:
-                    logging.debug ("On %s, packet length field %d "
-                                   "inconsistent with packet length %d",
+                    logging.debug ("On {}, packet length field {} "
+                                   "inconsistent with packet length {}",
                                    self.name, plen2, plen)
                     return
                 payload = memoryview (packet)[16:16 + plen2]
@@ -254,7 +254,7 @@ class _BridgeEth (_Ethernet):
         self.lport = int (lport)
         self.host = datalink.HostAddress (host)
         self.rport = int (rport)
-        logging.debug ("Ethernet bridge %s initialized on %d, to %s %s",
+        logging.debug ("Ethernet bridge {} initialized on {}, to {} {}",
                        self.name, self.lport, self.host, self.rport)
         
     def open (self):
@@ -273,7 +273,7 @@ class _BridgeEth (_Ethernet):
         self.socket = None
 
     def run (self):
-        logging.trace ("Ethernet bridge %s receive thread started", self.name)
+        logging.trace ("Ethernet bridge {} receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -281,10 +281,10 @@ class _BridgeEth (_Ethernet):
         try:
             self.socket.bind (("", self.lport))
         except (OSError, socket.error):
-            logging.trace ("Ethernet bridge %s bind %d failed",
+            logging.trace ("Ethernet bridge {} bind {} failed",
                            self.name, self.lport)
             return
-        logging.trace ("Ethernet bridge %s bound to %d",
+        logging.trace ("Ethernet bridge {} bound to {}",
                        self.name, self.lport)
         
         while True:
@@ -319,7 +319,7 @@ class _BridgeEth (_Ethernet):
         """
         if not self.socket:
             return
-        logging.trace ("Sending %d bytes to %s:%d", len (buf),
+        logging.trace ("Sending {} bytes to {}:{}", len (buf),
                        self.host, self.rport)
         try:
             self.socket.sendto (buf, (self.host.addr, self.rport))
@@ -343,5 +343,5 @@ class Ethernet (datalink.Datalink):
             # SIMH refers to it.
             c = _BridgeEth
         else:
-            raise ValueError ("Unknown Ethernet circuit subtype %s" % api)
+            raise ValueError ("Unknown Ethernet circuit subtype {}".format (api))
         return c (owner, name, dev, config)

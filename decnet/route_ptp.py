@@ -101,7 +101,7 @@ class PtpCircuit (statemachine.StateMachine):
             if self.adj:
                 self.adj.down ()
         if msg:
-            logging.trace ("%s restart due to %s", self.name, msg)
+            logging.trace ("{} restart due to {}", self.name, msg)
         if event:
             self.node.logevent (event, entity = self, **kwargs)
         self.datalink.close ()
@@ -132,8 +132,8 @@ class PtpCircuit (statemachine.StateMachine):
             # the neighbor ID according to our phase, not its phase.
             dstnode = pkt.dstnode
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
-                logging.debug ("Sending packet %s to wrong address %s "
-                               "(expected %s)", pkt, dstnode, self.id)
+                logging.debug ("Sending packet {} to wrong address {} "
+                               "(expected {})", pkt, dstnode, self.id)
                 return False
             if self.rphase == 3:
                 # Neighbor is Phase 3, so we have its address as an
@@ -154,12 +154,12 @@ class PtpCircuit (statemachine.StateMachine):
                                     srcnode = src.nodename,
                                     msgflag = 0x46,
                                     payload = pkt.payload)
-                    logging.trace ("Forwarding from %s %s to Phase II: %s", pkt.srcnode, src, pkt)
+                    logging.trace ("Forwarding from {} {} to Phase II: {}", pkt.srcnode, src, pkt)
                 else:
                     # No routing, so the source must be this node.
                     if pkt.srcnode != self.routing.nodeid:
-                        logging.debug ("forwarding packet %s from "
-                                       "unreachable source %s",
+                        logging.debug ("forwarding packet {} from "
+                                       "unreachable source {}",
                                        pkt, pkt.srcnode)
                         return False
                     pkt = pkt.payload
@@ -175,11 +175,11 @@ class PtpCircuit (statemachine.StateMachine):
         If the packet is not valid, turn the work item into a datalink
         down notification, which will produce the right outcome.
         """
-        logging.trace ("Ptp circuit %s, work item %r", self.name, work)
+        logging.trace ("Ptp circuit {}, work item {!r}", self.name, work)
         if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
-                logging.debug ("Null routing layer packet received on %s",
+                logging.debug ("Null routing layer packet received on {}",
                                self.name)
                 return False
             if isinstance (buf, packet.Packet):
@@ -192,14 +192,14 @@ class PtpCircuit (statemachine.StateMachine):
                 if self.rphase < 4:
                     # Padding is only valid with Phase IV, and then only
                     # for packets other than Init.
-                    logging.debug ("Padding but not Phase IV on %s",
+                    logging.debug ("Padding but not Phase IV on {}",
                                    self.name)
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
                 pad = hdr & 0x7f
                 if pad >= len (buf):
-                    logging.debug ("Padding exceeds packet length on %s",
+                    logging.debug ("Padding exceeds packet length on {}",
                                    self.name)
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
@@ -207,7 +207,7 @@ class PtpCircuit (statemachine.StateMachine):
                 buf = buf[hdr & 0x7f:]
                 hdr = buf[0]
                 if hdr & 0x80:
-                    logging.debug ("Double padded packet received on %s",
+                    logging.debug ("Double padded packet received on {}",
                                    self.name)
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
@@ -226,12 +226,12 @@ class PtpCircuit (statemachine.StateMachine):
                 hdr = buf[0]
                 if hdr & 0x83:
                     # Invalid bits set, complain
-                    logging.debug ("Invalid msgflgs after Ph2 route hdr: %x",
+                    logging.debug ("Invalid msgflgs after Ph2 route hdr: {:0>2x}",
                                    hdr)
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
-                logging.trace ("Phase II packet with route header: %s", work.packet)
+                logging.trace ("Phase II packet with route header: {}", work.packet)
             if (hdr & 1) != 0 and self.node.phase > 2:
                 # Routing (phase 3 or 4) control packet.  Figure out which one
                 code = (hdr >> 1) & 7
@@ -240,7 +240,7 @@ class PtpCircuit (statemachine.StateMachine):
                     try:
                         work.packet = ptpcontrolpackets[code] (buf, src = None)
                     except KeyError:
-                        logging.debug ("Unknown routing control packet %d from %s",
+                        logging.debug ("Unknown routing control packet {} from {}",
                                        code, self.name)
                         return CircuitDown (self)
                     except ChecksumError as e:
@@ -258,7 +258,7 @@ class PtpCircuit (statemachine.StateMachine):
                 else:
                     # Init message type depends on major version number.
                     if len (buf) < 7:
-                        logging.debug ("Init message is too short: %d",
+                        logging.debug ("Init message is too short: {}",
                                        len (buf))
                         self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
@@ -290,13 +290,13 @@ class PtpCircuit (statemachine.StateMachine):
                                                 packet_beginning = buf[:6])
                             return False
                     elif mver < tiver_ph3[0]:
-                        logging.debug ("Unknown routing version %d", mver)
+                        logging.debug ("Unknown routing version {}", mver)
                         self.node.logevent (events.init_oper, entity = self,
                                             reason = "version_skew",
                                             **evtpackethdr (buf))
                         return CircuitDown (self)
                     else:
-                        logging.trace ("Ignoring high version init %d", mver)
+                        logging.trace ("Ignoring high version init {}", mver)
                         return False    # Too high, ignore it
                     if phase > self.node.phase:
                         logging.trace ("Ignoring init higher than our phase")
@@ -363,7 +363,7 @@ class PtpCircuit (statemachine.StateMachine):
                                                     packet_beginning =
                                                     buf[:6])
                                 logging.debug ("Unknown Phase 2 control packet"
-                                               " %x from %s",
+                                               " {:0>2x} from {}",
                                                code, self.name)
                                 return CircuitDown (self)
                     else:
@@ -371,7 +371,7 @@ class PtpCircuit (statemachine.StateMachine):
                         # type, it will be handled in NSP
                         return True
                 else:
-                    logging.debug ("Unknown routing packet %d from %s",
+                    logging.debug ("Unknown routing packet {} from {}",
                                    code, self.name)
                     if code == 1:
                         # Phase 3/4 init message on phase 2 node, ignore
@@ -457,7 +457,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if pkt.srcnode == 0 or \
                        (self.parent.ntype in { L1ROUTER, L2ROUTER } and
                         pkt.srcnode > self.parent.maxnodes ):
-                    logging.debug ("%s Phase II node id out of range: %d",
+                    logging.debug ("{} Phase II node id out of range: {}",
                                    self.name, pkt.srcnode)
                     self.init_fail += 1
                     n = self.optnode (pkt.srcnode)
@@ -498,7 +498,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.rnodename = pkt.nodename
                 rnode = self.node.nodeinfo (self.id)
                 if rnode.nodename != self.rnodename:
-                    logging.debug ("Remote node name %s does not match ours: %s",
+                    logging.debug ("Remote node name {} does not match ours: {}",
                                    self.rnodename, rnode)
                 # Create the adjacency.  Note that it is not set to "up"
                 # yet, that happens on transition to RU state.
@@ -507,7 +507,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # Verification requested
                     verif = self.node.nodeinfo (self.id).overif
                     if not verif:
-                        logging.trace ("%s verification requested but not set,"
+                        logging.trace ("{} verification requested but not set,"
                                        " attempting null string", self.name)
                         verif = b""
                     vpkt = NodeVerify (password = verif)
@@ -543,7 +543,7 @@ class PtpCircuit (statemachine.StateMachine):
                         ((pkt.ntype != L2ROUTER or
                           self.parent.ntype != L2ROUTER)
                          and area != self.parent.homearea):
-                        logging.debug ("%s Node address out of range: %s",
+                        logging.debug ("{} Node address out of range: {}",
                                        self.name, pkt.srcnode)
                         self.init_fail += 1
                         n = self.optnode (pkt.srcnode)
@@ -573,7 +573,7 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.srcnode == 0 or \
                            (self.parent.ntype in { L1ROUTER, L2ROUTER } and
                             pkt.srcnode > self.parent.maxnodes ):
-                        logging.debug ("%s Phase III node id out of range: %d",
+                        logging.debug ("{} Phase III node id out of range: {}",
                                        self.name, pkt.srcnode)
                         self.init_fail += 1
                         n = self.optnode (pkt.srcnode)
@@ -621,7 +621,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # Verification requested
                     verif = self.node.nodeinfo (self.id).overif
                     if not verif:
-                        logging.trace ("%s verification requested but not set,"
+                        logging.trace ("{} verification requested but not set,"
                                        " attempting null string", self.name)
                         verif = b""
                     vpkt = PtpVerify (fcnval = verif)
@@ -675,7 +675,7 @@ class PtpCircuit (statemachine.StateMachine):
             pkt = item.packet
             verif = self.node.nodeinfo (self.id).iverif
             if not verif:
-                logging.debug ("%s verification required but not set",
+                logging.debug ("{} verification required but not set",
                                self.name)
                 self.init_fail += 1
                 self.routing.ver_rejects += 1
@@ -685,7 +685,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      reason = "verification_required")
             if isinstance (pkt, PtpVerify) and self.rphase > 2:
                 if self.rphase > 2 and not self.checksrc (pkt.srcnode):
-                    logging.debug ("%s packet from wrong node %s",
+                    logging.debug ("{} packet from wrong node {}",
                                    self.name, pkt.srcnode)
                     self.init_fail += 1
                     return self.restart (events.adj_down, 
@@ -693,7 +693,7 @@ class PtpCircuit (statemachine.StateMachine):
                                          adjacent_node = self.optnode (),
                                          reason = "address_out_of_range")
                 if pkt.fcnval != verif:
-                    logging.debug ("%s verification value mismatch",
+                    logging.debug ("{} verification value mismatch",
                                    self.name)
                     self.init_fail += 1
                     self.routing.ver_rejects += 1
@@ -706,7 +706,7 @@ class PtpCircuit (statemachine.StateMachine):
             elif isinstance (pkt, NodeVerify) and self.rphase == 2:
                 verif = (verif + bytes (7))[:8]
                 if pkt.password != verif:
-                    logging.debug ("%s verification value mismatch",
+                    logging.debug ("{} verification value mismatch",
                                    self.name)
                     self.init_fail += 1
                     self.routing.ver_rejects += 1
@@ -764,7 +764,7 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt = ShortData (dstnode = dest, srcnode = src,
                                      rts = 0, rqr = 0, visit = 1,
                                      payload = payload.payload, src = self.adj)
-                    logging.trace ("Phase II data packet to routing: %s", pkt)
+                    logging.trace ("Phase II data packet to routing: {}", pkt)
                     self.parent.dispatch (pkt)
                     return
                 if not isinstance (item.packet, packet.Packet):
@@ -777,7 +777,7 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt = ShortData (dstnode = self.parent.nodeid, visit = 1,
                                      srcnode = self.id, rts = 0, rqr = 0,
                                      payload = item.packet, src = self.adj)
-                    logging.trace ("Phase II data packet to routing: %s", pkt)
+                    logging.trace ("Phase II data packet to routing: {}", pkt)
                     self.parent.dispatch (pkt)
                     return
             # Process received packet.  Restart the listen timer if not phase 2.
@@ -786,7 +786,7 @@ class PtpCircuit (statemachine.StateMachine):
             # Check source address
             if isinstance (pkt, (PtpHello, L1Routing, L2Routing)) \
               and self.rphase > 2 and not self.checksrc (pkt.srcnode):
-                logging.debug ("%s packet from wrong node %s",
+                logging.debug ("{} packet from wrong node {}",
                                self.name, pkt.srcnode)
                 return self.restart (events.adj_down, 
                                      "adjacency down",
@@ -794,7 +794,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      reason = "address_out_of_range")
             if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
                and self.rphase > 2:
-                logging.trace ("%s data packet to routing: %s", self.name, pkt)
+                logging.trace ("{} data packet to routing: {}", self.name, pkt)
                 # Note that just the packet is dispatched, not the work
                 # item we received that wraps it.
                 if self.rphase < 4 and self.node.phase == 4:
@@ -832,7 +832,7 @@ class PtpCircuit (statemachine.StateMachine):
                     # circuit down, set the next state to DI, and
                     # reprocess the message we just received.
                     self.down ()
-                    logging.trace ("%s restart due to init message, using init workaround", self.name)
+                    logging.trace ("{} restart due to init message, using init workaround", self.name)
                     # Next 3 lines lifted from "HA" state handler
                     self.tiver = None
                     # Fake a datalink up notification to generate init packet

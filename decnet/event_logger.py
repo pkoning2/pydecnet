@@ -55,9 +55,9 @@ class EventFilter (set):
             else:
                 if fi != -1:
                     if fi == li:
-                        ls += "%d" % fi
+                        ls += "{}".format (fi)
                     else:
-                        ls += "%d-%d" % (fi, li)
+                        ls += "{}-{}".format (fi, li)
                     s += ls
                     ls = ","
                 if ent != le or len (s) > width:
@@ -68,16 +68,16 @@ class EventFilter (set):
                 if c != lc:
                     if s:
                         s += ", "
-                    s += "%d." % c
+                    s += "{}.".format (c)
                     ls = ""
                 fi = li = i
                 lc = c
                 le = ent
         if fi == li:
-            ls += "%d" % fi
+            ls += "{}".format (fi)
         else:
-            ls += "%d-%d" % (fi, li)
-        s = "%s%s" % (s, ls)
+            ls += "{}-{}".format (fi, li)
+        s = "{}{}".format (s, ls)
         ret.append (prefix + s)
         return "\n".join (ret)
 

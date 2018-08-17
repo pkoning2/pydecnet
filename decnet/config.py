@@ -51,7 +51,7 @@ datalinks.sort ()
 cp = config_cmd ("circuit", "Circuit configuration", collection = True)
 cp.add_argument ("name", help = "Circuit name", type = circname)
 cp.add_argument ("type", choices = datalinks, metavar = "type",
-                 help = "Datalink type; one of %s." % ", ".join (datalinks))
+                 help = "Datalink type; one of {}.".format (", ".join (datalinks)))
 cp.add_argument ("device", help = "Device or connection string")
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (range 1..25, default 1)",
@@ -166,7 +166,7 @@ class Config (object):
     def __init__ (self, f = None):
         if not f:
             f = open (DEFCONFIG, "rt")
-        logging.debug ("Reading config %s", f.name)
+        logging.debug ("Reading config {}", f.name)
         self.configfilename = f.name
         
         # Remove routing and bridge from single_init set, because we
@@ -198,7 +198,7 @@ class Config (object):
                 continue
             p, msg = configparser.parse_args (shlex.split (l))
             if not p:
-                logging.error ("Config file parse error in %s:\n %s\n %s",
+                logging.error ("Config file parse error in {}:\n {}\n {}",
                                f, msg, l)
                 ok = False
             else:
@@ -220,10 +220,11 @@ class Config (object):
             for name in single_init:
                 p = getattr (self, name, None)
                 if not p:
-                    logging.error ("Missing config element: %s", name)
+                    logging.error ("Missing config element: {}", name)
                     ok = False
             if not hasattr (self, "bridge") and not hasattr (self, "routing"):
-                logging.error ("Either routing or bridge elements required, config file %s" % self.configfilename)
+                logging.error ("Either routing or bridge elements required, config file {}",
+                               self.configfilename)
                 ok = False
             if not ok:
                 sys.exit (1)

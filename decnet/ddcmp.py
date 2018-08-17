@@ -204,13 +204,13 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         elif proto == "udp":
             self.tcp = False
         else:
-            raise ValueError ("Invalid protocol %s" % proto)
+            raise ValueError ("Invalid protocol {}".format (proto))
         self.lport = int (lport)
         self.host = datalink.HostAddress (host)
         self.rport = int (rport)
         # All set
-        logging.trace ("DDCMP datalink %s initialized using %s on "
-                       "port %d to %s:%d", self.name, proto, self.lport,
+        logging.trace ("DDCMP datalink {} initialized using {} on "
+                       "port {} to {}:{}", self.name, proto, self.lport,
                        host, self.rport)
 
     def open (self):
@@ -265,10 +265,10 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             if self.tcp:
                 self.socket.listen (1)
         except (OSError, socket.error):
-            logging.trace ("DDCMP %s bind/listen failed", self.name)
+            logging.trace ("DDCMP {} bind/listen failed", self.name)
             self.socket.close ()
             return
-        logging.trace ("DDCMP %s listen to %d active",
+        logging.trace ("DDCMP {} listen to {} active",
                        self.name, self.rport)
         self.rthread.start ()
 
@@ -284,14 +284,14 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         self.connsocket.setblocking (False)
         try:
             self.connsocket.connect ((self.host.addr, self.rport))
-            logging.trace ("DDCMP %s connect to %s %d in progress",
+            logging.trace ("DDCMP {} connect to {} {} in progress",
                            self.name, self.host.addr, self.rport)
         except socket.error as e:
             if e.errno == errno.EINPROGRESS:
-                logging.trace ("DDCMP %s connect to %s %d in progress",
+                logging.trace ("DDCMP {} connect to {} {} in progress",
                                self.name, self.host.addr, self.rport)
             else:
-                logging.trace ("DDCMP %s connect to %s %d rejected",
+                logging.trace ("DDCMP {} connect to {} {} rejected",
                                self.name, self.host.addr, self.rport)
                 self.connsocket = None
         # Wait a random time (60-120 seconds) for the outbound connection
@@ -355,7 +355,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         is done here.  Received messages and error indications are passed
         down to the DDCMP state machine which runs in the main thread.
         """
-        logging.trace ("DDCMP datalink %s receive thread started", self.name)
+        logging.trace ("DDCMP datalink {} receive thread started", self.name)
         if not self.socket:
             return
         # Split out the two cases since they are rather different.
@@ -363,7 +363,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.run_tcp ()
         else:
             self.run_udp ()
-        logging.trace ("DDCMP datalink %s receive thread stopped", self.name)
+        logging.trace ("DDCMP datalink {} receive thread stopped", self.name)
 
     def run_tcp (self):
         """Receive thread for the TCP case.
@@ -406,7 +406,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                     self.socket = self.connsocket
                     self.socket.setblocking (True)
                     self.connsocket = None
-                    logging.trace ("DDCMP %s outbound connection made", self.name)
+                    logging.trace ("DDCMP {} outbound connection made", self.name)
                     # Drop out of the outer loop
                     connected = True
                     break
@@ -423,20 +423,20 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                             # The socket we use from now on is the data socket
                             self.socket = sock
                             self.connsocket = None
-                            logging.trace ("DDCMP %s inbound connection accepted",
+                            logging.trace ("DDCMP {} inbound connection accepted",
                                            self.name)
                             # Drop out of the outer loop
                             connected = True
                             break
                         # If the connect is from someplace we don't want
-                        logging.trace ("DDCMP %s connect received from "
-                                       "unexpected address %s", self.name, host)
+                        logging.trace ("DDCMP {} connect received from "
+                                       "unexpected address {}", self.name, host)
                         sock.close ()
                     except (OSError, socket.error):
                         self.disconnected ()
                         self.state = self.reconnect
                         return
-        logging.trace ("DDCMP %s connected", self.name)
+        logging.trace ("DDCMP {} connected", self.name)
         # At this point we're using just one socket, the data socket.
         # Update the poll object we're using
         poll = select.poll ()
@@ -481,7 +481,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         # Header CRC is valid.  Construct a packet object
                         # of the correct class.
                         if not self.insync:
-                            logging.trace ("Back in sync on %s", self.name)
+                            logging.trace ("Back in sync on {}", self.name)
                         self.insync = True
                         if h == ENQ:
                             # Control packet.
@@ -520,9 +520,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         if self.insync:
                             self.insync = False
                             self.node.addwork (Err (R_HCRC))
-                            logging.trace ("Lost sync on %s", self.name)
+                            logging.trace ("Lost sync on {}", self.name)
                         else:
-                            logging.trace ("Out of sync, another HCRC error on %s", self.name)
+                            logging.trace ("Out of sync, another HCRC error on {}", self.name)
 
     def run_udp (self):
         """Receive thread for the UDP case.
@@ -644,7 +644,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         crc = CRC16 (hdr)
         # Set the Header CRC
         msg.hcrc = bytes (crc)
-        logging.trace ("Sending DDCMP message on %s: %s", self.name, msg)
+        logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
         # Now encode the whole message
         msg = bytes (msg)
         try:
@@ -749,7 +749,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
                                                   status = True))
-        logging.trace ("Enter DDCMP running state on %s", self.name)
+        logging.trace ("Enter DDCMP running state on {}", self.name)
         self.node.timers.stop (self)
         # Send an ack to tell the other end
         self.send_ack ()
@@ -772,7 +772,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.ackflag = True
                 # Pass the payload up to our client.
                 msg = data.payload
-                logging.trace ("Received DDCMP message on %s len %d: %r",
+                logging.trace ("Received DDCMP message on {} len {}: {!r}",
                                self.name, len (msg), msg)
                 if self.port:
                     self.bytes_recv += len (msg)
@@ -847,8 +847,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # outstanding messages), False if not.
         count = msg.resp - self.a
         pend = self.n - self.a
-        logging.trace ("Processing DDCMP Ack on %s, count %d, pending count %d, "
-                       "a=%d, n=%d", self.name, count, pend, self.a, self.n)
+        logging.trace ("Processing DDCMP Ack on {}, count {}, pending count {}, "
+                       "a={}, n={}", self.name, count, pend, self.a, self.n)
         if count > pend:
             # Because of sequence number wrapping, an "old" ACK will look
             # like one that acknowledges too much.  For example, one that's
@@ -904,7 +904,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if isinstance (data, MaintMsg):
             # Pass the payload up to our client.
             msg = data.payload
-            logging.trace ("Received DDCMP maintenance message on %s len %d: %r",
+            logging.trace ("Received DDCMP maintenance message on {} len {}: {!r}",
                            self.name, len (msg), msg)
             # We don't have any maintenance ports yet, so for now just
             # discard the packet
@@ -936,7 +936,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.n += 1
             data = bytes (data)
             mlen = len (data)
-            logging.trace ("Sending DDCMP message on %s len %d: %r",
+            logging.trace ("Sending DDCMP message on {} len {}: {!r}",
                            self.name, mlen, data)
             self.bytes_sent += mlen
             self.pkts_sent += 1

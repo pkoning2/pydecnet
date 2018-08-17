@@ -51,8 +51,8 @@ class BridgeCircuit (Element):
         self.parent.dispatch (item)
 
     def send_frame (self, pdu, skip = None):
-        pktlogging.tracepkt ("Sending %d bytes to %s: " % (len (pdu), self), pdu)
-        #logging.trace ("Sending %d bytes to %s: %s", len (pdu), self, pdu)
+        pktlogging.tracepkt ("Sending {} bytes to {}: ".format (len (pdu), self), pdu)
+        #logging.trace ("Sending {} bytes to {}: {}", len (pdu), self, pdu)
         self.datalink.parent.send_frame (pdu, skip)
 
 class AddrEnt (timers.Timer):
@@ -73,20 +73,20 @@ class AddrEnt (timers.Timer):
         self.owner = db
         self.circuit = circ
         self.alive()
-        logging.debug ("New MAC address %s on circuit %s" % (addr, circ))
+        logging.debug ("New MAC address {} on circuit {}", addr, circ)
 
     def alive (self):
         self.owner.timers.start (self, self.Timeout)
 
     def update (self, circ):
-        logging.debug ("MAC address %s moved from circuit %s to %s" %
+        logging.debug ("MAC address {} moved from circuit {} to {}",
                        (addr, self.circuit, circ))
         self.circuit = circ
         self.alive ()
 
     def dispatch (self, item):
         # Timer expiration
-        logging.debug ("MAC address %s timed out on circuit %s" %
+        logging.debug ("MAC address {} timed out on circuit {}",
                        (self.addr, self.circuit))
         del self.owner[self.addr]
         
@@ -118,7 +118,7 @@ class Bridge (Element):
     def __init__ (self, node, config):
         super ().__init__ (node)
         self.name = config.bridge.name
-        logging.debug ("Initializing bridge %s", self.name)
+        logging.debug ("Initializing bridge {}", self.name)
         self.config = config.bridge
         # Counters?  TBD
         # Database of known destination addresses
@@ -130,9 +130,9 @@ class Bridge (Element):
             dl = dlcirc[name]
             try:
                 self.circuits[name] = BridgeCircuit (self, name, dl, c)
-                logging.debug ("Initialized bridge circuit %s", name)
+                logging.debug ("Initialized bridge circuit {}", name)
             except Exception:
-                logging.exception ("Error initializing bridge circuit %s", name)
+                logging.exception ("Error initializing bridge circuit {}", name)
         
     def __str__ (self):
         return "{0.name}".format (self)
@@ -145,18 +145,18 @@ class Bridge (Element):
         for name, c in self.circuits.items ():
             try:
                 c.start ()
-                logging.debug ("Started Bridge circuit %s", name)
+                logging.debug ("Started Bridge circuit {}", name)
             except Exception:
-                logging.exception ("Error starting Bridge circuit %s", name)
+                logging.exception ("Error starting Bridge circuit {}", name)
 
     def stop (self):
         logging.debug ("Stopping Bridge layer")
         for name, c in self.circuits.items ():
             try:
                 c.stop ()
-                logging.debug ("Stopped Bridge circuit %s", name)
+                logging.debug ("Stopped Bridge circuit {}", name)
             except Exception:
-                logging.exception ("Error stopping Bridge circuit %s", name)
+                logging.exception ("Error stopping Bridge circuit {}", name)
 
     def dispatch (self, work):
         if isinstance (work, datalink.Received):
@@ -168,16 +168,16 @@ class Bridge (Element):
                 return
             proto = packet[12:14]
             self.dest.learn (src, circ)
-            logging.trace ("Received packet from %s on %s", src, circ)
+            logging.trace ("Received packet from {} on {}", src, circ)
             if dest in self.dest:
                 out = self.dest[dest].circuit
                 if out is not circ:
-                    logging.trace ("Forwarding to %s", out)
+                    logging.trace ("Forwarding to {}", out)
                     out.send_frame (packet, work.extra)
             else:
                 for c in self.circuits.values ():
                     if c is not circ:
-                        logging.trace ("Flooding packet to %s", c)
+                        logging.trace ("Flooding packet to {}", c)
                         c.send_frame (packet, work.extra)
 
     def html (self, what):

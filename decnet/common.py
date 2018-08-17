@@ -106,7 +106,7 @@ class Work (object):
         self.owner.dispatch (self)
 
     def __str__ (self):
-        return "Work item: %s" % self.__class__.__name__
+        return "Work item: {}".format (self.__class__.__name__)
 
 # Some common work item classes
 
@@ -123,9 +123,9 @@ class Received (Work):
     """
     def __str__ (self):
         try:
-            return "Received from %s: %s" % (self.src, self.packet)
+            return "Received from {}: {}".format (self.src, self.packet)
         except AttributeError:
-            return "Received: %s" % self.packet
+            return "Received: {}".format (self.packet)
 
 _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
@@ -143,7 +143,7 @@ class Nodeid (int):
         if isinstance (s, str):
             m = _nodeid_re.match (s)
             if not m:
-                raise ValueError ("Invalid node ID %s" % s)
+                raise ValueError ("Invalid node ID {}".format (s))
             a, n = m.groups ()
             n = int (n)
             if a is None:
@@ -158,15 +158,15 @@ class Nodeid (int):
                 a, n = s, id2
         elif isinstance (s, Macaddr):
             if s[:4] != HIORD:
-                raise ValueError ("Invalid DECnet Mac address %s" % s)
+                raise ValueError ("Invalid DECnet Mac address {}".format (s))
             a, n = divmod (int.from_bytes (s[4:], "little"), 1024)
         else:
             s = bytes (s)
             if len (s) != 2:
-                raise DecodeError ("Invalid node ID %s" % s)
+                raise DecodeError ("Invalid node ID {}".format (s))
             a, n = divmod (int.from_bytes (s, "little"), 1024)
         if a > 63 or n > 1023:
-            raise ValueError ("Invalid node ID %s" % s)
+            raise ValueError ("Invalid node ID {}".format (s))
         return int.__new__ (cls, (a << 10) + n)
 
     @classmethod
@@ -216,10 +216,10 @@ class Macaddr (bytes):
                 if _nodeid_re.match (s):
                     s = Nodeid (s)
                     if not s.area:
-                        raise ValueError ("Invalid MAC address string %s" % s)
+                        raise ValueError ("Invalid MAC address string {}".format (s))
                     s = HIORD + bytes (s)
                 else:
-                    raise ValueError ("Invalid MAC address string %s" % s)
+                    raise ValueError ("Invalid MAC address string {}".format (s))
             else:
                 s = bytes (int (f, 16) for f in bl)
         elif isinstance (s, Nodeid):
@@ -227,7 +227,7 @@ class Macaddr (bytes):
         else:
             s = bytes (s)
             if len (s) != 6:
-                raise DecodeError ("Invalid MAC address string %s" % s)
+                raise DecodeError ("Invalid MAC address string {}".format (s))
         return bytes.__new__ (cls, s)
 
     @classmethod
@@ -259,14 +259,14 @@ class Version (bytes):
         if isinstance (v1, str):
             v = v1.split ('.')
             if len (v) != 3:
-                raise ValueError ("Invalid version string %s" % v1)
+                raise ValueError ("Invalid version string {}".format (v1))
             v = _version.pack (*(int (i) for i in v))
         elif isinstance (v1, int):
             v = _version.pack (v1, v2, v3)
         else:
             v = bytes (v1)
             if len (v) != 3:
-                raise ValueError ("Invalid version string %s" % v1)
+                raise ValueError ("Invalid version string {}".format (v1))
         return super ().__new__ (cls, v)
 
     @classmethod
@@ -291,7 +291,7 @@ def scan_ver (s):
         v = s.encode ("latin-1", "ignore")
         l = len (v)
         if l > 8:
-            raise ValueError ("Verification string %s too long" % s)
+            raise ValueError ("Verification string {} too long".format (s))
         if l < 8:
             v += bytes (8 - l)
     return v
@@ -302,7 +302,7 @@ def nodename (s):
     """
     if _nodename_re.match (s) and len (s) <= 6:
         return s.upper ()
-    raise ValueError ("Invalid node name %s" % s)
+    raise ValueError ("Invalid node name {}".format (s))
 
 _circname_re = re.compile (r"[a-z]+[-0-9]*$", re.I)
 def circname (s):
@@ -310,7 +310,7 @@ def circname (s):
     """
     if _circname_re.match (s):
         return s.upper ()
-    raise ValueError ("Invalid circuit name %s" % s)
+    raise ValueError ("Invalid circuit name {}".format (s))
 
 class StopThread (threading.Thread):
     """A thread with stop method.  By default this will be
@@ -335,8 +335,8 @@ class StopThread (threading.Thread):
             if wait:
                 self.join (10)
                 if self.is_alive ():
-                    logging.error ("Thread %s failed to stop after 10 seconds",
+                    logging.error ("Thread {} failed to stop after 10 seconds",
                                    self.name)
                 else:
-                    logging.trace ("Thread %s stopped", self.name)
+                    logging.trace ("Thread {} stopped", self.name)
 

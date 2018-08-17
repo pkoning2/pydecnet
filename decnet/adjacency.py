@@ -101,6 +101,6 @@ class Adjacency (Element, timers.Timer):
     def send (self, pkt):
         """Send the supplied packet on this adjacency.  
         """
-        logging.trace ("Sending %d byte packet to nexthop %s on %s: %s",
+        logging.trace ("Sending {} byte packet to nexthop {} on {}: {}",
                        len (pkt), self.nodeid, self.circuit.name, pkt)
         self.circuit.send (pkt, self.macid)

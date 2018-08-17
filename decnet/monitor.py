@@ -21,7 +21,7 @@ def Monitor (node, config):
             ports.append ("{}".format (config.system.http_port))
         #if config.system.https_port:
         #    ports.append ("{}".format (config.system.https_port))
-        logging.debug ("Initializing HTTP server on %s", ", ".join (ports))
+        logging.debug ("Initializing HTTP server on {}", ", ".join (ports))
         t = StopThread (target = http_thread, name = tname,
                         args = (node, config))
     else:
@@ -56,14 +56,14 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             self.node = self.server.node
             p = urlparse (self.path)
             if p.scheme or p.netloc or p.params or p.query or p.fragment:
-                logging.trace ("Invalid path: %s", self.path)
+                logging.trace ("Invalid path: {}", self.path)
                 return
             p = p.path
-            logging.trace ("http from %s get %s", self.client_address, p)
+            logging.trace ("http from {} get {}", self.client_address, p)
             ret = [ self.common_start () ]
             m = psplit_re.match (p)
             if not m:
-                logging.trace ("Invalid path: %s", self.path)
+                logging.trace ("Invalid path: {}", self.path)
                 return
             if p == "/":
                 ret.append (self.summary ())
@@ -84,7 +84,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             self.end_headers ()
             self.wfile.write (ret)
         except Exception:
-            logging.exception ("Exception handling http get of %s", self.path)
+            logging.exception ("Exception handling http get of {}", self.path)
             self.excepthook.handle ()
             
     def common_start (self):

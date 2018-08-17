@@ -31,7 +31,7 @@ class GREPort (datalink.BcPort):
         is point to point, the address is ignored.
         """
         l = len (msg)
-        logging.trace ("Sending %d byte %s packet", l, msg.__class__.__name__)
+        logging.trace ("Sending {} byte {} packet", l, msg.__class__.__name__)
         f = self.frame
         if self.pad:
             if l > 1498:
@@ -94,7 +94,7 @@ class GRE (datalink.BcDatalink, StopThread):
             pass
         
     def run (self):
-        logging.trace ("GRE datalink %s receive thread started", self.name)
+        logging.trace ("GRE datalink {} receive thread started", self.name)
         sock = self.socket
         if not sock:
             return
@@ -107,7 +107,7 @@ class GRE (datalink.BcDatalink, StopThread):
             except select.error:
                 x = True
             if x:
-                logging.trace ("Error on socket for %s", self.name)
+                logging.trace ("Error on socket for {}", self.name)
                 return
             if r:
                 try:
@@ -126,11 +126,11 @@ class GRE (datalink.BcDatalink, StopThread):
                     # Sorry, we only support IPv4 for now
                     continue
                 pos = 4 * hlen
-                logging.trace ("Received GRE message len %d: %r",
+                logging.trace ("Received GRE message len {}: {!r}",
                                len (msg), msg)
                 if msg[pos:pos + 2] != greflags:
                     # Unexpected flags or version in header, ignore
-                    logging.debug ("On %s, unexpected header %s",
+                    logging.debug ("On {}, unexpected header {}",
                                    self.name, msg[pos:pos + 2])
                     continue
                 proto = msg[pos + 2:pos + 4]
@@ -146,8 +146,8 @@ class GRE (datalink.BcDatalink, StopThread):
                 if port.pad:
                     plen2 = msg[pos + 4] + (msg[pos + 5] << 8)
                     if plen < plen2:
-                        logging.debug ("On %s, msg length field %d " \
-                                       "inconsistent with msg length %d",
+                        logging.debug ("On {}, msg length field {} " \
+                                       "inconsistent with msg length {}",
                                        self.name, plen2, plen)
                         continue
                     msg = memoryview (msg)[pos + 6:pos + 6 + plen2]
