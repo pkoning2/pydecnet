@@ -19,7 +19,7 @@ from . import mop
 from . import routing
 from . import apiserver
 from . import nsp
-from . import monitor
+from . import http
 from . import event_logger
 from . import bridge
 
@@ -97,7 +97,7 @@ class Node (object):
                 logging.warning ("Ignoring --api-socket on bridge node")
         else:
             self.api = None
-        self.monitor = monitor.Monitor (self, config)
+        self.monitor = http.Monitor (self, config)
         self.workqueue = queue.Queue ()
         # We now have a node.
         # Create its child entities in the appropriate order.
