@@ -28,6 +28,7 @@ from . import config
 from . import node
 from . import events
 from . import logging
+from . import http
 
 DEFPIDFILE = "/var/run/pydecnet.pid"
 
@@ -84,6 +85,7 @@ def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
     """
+    global nodes
     p = dnparser.parse_args ()
     if not DaemonContext:
         p.daemon = False
@@ -125,11 +127,20 @@ def main ():
     configs = [ config.Config (c) for c in p.configfile ]
     
     # Initialize all the nodes
-    nodes = [ node.Node (c) for c in configs ]
+    nodes = [ ]
+    httpserver = None
+    for c in configs:
+        if hasattr (c, "routing") or hasattr (c, "bridge"):
+            nodes.append (node.Node (c))
+        else:
+            if httpserver:
+                print ("Duplicate http interface definition")
+                sys.exit (1)
+            if c.http.http_port:
+                httpserver = http.Monitor (c)
 
-    # Start all the nodes.  The last one will run in the main thread,
-    # the others get a thread of their own
-    for n in nodes[:-1]:
+    # Start all the nodes, each in a thread of its own.
+    for n in nodes:
         n.start ()
     try:
         if p.daemon:
@@ -137,16 +148,23 @@ def main ():
                                            pidfile = pidfile (p.pid_file))
             logging.info ("Becoming daemon just before starting main thread")
             daemoncontext.open ()
-        nodes[-1].start (mainthread = True)
+        if httpserver:
+            httpserver.start (nodes)
+        else:
+            logging.trace ("idling without http")
+            while True:
+                time.sleep (100)
     except SystemExit as exc:
         logging.info ("Exiting: {}", exc)
     except Exception:
         logging.exception ("Exception caught in main")
+    except KeyboardInterrupt:
+        logging.info ("Exiting due to Ctrl-C")
     finally:
         # Stop nodes in reverse of the order in which they were started.
         # Note that the last node (the one that owns the main thread)
         # was already stopped by the time we get here.
-        for n in reversed (nodes[:-1]):
+        for n in reversed (nodes):
             n.stop ()
         # For symmetry with the startup messages:
         threading.current_thread ().name = "MainThread"

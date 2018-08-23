@@ -45,23 +45,27 @@ PyDECnet contains the following major components:
     - File transfer
     - NML
     - Mirror
-- API for MOP and Session Control
+- API for MOP and Session Control, using JSON over HTTPS
 - HTTP(S) based monitoring interface
 
 (Note that NSP and the layers above are not yet implemented)
 
 The API allows external processes to access protocol services in
-PyDECnet, via a Unix domain socket.  Several sample API clients are
-provided in the "samples" directory.  A library to use this API to
-implement a socket style interface is planned.
+PyDECnet, via JSON carried over HTTPS (the same HTTPS port also used
+for monitoring).  Several sample API clients are provided in the
+"samples" directory.  A library to use this API to implement a socket
+style interface is planned.
 
 Multiple node support
 
 In typical use, a PyDECnet invocation starts a single DNA node.  For
-testing, multiple nodes may be started by a single invocation.  The
-main advantage of doing so is that there is a single logging stream,
-so the entire sequence of events in the test configuration will show
-up, in correct order, in that log.
+testing, multiple systems (bridges or nodes) may be started by a
+single invocation.  The main advantage of doing so is that there is a
+single logging stream, so the entire sequence of events in the test
+configuration will show up, in correct order, in that log.  If this is
+done, the home page in the monitoring HTTP service will list the
+systems, and the pages for each system will have a URL argument of the
+form "?system=<name>" appended, for example "/routing?system=NI1D".
 
 Usage
 

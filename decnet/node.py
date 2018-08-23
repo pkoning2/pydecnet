@@ -17,7 +17,6 @@ from . import datalink
 from . import datalinks    # All the datalinks we know
 from . import mop
 from . import routing
-from . import apiserver
 from . import nsp
 from . import http
 from . import event_logger
@@ -56,7 +55,7 @@ class Node (object):
     entire network within a single process).
     """
     startlist = ( "event_logger", "datalink", "mop", "routing", "nsp",
-                  "bridge", "api", "monitor" )
+                  "bridge" )
 
     def __init__ (self, config):
         self.node = self
@@ -88,16 +87,6 @@ class Node (object):
         threading.current_thread ().name = self.nodename
         logging.debug ("Initializing node {}", self.nodename)
         self.timers = timers.TimerWheel (self, 0.1, 3600)
-        sock = config.system.api_socket
-        # API only if enabled, and then only on DECnet nodes
-        if sock:
-            if self.decnet:
-                self.api = apiserver.ApiServer (self, sock)
-            else:
-                logging.warning ("Ignoring --api-socket on bridge node")
-        else:
-            self.api = None
-        self.monitor = http.Monitor (self, config)
         self.workqueue = queue.Queue ()
         # We now have a node.
         # Create its child entities in the appropriate order.
@@ -194,19 +183,6 @@ class Node (object):
                 c.stop ()
         self.timers.shutdown ()
         
-    def register_api (self, command, handler, help = None):
-        """Register a command under the DECnet/Python API.  Arguments
-        are the command name, the handler element (where requests for this
-        command will be dispatched to) and optional help text.  The
-        function returns an argparse subparser object, which the caller
-        should populate with any command arguments desired.
-
-        When requests matching this command are subsequently dispatched,
-        they will come to the owner in the form of ApiRequest work items.
-        """
-        if self.api:
-            return self.api.register_api (command, handler, help)
-
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
             event.setsource (self.nodeid)
@@ -215,3 +191,75 @@ class Node (object):
             event = event (entity, source = self.nodeid, **kwds)
         self.event_logger.logevent (event)
         
+    def description (self):
+        try:
+            return self.routing.description ()
+        except AttributeError:
+            return self.bridge.description ()
+
+    def json_description (self):
+        try:
+            return self.routing.json_description ()
+        except AttributeError:
+            return self.bridge.json_description ()
+
+    def http_get (self, parts, multisys):
+        qs = "?system={}".format (self.nodename)
+        br = self.bridge
+        if br:
+            ret = [ """<html><head>
+            <title>DECnet/Python monitoring on bridge {0.nodename}</title></head>
+            <body>
+            <table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+            """.format (self) ]
+            if multisys:
+                ret.append ("<td width=180 align=center><a href=\"/\">All systems</a></td>")
+            ret.append ("""<td width=180 align=center><a href="/{0}">Overall summary</a></td>
+            <td width=180 align=center><a href="/bridge{0}">Bridge layer</a></td>
+            """.format (qs))
+            if parts == ['']:
+                r = br.http_get (parts, qs)
+            elif parts[0] == "bridge":
+                r = br.http_get (parts[1:], qs)
+            else:
+                return None
+        else:
+            ret = [ """<html><head>
+                <title>DECnet/Python monitoring on node {0.nodeid} ({0.nodename})</title></head>
+                <body>
+                <table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+                """.format (self) ]
+            if multisys:
+                ret.append ("<td width=180 align=center><a href=\"/\">All systems</a></td>")
+            ret.append ("""<td width=180 align=center><a href="/{0}">Overall summary</a></td>
+                <td width=180 align=center><a href="/routing{0}">Routing layer</a></td>
+                <td width=180 align=center><a href="/mop{0}">MOP</a></td></table>
+                """.format (qs))
+            if parts == ['']:
+                r = self.routing.http_get (parts, qs)
+            elif parts[0] == "routing":
+                r = self.routing.http_get (parts[1:], qs)
+            elif parts[0] == "mop":
+                r = self.mop.http_get (parts[1:], qs)
+            else:
+                return None
+        if not r:
+            return None
+        ret.append (r)
+        ret.append ("</body></html>\n")
+        return '\n'.join (ret)
+        
+    def get_api (self, what):
+        br = self.bridge
+        entity = getattr (self, what[0])
+        if entity:
+            return entity.get_api (what[1:])
+        return None
+
+    def post_api (self, what, data):
+        br = self.bridge
+        entity = getattr (self, what[0], data)
+        if entity:
+            return entity.post_api (what[1:], data)
+        return None
+    

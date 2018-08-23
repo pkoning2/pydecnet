@@ -27,7 +27,10 @@ a supported UART.  It was developed using Python 3.3 on Mac OS 10.6
 and 10.10; it should work with Python 3.3 or later (but not with any
 earlier version of Python) on any Unix-like operating system.  It may
 or may not work on Windows; if you try that, I would be interested in
-hearing the results.
+hearing the results.  Note, however, that some strange behavior has
+been seen in Python 3.3 and 3.5 testing -- but not in Python 3.7 --
+when configuring multiple systems in a single invocation.  (The
+symptom is that some of the sockets used get bind failures.)
 
 The implementation is written to conform to the Digital Network
 Architecture, Phase II, III, and IV, as published by Digital Equipment

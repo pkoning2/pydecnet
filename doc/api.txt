@@ -1,0 +1,126 @@
+PyDECnet uses JSON over HTTPS for its API.  It uses the GET method to
+retrieve information, and POST to make a request or change something.
+
+The API uses URLs starting with /api, followed by additional path
+elements to indicate what specifically is to be read or operated on.
+
+If a GET is done with a URL consisting only of /api, a list of systems
+is returned, for example:
+[
+   [
+      "LEGATO",
+      "Area router",
+      "2.1"
+   ],
+   [
+      "br-0",
+      "Bridge"
+   ]
+]
+
+For any other request, if there are multiple systems in this PyDECnet
+process (as in the example shown) the system to operate on must be
+named by a URL argument such as "?system=LEGATO".
+
+The next URL path component after /api indicates which top level
+component to access.  Valid values are: mop, routing, bridge.  The
+requests supported by each component are given below.
+
+API for MOP
+
+GET requests for MOP
+
+A GET of /api/mop returns basic information about this MOP, in
+particular the circuits (data links) it handles.  For example:
+
+<TBD>
+
+GET requests for a specific MOP data link
+
+GET /api/mop/<circuitname>/sysid returns the current contents of the
+SysID message listener for that circuit.  This is only valid for
+Ethernet circuits.  The return value is a list of entries, each of
+which is a dictionary with keys naming the SysID message fields.  For
+example:
+[
+   {
+      "processor" : "Communication Server",
+      "reservation_timer" : 0,
+      "device" : "PCL11-B UNIBUS multiple CPU link",
+      "datalink" : "CSMA-CD",
+      "carrier" : 0,
+      "hwaddr" : "ce-e6-14-13-4f-11",
+      "console_user" : "",
+      "software" : "DECnet/Python",
+      "srcaddr" : "ce-e6-14-13-4f-11"
+   }
+]
+
+GET /api/mop/<circuitname>/console
+
+This requests any pending console carrier output.  It is only valid if
+issued by the client that currently has the console carrier reserved.
+The cookie created by the POST that began the session must be
+included.  The reply is the current output as a string, possibly empty
+if there is no current output.
+
+POST requests for MOP
+
+MOP allows the following POST requests, addressed to a specific
+circuit, which must be Ethernet:
+
+POST /api/mop/<circuitname>/loop
+
+This requests an Ethernet loop operation.  The POST data is a JSON
+encoded dictionary carrying the request parameters:
+
+<TBD>
+
+The reply reports the result of each of the loop requests transmitted,
+for example:
+
+<TBD>
+
+POST /api/mop/<circuitname>/console
+
+This begins, continues, or terminates a console carrier session.  To
+continue or terminate a session, the cookie returned by the request to
+begin the session must be included.  For the request to begin a
+session, the POST data is a JSON encoded dictionary carrying the
+request parameters:
+
+<TBD>
+
+To continue a console carrier session, the POST data is a JSON encoded
+dictionary with these parameters:
+
+<TBD>
+
+To terminate a console carrier session, the POST data is empty.
+
+The reply includes a cookie to represent the session for begin and
+continue, and omits the cookie to indicate the session is closed for
+terminate.   The reply data is a JSON encoded dictionary reporting the
+result of the operation, for example:
+
+POST /api/mop/<circuitname>/counters
+
+This operation issues a MOP Request Counters message to a station on
+the specified Ethernet.  The request data is a JSON encoded dictionary
+specifying the request parameters:
+
+<TBD>
+
+The reply is a JSON encoded dictionary reporting the counters obtained
+from the station, or an error status indicating failure to obtain the
+information.  For example:
+
+<TBD>
+
+API for Routing
+
+<TBD>
+
+API for Bridge
+
+<TBD>

@@ -279,10 +279,10 @@ class _BridgeEth (_Ethernet):
             return
         sellist = [ sock.fileno () ]
         try:
-            self.socket.bind (("", self.lport))
+            sock.bind (("", self.lport))
         except (OSError, socket.error):
-            logging.trace ("Ethernet bridge {} bind {} failed",
-                           self.name, self.lport)
+            logging.exception ("Ethernet bridge {} socket {} bind {} failed",
+                               self.name, sock, self.lport)
             return
         logging.trace ("Ethernet bridge {} bound to {}",
                        self.name, self.lport)

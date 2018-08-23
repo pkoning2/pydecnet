@@ -47,8 +47,14 @@ logging.setLogRecordFactory (DecnetLogRecord)
 
 def trace (msg, *args, **kwargs):
     caller = traceback.extract_stack (limit = 2)[0]
-    logging.log (TRACE, "{}:{}: {}".format (os.path.basename (caller.filename),
-                                            caller.lineno, msg),
+    try:
+        fn = caller.filename
+        ln = caller.lineno
+    except AttributeError:
+        # Python 3.3 has a tuple
+        fn = caller[0]
+        ln = caller[1]
+    logging.log (TRACE, "{}:{}: {}".format (os.path.basename (fn), ln, msg),
                  *args, **kwargs)
     
 logging.addLevelName (TRACE, "TRACE")

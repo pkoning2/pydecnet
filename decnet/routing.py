@@ -286,23 +286,33 @@ class BaseRouter (Element):
         except KeyError:
             pass
     
-    def html (self, what):
-        if what == "overall":
-            whats = "summary"
-            hdr = ""
+    def http_get (self, parts, qs):
+        if not parts or parts == ['']:
+            what = "summary"
+        elif parts[0] in { "summary", "status", "counters", "internals" }:
+            what = parts[0]
         else:
-            whats = what or "summary"
-            hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-            <td width=180 align=center><a href="/routing">Summary</td>
-            <td width=180 align=center><a href="/routing/status">Status</td>
-            <td width=180 align=center><a href="/routing/counters">Counters</td>
-            <td width=180 align=center><a href="/routing/internals">Internals</td></table>"""
+            return None
+        hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+        <td width=180 align=center><a href="/routing{0}">Summary</td>
+        <td width=180 align=center><a href="/routing/status{0}">Status</td>
+        <td width=180 align=center><a href="/routing/counters{0}">Counters</td>
+        <td width=180 align=center><a href="/routing/internals{0}">Internals</td></table>""".format (qs)
         ntype = ntypestrings[self.ntype]
-        return """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
+        ret = [ """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
         <p>Node type: {3}<br>
         Routing version: {0.tiver}
-        </p>""".format (self, whats, hdr, ntype)
+        </p>""".format (self, what, hdr, ntype) ]
+        ret.extend (self.html (what))
+        return '\n'.join (ret)
 
+    def description (self):
+        ntype = ntypestrings[self.ntype]
+        return "<a href=\"/routing?system={0.name}\">{1} node {0.nodeid} ({0.name})</a>".format (self, ntype)
+
+    def json_description (self):
+        return [ self.name, ntypestrings[self.ntype], str (self.nodeid) ]
+    
 class EndnodeRouting (BaseRouter):
     """Routing entity for endnodes.
     """
@@ -347,11 +357,11 @@ class EndnodeRouting (BaseRouter):
                 self.selfadj.send (item)
 
     def html (self, what):
-        ret = [ super ().html (what) ]
+        ret = [ ]
         ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
         ret.append (self.circuit.html (what, True))
         ret.append ("</table>")
-        return '\n'.join (ret)
+        return ret
 
 class Phase3EndnodeRouting (EndnodeRouting):
     """Routing entity for Phase III endnodes.
@@ -402,11 +412,10 @@ class Phase2Routing (BaseRouter):
                 self.selfadj.send (item)
 
     def html (self, what):
-        ret = [ super ().html (what) ]
+        ret = [ ]
         ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
         ret.append (self.circuit.html (what, True))
         ret.append ("</table>")
-        return '\n'.join (ret)
     
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
@@ -662,7 +671,7 @@ class L1Router (BaseRouter):
             ret.append ("</tr>")
         if not first:
             ret.append ("</table>")
-        return '\n'.join (ret)
+        return ret
     
     def route (self, start, end):
         self.doroute (start, end, l2 = False)
@@ -792,7 +801,7 @@ class L1Router (BaseRouter):
         return True
     
     def html (self, what):
-        ret = [ super ().html (what) ]
+        ret = [ ]
         for t in (self.LanCircuit, self.PtpCircuit):
             first = True
             for c in self.circuits.values ():
@@ -807,7 +816,8 @@ class L1Router (BaseRouter):
                                 ret.append ("<h3>Point to point circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
                         ret.append (h)
                         if what == "counters":
-                            ctr = "\n".join ([ """<tr><td colspan=2 />
+                            ctr = [ ]
+                            ctr.extend ([ """<tr><td colspan=2 />
                             <td colspan=2>{0}</td>
                             <td colspan=2>{1}</td></tr>""".format (fl, getattr (c, f))
                                              for fl, f in
@@ -818,7 +828,7 @@ class L1Router (BaseRouter):
                                               ("Circuit down", "cir_down"),
                                               ("Adjacency down", "adj_down"),
                                               ("Initialization failure", "init_fail")) ])
-                            ctr += "\n".join ([ """<tr><td colspan=2 />
+                            ctr.extend ([ """<tr><td colspan=2 />
                             <td colspan=2>{0}</td>
                             <td colspan=2>{1}</td></tr>""".format (fl, getattr (c.datalink.parent, f))
                                              for fl, f in
@@ -826,7 +836,7 @@ class L1Router (BaseRouter):
                                               ("Bytes sent", "bytes_sent"),
                                               ("Data blocks received", "pkts_recv"),
                                               ("Data blocks sent", "pkts_sent")) ])
-                            ret.append (ctr)
+                            ret.extend (ctr)
             if not first:
                 ret.append ("</table>")
         if what in ("status", "internals"):
@@ -854,8 +864,8 @@ class L1Router (BaseRouter):
                     <td>{}</td><td>{!s}</td></tr>""".format (name, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
-            ret.append (self.html_matrix (False))
-        return '\n'.join (ret)
+            ret.extend (self.html_matrix (False))
+        return ret
 
 class Phase3Router (L1Router):
     """Routing entity for Phase III routers.
@@ -991,7 +1001,7 @@ class L2Router (L1Router):
             sys.exit (1)
         
     def html (self, what):
-        ret = [ super ().html (what) ]
+        ret = super ().html (what)
         if what in ("status", "internals"):
             ret.append ("<h3>Level 2 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
             first = True
@@ -1006,8 +1016,8 @@ class L2Router (L1Router):
                     <td>{}</td><td>{!s}</td></tr>""".format (i, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
-            ret.append (self.html_matrix (True))
-        return '\n'.join (ret)
+            ret.extend (self.html_matrix (True))
+        return ret
 
 class Update (Element, timers.Timer):
     """Update process for a circuit
