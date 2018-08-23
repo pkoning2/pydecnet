@@ -1,6 +1,6 @@
 #!
 
-"""DECnet Phase III and IV implementation in Python
+"""DECnet Phase II, III, and IV implementation in Python
 
 """
 

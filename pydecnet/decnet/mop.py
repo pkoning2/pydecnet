@@ -10,7 +10,6 @@ import socket
 import os
 
 from .common import *
-from .apiserver import ApiRequest, ApiWork
 from . import events
 from . import packet
 from . import datalink
@@ -390,44 +389,6 @@ class Mop (Element):
         self.config = config
         self.reservation = None
         self.circuits = dict ()
-        loop = parent.register_api ("loop", self, "MOP Loop operation")
-        if loop:
-            loop.set_defaults (final_handler = "loophandler")
-            loop.add_argument ("circuit", help = "Interface to loop")
-            loop.add_argument ("dest", nargs = "?", default = LOOPMC,
-                               type = Macaddr,
-                               help = "Destination (default = CF-00-00-00-00-00)")
-            loop.add_argument ("-c", "--count", type = int, default = 1,
-                               help = "Count of packets to loop (default: 1)")
-            loop.add_argument ("-f", "--fast", action = "store_true",
-                               default = False,
-                               help = "Send packets at full speed (default: 1/s)")
-            cons = parent.register_api ("console", self,
-                                        "MOP Console Carrier client")
-            cons.set_defaults (final_handler = "carrier_client")
-            cons.add_argument ("circuit", help = "Interface to use")
-            cons.add_argument ("dest", type = Macaddr,
-                               help = "Destination address")
-            cons.add_argument ("verification", type = scan_ver,
-                               help = "Verification value")
-            showid = parent.register_api ("sysid", self, "Show SysId data")
-            showid.set_defaults (final_handler = "sysid")
-            showid.add_argument ("circuit", help = "Interface to query")
-            showid.add_argument ("--brief", action = "store_const",
-                                 dest = "size", const = 0, default = 0,
-                                 help = "Brief display (default)")
-            showid.add_argument ("--medium", action = "store_const",
-                                 dest = "size", const = 1,
-                                 help = "Medium display")
-            showid.add_argument ("--full", action = "store_const",
-                                 dest = "size", const = 2,
-                                 help = "Extended display")
-            reqctr = parent.register_api ("counters", self, "Request Counters")
-            reqctr.set_defaults (final_handler = "sysid")
-            reqctr.add_argument ("circuit", help = "Interface to query")
-            reqctr.add_argument ("dest", type = Macaddr,
-                                 help = "Destination address")
-        
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -456,37 +417,18 @@ class Mop (Element):
             except Exception:
                 logging.exception ("Error stopping MOP circuit {}", name)
     
-    def dispatch (self, work):
-        """API requests come here.
-        """
-        if isinstance (work, ApiRequest):
-            logging.debug ("Processing API request {} {}", work.command,
-                           work.circuit)
-            try:
-                port = self.circuits[work.circuit]
-            except KeyError:
-                work.reject ("Unknown circuit {}".format (work.circuit))
-                return
-            # Redirect this to the correct handler for final action
-            h = getattr (port, work.final_handler, None)
-            if h is None:
-                work.reject ("No {} handler for circuit {}".format (work.command,
-                                                                    work.circuit))
-                return
-            del work.final_handler     # to make it die if we somehow loop
-            self.node.addwork (work, h)
-            
-    def html (self, what):
-        if what == "overall":
-            whats = "summary"
-            ret = list ()
+    def http_get (self, parts, qs):
+        if not parts or parts == ['']:
+            what = "summary"
+        elif parts[0] in { "summary", "status", "counters", "internals" }:
+            what = parts[0]
         else:
-            whats = what or "summary"
-            ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-            <td width=180 align=center><a href="/mop">Summary</td>
-            <td width=180 align=center><a href="/mop/status">Status</td>
-            <td width=180 align=center><a href="/mop/internals">Internals</td></table>""" ]
-        ret.append ("<h3>MOP {0}</h3>".format (whats))
+            return None
+        ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+        <td width=180 align=center><a href="/mop{0}">Summary</td>
+        <td width=180 align=center><a href="/mop/status{0}">Status</td>
+        <td width=180 align=center><a href="/mop/internals{0}">Internals</td></table>""".format (qs) ]
+        ret.append ("<h3>MOP {0}</h3>".format (what))
         first = True
         for c in self.circuits.values ():
             s = c.html (what, first)
@@ -502,6 +444,13 @@ class Mop (Element):
                 if c.sysid:
                     ret.append (c.sysid.html (what))
         return '\n'.join (ret)
+
+    def get_api (self, what):
+        if what[0] == "sysid":
+            if len (what) == 2:
+                c = self.circuits[what[1].upper ()]
+                return c.sysid.get_api (what)
+        return None
                 
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
@@ -573,45 +522,21 @@ class MopCircuit (Element):
         services = ", ".join (services)
         if self.carrier_server:
             if first:
-                hdr = """<tr><th>Name</th><th>Services</th>
+                hdr = """<tr><th>Name</th><th>MAC address</th><th>Services</th>
                 <th>Console user</th></tr>"""
             else:
                 hdr = ""
             cu = self.parent.reservation or ""
             s = """<tr><td>{0.name}</td><td>{1}</td>
-            <td>{2}</dt></tr>""".format (self, services, cu)
+            <td>{2}</td><td>{3}</td></tr>""".format (self, self.datalink.hwaddr, services, cu)
         else:
             if first:
-                hdr = """<tr><th>Name</th><th>Services</th></tr>"""
+                hdr = """<tr><th>Name</th><th>MAC address</th><th>Services</th></tr>"""
             else:
                 hdr = ""
-            s = """<tr><td>{0.name}</td><td>{1}</td>""".format (self, services)
+            s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td>""".format (self, self.datalink.hwaddr, services)
         return hdr + s
 
-def format_sysid (id, config):
-    """Format a sysid report, brief, regular, or full
-    """
-    ret = [ ]
-    if config.size == 0:
-        items = ( "hwaddr", )
-    elif config.size == 2:
-        items = ("srcaddr", "carrier", "console_user", "reservation_timer",
-                 "hwaddr", "device", "processor", "datalink", "software")
-    else:
-        items = ( "srcaddr", "hwaddr", "device" )
-    for f in items:
-        v = getattr (id, f, None)
-        if v:
-            if f == "device":
-                v = id.devices.get (v, v)[1]
-            elif f == "processor":
-                v = id.processors.get (v, v)
-            elif f == "datalink":
-                v = id.datalinks.get (v, v)
-            ret.append ("{0:<12}: {1}".format (f, v))
-    return '\n'.join (ret)
-
-    
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
@@ -620,7 +545,8 @@ class SysIdHandler (Element, timers.Timer):
     def __init__ (self, parent, port):
         Element.__init__ (self, parent)
         timers.Timer.__init__ (self)
-        self.node.timers.start (self, self.id_self_delay ())
+        # Send the initial ID fairly soon after startup
+        self.node.timers.start (self, self.id_self_delay () // 30)
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
@@ -648,22 +574,6 @@ class SysIdHandler (Element, timers.Timer):
             logging.debug ("Sending periodic sysid on {}", self.parent.name)
             self.send_id (CONSMC, 0)
             self.node.timers.start (self, self.id_self_delay ())
-        elif isinstance (pkt, ApiRequest):
-            # Request for SysId data dump or request id
-            if pkt.command == "sysid":
-                if not self.heard:
-                    reply = "No entries"
-                else:
-                    reply = '\n'.join (["{}: {}".format (k,
-                                                         format_sysid (v, pkt))
-                                        for k, v in self.heard.items ()])
-                pkt.done (reply)
-            elif pkt.command == "counters":
-                self.port.send (RequestCounters (receipt = receipt ()),
-                                pkt.dest)
-                pkt.done ()
-            else:
-                pkt.reject ("unknown API request {}".format (pkt.command))
 
     def send_id (self, dest, receipt):
         sysid = SysId (receipt = receipt,
@@ -701,13 +611,13 @@ class SysIdHandler (Element, timers.Timer):
             <th>Datalink</th><th>Software</th></tr>""")
 
             for k, v in self.heard.items ():
-                srcaddr = getattr (v, "srcaddr", "") or k
+                srcaddr = getattr (v, "src", "") or k
                 carrier = getattr (v, "carrier", "")
                 console_user = getattr (v, "console_user", "")
                 reservation_timer = getattr (v, "reservation_timer", "")
                 hwaddr = getattr (v, "hwaddr", "")
                 device = getattr (v, "device", "")
-                device = v.devices.get (device, device)[1]
+                device = v.devices.get (device, (device, device))[1]
                 processor = getattr (v, "processor", "")
                 processor = v.processors.get (processor, processor)
                 datalink = getattr (v, "datalink", "")
@@ -720,7 +630,26 @@ class SysIdHandler (Element, timers.Timer):
                                      processor, datalink, software))
             ret.append ("</table>")
         return '\n'.join (ret)
-        
+
+    def get_api (self, what):
+        ret = list ()
+        for k, v in self.heard.items ():
+            item = dict ()
+            item["srcaddr"] = str (getattr (v, "src", "")) or k
+            item["carrier"] = getattr (v, "carrier", "")
+            item["console_user"] = getattr (v, "console_user", "")
+            item["reservation_timer"] = getattr (v, "reservation_timer", 0)
+            item["hwaddr"] = str (getattr (v, "hwaddr", ""))
+            device = getattr (v, "device", "")
+            item["device"] = v.devices.get (device, (device, device))[1]
+            processor = getattr (v, "processor", "")
+            item["processor"] = v.processors.get (processor, processor)
+            datalink = getattr (v, "datalink", "")
+            item["datalink"] = v.datalinks.get (datalink, datalink)
+            item["software"] = getattr (v, "software", "")
+            ret.append (item)
+        return ret
+    
 class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.
     """
@@ -732,7 +661,7 @@ class CarrierClient (Element, statemachine.StateMachine):
         logging.debug ("Initialized console carrier client for {}", parent.name)
 
     def validate (self, item):
-        if self.state != self.s0 and isinstance (item, ApiRequest):
+        if self.state != self.s0:
             item.reject ("Console client busy")
             return False
         return True
@@ -746,7 +675,7 @@ class CarrierClient (Element, statemachine.StateMachine):
     def s0 (self, item):
         """Initial (inactive) state.  Look for API requests.
         """
-        if isinstance (item, ApiRequest):
+        if False: # isinstance (item, ApiRequest):
             self.req = item
             self.deststr = str (item.dest)
             self.msg = RequestId (receipt = receipt ())
@@ -857,7 +786,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.req.reject ("No answer from {}".format (self.deststr))
                 self.req = None
                 return self.s0
-        elif isinstance (item, ApiWork):
+        elif False: # isinstance (item, ApiWork):
             # More data from API.  If we already have some or a message
             # is already pending, handle it later.  Otherwise send a
             # ConsoleCommand now.
@@ -1058,7 +987,7 @@ class LoopHandler (Element, timers.Timer):
                 if self.sendtime:
                     print ("Loop {} timed out".format (self.loopcount), file = req.wfile)
                 self.sendloop (req, True)
-        elif isinstance (item, ApiRequest):
+        elif False: # isinstance (item, ApiRequest):
             if self.pendingreq:
                 item.reject ("Loop busy")
             else:

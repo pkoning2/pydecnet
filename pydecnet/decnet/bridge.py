@@ -180,16 +180,16 @@ class Bridge (Element):
                         logging.trace ("Flooding packet to {}", c)
                         c.send_frame (packet, work.extra)
 
-    def html (self, what):
-        hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-        <td width=180 align=center><a href="/bridge">Summary</td>
-        <td width=180 align=center><a href="/bridge/status">Status</td>
-        <td width=180 align=center><a href="/bridge/counters">Counters</td>
-        <td width=180 align=center><a href="/bridge/internals">Internals</td></table>
-        <h3>Bridge {}</h3>""".format (self.name)
-        ctab = """<h3>Circuits</h3>
+    def http_get (self, parts, qs):
+        ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
+        <td width=180 align=center><a href="/bridge{1}">Summary</td>
+        <td width=180 align=center><a href="/bridge/status{1}">Status</td>
+        <td width=180 align=center><a href="/bridge/counters{1}">Counters</td>
+        <td width=180 align=center><a href="/bridge/internals{1}">Internals</td></table>
+        <h3>Bridge {0}</h3>""".format (self.name, qs) ]
+        ret.append ("""<h3>Circuits</h3>
         <table border=1 cellspacing=0 cellpadding=4>
-        <tr><th>Name</th><th>Protocols</th></tr>\n"""
+        <tr><th>Name</th><th>Protocols</th></tr>\n""")
         clist = list ()
         for cnam, c in sorted (self.circuits.items ()):
             p = list ()
@@ -197,14 +197,23 @@ class Bridge (Element):
                 p.append (protostr (proto))
             p = ", ".join (p)
             clist.append ("<tr><td>{0}</td><td>{1}</td></tr>".format (cnam, p))
-        clist = ''.join (clist) + "</table>"
-        ftab = """<h3>Forwarding table</h3>
-        <table border=1 cellspacing=0 cellpadding=4>
-        <tr><th>Address</th><th>Circuit</th></tr>\n"""
-        f = list ()
-        for circ, addr in sorted ([ (str (ent.circuit), addr) for
-                                    addr, ent in self.dest.items () ]):
-            f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
-        f = ''.join (f) + "</table>"
-        return hdr + ctab + clist + ftab + f
+        ret.append (''.join (clist) + "</table>")
+        if parts and parts[0] == "internals":
+            ftab = """<h3>Forwarding table</h3>
+            <table border=1 cellspacing=0 cellpadding=4>
+            <tr><th>Address</th><th>Circuit</th></tr>\n"""
+            ret.append (ftab)
+            f = list ()
+            for circ, addr in sorted ([ (str (ent.circuit), addr) for
+                                        addr, ent in self.dest.items () ]):
+                f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
+            ret.extend (f)
+            ret.append ("</table>")
+        return '\n'.join (ret)
+
+    def description (self):
+        return "<a href=\"/bridge?system={0.name}\">Bridge {0.name}</a>".format (self)
+
+    def json_description (self):
+        return [ self.name, "Bridge" ]
     

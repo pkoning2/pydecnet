@@ -15,9 +15,11 @@ be nested to any level that does not overflow the Python stack.
 At startup, PyDECnet reads the config file(s) named in the command
 line, and any includes mentioned.  After the config file has been
 fully parsed, execution begins provided no errors were found during
-config file reading.  Each top level config file defines a single
-node, so a typical invocation (one config file argument) runs a single
-node.
+config file reading.  Each top level config file defines either a
+DECnet node (instance of "routing"), an Ethernet bridge, or the HTTP
+access feature.  So each config file must contain either a "routing",
+a "bridge", or an "http" component -- one but not more than one of
+these. 
 
 Each config file line resembles a Unix command invocation, with
 GNU-style flexible order:
@@ -37,22 +39,28 @@ The supported components, switches, and arguments are described in
 detail below.  Switches are always optional.  Command arguments may be
 required or optional, as described below.
 
-Component "system"
+Component "http"
 
-This optional component specifies some top level settings for
-PyDECnet.  These do not directly correspond to any DNA component.  The
-switches are:
+This optional component enables HTTP and/or HTTPS access for
+monitoring, and if specified, for the JSON based API.  It has several
+optional switches.  If there is no "http" component in any config
+file, HTTP(S) is disabled.
 
---api-socket: requires a file name argument.  This file name will be
-used to create a Unix domain socket that implements the PyDECnet API.
-The file must not exist at startup.  On exit, PyDECnet will delete the
-socket.  Default is not to enable the PyDECnet API in this node.  Note
-that this switch is not applicable (and will be ignored with a
-warning) in bridge nodes.
+--http-port: an integer in the range 0..65535, the TCP port number for
+the HTTP listener.  Default is 8000.  The value 0 disables HTTP.
 
---http-port: requires an integer argument in the range 1 to 65535.
-This specifies the port number on which PyDECnet provides HTTP based
-monitoring.  Default is 8000.
+--https-port: an integer in the range 0..65535, the TCP port number
+for the HTTP listener.  Default is 8443.  The value 0 disables HTTPS.
+
+--certificate: the file name of an X.509 certificate file (.pem file)
+containing the SSL server certificate to be used for HTTPS.  Default
+is "decnet.pem".
+
+--api: enables the JSON API.  If omitted, JSON requests (to the "api"
+URL) are rejected.  JSON is available only via HTTPS, so --https-port
+must not be zero.
+
+TODO: define authorization mechanisms.
 
 Component "routing"
 
@@ -183,6 +191,11 @@ depends on the circuit type:
     mode is either "listen" to expect an incoming TCP connection, or
     "connect" to initiate an outgoing connection.  One of the two
     sides must be configured to connect, the other to listen.
+    Note: as stated above, Multinet is not recommended because of its
+    design defects.  In addition, Multinet over UDP is much more
+    strongly discouraged; the design errors made by the Multinet
+    "designers" are far more obvious when you attempt to run it over
+    UDP. 
 
     GRE: host.  This specifies GRE encapsulation to the specified
     host.  The IP protocol type is always 47 (the assigned value for

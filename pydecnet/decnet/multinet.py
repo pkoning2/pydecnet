@@ -20,6 +20,7 @@ from . import logging
 
 # Multinet link states
 OFF = 0
+LISTEN = 1
 RUN = 2
 
 class MultinetPort (datalink.PtpPort):
@@ -99,6 +100,7 @@ class Multinet (datalink.PtpDatalink):
         pass
     
     def port_open (self):
+        logging.trace ("Multinet {} port_open status is {}", self.name, self.status)
         if self.status != OFF:
             # Already open, ignore
             return
@@ -113,14 +115,16 @@ class Multinet (datalink.PtpDatalink):
         self.rthread.start ()
 
     def port_close (self):
+        logging.trace ("Multinet {} port_close status is {}", self.name, self.status)
         if self.status != OFF:
             self.rthread.stop ()
             self.rthread = None
             self.status = OFF
             try:
                 self.socket.close ()
+                logging.trace ("Multinet {} socket closed by request", self.name)
             except Exception:
-                pass
+                logging.trace ("Multinet {} socket close exception", self.name)
             self.socket = None
 
     def disconnected (self):
@@ -130,8 +134,9 @@ class Multinet (datalink.PtpDatalink):
         if self.status != OFF:
             try:
                 self.socket.close ()
+                logging.trace ("Multinet {} socket closed for disconnect", self.name)
             except Exception:
-                pass
+                logging.trace ("Multinet {} socket close exception", self.name)
             self.socket = None
         self.status = OFF
 
@@ -169,13 +174,14 @@ class Multinet (datalink.PtpDatalink):
             # Listen or UDP mode
             try:
                 self.socket.bind (("", self.lport))
+                logging.trace ("Multinet {} bind {} done", self.name, self.lport)
             except (OSError, socket.error):
-                logging.trace ("Multinet {} bind {} failed",
-                               self.name, self.lport)
+                logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
                 self.disconnected ()
                 return
             if self.mode:
                 # Listen mode, Wait for an incoming connection.
+                self.status = LISTEN
                 try:
                     self.socket.listen (1)
                 except (OSError, socket.error):
@@ -213,6 +219,7 @@ class Multinet (datalink.PtpDatalink):
                 self.socket.close ()
                 # The socket we care about now is the data socket
                 sellist = [ sock.fileno () ]
+                self.socket.close ()
                 self.socket = sock
             else:
                 logging.trace ("Multinet {} (UDP) bound to {}",
