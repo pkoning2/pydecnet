@@ -274,16 +274,22 @@ class _BridgeEth (_Ethernet):
 
     def run (self):
         logging.trace ("Ethernet bridge {} receive thread started", self.name)
-        sock = self.socket
-        if not sock:
-            return
-        sellist = [ sock.fileno () ]
-        try:
-            sock.bind (("", self.lport))
-        except (OSError, socket.error):
-            logging.exception ("Ethernet bridge {} socket {} bind {} failed",
-                               self.name, sock, self.lport)
-            return
+        for retry in range (3):
+            # This ought to work reliably, but on Python 3.7 it
+            # occasionally does not, and on older pythons it seems to
+            # fail more frequently.  So try a few times if necessary.
+            sock = self.socket
+            if not sock:
+                return
+            sellist = [ sock.fileno () ]
+            try:
+                sock.bind (("", self.lport))
+                break
+            except (OSError, socket.error):
+                logging.exception ("Ethernet bridge {} socket {} bind {} failed",
+                                   self.name, sock, self.lport)
+            self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
+                                         socket.IPPROTO_UDP)                
         logging.trace ("Ethernet bridge {} bound to {}",
                        self.name, self.lport)
         
