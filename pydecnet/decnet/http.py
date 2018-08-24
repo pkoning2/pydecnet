@@ -36,8 +36,15 @@ class DNJsonEncoder (json.JSONEncoder):
         super ().__init__ (allow_nan = False, separators = (',', ':'))
         
     def default (self, o):
-        if isinstance (o, (bytes, bytearray)):
+        # Encode bytes and bytearray as latin-1 strings -- but not
+        # their subclasses which are expected to supply their own
+        # formatting mechanisms.  Macaddr is an example.
+        if type (o) in { bytes, bytearray }:
             return str (o, encoding = "latin1")
+        try:
+            return str (o)
+        except Exception:
+            pass
         return super ().default (o)
 
     def encode (self, o):
@@ -208,6 +215,16 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             ret.append ("<tr><td>{}</td></tr>".format (n.description ()))
         ret.append ("</body></html>\n")
         return '\n'.join (ret)
+
+    def getapientity (self, what, tnode):
+        logging.trace ("getentity node {} path {}", tnode, what)
+        for ent in what:
+            if ent:
+                # Ignore empty entries in the path
+                logging.trace ("current entity {} looking for {}", tnode, ent)
+                tnode = tnode.getentity (ent)
+        logging.trace ("getentity: found {}", tnode)
+        return tnode
     
     def json_get (self, what, tnode):
         logging.trace ("API GET request for {}, node {}", what, tnode)
@@ -218,13 +235,17 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             return
         else:
             try:
-                data = tnode.get_api (what)
-            except AttributeError:
-                self.send_error (404, "No such API object")
-                return None
+                ent = self.getapientity (what, tnode)
+                data = ent.get_api ()
+            except (KeyError, AttributeError):
+                data = None
+        if data is None:
+            self.send_error (404, "No such API object")
+            return None
         return dnEncoder.encode (data)
 
     def json_post (self, what, tnode):
+        logging.trace ("API POST request for {}, node {}", what, tnode)
         nbytes = 0
         length = self.headers.get ("content-length")
         if length:
@@ -233,8 +254,11 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         if nbytes:
             data = dnDecoder.decode (self.rfile.read (nbytes))
         try:
-            ret = tnode.post_api (what, data)
-        except AttributeError:
+            ent = self.getentity (what, tnode)
+            ret = ent.post_api (data)
+        except (KeyError, AttributeError):
+            ret = None
+        if ret is None:
             self.send_error (404, "No such API object")
             return None
         return dnEncoder.encode (ret)

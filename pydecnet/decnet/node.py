@@ -48,7 +48,7 @@ phases = { "l2router" : 4, "l1router" : 4, "endnode" : 4,
            "phase3router" : 3, "phase3endnode" : 3,
            "phase2" : 2 }
 
-class Node (object):
+class Node (Entity):
     """A Node object is the outermost container for all the other objects
     that make up a DECnet node.  Typically there is one Node object, but
     it's certainly possible to create multiple ones (to emulate an
@@ -249,17 +249,3 @@ class Node (object):
         ret.append ("</body></html>\n")
         return '\n'.join (ret)
         
-    def get_api (self, what):
-        br = self.bridge
-        entity = getattr (self, what[0])
-        if entity:
-            return entity.get_api (what[1:])
-        return None
-
-    def post_api (self, what, data):
-        br = self.bridge
-        entity = getattr (self, what[0], data)
-        if entity:
-            return entity.post_api (what[1:], data)
-        return None
-    
