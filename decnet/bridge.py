@@ -80,14 +80,14 @@ class AddrEnt (timers.Timer):
 
     def update (self, circ):
         logging.debug ("MAC address {} moved from circuit {} to {}",
-                       (addr, self.circuit, circ))
+                       addr, self.circuit, circ)
         self.circuit = circ
         self.alive ()
 
     def dispatch (self, item):
         # Timer expiration
         logging.debug ("MAC address {} timed out on circuit {}",
-                       (self.addr, self.circuit))
+                       self.addr, self.circuit)
         del self.owner[self.addr]
         
 class AddrDb (dict):
