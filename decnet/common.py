@@ -72,7 +72,17 @@ files_preserve = list ()
 def dont_close (f):
     files_preserve.append (f)
     
-class Element (object):
+class Entity (object):
+    """Entity is the base class for most classes that define DECnet
+    components.  This defines objects that can (potentially) be accessed
+    by the API.
+    """
+    def getentity (self, ent):
+        # Default method for getting the next entity in the path spec
+        # of a JSON API request.
+        return getattr (self, ent)
+
+class Element (Entity):
     """Element is the base class for most classes that define DECnet
     components.  The elements of a node form a tree, whose root is
     the Node object.

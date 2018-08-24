@@ -445,12 +445,11 @@ class Mop (Element):
                     ret.append (c.sysid.html (what))
         return '\n'.join (ret)
 
-    def get_api (self, what):
-        if what[0] == "sysid":
-            if len (what) == 2:
-                c = self.circuits[what[1].upper ()]
-                return c.sysid.get_api (what)
-        return None
+    def getentity (self, ent):
+        return self.circuits[ent.upper ()]
+    
+    def get_api (self):
+        return { "circuits" : [ c.name for c in self.circuits.values () ] }
                 
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
@@ -536,6 +535,10 @@ class MopCircuit (Element):
                 hdr = ""
             s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td>""".format (self, self.datalink.hwaddr, services)
         return hdr + s
+
+    def get_api (self):
+        return { "name" : self.name,
+                 "todo" : 42 }
 
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
@@ -631,15 +634,16 @@ class SysIdHandler (Element, timers.Timer):
             ret.append ("</table>")
         return '\n'.join (ret)
 
-    def get_api (self, what):
+    def get_api (self):
+        logging.trace ("processing GET API call on sysid listener")
         ret = list ()
         for k, v in self.heard.items ():
             item = dict ()
-            item["srcaddr"] = str (getattr (v, "src", "")) or k
+            item["srcaddr"] = getattr (v, "src", "") or k
             item["carrier"] = getattr (v, "carrier", "")
             item["console_user"] = getattr (v, "console_user", "")
             item["reservation_timer"] = getattr (v, "reservation_timer", 0)
-            item["hwaddr"] = str (getattr (v, "hwaddr", ""))
+            item["hwaddr"] = getattr (v, "hwaddr", "")
             device = getattr (v, "device", "")
             item["device"] = v.devices.get (device, (device, device))[1]
             processor = getattr (v, "processor", "")
