@@ -215,5 +215,5 @@ class Bridge (Element):
         return "<a href=\"/bridge?system={0.name}\">Bridge {0.name}</a>".format (self)
 
     def json_description (self):
-        return [ self.name, "Bridge" ]
+        return { self.name : "Bridge" }
     

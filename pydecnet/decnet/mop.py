@@ -537,8 +537,14 @@ class MopCircuit (Element):
         return hdr + s
 
     def get_api (self):
+        services = list ()
+        if self.loophandler:
+            services.append ("loop")
+        if self.carrier_server:
+            services.append ("console")
         return { "name" : self.name,
-                 "todo" : 42 }
+                 "macaddr" : self.datalink.hwaddr,
+                 "services" : services }
 
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending

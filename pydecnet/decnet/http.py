@@ -228,8 +228,10 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     
     def json_get (self, what, tnode):
         logging.trace ("API GET request for {}, node {}", what, tnode)
+        data = dict ()
         if not what or what == ['']:
-            data = [ n.json_description () for n in self.server.nodelist ]
+            for n in self.server.nodelist:
+                data.update (n.json_description ())
         elif not tnode:
             self.send_error (404, "No such API object")
             return

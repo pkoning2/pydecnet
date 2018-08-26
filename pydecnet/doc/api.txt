@@ -4,23 +4,21 @@ retrieve information, and POST to make a request or change something.
 The API uses URLs starting with /api, followed by additional path
 elements to indicate what specifically is to be read or operated on.
 
-If a GET is done with a URL consisting only of /api, a list of systems
-is returned, for example:
-[
-   [
-      "LEGATO",
+If a GET is done with a URL consisting only of /api, a dictionary of
+systems is returned, with the system name as key and a short
+description of what the system is as the value.  For example:
+
+{
+   "ERNIE" : [
       "Area router",
-      "2.1"
+      "1.2"
    ],
-   [
-      "br-0",
-      "Bridge"
-   ]
-]
+   "br-0" : "Bridge"
+}
 
 For any other request, if there are multiple systems in this PyDECnet
 process (as in the example shown) the system to operate on must be
-named by a URL argument such as "?system=LEGATO".
+named by a URL argument such as "?system=ERNIE".
 
 The next URL path component after /api indicates which top level
 component to access.  Valid values are: mop, routing, bridge.  The
@@ -33,9 +31,24 @@ GET requests for MOP
 A GET of /api/mop returns basic information about this MOP, in
 particular the circuits (data links) it handles.  For example:
 
-<TBD>
+{
+   "circuits" : [
+      "ETH-102"
+   ]
+}
 
 GET requests for a specific MOP data link
+
+GET /api/mop/<circuitname> returns information about that circuit.
+For example:
+
+{
+   "name" : "ETH-102",
+   "macaddr" : "52-99-bc-a7-67-89",
+   "services" : [
+      "loop"
+   ]
+}
 
 GET /api/mop/<circuitname>/sysid returns the current contents of the
 SysID message listener for that circuit.  This is only valid for
