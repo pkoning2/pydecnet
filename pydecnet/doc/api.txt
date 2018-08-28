@@ -1,6 +1,25 @@
 PyDECnet uses JSON over HTTPS for its API.  It uses the GET method to
 retrieve information, and POST to make a request or change something.
 
+Responses and POST request data are encoded using JSON.  For fields
+that contain byte string data (such as packet contents), these are
+sent as strings, interpreted as Latin-1 text which means each
+character encodes the corresponding byte value.
+
+Node addresses are encoded as an integer.  For phase II and III, that
+is the node number; for Phase IV it is the combined node and area
+number in the usual form (area number in the upper 6 bits of the 16
+bit value).  MAC addresses (Ethernet addresses) are encoded as
+strings, 6 hex byte fields separated by hyphens in the usual
+representation used by DEC (not colons as is used in some other
+conventions).  For example: "2a-f1-0d-7b-4e-95" or
+"aa-00-04-00-0b-08".  Similarly, Ethernet protocol types are encoded
+as strings, 2 hex byte fields, for example "60-03".
+
+Note that dictionary fields in the replies are not in any particular
+order (since that does not affect the meaning).  Similarly, unless
+stated otherwise, lists entries are not in a specific order.
+
 The API uses URLs starting with /api, followed by additional path
 elements to indicate what specifically is to be read or operated on.
 
@@ -11,14 +30,15 @@ description of what the system is as the value.  For example:
 {
    "ERNIE" : [
       "Area router",
-      "1.2"
+      1026
    ],
    "br-0" : "Bridge"
 }
 
 For any other request, if there are multiple systems in this PyDECnet
 process (as in the example shown) the system to operate on must be
-named by a URL argument such as "?system=ERNIE".
+named by a URL argument such as "?system=ERNIE".  The system name is
+case insensitive.
 
 The next URL path component after /api indicates which top level
 component to access.  Valid values are: mop, routing, bridge.  The
@@ -172,12 +192,6 @@ DECnet node, and a list of circuit names.  For example:
    "address" : 1026
 }
 
-Note that the node address (here and elsewhere in the API) is an
-integer.  For phase II and III, that is the node number, but for Phase
-IV it is the node and area number in the usual form (area number in
-the upper 6 bits of the 16 bit value).  Sending it as an integer is
-intended to simplify processing by the API caller.
-
 GET requests for a specific Routing circuit
 
 A GET request addressed to a routing circuit returns information about
@@ -198,27 +212,79 @@ Example of point to point circuit response:
    "name" : "MUL-0"
 }
 
-For a LAN circuit, the response includes a list of adjacencies, each
-of which gives a dictionary of attributes for that particular
-adjacency.  For example:
+For a LAN circuit on a router, the response includes a list of
+adjacencies, each of which gives a dictionary of attributes for that
+particular adjacency.  For example:
 
 {
    "name" : "ETH-102",
    "cost" : 1,
    "priority" : 64,
    "is_dr" : true,
+   "designated_router" : 2049
    "hello_timer" : 10,
    "adjacencies" : [
       {
          "priority" : 64,
          "type" : "Area router",
          "neighbor" : 2049,
+         "listen_timer" : 30,
          "version" : "2.0.0",
          "blocksize" : 591
       }
    ]
 }
 
+For a LAN circuit on an end node, the response shows the current
+designated router, if known.  For example:
+
+{
+   "name" : "ETH-102",
+   "hello_timer" : 10,
+   "designated_router" : {
+      "type" : "Area router",
+      "version" : "2.0.0",
+      "blocksize" : 591,
+      "priority" : 64,
+      "neighbor" : 2049,
+      "listen_timer" : 30
+   }
+}
+
 API for Bridge
 
-<TBD>
+A GET request for the bridge returns the bridge name and a list of
+circuits, for example:
+
+{
+   "name" : "br-0",
+   "circuits" : [
+      "ETH-42",
+      "ETH-43"
+   ]
+}
+
+A GET request for a bridge circuit returns the name of the circuit and
+the list of Ethernet protocol types enabled for bridging on that
+circuit, for example:
+
+{
+   "name" : "ETH-43",
+   "protocols" : [
+      "90-00",
+      "60-04",
+      "60-01",
+      "60-02",
+      "60-03"
+   ]
+}
+
+A GET request to bridge/addrdb returns the address database
+(forwarding database) of the bridge, in the form of a dictionary keyed
+by destination MAC address with the circuit to forward to as the
+value.  For example:
+
+{
+   "aa-00-04-00-01-08" : "ETH-43",
+   "aa-00-04-00-0b-08" : "ETH-42"
+}

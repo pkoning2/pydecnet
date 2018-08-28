@@ -175,6 +175,10 @@ class NiCacheEntry (timers.Timer):
     def alive (self, prevhop):
         self.prevhop = prevhop
         self.circuit.node.timers.start (self, self.cachetime)
+
+    def get_api (self):
+        return { "node" : self.id,
+                 "prevhop" : self.prevhop }
         
 class EndnodeLanCircuit (LanCircuit):
     """The datalink dependent sublayer for broadcast circuits on an endnode.
@@ -295,6 +299,15 @@ class EndnodeLanCircuit (LanCircuit):
                 super ().send (pkt, Macaddr (dstnode))
         return True
 
+    def get_api (self):
+        ret = { "name" : self.name,
+                "hello_timer" : self.t3 }
+        if self.dr:
+            ret["designated_router"] = self.dr.get_api ()
+        if self.prevhops:
+            ret["ni_cache"] = [ v.get_api () for v in self.prevhops.values () ]
+        return ret
+    
 # Adjacency states
 INIT = 1
 UP = 2
@@ -565,6 +578,7 @@ class RoutingLanCircuit (LanCircuit):
         # some more things and generates more messages for the first case.
         if self.findbestdr () is self:
             logging.debug ("Designated router on {} is self", self.name)
+            self.dr = self.parent.nodeid
             self.newhello ()
         else:
             self.calcdr ()

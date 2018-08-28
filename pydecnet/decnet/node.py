@@ -42,6 +42,15 @@ class Nodeinfo (nsp.NSPNode, nice.NiceNode):
             self.overif = None
             self.iverif = None
 
+    def get_api (self):
+        ret = nice.NiceNode.get_api (self)
+        ret.update (nsp.NSPNode.get_api (self))
+        if self.overif:
+            ret["outbound_verification"] = self.overif
+        if self.iverif:
+            ret["inbound_verification"] = self.iverif
+        return ret
+    
 # A mapping from router node type to DECnet Phase number.  We need this
 # in a number of layers so we'll keep the answer in the Node object.
 phases = { "l2router" : 4, "l1router" : 4, "endnode" : 4,
@@ -98,6 +107,10 @@ class Node (Entity):
             self.nsp = nsp.NSP (self, config)
         else:
             self.bridge = bridge.Bridge (self, config)
+
+    def get_api (self):
+        ##### TEMP
+        return [ n.get_api () for n in self.nodeinfo_byid.values () ]
             
     def addnodeinfo (self, n):
         self.nodeinfo_byname[n.nodename] = n

@@ -66,6 +66,7 @@ class Adjacency (Element, timers.Timer):
     def get_api (self):
         ret = { "neighbor" : self.nodeid,
                 "blocksize" : self.blksize,
+                "listen_timer" : self.t4,
                 "type" : ntypestrings[self.ntype],
                 "version" : self.tiver }
         if self.ntype != ENDNODE:

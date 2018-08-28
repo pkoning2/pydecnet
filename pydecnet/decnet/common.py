@@ -19,11 +19,6 @@ DEFCONFIG = "pydecnet.conf"
 
 # Important constants
 
-MOPDLPROTO   = 0x6001
-MOPCONSPROTO = 0x6002
-ROUTINGPROTO = 0x6003
-LATPROTO     = 0x6004   # used by bridge
-LOOPPROTO    = 0x9000
 HIORD = b"\xaa\x00\x04\x00"
 T2 = 1
 PTP_T3MULT = 2
@@ -260,6 +255,43 @@ class Macaddr (bytes):
         return (self[0] & 0x01) != 0
     
 NULLID = Macaddr (bytes (6))
+
+class Ethertype (bytes):
+    """Protocol type for Ethernet
+    """
+    def __new__ (cls, s):
+        """Create an Ethertype instance from a string or any other
+        object that can be converted to a bytes object of length 2.
+        """
+        if isinstance (s, str):
+            bl = _mac_re.split (s)
+            if len (bl) != 2:
+                raise ValueError ("Invalid MAC address string {}".format (s))
+            else:
+                s = bytes (int (f, 16) for f in bl)
+        else:
+            s = bytes (s)
+            if len (s) != 2:
+                raise DecodeError ("Invalid Ethertype string {}".format (s))
+        return bytes.__new__ (cls, s)
+
+    @classmethod
+    def decode (cls, buf):
+        if len (buf) < 2:
+            raise MissingData
+        return cls (buf[:2]), buf[2:]
+
+    def __str__ (self):
+        return "{0[0]:02x}-{0[1]:02x}".format (self)
+
+    __repr__ = __str__
+
+# Well known protocol types
+MOPDLPROTO   = Ethertype ("60-01")
+MOPCONSPROTO = Ethertype ("60-02")
+ROUTINGPROTO = Ethertype ("60-03")
+LATPROTO     = Ethertype ("60-04")   # used by bridge
+LOOPPROTO    = Ethertype ("90-00")
 
 _version = struct.Struct ("<BBB")
 class Version (bytes):

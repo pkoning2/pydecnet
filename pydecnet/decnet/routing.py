@@ -311,7 +311,7 @@ class BaseRouter (Element):
         return "<a href=\"/routing?system={0.name}\">{1} node {0.nodeid} ({0.name})</a>".format (self, ntype)
 
     def json_description (self):
-        return { self.name : [ ntypestrings[self.ntype], str (self.nodeid) ] }
+        return { self.name : [ ntypestrings[self.ntype], self.nodeid ] }
 
     def getentity (self, ent):
         try:

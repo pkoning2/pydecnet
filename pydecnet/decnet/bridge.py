@@ -37,6 +37,11 @@ class BridgeCircuit (Element):
             self.datalink.add_proto (LOOPPROTO)
         self.datalink.set_promiscuous (True)
 
+    def get_api (self):
+        protos = [ p for p in self.datalink.protoset ]
+        return { "name" : self.name,
+                 "protocols" : protos }
+    
     def start (self):
         pass
 
@@ -89,6 +94,9 @@ class AddrEnt (timers.Timer):
         logging.debug ("MAC address {} timed out on circuit {}",
                        self.addr, self.circuit)
         del self.owner[self.addr]
+
+    def get_api (self):
+        return self.circuit.name
         
 class AddrDb (dict):
     """The address database.  This contains AddrEnt elements, keyed
@@ -109,6 +117,9 @@ class AddrDb (dict):
         except KeyError:
             self[addr] = AddrEnt (self, addr, circ)
 
+    def get_api (self):
+        return { str (k) : v.get_api () for (k, v) in self.items () }
+    
 class Bridge (Element):
     """A bridge.  This is roughly a "simple bridge" (no spanning tree
     protocol).  But more precisely, it's a Python version of Johnny
@@ -122,7 +133,7 @@ class Bridge (Element):
         self.config = config.bridge
         # Counters?  TBD
         # Database of known destination addresses
-        self.dest = AddrDb (node)
+        self.addrdb = AddrDb (node)
         # Find our circuits
         self.circuits = dict ()
         dlcirc = self.node.datalink.circuits
@@ -167,10 +178,10 @@ class Bridge (Element):
             if dest == src:
                 return
             proto = packet[12:14]
-            self.dest.learn (src, circ)
+            self.addrdb.learn (src, circ)
             logging.trace ("Received packet from {} on {}", src, circ)
-            if dest in self.dest:
-                out = self.dest[dest].circuit
+            if dest in self.addrdb:
+                out = self.addrdb[dest].circuit
                 if out is not circ:
                     logging.trace ("Forwarding to {}", out)
                     out.send_frame (packet, work.extra)
@@ -205,7 +216,7 @@ class Bridge (Element):
             ret.append (ftab)
             f = list ()
             for circ, addr in sorted ([ (str (ent.circuit), addr) for
-                                        addr, ent in self.dest.items () ]):
+                                        addr, ent in self.addrdb.items () ]):
                 f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
             ret.extend (f)
             ret.append ("</table>")
@@ -217,3 +228,13 @@ class Bridge (Element):
     def json_description (self):
         return { self.name : "Bridge" }
     
+    def get_api (self):
+        return { "circuits" : [ c.name for c in self.circuits.values () ],
+                 "name" : self.name }
+
+    def getentity (self, ent):
+        try:
+            return self.circuits[ent.upper ()]
+        except KeyError:
+            pass
+        return super ().getentity (ent)
