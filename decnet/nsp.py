@@ -318,6 +318,9 @@ class NSPNode (object):
     """The remote node state needed by NSP.  This is a base class of
     the Nodeinfo object, which is what node.nodeinfo() returns.
     """
+    fields = ( "delay", "byt_rcv", "byt_xmt", "msg_rcv", "msg_xmt",
+               "con_rcv", "con_xmt", "con_rej", "timeout" )
+        
     def __init__ (self):
         # NSP specific node state -- see NSP 4.0.1 spec, table 6.
         self.delay = 0
@@ -330,6 +333,14 @@ class NSPNode (object):
         self.con_rej = 0
         self.timeout = 0
 
+    def get_api (self):
+        ret = dict ()
+        # Supply counts, but only if we have some
+        if self.byt_rcv or self.byt_xmt:
+            for f in self.fields:
+                ret[f] = getattr (self, f)
+        return ret
+    
 # Packet types that trigger No Link response if not mapped to a connection
 nolinkset = { ConnConf, DiscInit, DataSeg, IntMsg, LinkSvcMsg }
 

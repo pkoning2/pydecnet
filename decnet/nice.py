@@ -36,6 +36,12 @@ class NiceNode (Nodeid):
         n.nodename = name
         return n
 
+    def get_api (self):
+        ret = { "address" : int (self) }
+        if self.nodename:
+            ret["name"] = self.nodename
+        return ret
+        
     def nice_val (self, cls):
         """Return the NICE parameter value(s) for this object.
         Make the return value be one suitable for "cls"."""

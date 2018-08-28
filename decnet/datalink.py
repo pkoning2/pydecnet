@@ -324,7 +324,7 @@ class BcPort (Port):
         self.multicast = set ()
         self.promisc = False
         self._update_filter ()
-        proto = self.protobytes (proto)
+        proto = Ethertype (proto)
         self.proto = proto
         self.protoset = set ()
         self.protoset.add (proto)
@@ -369,17 +369,8 @@ class BcPort (Port):
         self.macaddr = addr
         self._update_filter ()
 
-    def protobytes (self, proto):
-        if isinstance (proto, int):
-            proto = proto.to_bytes (2, "big")
-        else:
-            proto = bytes (proto)
-            if len (proto) != 2:
-                raise ValueError ("Protocol type length is wrong")
-        return proto
-    
     def add_proto (self, proto):
-        proto = self.protobytes (proto)
+        proto = Ethertype (proto)
         if proto in self.protoset:
             raise KeyError ("Protocol type already enabled")
         if proto in self.parent.ports:
@@ -389,7 +380,7 @@ class BcPort (Port):
         logging.trace ("{} protocol {} added", self, proto)
         
     def remove_protoset (self, proto):
-        proto = self.protobytes (proto)
+        proto = Ethertype (proto)
         self.protoset.remove (proto)
         del self.parents.ports[proto]
         logging.trace ("{} protocol {} removed", self, proto)
