@@ -916,3 +916,16 @@ class PtpCircuit (statemachine.StateMachine):
         <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype, t4)
         return hdr + s
     
+    def get_api (self):
+        ret = { "name" : self.name,
+                "state" : self.state.__name__,
+                "hello_timer" : self.t3,
+                "cost" : self.config.cost }
+        if self.state == self.ru:
+            ret.update ({ "neighbor" : self.id,
+                          "type" : ntypestrings[self.ntype],
+                          "blocksize" : self.blksize,
+                          "version" : self.tiver })
+        if self.adj:
+            ret["listen_timer"] = self.adj.t4
+        return ret

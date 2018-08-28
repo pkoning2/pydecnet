@@ -312,7 +312,21 @@ class BaseRouter (Element):
 
     def json_description (self):
         return { self.name : [ ntypestrings[self.ntype], str (self.nodeid) ] }
-    
+
+    def getentity (self, ent):
+        try:
+            return self.circuits[ent.upper ()]
+        except KeyError:
+            pass
+        return super ().getentity (ent)
+
+    def get_api (self):
+        return { "circuits" : [ c.name for c in self.circuits.values () ],
+                 "address" : self.nodeid,
+                 "name" : self.name,
+                 "type" : ntypestrings[self.ntype],
+                 "version" : self.tiver }
+        
 class EndnodeRouting (BaseRouter):
     """Routing entity for endnodes.
     """

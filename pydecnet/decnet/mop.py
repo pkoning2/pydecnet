@@ -8,6 +8,8 @@ from random import randint
 import time
 import socket
 import os
+import threading
+import queue
 
 from .common import *
 from . import events
@@ -20,6 +22,12 @@ from . import logging
 if not WIN:
     from fcntl import *
 
+# A global lock to interlock API requests acquiring an exclusive
+# resource.  This could be finer grained but since the lock is only
+# held long enough to check and assign a value, there isn't much need
+# for that.
+moplock = threading.Lock ()
+
 # Some well known Ethernet addresses
 CONSMC = Macaddr ("AB-00-00-02-00-00")
 LOOPMC = Macaddr ("CF-00-00-00-00-00")
@@ -28,10 +36,12 @@ class MopHdr (packet.Packet):
     _layout = ( ( "b", "code", 1 ), )
 
 _lastreceipt = randint (0, 0xffff)
+receiptlock = threading.Lock ()
 def receipt ():
     global _lastreceipt
-    _lastreceipt = (_lastreceipt + 1) & 0xffff
-    return _lastreceipt
+    with receiptlock:
+        ret = _lastreceipt = (_lastreceipt + 1) & 0xffff
+    return ret
 
 class SysId (MopHdr):
     _layout = ( ( "res", 1 ),
@@ -559,6 +569,7 @@ class SysIdHandler (Element, timers.Timer):
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
+        self.counter_requests = dict ()
         logging.debug ("Initialized sysid handler for {}", parent.name)
 
     def id_self_delay (self):
@@ -579,6 +590,12 @@ class SysIdHandler (Element, timers.Timer):
                 self.send_id (src, pkt.receipt)
             elif isinstance (pkt, RequestCounters):
                 self.send_ctrs (src, pkt.receipt)
+            elif isinstance (pkt, Counters):
+                try:
+                    q = self.counter_requests[pkt.receipt]
+                    q.put (pkt)
+                except KeyError:
+                    pass
         elif isinstance (pkt, timers.Timeout):
             logging.debug ("Sending periodic sysid on {}", self.parent.name)
             self.send_id (CONSMC, 0)
@@ -659,6 +676,42 @@ class SysIdHandler (Element, timers.Timer):
             item["software"] = getattr (v, "software", "")
             ret.append (item)
         return ret
+
+    def post_api (self, data):
+        # Get counters:
+        #  Input: dest (mac address), optional timeout in seconds (default: 5)
+        #  Output: status (a string, busy, timeout, or ok).  If ok, the counters.
+        logging.trace ("processing POST API call on sysid listener")
+        dest = Macaddr (data["dest"])
+        timeout = int (data.get ("timeout", 5))
+        q = queue.Queue ()
+        rnum = None
+        try:
+            for i in range (5):
+                r = receipt()
+                if r not in self.counter_requests:
+                    break
+            else:
+                return { "status" : "busy" }
+            rnum = r
+            self.counter_requests[rnum] = q
+            self.port.send (RequestCounters (receipt = rnum), dest)
+            try:
+                reply = q.get (timeout = timeout)
+            except queue.Empty:
+                return { "status" : "timeout" }
+            ret = { "status" : "ok" }
+            for t, n, *x in Counters._layout:
+                if t in { "ctr", "deltat" }:
+                    ret[n] = getattr (reply, n)
+            return ret
+        finally:
+            # No longer busy
+            if rnum is not None:
+                try:
+                    del self.counter_requests[rnum]
+                except KeyError:
+                    pass
     
 class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.

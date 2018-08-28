@@ -240,6 +240,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                 ent = self.getapientity (what, tnode)
                 data = ent.get_api ()
             except (KeyError, AttributeError):
+                logging.trace ("API GET error", exc_info = True)
                 data = None
         if data is None:
             self.send_error (404, "No such API object")
@@ -255,10 +256,13 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         data = None
         if nbytes:
             data = dnDecoder.decode (self.rfile.read (nbytes))
+        logging.trace ("POST input data: {}", str (data))
+        print ("POST input data", data)
         try:
-            ent = self.getentity (what, tnode)
+            ent = self.getapientity (what, tnode)
             ret = ent.post_api (data)
         except (KeyError, AttributeError):
+            logging.trace ("API POST error", exc_info = True)
             ret = None
         if ret is None:
             self.send_error (404, "No such API object")

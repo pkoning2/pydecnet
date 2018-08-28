@@ -41,7 +41,7 @@ class LanCircuit (timers.Timer):
     
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
-        self.hellotime = config.t3 or 10
+        self.t3 = config.t3 or 10
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
         self.datalink.set_macaddr (parent.nodemacaddr)
         self.lasthello = 0
@@ -150,7 +150,7 @@ class LanCircuit (timers.Timer):
         else:
             dr = ""
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
-        <td>{0.config.priority}</td><td>{0.hellotime}</td>
+        <td>{0.config.priority}</td><td>{0.t3}</td>
         <td>{1}</td></tr>\n""".format (self, dr)
         return hdr + s
     
@@ -187,7 +187,7 @@ class EndnodeLanCircuit (LanCircuit):
         super ().__init__ (parent, name, datalink, config)
         self.hello = EndnodeHello (tiver = parent.tiver,
                                    blksize = ETHMTU, id = parent.nodeid,
-                                   timer = self.hellotime,
+                                   timer = self.t3,
                                    testdata = 50 * b'\252')
         self.datalink.add_multicast (ALL_ENDNODES)
         self.dr = None
@@ -216,7 +216,7 @@ class EndnodeLanCircuit (LanCircuit):
         else:
             h.neighbor = NULLID
         self.datalink.send (h, ALL_ROUTERS)
-        self.node.timers.start (self, self.hellotime)
+        self.node.timers.start (self, self.t3)
 
     def dispatch (self, item):
         logging.trace ("{}: processessing work item {}", self.name, item)
@@ -315,7 +315,7 @@ class RoutingLanCircuit (LanCircuit):
         self.hello = RouterHello (tiver = parent.tiver, prio = self.prio,
                                   ntype = parent.ntype,
                                   blksize = ETHMTU, id = parent.nodeid,
-                                  timer = self.hellotime)
+                                  timer = self.t3)
         self.minrouterblk = ETHMTU
 
     def stop (self):
@@ -341,6 +341,18 @@ class RoutingLanCircuit (LanCircuit):
             ret.insert (0, "<table border=1 cellspacing=0 cellpadding=4>")
             ret.append ("</table>")
         return '\n'.join (ret)
+
+    def get_api (self):
+        ret = { "name" : self.name,
+                "is_dr" : self.isdr,
+                "hello_timer" : self.t3,
+                "priority" : self.prio,
+                "cost" : self.config.cost }
+        if self.dr:
+            ret["designated_router"] = self.dr
+        if self.adjacencies:
+            ret["adjacencies"] = [ v.get_api () for v in self.adjacencies.values () ]
+        return ret
     
     def routers (self, anyarea = True):
         return ( a for a in self.adjacencies.values ()
@@ -362,7 +374,7 @@ class RoutingLanCircuit (LanCircuit):
         self.datalink.send (h, ALL_ROUTERS)
         if self.isdr:
             self.datalink.send (h, ALL_ENDNODES)
-        self.node.timers.start (self, self.hellotime)
+        self.node.timers.start (self, self.t3)
         
     def dispatch (self, item):
         hellochange = False
