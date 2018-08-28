@@ -108,11 +108,10 @@ class TimerWheel (Element, StopThread):
             raise OverflowError ("Timeout {} too large".format (timeout))
         if not isinstance (item, Timer):
             raise TypeError ("Timer item is not of Timer type")
-        self.lock.acquire ()
-        pos = (self.pos + ticks) % self.maxtime
-        item.remove ()
-        self.wheel[pos].add (item)
-        self.lock.release ()
+        with self.lock:
+            pos = (self.pos + ticks) % self.maxtime
+            item.remove ()
+            self.wheel[pos].add (item)
         logging.trace ("Started {} second timeout for {}", timeout, item)
         
     def run (self):
@@ -133,10 +132,9 @@ class TimerWheel (Element, StopThread):
         # timer wheel lock, rather than making a copy of the list
         # and walking that copy.
         while qh.islinked ():
-            self.lock.acquire ()
-            item = qh.next
-            item.remove ()
-            self.lock.release ()
+            with self.lock:
+                item = qh.next
+                item.remove ()
             if item is not qh:
                 logging.trace ("Timeout for {}", item)
                 self.node.addwork (Timeout (item))
@@ -152,7 +150,6 @@ class TimerWheel (Element, StopThread):
         if not isinstance (item, Timer):
             raise TypeError ("Timer item is not of Timer type")
         logging.trace ("Stopped timeout for {}", item)
-        self.lock.acquire ()
-        item.remove ()
-        self.lock.release ()
+        with self.lock:
+            item.remove ()
 
