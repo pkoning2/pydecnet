@@ -26,7 +26,7 @@ requests supported by each component are given below.
 
 API for MOP
 
-GET requests for MOP
+GET request for MOP
 
 A GET of /api/mop returns basic information about this MOP, in
 particular the circuits (data links) it handles.  For example:
@@ -116,23 +116,108 @@ continue, and omits the cookie to indicate the session is closed for
 terminate.   The reply data is a JSON encoded dictionary reporting the
 result of the operation, for example:
 
-POST /api/mop/<circuitname>/counters
+POST /api/mop/<circuitname>/sysid
 
 This operation issues a MOP Request Counters message to a station on
-the specified Ethernet.  The request data is a JSON encoded dictionary
-specifying the request parameters:
+the specified Ethernet.  (This is addressed to the "sysid" entity
+because the operation is handled by the Sysid processing element.) The
+request data is a JSON encoded dictionary specifying the request
+parameters:
 
-<TBD>
+{
+  "dest" : "f2-63-1f-8d-f8-94",
+  "timeout" : 2
+}
+
+Timeout is an optional timeout for the request, in seconds.  Default
+is 5 seconds.
 
 The reply is a JSON encoded dictionary reporting the counters obtained
 from the station, or an error status indicating failure to obtain the
 information.  For example:
 
-<TBD>
+{
+   "status" : "timeout"
+}
+
+or
+
+{
+   "pkts_sent" : 0,
+   "bytes_sent" : 0,
+   "ctr_zero_time" : 65535,
+   "unk_dest" : 0,
+   "bytes_recd" : 0,
+   "mcpkts_recd" : 0,
+   "mcbytes_recd" : 0,
+   "status" : "ok",
+   "pkts_recd" : 0
+}
 
 API for Routing
 
-<TBD>
+GET for routing
+
+A GET request to routing returns some basic information about the
+DECnet node, and a list of circuit names.  For example:
+
+{
+   "version" : "2.0.0",
+   "circuits" : [
+      "MUL-0",
+      "ETH-102"
+   ],
+   "name" : "ERNIE",
+   "type" : "Area router",
+   "address" : 1026
+}
+
+Note that the node address (here and elsewhere in the API) is an
+integer.  For phase II and III, that is the node number, but for Phase
+IV it is the node and area number in the usual form (area number in
+the upper 6 bits of the 16 bit value).  Sending it as an integer is
+intended to simplify processing by the API caller.
+
+GET requests for a specific Routing circuit
+
+A GET request addressed to a routing circuit returns information about
+that circuit.  The information returned depends on whether the circuit
+is point to point (such as DDCMP) or a LAN circuit (Ethernet).
+
+Example of point to point circuit response:
+
+{
+   "hello_timer" : 60,
+   "listen_timer" : 120,
+   "cost" : 1,
+   "state" : "ru",
+   "blocksize" : 576,
+   "type" : "Area router",
+   "neighbor" : 2049,
+   "version" : "2.0.0",
+   "name" : "MUL-0"
+}
+
+For a LAN circuit, the response includes a list of adjacencies, each
+of which gives a dictionary of attributes for that particular
+adjacency.  For example:
+
+{
+   "name" : "ETH-102",
+   "cost" : 1,
+   "priority" : 64,
+   "is_dr" : true,
+   "hello_timer" : 10,
+   "adjacencies" : [
+      {
+         "priority" : 64,
+         "type" : "Area router",
+         "neighbor" : 2049,
+         "version" : "2.0.0",
+         "blocksize" : 591
+      }
+   ]
+}
 
 API for Bridge
 

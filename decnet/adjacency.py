@@ -63,6 +63,15 @@ class Adjacency (Element, timers.Timer):
         <td>{0.tiver}</td></tr>""".format (self, neighbor, ntype)
         return hdr + s
 
+    def get_api (self):
+        ret = { "neighbor" : self.nodeid,
+                "blocksize" : self.blksize,
+                "type" : ntypestrings[self.ntype],
+                "version" : self.tiver }
+        if self.ntype != ENDNODE:
+            ret["priority"] = self.priority
+        return ret
+    
     def __eq__ (self, other):
         if isinstance (other, self.__class__):
             return self.circuit == other.circuit and \
