@@ -77,6 +77,25 @@ class Entity (object):
         # of a JSON API request.
         return getattr (self, ent)
 
+class AllEntries (object):
+    def __init__ (self, parent):
+        self.parent = parent
+
+    def get_api (self):
+        return { str (k) : v.get_api () for (k, v) in self.parent.items () }
+
+class EntityDict (dict):
+    """A dictionary subclass that allows access by the GET API.
+    """
+    def getentity (self, ent):
+        if ent == "*":
+            return AllEntries (self)
+        return self[ent.upper ()]
+    
+    def get_api (self):
+        # GET on the dictionary returns the list of its keys
+        return list (self)
+    
 class Element (Entity):
     """Element is the base class for most classes that define DECnet
     components.  The elements of a node form a tree, whose root is

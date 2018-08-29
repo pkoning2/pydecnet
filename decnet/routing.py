@@ -227,7 +227,7 @@ class BaseRouter (Element):
         self.unreach_loss = self.aged_loss = self.node_oor_loss = 0
         self.oversized_loss = self.partial_update_loss = 0
         self.fmt_errors = self.ver_rejects = 0        
-        self.circuits = dict ()
+        self.circuits = EntityDict ()
         self.adjacencies = dict ()
         self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
         dlcirc = self.node.datalink.circuits
@@ -313,15 +313,8 @@ class BaseRouter (Element):
     def json_description (self):
         return { self.name : [ ntypestrings[self.ntype], self.nodeid ] }
 
-    def getentity (self, ent):
-        try:
-            return self.circuits[ent.upper ()]
-        except KeyError:
-            pass
-        return super ().getentity (ent)
-
     def get_api (self):
-        return { "circuits" : [ c.name for c in self.circuits.values () ],
+        return { "circuits" : self.circuits.get_api (),
                  "address" : self.nodeid,
                  "name" : self.name,
                  "type" : ntypestrings[self.ntype],

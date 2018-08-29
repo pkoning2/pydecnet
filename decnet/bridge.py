@@ -135,7 +135,7 @@ class Bridge (Element):
         # Database of known destination addresses
         self.addrdb = AddrDb (node)
         # Find our circuits
-        self.circuits = dict ()
+        self.circuits = EntityDict ()
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -229,12 +229,5 @@ class Bridge (Element):
         return { self.name : "Bridge" }
     
     def get_api (self):
-        return { "circuits" : [ c.name for c in self.circuits.values () ],
+        return { "circuits" : self.circuits.get_api (),
                  "name" : self.name }
-
-    def getentity (self, ent):
-        try:
-            return self.circuits[ent.upper ()]
-        except KeyError:
-            pass
-        return super ().getentity (ent)

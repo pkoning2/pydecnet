@@ -252,6 +252,8 @@ class ConnMsg (NspHdr):
     VER_PH2 = 1         # Phase 2 (NSP 3.1)
     VER_PH4 = 2         # Phase 4 (NSP 4.0)
 
+nspverstrings = ( "3.2", "3.1", "4.0" )
+
 # This is either Connect Initiate or Retransmitted Connect Initiate
 # depending on the subtype value.
 class ConnInit (ConnMsg):
@@ -355,9 +357,9 @@ class NSP (Element):
         super ().__init__ (parent)
         logging.debug ("Initializing NSP")
         # Dictionary of connections indexed by local connection address
-        self.connections = dict ()
-        # Ditto but indexed by node ID and remote connection address
-        self.rconnections = dict ()
+        self.connections = EntityDict ()
+        # Ditto but indexed by node ID and remote connection address.
+        self.rconnections = EntityDict ()
         self.config = config = config.nsp
         self.maxconns = config.max_connections
         self.init_id ()
@@ -375,6 +377,11 @@ class NSP (Element):
     def stop (self):
         logging.debug ("Stopping NSP")
 
+    def get_api (self):
+        return { "version" : nspverstrings[self.nspver],
+                 "max_connections" : self.maxconns,
+                 "connections" : self.connections.get_api () }
+    
     def dispatch (self, item):
         if isinstance (item, Received):
             # Arriving packet delivered up from Routing.  Map the packet
@@ -714,12 +721,19 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         # That makes the two subchannels look basically the same -- same data
         # structures, same control machinery.
         self.other = Other_Subchannel (self)
-        
         self.destnode = None
         # All done.  Add this connection to the dictionary of connections
         # known to NSP.
         self.parent.connections[srcaddr] = self
 
+    def get_api (self):
+        ret = { "local_addr" : self.srcaddr,
+                "remote_addr" : self.dstaddr,
+                "state" : self.state.name }
+        if self.destnode:
+            ret["node"] = self.destnode.nodeid
+        return ret
+            
     def connect (self, dest, payload):
         """Create an outbound connection to the given destination node,
         with the supplied session control layer payload.
