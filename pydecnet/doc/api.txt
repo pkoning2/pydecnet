@@ -59,7 +59,13 @@ particular the circuits (data links) it handles.  For example:
 
 GET requests for a specific MOP data link
 
-GET /api/mop/<circuitname> returns information about that circuit.
+GET /api/mop/circuits returns a list of circuit names, for example:
+
+[
+   "ETH-201"
+]
+
+GET /api/mop/circuits/<circuitname> returns information about that circuit.
 For example:
 
 {
@@ -70,11 +76,15 @@ For example:
    ]
 }
 
-GET /api/mop/<circuitname>/sysid returns the current contents of the
-SysID message listener for that circuit.  This is only valid for
-Ethernet circuits.  The return value is a list of entries, each of
+You can also use * for the circuit name to get a list of items, one
+for each circuit in this MOP.
+
+GET /api/mop/circuits/<circuitname>/sysid returns the current contents
+of the SysID message listener for that circuit.  This is only valid
+for Ethernet circuits.  The return value is a list of entries, each of
 which is a dictionary with keys naming the SysID message fields.  For
 example:
+
 [
    {
       "processor" : "Communication Server",
@@ -89,7 +99,7 @@ example:
    }
 ]
 
-GET /api/mop/<circuitname>/console
+GET /api/mop/circuits/<circuitname>/console
 
 This requests any pending console carrier output.  It is only valid if
 issued by the client that currently has the console carrier reserved.
@@ -102,19 +112,37 @@ POST requests for MOP
 MOP allows the following POST requests, addressed to a specific
 circuit, which must be Ethernet:
 
-POST /api/mop/<circuitname>/loop
+POST /api/mop/circuits/<circuitname>/loop
 
 This requests an Ethernet loop operation.  The POST data is a JSON
 encoded dictionary carrying the request parameters:
 
-<TBD>
+{
+  "dest" : "2e-ca-55-6b-f1-57",
+  "packets" : 3,
+  "timeout" : 3,
+  "fast" : true
+}
 
-The reply reports the result of each of the loop requests transmitted,
-for example:
+Destination address is required; the others are optional.  Packets is
+the number of loop request/response operations to perform, default is
+1.  Timeout is the response timeout for each request sent, in seconds,
+default is 3.  Fast is a Boolean, default is false.  If false, there
+is a one second delay after each successful loop exchange (not after a
+timeout because we already waited for the timeout delay); if true,
+the next request is sent immediately upon receipt of the preceding reply.
 
-<TBD>
+The reply is a list of round trip delays, in seconds (floating
+point).  Timeout is represented by a value of -1.  There is one list
+entry per loop packet.  For example:
 
-POST /api/mop/<circuitname>/console
+[
+   0.00297713279724121,
+   0.0045313835144043,
+   0.0045161247253418
+]
+
+POST /api/mop/circuits/<circuitname>/console
 
 This begins, continues, or terminates a console carrier session.  To
 continue or terminate a session, the cookie returned by the request to
@@ -136,13 +164,11 @@ continue, and omits the cookie to indicate the session is closed for
 terminate.   The reply data is a JSON encoded dictionary reporting the
 result of the operation, for example:
 
-POST /api/mop/<circuitname>/sysid
+POST /api/mop/circuits/<circuitname>/counters
 
 This operation issues a MOP Request Counters message to a station on
-the specified Ethernet.  (This is addressed to the "sysid" entity
-because the operation is handled by the Sysid processing element.) The
-request data is a JSON encoded dictionary specifying the request
-parameters:
+the specified Ethernet.  The request data is a JSON encoded dictionary
+specifying the request parameters:
 
 {
   "dest" : "f2-63-1f-8d-f8-94",
@@ -150,7 +176,7 @@ parameters:
 }
 
 Timeout is an optional timeout for the request, in seconds.  Default
-is 5 seconds.
+is 3 seconds.
 
 The reply is a JSON encoded dictionary reporting the counters obtained
 from the station, or an error status indicating failure to obtain the
@@ -194,9 +220,14 @@ DECnet node, and a list of circuit names.  For example:
 
 GET requests for a specific Routing circuit
 
-A GET request addressed to a routing circuit returns information about
-that circuit.  The information returned depends on whether the circuit
-is point to point (such as DDCMP) or a LAN circuit (Ethernet).
+A GET request addressed to api/routing/circuits returns a list of the
+circuit names.
+
+A GET request addressed to api/routing/circuits/<circuitname> returns
+information that circuit.  You may use * for <circuitname> to get a
+list of circuit information for all the circuits in this routing
+layer.  The information returned depends on whether the circuit is
+point to point (such as DDCMP) or a LAN circuit (Ethernet).
 
 Example of point to point circuit response:
 
@@ -264,9 +295,15 @@ circuits, for example:
    ]
 }
 
-A GET request for a bridge circuit returns the name of the circuit and
-the list of Ethernet protocol types enabled for bridging on that
-circuit, for example:
+A GET request addressed to api/bridge/circuits returns a list of
+circuits in this bridge.
+
+A GET request addressed to api/bridge/circuits/<circuitname> returns
+information about that circuit.  You can use * for <circuitname> to
+get back a list of information for all the circuits in this bridge.
+The reply for a circuit gives the circuit name and the list of
+Ethernet protocol types enabled for bridging on that circuit, for
+example:
 
 {
    "name" : "ETH-43",

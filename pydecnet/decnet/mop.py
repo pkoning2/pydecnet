@@ -22,6 +22,24 @@ from . import logging
 if not WIN:
     from fcntl import *
 
+class ReceiptGen (object):
+    """Generates MOP message receipt numbers, which are integers in the
+    range 1..0xffff.  Note that 0 is not produced, it is used to indicate
+    periodic messages as opposed to request/response exchanges.
+    """
+    def __init__ (self):
+        self.receipt = randint (1, 0xffff)
+        self.lock = threading.Lock ()
+
+    def next (self):
+        with self.lock:
+            ret = self.receipt
+            if ret == 0xffff:
+                self.receipt = 1
+            else:
+                self.receipt = ret + 1
+        return ret
+
 # A global lock to interlock API requests acquiring an exclusive
 # resource.  This could be finer grained but since the lock is only
 # held long enough to check and assign a value, there isn't much need
@@ -34,14 +52,6 @@ LOOPMC = Macaddr ("CF-00-00-00-00-00")
 
 class MopHdr (packet.Packet):
     _layout = ( ( "b", "code", 1 ), )
-
-_lastreceipt = randint (0, 0xffff)
-receiptlock = threading.Lock ()
-def receipt ():
-    global _lastreceipt
-    with receiptlock:
-        ret = _lastreceipt = (_lastreceipt + 1) & 0xffff
-    return ret
 
 class SysId (MopHdr):
     _layout = ( ( "res", 1 ),
@@ -380,9 +390,6 @@ class LoopDirect (LoopSkip):
     reply = 1
     skip = 0
 
-# This message is largely constant.
-loopmsg = LoopDirect (payload = b"Python! " * 12)
-
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
                   if type (c) is packet.packet_encoding_meta
@@ -398,7 +405,7 @@ class Mop (Element):
         logging.debug ("Initializing MOP layer")
         self.config = config
         self.reservation = None
-        self.circuits = dict ()
+        self.circuits = EntityDict ()
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -455,12 +462,27 @@ class Mop (Element):
                     ret.append (c.sysid.html (what))
         return '\n'.join (ret)
 
-    def getentity (self, ent):
-        return self.circuits[ent.upper ()]
-    
     def get_api (self):
-        return { "circuits" : [ c.name for c in self.circuits.values () ] }
-                
+        return { "circuits" : self.circuits.get_api () }
+
+class Listener (object):
+    """A simple object that accepts a work item as Element would, and
+    delivers it to another thread that's waiting for it.
+    """
+    def __init__ (self):
+        self.sem = threading.Semaphore (value = 0)
+        self.item = None
+        
+    def dispatch (self, work):
+        self.item = work
+        self.sem.release ()
+
+    def wait (self, timeout = 2):
+        if self.sem.acquire (timeout = timeout):
+            return self.item
+        # Timeout
+        return None
+    
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
     and services enabled on a particular circuit (datalink instance).
@@ -471,7 +493,7 @@ class MopCircuit (Element):
         self.name = name
         self.datalink = datalink
         self.mop = parent
-        self.loophandler = self.sysid = None
+        self.loop = self.sysid = None
         self.carrier_client = self.carrier_server = None
         
     def start (self):
@@ -479,13 +501,17 @@ class MopCircuit (Element):
             # Do this only on datalinks where we want MOP (Ethernet, basically)
             logging.debug ("Starting mop for {} {}",
                            self.datalink.__class__.__name__, self.name)
-            self.loophandler = LoopHandler (self, self.datalink)
+            # Dictionary of pending requests, indexed by receipt number
+            self.requests = dict ()
+            self.receipt = ReceiptGen ()
+            self.loop = LoopHandler (self, self.datalink)
             # The various MOP console handlers share a port, so we'll
             # own it and dispatch received traffic.
             consport = self.datalink.create_port (self, MOPCONSPROTO)
             self.consport = consport
             consport.add_multicast (CONSMC)
             self.sysid = SysIdHandler (self, consport)
+            self.counters = CounterHandler (self, consport)
             self.carrier_client = CarrierClient (self, consport)
             if self.config.console:
                 self.carrier_server = CarrierServer (self, consport,
@@ -498,7 +524,61 @@ class MopCircuit (Element):
                        self.datalink.__class__.__name__, self.name)
         if self.carrier_server:
             self.carrier_server.release ()
-            
+
+    def request (self, element, pkt, dest, port):
+        """Start a request/response exchange.  "element" is the Element
+        instance that will receive the response.  "pkt" is the request
+        to send.  The receipt number will be filled in.  "dest" is the
+        packet destination address. "port" is the datalink port to send
+        the packet to.
+
+        The assigned receipt number is returned.
+        """
+        rnum = self.receipt.next ()
+        pkt.receipt = rnum
+        self.requests[rnum] = element
+        port.send (pkt, dest)
+        return rnum
+
+    def deliver (self, item):
+        """Deliver a response.
+        """
+        rnum = item.receipt
+        if rnum:
+            try:
+                self.requests[rnum].dispatch (item)
+                del self.requests[rnum]
+            except KeyError:
+                pass
+
+    def done (self, rnum):
+        """Indicate that we're done with the request whose receipt
+        number is rnum.
+        """
+        try:
+            del self.requests[rnum]
+        except KeyError:
+            pass
+        
+    def exchange (self, pkt, dest, port, timeout = 3):
+        """Perform a request/response exchange.  "pkt" is the request to
+        send.  The receipt number will be filled in.  "dest" is the
+        packet destination address. "port" is the datalink port to send
+        to.
+
+        This method must not be called from the main node thread, only 
+        from worker threads such as the HTTPS API threads.
+
+        The response packet is returned, or None to indicate timeout.
+        """
+        listener = Listener ()
+        try:
+            rnum = self.request (listener, pkt, dest, port)
+            ret = listener.wait ()
+        finally:
+            self.done (rnum)
+        return ret
+    
     def dispatch (self, work):
         if isinstance (work, datalink.Received):
             buf = work.packet
@@ -517,14 +597,24 @@ class MopCircuit (Element):
         else:
             # Unknown request
             return
-        self.sysid.dispatch (parsed)
-        self.carrier_client.dispatch (parsed)
-        if self.carrier_server:
-            self.carrier_server.dispatch (parsed)
-
+        if isinstance (parsed, (SysId, Counters, ConsoleResponse, LoopReply)):
+            # A response packet.
+            if isinstance (parsed, SysId):
+                # Always look at SysId for the stations-heard table
+                self.sysid.dispatch (parsed)
+            # Pick up the receipt number, and dispatch the packet to whoever
+            # is waiting for it.
+            self.deliver (parsed)
+        else:
+            # Not a response.  Give it to the console carrier server, if we
+            # have one, then to the Sysid handler which deals with other requests.
+            if self.carrier_server:
+                self.carrier_server.dispatch (parsed)
+            self.sysid.dispatch (parsed)
+            
     def html (self, what, first):
         services = list ()
-        if self.loophandler:
+        if self.loop:
             services.append ("loop")
         if self.carrier_server:
             services.append ("console")
@@ -548,7 +638,7 @@ class MopCircuit (Element):
 
     def get_api (self):
         services = list ()
-        if self.loophandler:
+        if self.loop:
             services.append ("loop")
         if self.carrier_server:
             services.append ("console")
@@ -556,6 +646,33 @@ class MopCircuit (Element):
                  "macaddr" : self.datalink.hwaddr,
                  "services" : services }
 
+class CounterHandler (Element):
+    """This class defines the API interface for requesting counters.
+    """
+    def __init__ (self, parent, port):
+        super ().__init__ (parent)
+        self.port = port
+        
+    def post_api (self, data):
+        """Get counters.
+        Input: dest (MAC address), optional timeout in seconds (default: 3)
+        Output: status (a string: timeout or ok).  If ok, the counters.
+        """
+        logging.trace ("processing POST API call, counter request")
+        dest = Macaddr (data["dest"])
+        timeout = int (data.get ("timeout", 3))
+        if timeout < 1:
+            return { "status" : "invalid timeout" }
+        pkt = RequestCounters ()
+        reply = self.parent.exchange (pkt, dest, self.port, timeout)
+        if reply is None:
+            return { "status" : "timeout" }
+        ret = { "status" : "ok" }
+        for t, n, *x in Counters._layout:
+            if t in { "ctr", "deltat" }:
+                ret[n] = getattr (reply, n)
+        return ret
+        
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
@@ -569,7 +686,6 @@ class SysIdHandler (Element, timers.Timer):
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
-        self.counter_requests = dict ()
         logging.debug ("Initialized sysid handler for {}", parent.name)
 
     def id_self_delay (self):
@@ -590,12 +706,6 @@ class SysIdHandler (Element, timers.Timer):
                 self.send_id (src, pkt.receipt)
             elif isinstance (pkt, RequestCounters):
                 self.send_ctrs (src, pkt.receipt)
-            elif isinstance (pkt, Counters):
-                try:
-                    q = self.counter_requests[pkt.receipt]
-                    q.put (pkt)
-                except KeyError:
-                    pass
         elif isinstance (pkt, timers.Timeout):
             logging.debug ("Sending periodic sysid on {}", self.parent.name)
             self.send_id (CONSMC, 0)
@@ -677,42 +787,6 @@ class SysIdHandler (Element, timers.Timer):
             ret.append (item)
         return ret
 
-    def post_api (self, data):
-        # Get counters:
-        #  Input: dest (mac address), optional timeout in seconds (default: 5)
-        #  Output: status (a string, busy, timeout, or ok).  If ok, the counters.
-        logging.trace ("processing POST API call on sysid listener")
-        dest = Macaddr (data["dest"])
-        timeout = int (data.get ("timeout", 5))
-        q = queue.Queue ()
-        rnum = None
-        try:
-            for i in range (5):
-                r = receipt()
-                if r not in self.counter_requests:
-                    break
-            else:
-                return { "status" : "busy" }
-            rnum = r
-            self.counter_requests[rnum] = q
-            self.port.send (RequestCounters (receipt = rnum), dest)
-            try:
-                reply = q.get (timeout = timeout)
-            except queue.Empty:
-                return { "status" : "timeout" }
-            ret = { "status" : "ok" }
-            for t, n, *x in Counters._layout:
-                if t in { "ctr", "deltat" }:
-                    ret[n] = getattr (reply, n)
-            return ret
-        finally:
-            # No longer busy
-            if rnum is not None:
-                try:
-                    del self.counter_requests[rnum]
-                except KeyError:
-                    pass
-    
 class CarrierClient (Element, statemachine.StateMachine):
     """The client side of the console carrier protocol.
     """
@@ -1022,54 +1096,35 @@ class LoopHandler (Element, timers.Timer):
                 self.port.send (top, f.dest)
             elif fun == LoopDirect.reply:
                 f = LoopReply (buf[skip + 2:])
-                req = self.pendingreq
-                if req and f.receipt == req.receipt:
-                    delta = (time.time () - self.sendtime) * 1000.0
-                    if req.dest[0] & 1:
-                        # Original request was multicast, remember who replied
-                        req.dest = item.src
-                    elif item.src != req.dest:
-                        # Reply from a different node, most likely a second
-                        # reply to an assistance multicast loop.
-                        return
-                    try:
-                        print ("{} bytes from {}, time= {:.1f} ms".format (
-                               (len (f.payload), item.src, delta)),
-                               file = req.wfile)
-                    except (OSError, ValueError, socket.error):
-                        logging.debug ("API socket closed")
-                        req.finished (None)
-                        self.pendingreq = None
-                        self.node.timers.stop (self)
-                        return
-                    self.sendtime = 0
-                    self.sendloop (req, req.fast)
-        elif isinstance (item, timers.Timeout):
-            req = self.pendingreq
-            if req:
-                if self.sendtime:
-                    print ("Loop {} timed out".format (self.loopcount), file = req.wfile)
-                self.sendloop (req, True)
-        elif False: # isinstance (item, ApiRequest):
-            if self.pendingreq:
-                item.reject ("Loop busy")
-            else:
-                self.pendingreq = item
-                item.accepted (None)
-                self.loopcount = 0
-                self.sendloop (item, True)
+                self.parent.deliver (f)
                 
-    def sendloop (self, req, now):
-        if self.loopcount >= req.count:
-            self.pendingreq = None
-            self.node.timers.stop (self)
-            req.done ()
-        elif now:
-            self.loopcount += 1
+    def post_api (self, data):
+        """Perform a loop operation.
+        Input: dest (MAC address), optional "timeout" in seconds (default: 3),
+               optional "packets" -- count of packets (default: 1).
+               By default there is a 1 second delay after a successful loop;
+               optional "fast":true suppresses that delay.
+        Output: a list of results for each packet: the round trip time in 
+                seconds, or -1 to indicate that packet timed out.
+        """
+        logging.trace ("processing POST API call, counter request")
+        dest = Macaddr (data["dest"])
+        timeout = int (data.get ("timeout", 3))
+        packets = int (data.get ("packets", 1))
+        fast = data.get ("fast", False)
+        if timeout < 1 or packets < 1:
+            return "invalid arguments"
+        ret = list ()
+        for i in range (packets):
+            loopmsg = LoopDirect (payload = b"Python! " * 12)
             loopmsg.dest = self.port.macaddr
-            loopmsg.receipt = req.receipt = receipt ()
-            self.sendtime = time.time ()
-            self.port.send (loopmsg, req.dest)
-            self.node.timers.stop (self)
-            self.node.timers.start (self, 1)
-    
+            sent = time.time ()
+            reply = self.parent.exchange (loopmsg, dest, self.port, timeout)
+            if reply is None:
+                ret.append (-1)
+            else:
+                ret.append (time.time () - sent)
+                if not fast:
+                    if i < packets - 1:
+                        time.sleep (1)
+        return ret
