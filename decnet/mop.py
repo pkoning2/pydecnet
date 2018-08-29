@@ -329,6 +329,9 @@ class RequestCounters (MopHdr):
     code = 9
 
 class Counters (MopHdr):
+    # Note that most of the error counts don't apply to DECnet/Python,
+    # but we define them so that we can parse and report them in
+    # messages from other systems where they do have meaning.
     _layout = ( ( "b", "receipt", 2 ),
                 ( "deltat", "ctr_zero_time", 2 ),
                 ( "ctr", "bytes_recd", 4 ),
@@ -337,10 +340,18 @@ class Counters (MopHdr):
                 ( "ctr", "pkts_sent", 4 ),
                 ( "ctr", "mcbytes_recd", 4 ),
                 ( "ctr", "mcpkts_recd", 4 ),
-                ( "res", 12 ),        # Frames sent, deferred, collision(s)
-                ( "res", 8 ),         # Send/receive failures
+                ( "ctr", "pkts_deferred", 4),
+                ( "ctr", "pkts_1_collision", 4),
+                ( "ctr", "pkts_mult_collision", 4),
+                ( "ctr", "send_fail", 2),
+                ( "b", "send_reasons", 2),
+                ( "ctr", "send_fail", 2),
+                ( "b", "recv_reasons", 2),
+                ( "ctr", "recv_fail", 2),
                 ( "ctr", "unk_dest", 2 ),
-                ( "res", 6 ) )        # overrun, buffer unavailable
+                ( "ctr", "data_overrun", 2),
+                ( "ctr", "no_sys_buf", 2),
+                ( "ctr", "no_user_buf", 2) )
     code = 11
 
 class ConsoleRequest (MopHdr):
