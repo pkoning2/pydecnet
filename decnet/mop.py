@@ -345,14 +345,24 @@ class Counters (MopHdr):
                 ( "ctr", "pkts_mult_collision", 4),
                 ( "ctr", "send_fail", 2),
                 ( "b", "send_reasons", 2),
-                ( "ctr", "send_fail", 2),
-                ( "b", "recv_reasons", 2),
                 ( "ctr", "recv_fail", 2),
+                ( "b", "recv_reasons", 2),
                 ( "ctr", "unk_dest", 2 ),
                 ( "ctr", "data_overrun", 2),
                 ( "ctr", "no_sys_buf", 2),
                 ( "ctr", "no_user_buf", 2) )
     code = 11
+    # Bit definitions for send_fail field
+    SEND_FAIL_EXC_COLL = 1
+    SEND_FAIL_CARR_CHECK_FAIL = 2
+    SEND_FAIL_SHORT = 4
+    SEND_FAIL_OPEN = 8
+    SEND_FAIL_LONG = 16
+    SEND_FAIL_DEFERFAIL = 32
+    # Bit definitions for recv_fail field
+    RECV_FAIL_BCC = 1
+    RECV_FAIL_FRAMING = 2
+    RECV_FAIL_LONG = 4
 
 class ConsoleRequest (MopHdr):
     _layout = ( ( "bv", "verification", 8 ), )
