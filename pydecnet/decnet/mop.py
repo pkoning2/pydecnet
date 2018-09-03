@@ -82,7 +82,14 @@ class SysId (MopHdr):
     
     code = 7
     def_version = Version (3, 0, 0)
-    
+    def services (self):
+        srv = list ()
+        for s in ( "loop", "dump", "ploader", "sloader",
+                   "boot", "carrier", "counters" ):
+            if getattr (self, s):
+                srv.append (s)
+        return srv
+        
     devices = { 0 : ( "DP", "DP11-DA (OBSOLETE)" ),
                 1 : ( "UNA", "DEUNA UNIBUS CSMA/CD communication link" ),
                 2 : ( "DU", "DU11-DA synchronous line interface" ),
@@ -539,6 +546,14 @@ class MopCircuit (Element):
                                                      self.config)
             else:
                 self.carrier_server = None
+            services = list ()
+            if self.loop:
+                services.append ("loop")
+            if self.sysid:
+                services.append ("counters")
+            if self.carrier_server:
+                services.append ("console")
+            self.services = services
 
     def stop (self):
         logging.debug ("Stopping mop for {} {}",
@@ -642,12 +657,7 @@ class MopCircuit (Element):
             self.sysid.dispatch (parsed)
             
     def html (self, what, first):
-        services = list ()
-        if self.loop:
-            services.append ("loop")
-        if self.carrier_server:
-            services.append ("console")
-        services = ", ".join (services)
+        services = ", ".join (self.services)
         if self.carrier_server:
             if first:
                 hdr = """<tr><th>Name</th><th>MAC address</th><th>Services</th>
@@ -667,15 +677,10 @@ class MopCircuit (Element):
         return hdr + s
 
     def get_api (self):
-        services = list ()
-        if self.loop:
-            services.append ("loop")
-        if self.carrier_server:
-            services.append ("console")
         return { "name" : self.name,
                  "hwaddr" : self.datalink.hwaddr,
                  "macaddr" : self.consport.macaddr,
-                 "services" : services }
+                 "services" : self.services }
 
 class CounterHandler (Element):
     """This class defines the API interface for requesting counters.
@@ -772,13 +777,14 @@ class SysIdHandler (Element, timers.Timer):
             ret.append ("<p><em>Nothing heard yet</em></p>")
         else:
             ret.append ("""<table border=1 cellspacing=0 cellpadding=4>
-            <tr><th>Source addr</th><th>Console</th>
+            <tr><th>Source addr</th><th>Services</th><th>Console</th>
             <th>Console user</th><th>Reservation timer</th>
             <th>HW address</th><th>Device</th><th>Processor</th>
             <th>Datalink</th><th>Software</th></tr>""")
 
             for k, v in self.heard.items ():
                 srcaddr = getattr (v, "src", "") or k
+                services = ', '.join (v.services ())
                 carrier = getattr (v, "carrier", "")
                 console_user = getattr (v, "console_user", "")
                 reservation_timer = getattr (v, "reservation_timer", "")
@@ -790,9 +796,9 @@ class SysIdHandler (Element, timers.Timer):
                 datalink = getattr (v, "datalink", "")
                 datalink = v.datalinks.get (datalink, datalink)
                 software = getattr (v, "software", "")
-                ret.append ("""<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
+                ret.append ("""<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
                 <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>"""\
-                            .format (srcaddr, carrier, console_user,
+                            .format (srcaddr, services, carrier, console_user,
                                      reservation_timer, hwaddr, device,
                                      processor, datalink, software))
             ret.append ("</table>")
@@ -815,6 +821,7 @@ class SysIdHandler (Element, timers.Timer):
             datalink = getattr (v, "datalink", "")
             item["datalink"] = v.datalinks.get (datalink, datalink)
             item["software"] = getattr (v, "software", "")
+            item["services"] = v.services ()
             ret.append (item)
         return ret
 
