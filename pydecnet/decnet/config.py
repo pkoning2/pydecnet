@@ -96,8 +96,16 @@ else:
     cp.add_argument ("--console", const = bytes (8), metavar = "V",
                      nargs = "?", type = scan_ver,
                      help = "Enable MOP console (V = verification)")
-cp.add_argument ("--random-address", action = "store_true", default = False,
-                 help = "Generate random \"hardware address\" (Ethernet only)")
+cp.add_argument ("--single-address", action = "store_true", default = False,
+                 help = "Use a single MAC address for all Ethernet"
+                 " clients on this circuit (default: use separate MAC address for"
+                 " each client)")
+agroup = cp.add_mutually_exclusive_group ()
+agroup.add_argument ("--random-address", action = "store_true", default = False,
+                     help = "Generate random \"hardware address\" (Ethernet only)")
+agroup.add_argument ("--hwaddr", type = Macaddr, default = NULLID, metavar = "H",
+                     help = "Specify hardware address (Ethernet only)")
+
 # The spec says the valid range is 0..255 but that is wrong, because the list
 # of routers has to fit in a field of the router hello message that can at
 # most hold 33.7 (!) entries.

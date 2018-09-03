@@ -233,12 +233,6 @@ use a much lower value.
 seconds.  Default is 10 for LAN circuits, 60 for point to point
 circuits.
 
---random-address: This switch applies only to circuits of type
-Ethernet.  If omitted, PyDECnet obtains the circuit's MAC address from
-the host.  If supplied, a random 46 bit value prefixed by 01 (for
-"individual address" and "locally administered") is used.  This
-address appears in MOP Sysid messages as the "hardware address".
-
 --nr: Number of adjacenct routers.  Argument is an integer in the
 range 1 to 33.  This value specifies how many other routers may be
 present on this Ehternet.  Note that the DNA spec says this is a
@@ -262,6 +256,32 @@ supplied, MOP, LAT, and loopback protocol packets are also accepted.
 This corresponds to the [lat] section in the bridge.conf file for the
 original bridge.c program.
 
+Ethernet circuit addressing:
+
+PyDECnet supports the DECnet architectural notion of a datalink with
+multiple MAC addresses, one per client.  Many but not all DEC Ethernet
+interfaces support this, for example the DEQNA or the SGEC and later
+Ethernet chips.  The DEUNA does not, however, and PyDECnet can also be
+configured in a mode that emulates this "single MAC address for the
+whole interface" behavior.  If so, MOP will use the DECnet style
+address, but in the default multiple address mode, MOP will use the
+hardware address (for example, in periodic SysID messages).
+
+Every Ethernet circuit must have a hardware address, which serves as
+the default MAC address.  There are three ways in which the hardware
+address can be set.  One of these must in effect or the circuit will
+not start.
+
+--hwaddr: specify the hardware address explicitly.  It must be an
+individual address (first byte even) and should be a locally
+administered value for strict IEEE compliance  The address is given as
+the argument, in the usual form of 6 hex bytes separated by hyphens.
+
+--random-address: Generate a random 46 bit value prefixed by 01 (for
+"individual address" and "locally administered").
+
+If neither of these switches is specified, PyDECnet attempts to obtain
+the 
 Component "nsp"
 
 This component defines the NSP (also called ECL) layer of DNA.

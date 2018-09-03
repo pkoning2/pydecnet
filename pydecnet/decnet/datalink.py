@@ -260,7 +260,9 @@ class BcDatalink (Datalink):
 
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
-        self.hwaddr = None
+        # macaddr is the current MAC address, if in single address mode
+        self.hwaddr = self.macaddr = None
+        self.single_address = config.single_address
         self.ports = dict ()
         # A subset of the counters defined by the architecture
         self.ctr_zero_time = time.time ()
@@ -320,7 +322,7 @@ class BcPort (Port):
     """
     def __init__ (self, datalink, owner, proto):
         super ().__init__ (datalink, owner)
-        self.macaddr = datalink.hwaddr
+        self._macaddr = datalink.hwaddr
         self.multicast = set ()
         self.promisc = False
         self._update_filter ()
@@ -328,16 +330,35 @@ class BcPort (Port):
         self.proto = proto
         self.protoset = set ()
         self.protoset.add (proto)
-        # A subset of the counters defined by the architecture
+        # A subset of the counters defined by the architecture (just
+        # traffic counters, not error counters because those in
+        # general don't make it into here).
         self.ctr_zero_time = time.time ()
         self.bytes_sent = self.pkts_sent = 0
         self.bytes_recv = self.pkts_recv = 0
+        self.mcbytes_recv = self.mcpkts_recv = 0
 
+    @property
+    def macaddr (self):
+        if self.parent.single_address:
+            return self.parent.macaddr
+        return self._macaddr
+
+    @macaddr.setter
+    def macaddr (self, addr):
+        addr = Macaddr (addr)
+        if addr.ismulti ():
+            raise ValueError ("Address {} is not an individual address".format (addr))
+        if self.parent.single_address:
+            self.parent.macaddr = addr
+        else:
+            self._macaddr = addr
+        
     def _update_filter (self):
         if self.promisc:
             self.destfilter = _any
         else:
-            self.destfilter = set ((self.macaddr, )) | self.multicast
+            self.destfilter = self.multicast
         
     def set_promiscuous (self, promisc = True):
         """Set (default) or clear (promisc = False) promiscuous mode.
@@ -362,13 +383,6 @@ class BcPort (Port):
         logging.trace ("{} multicast address {} removed", self, addr)
         self._update_filter ()
 
-    def set_macaddr (self, addr):
-        addr = Macaddr (addr)
-        if addr.ismulti ():
-            raise ValueError ("Address {} is not an individual address".format (addr))
-        self.macaddr = addr
-        self._update_filter ()
-
     def add_proto (self, proto):
         proto = Ethertype (proto)
         if proto in self.protoset:
@@ -379,7 +393,7 @@ class BcPort (Port):
         self.protoset.add (proto)
         logging.trace ("{} protocol {} added", self, proto)
         
-    def remove_protoset (self, proto):
+    def remove_proto (self, proto):
         proto = Ethertype (proto)
         self.protoset.remove (proto)
         del self.parents.ports[proto]
