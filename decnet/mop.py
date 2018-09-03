@@ -546,17 +546,25 @@ class MopCircuit (Element):
         if self.carrier_server:
             self.carrier_server.release ()
 
-    def request (self, element, pkt, dest, port):
+    def request (self, element, pkt, dest, port, newreceipt = True):
         """Start a request/response exchange.  "element" is the Element
         instance that will receive the response.  "pkt" is the request
         to send.  The receipt number will be filled in.  "dest" is the
         packet destination address. "port" is the datalink port to send
-        the packet to.
+        the packet to.  
+
+        If "newreceipt" is False, the receipt field in the supplied
+        packet is reused; this is for retransmitting requests in the
+        Console Carrier protocol where reuse of a receipt number has a
+        specific meaning.
 
         The assigned receipt number is returned.
         """
-        rnum = self.receipt.next ()
-        pkt.receipt = rnum
+        if newreceipt:
+            rnum = self.receipt.next ()
+            pkt.receipt = rnum
+        else:
+            rnum = pkt.receipt
         self.requests[rnum] = element
         port.send (pkt, dest)
         return rnum
@@ -651,10 +659,11 @@ class MopCircuit (Element):
             <td>{2}</td><td>{3}</td></tr>""".format (self, self.datalink.hwaddr, services, cu)
         else:
             if first:
-                hdr = """<tr><th>Name</th><th>MAC address</th><th>Services</th></tr>"""
+                hdr = """<tr><th>Name</th><th>MAC address</th><th>HW address</th><th>Services</th></tr>"""
             else:
                 hdr = ""
-            s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td>""".format (self, self.datalink.hwaddr, services)
+            s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td><td>{3}</td>""" \
+              .format (self, self.consport.macaddr, self.datalink.hwaddr, services)
         return hdr + s
 
     def get_api (self):
@@ -664,7 +673,8 @@ class MopCircuit (Element):
         if self.carrier_server:
             services.append ("console")
         return { "name" : self.name,
-                 "macaddr" : self.datalink.hwaddr,
+                 "hwaddr" : self.datalink.hwaddr,
+                 "macaddr" : self.consport.macaddr,
                  "services" : services }
 
 class CounterHandler (Element):

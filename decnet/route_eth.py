@@ -43,9 +43,11 @@ class LanCircuit (timers.Timer):
         super ().__init__ ()
         self.t3 = config.t3 or 10
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
-        self.datalink.set_macaddr (parent.nodemacaddr)
+        self.datalink.macaddr = parent.nodemacaddr
         self.lasthello = 0
         self.holdoff = False
+        # Actually only a router property but used in common html code
+        self.isdr = False
         
     def __str__ (self):
         return "{0.name}".format (self)
@@ -140,18 +142,20 @@ class LanCircuit (timers.Timer):
 
     def html (self, what, first):
         if first:
-            hdr = """<tr><th>Name</th><th>Cost</th>
+            hdr = """<tr><th>Name</th><th>MAC address</th><th>Cost</th>
             <th>Priority</th><th>Hello time</th>
             <th>Designated router</th></tr>\n"""
         else:
             hdr = ""
-        if self.dr:
+        if self.isdr:
+            dr = self.node.nodeinfo (self.parent.nodeid)
+        elif self.dr:
             dr = self.dr.adjnode ()
         else:
             dr = ""
-        s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
+        s = """<tr><td>{0.name}</td><td>{2}</td><td>{0.config.cost}</td>
         <td>{0.config.priority}</td><td>{0.t3}</td>
-        <td>{1}</td></tr>\n""".format (self, dr)
+        <td>{1}</td></tr>\n""".format (self, dr, self.datalink.macaddr)
         return hdr + s
     
 class NiCacheEntry (timers.Timer):
@@ -319,7 +323,6 @@ class RoutingLanCircuit (LanCircuit):
         super ().__init__ (parent, name, datalink, config)
         self.datalink.add_multicast (ALL_ROUTERS)
         self.adjacencies = dict ()
-        self.isdr = False
         self.drtimer = timers.CallbackTimer (self.becomedr, None)
         self.dr = None
         self.nr = config.nr

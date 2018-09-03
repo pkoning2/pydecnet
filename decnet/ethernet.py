@@ -29,14 +29,8 @@ class EthPort (datalink.BcPort):
         super ().__init__ (datalink, owner, proto)
         self.pad = pad
         f = self.frame = bytearray (1514)
-        f[6:12] = self.macaddr
         f[12:14] = self.proto
-                
-    def set_macaddr (self, addr):
-        addr = Macaddr (addr)
-        super ().set_macaddr (addr)
-        self.frame[6:12] = addr
-        
+
     def send (self, msg, dest):
         destb = bytes (dest)
         if len (destb) != 6:
@@ -46,6 +40,7 @@ class EthPort (datalink.BcPort):
                        l, msg.__class__.__name__, dest)
         f = self.frame
         f[0:6] = destb
+        f[6:12] = self.macaddr
         if self.pad:
             if l > 1498:
                 raise ValueError ("Ethernet packet too long")
@@ -89,14 +84,18 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             r = (random.getrandbits (46) << 2) + 2
             self.hwaddr = Macaddr (r.to_bytes (6, "little"))
         else:
-            self.hwaddr = NULLID
+            self.hwaddr = config.hwaddr
         self.randaddr = config.random_address
     
     def open (self):
-        if not self.randaddr:
+        # If no explicit address was set, see if we find one to use.
+        if self.hwaddr == NULLID:
             for dname, desc, addrs, flags in pcap.findalldevs ():
                 if dname == self.dev and addrs:
                     self.hwaddr = Macaddr (addrs[0][0])
+        if self.hwaddr == NULLID:
+            logging.error ("No hardware address for Ethernet {}", self.name)
+            return
         logging.debug ("Ethernet {} hardware address is {}",
                        self.name, self.hwaddr)
         # start receive thread
@@ -125,7 +124,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         dest = packet[:6]
         # Note that we don't count packets that fail the address
         # filter, otherwise we'd count lots of stuff for others.
-        if dest in port.destfilter:
+        if dest == self.macaddr or dest in port.destfilter:
             if dest[0] & 1:
                 self.mcbytes_recv += plen
                 self.mcpkts_recv += 1
