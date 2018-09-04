@@ -9,7 +9,7 @@ import threading
 import struct
 import sys
 
-WIN = "win" in sys.platform
+WIN = "win" in sys.platform and "darwin" not in sys.platform
 
 DNVERSION = "DECnet/Python V1.0"
 
