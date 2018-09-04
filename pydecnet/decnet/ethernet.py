@@ -124,7 +124,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         dest = packet[:6]
         # Note that we don't count packets that fail the address
         # filter, otherwise we'd count lots of stuff for others.
-        if dest == self.macaddr or dest in port.destfilter:
+        if dest == port.macaddr or dest in port.destfilter:
             if dest[0] & 1:
                 self.mcbytes_recv += plen
                 self.mcpkts_recv += 1
