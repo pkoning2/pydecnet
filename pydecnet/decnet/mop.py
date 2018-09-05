@@ -401,22 +401,13 @@ class LoopFwd (packet.Packet):
     _addslots = { "payload" }
     _layout = ( ( "b", "function", 2 ),
                 ( Macaddr, "dest" ) )
+    function = 2
 
 class LoopReply (packet.Packet):
     _addslots = { "payload" }
     _layout = ( ( "b", "function", 2 ),
                 ( "b", "receipt", 2 ) )
-
-class LoopDirect (LoopSkip):
-    """A direct (not assisted) loop packet, as originally sent.
-    """
-    _layout = ( ( "b", "fwd", 2 ),
-                ( Macaddr, "dest" ),
-                ( "b", "reply", 2 ),
-                ( "b", "receipt", 2 ) )
-    fwd = 2
-    reply = 1
-    skip = 0
+    function = 1
 
 # Dictionary of packet codes to packet layout classes
 packetformats = { c.code : c for c in globals ().values ()
@@ -523,6 +514,7 @@ class MopCircuit (Element):
         self.mop = parent
         self.loop = self.sysid = None
         self.carrier_client = self.carrier_server = None
+        self.console_verification = config.console
         
     def start (self):
         if self.datalink.use_mop:
@@ -541,17 +533,14 @@ class MopCircuit (Element):
             self.sysid = SysIdHandler (self, consport)
             self.counters = CounterHandler (self, consport)
             self.carrier_client = CarrierClient (self, consport)
-            if self.config.console:
-                self.carrier_server = CarrierServer (self, consport,
-                                                     self.config)
-            else:
-                self.carrier_server = None
+            # No console carrier server just now
+            self.carrier_server = None
             services = list ()
             if self.loop:
                 services.append ("loop")
             if self.sysid:
                 services.append ("counters")
-            if self.carrier_server:
+            if self.console_verification:
                 services.append ("console")
             self.services = services
 
@@ -561,25 +550,27 @@ class MopCircuit (Element):
         if self.carrier_server:
             self.carrier_server.release ()
 
-    def request (self, element, pkt, dest, port, newreceipt = True):
+    def request (self, element, pkt, dest, port, receipt = None):
         """Start a request/response exchange.  "element" is the Element
         instance that will receive the response.  "pkt" is the request
         to send.  The receipt number will be filled in.  "dest" is the
         packet destination address. "port" is the datalink port to send
         the packet to.  
 
-        If "newreceipt" is False, the receipt field in the supplied
-        packet is reused; this is for retransmitting requests in the
-        Console Carrier protocol where reuse of a receipt number has a
-        specific meaning.
+        If "receipt" is supplied, that is the receipt number to assume
+        for this exchange (it must be set in the outgoing packet by the
+        caller). This is for retransmitting requests in the Console
+        Carrier protocol where reuse of a receipt number has a specific
+        meaning, and for loopback where the receipt position in the
+        packet depends on the request.
 
         The assigned receipt number is returned.
         """
-        if newreceipt:
+        if receipt is None:
             rnum = self.receipt.next ()
             pkt.receipt = rnum
         else:
-            rnum = pkt.receipt
+            rnum = receipt
         self.requests[rnum] = element
         port.send (pkt, dest)
         return rnum
@@ -604,7 +595,7 @@ class MopCircuit (Element):
         except KeyError:
             pass
         
-    def exchange (self, pkt, dest, port, timeout = 3):
+    def exchange (self, pkt, dest, port, timeout = 3, receipt = None):
         """Perform a request/response exchange.  "pkt" is the request to
         send.  The receipt number will be filled in.  "dest" is the
         packet destination address. "port" is the datalink port to send
@@ -617,7 +608,7 @@ class MopCircuit (Element):
         """
         listener = Listener ()
         try:
-            rnum = self.request (listener, pkt, dest, port)
+            rnum = self.request (listener, pkt, dest, port, receipt = receipt)
             ret = listener.wait ()
         finally:
             self.done (rnum)
@@ -658,22 +649,18 @@ class MopCircuit (Element):
             
     def html (self, what, first):
         services = ", ".join (self.services)
-        if self.carrier_server:
-            if first:
-                hdr = """<tr><th>Name</th><th>MAC address</th><th>Services</th>
-                <th>Console user</th></tr>"""
-            else:
-                hdr = ""
+        if self.console_verification:  # Carrier server is enabled
+            hdradd = "<th>Console user</th>"
             cu = self.parent.reservation or ""
-            s = """<tr><td>{0.name}</td><td>{1}</td>
-            <td>{2}</td><td>{3}</td></tr>""".format (self, self.datalink.hwaddr, services, cu)
+            tdadd = "<td>{}</td>".format (cu)
         else:
-            if first:
-                hdr = """<tr><th>Name</th><th>MAC address</th><th>HW address</th><th>Services</th></tr>"""
-            else:
-                hdr = ""
-            s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td><td>{3}</td>""" \
-              .format (self, self.consport.macaddr, self.datalink.hwaddr, services)
+            hdradd = tdadd = ""
+        if first:
+            hdr = """<tr><th>Name</th><th>MAC address</th><th>HW address</th>{}<th>Services</th></tr>""".format (hdradd)
+        else:
+            hdr = ""
+        s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td>{3}<td>{4}</td></tr>""" \
+          .format (self, self.consport.macaddr, self.datalink.hwaddr, tdadd, services)
         return hdr + s
 
     def get_api (self):
@@ -1125,20 +1112,21 @@ class LoopHandler (Element, timers.Timer):
                 return
             # Get the function code
             fun = int.from_bytes (buf[skip + 2:skip + 4], packet.LE)
-            if fun == LoopDirect.fwd:
+            if fun == LoopFwd.function:
                 f = LoopFwd (buf[skip + 2:])
                 if f.dest[0] & 1:
                     # Forward to multicast, invalid, ignore
                     return
                 top.skip += 8
                 self.port.send (top, f.dest)
-            elif fun == LoopDirect.reply:
+            elif fun == LoopReply.function:
                 f = LoopReply (buf[skip + 2:])
+                f.src = item.src
                 self.parent.deliver (f)
                 
     def post_api (self, data):
         """Perform a loop operation.
-        Input: dest (MAC address), optional "timeout" in seconds (default: 3),
+        Input: dest (MAC addresses), optional "timeout" in seconds (default: 3),
                optional "packets" -- count of packets (default: 1).
                By default there is a 1 second delay after a successful loop;
                optional "fast":true suppresses that delay.
@@ -1146,23 +1134,48 @@ class LoopHandler (Element, timers.Timer):
                 seconds, or -1 to indicate that packet timed out.
         """
         logging.trace ("processing POST API call, counter request")
-        dest = Macaddr (data["dest"])
+        dest = data.get ("dest", LOOPMC)
+        if not isinstance (dest, list):
+            dest = [ dest ]
+        dest = [ Macaddr (d) for d in dest ]
+        multidest = dest == [ LOOPMC ]
+        if not multidest:
+            for d in dest:
+                if d.ismulti ():
+                    return { "status" : "invalid address" }
+        if len (dest) > 3:
+            return  { "status" : "too many addresses" }
+        # Add self as the last hop
+        dest.append (self.port.macaddr)
         timeout = int (data.get ("timeout", 3))
         packets = int (data.get ("packets", 1))
         fast = data.get ("fast", False)
         if timeout < 1 or packets < 1:
-            return "invalid arguments"
-        ret = list ()
+            return { "status" : "invalid arguments" }
+        ret = { "status" : "ok" }
+        delays = list ()
         for i in range (packets):
-            loopmsg = LoopDirect (payload = b"Python! " * 12)
-            loopmsg.dest = self.port.macaddr
+            loopmsg, rnum = self.buildloop (dest[1:])
             sent = time.time ()
-            reply = self.parent.exchange (loopmsg, dest, self.port, timeout)
+            reply = self.parent.exchange (loopmsg, dest[0],
+                                          self.port, timeout, receipt = rnum)
             if reply is None:
-                ret.append (-1)
+                delays.append (-1)
             else:
-                ret.append (time.time () - sent)
+                delays.append (time.time () - sent)
+                if multidest:
+                    dest[0] = reply.src
+                    ret["dest"] = str (dest[0])
                 if not fast:
                     if i < packets - 1:
                         time.sleep (1)
+        ret["delays"] = delays
         return ret
+
+    def buildloop (self, destlist):
+        rnum = self.parent.receipt.next ()
+        ret = LoopReply (receipt = rnum, payload = b"Python! " * 12)
+        for dest in reversed (destlist):
+            ret = LoopFwd (dest = dest, payload = ret)
+        ret = LoopSkip (payload = ret)
+        return ret, rnum
