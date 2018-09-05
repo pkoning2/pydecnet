@@ -257,7 +257,6 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         if nbytes:
             data = dnDecoder.decode (self.rfile.read (nbytes))
         logging.trace ("POST input data: {}", str (data))
-        print ("POST input data", data)
         try:
             ent = self.getapientity (what, tnode)
             ret = ent.post_api (data)

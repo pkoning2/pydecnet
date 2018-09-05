@@ -99,14 +99,6 @@ example:
    }
 ]
 
-GET /api/mop/circuits/<circuitname>/console
-
-This requests any pending console carrier output.  It is only valid if
-issued by the client that currently has the console carrier reserved.
-The cookie created by the POST that began the session must be
-included.  The reply is the current output as a string, possibly empty
-if there is no current output.
-
 POST requests for MOP
 
 MOP allows the following POST requests, addressed to a specific
@@ -124,31 +116,56 @@ encoded dictionary carrying the request parameters:
   "fast" : true
 }
 
-Destination address is required; the others are optional.  Packets is
-the number of loop request/response operations to perform, default is
-1.  Timeout is the response timeout for each request sent, in seconds,
-default is 3.  Fast is a Boolean, default is false.  If false, there
-is a one second delay after each successful loop exchange (not after a
-timeout because we already waited for the timeout delay); if true,
-the next request is sent immediately upon receipt of the preceding reply.
+All parameters are optional.
 
-The reply is a list of round trip delays, in seconds (floating
-point).  Timeout is represented by a value of -1.  There is one list
-entry per loop packet.  For example:
+Dest is either a single destination address, a string in the usual
+form for Ethernet addresses, or a list of up to three addresses.  If
+omitted, the loopback assistance multicast address CF-00-00-00-00-00
+is used. If more than one address is specified, or the destination
+address is not the loopback assistance address, they must be a
+unitcast address.  The loop packet visits the addresses in the list in
+that order, so a single address corresponds to a simple loop operation
+while lists of 2 or 3 entries can be used to implement the "loopback
+assistant" mechanisms described in the spec, i.e., testing
+connectivity via some intermediate station.
 
-[
-   0.00297713279724121,
-   0.0045313835144043,
-   0.0045161247253418
-]
+Packets is the number of loop request/response operations to perform,
+default is 1.  Timeout is the response timeout for each request sent,
+in seconds, default is 3.  Fast is a Boolean, default is false.  If
+false, there is a one second delay after each successful loop exchange
+(not after a timeout because we already waited for the timeout delay);
+if true, the next request is sent immediately upon receipt of the
+preceding reply, which should be done with caution because of the
+added load on the network.
+
+The reply is a dictionary containing the overall operation status and
+a list of round trip delays, in seconds (floating point).  Timeout is
+represented by a value of -1.  There is one list entry per loop
+packet.  If the destination address was the loopback assistance
+multicast address, that is only used for the first request and the
+address of whichever station replies first is used for subsequent
+requests; in addition, that address is also returned in the reply.
+For example:
+
+{
+   "status" : "ok",
+   "dest" : "aa-00-04-00-0b-08",
+   "delays" : [
+      0.0015108585357666,
+      0.00301599502563477,
+      0.00173497200012207,
+      0.00295305252075195,
+      0.00289678573608398
+   ]
+}
 
 POST /api/mop/circuits/<circuitname>/console
 
 This begins, continues, or terminates a console carrier session.  To
-continue or terminate a session, the cookie returned by the request to
-begin the session must be included.  For the request to begin a
-session, the POST data is a JSON encoded dictionary carrying the
-request parameters:
+continue or terminate a session, the session handle returned by the
+request to begin the session must be included.  For the request to
+begin a session, the POST data is a JSON encoded dictionary carrying
+the request parameters:
 
 <TBD>
 
@@ -157,12 +174,16 @@ dictionary with these parameters:
 
 <TBD>
 
-To terminate a console carrier session, the POST data is empty.
+To terminate a console carrier session, the POST data
+is a JSON encoded dictionary with these parameters:
 
-The reply includes a cookie to represent the session for begin and
-continue, and omits the cookie to indicate the session is closed for
-terminate.   The reply data is a JSON encoded dictionary reporting the
-result of the operation, for example:
+<TBD>
+
+The reply data for each of these requests is a JSON encoded dictionary
+reporting the result of the operation. One of the elements is a
+session handle, which is an opaque string that refers to the state
+kept by PyDECnet for this session.  In requests other than session
+start, this element must be included in the request.  For example:
 
 POST /api/mop/circuits/<circuitname>/counters
 
