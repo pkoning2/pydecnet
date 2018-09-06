@@ -1,5 +1,6 @@
 PyDECnet uses JSON over HTTPS for its API.  It uses the GET method to
-retrieve information, and POST to make a request or change something.
+retrieve information, and POST to make a request, to change something,
+or to operate on a "connection".
 
 Responses and POST request data are encoded using JSON.  For fields
 that contain byte string data (such as packet contents), these are
@@ -15,6 +16,24 @@ representation used by DEC (not colons as is used in some other
 conventions).  For example: "2a-f1-0d-7b-4e-95" or
 "aa-00-04-00-0b-08".  Similarly, Ethernet protocol types are encoded
 as strings, 2 hex byte fields, for example "60-03".
+
+"Connections" are objects that live beyond a single request.  The
+typical example is a DECnet Session Control connection, but MOP
+Console Carrier client instances are also connections since they have
+similar properties.  Connections live for some time, and represent a
+full duplex data stream.  HTTP is not well adapted to dealing with
+this.  The use pattern in this API is to have separate requests (POST)
+for the receive and for the transmit streams of the full duplex
+connnection.  Both refer to the connection by a "handle" which is
+returned when the connection is created.  Transmit is a POST with
+handle and a data argument; the request completes as soon as the data
+has been buffered (it does not wait for transmission or delivery).
+Receive is a post with handle but no data argument; the request blocks
+until data arrives, or after 60 seconds.  API requests have to arrive
+at least once every 120 seconds or the connection will be deleted due
+to API timeout (this is to compensate for the fact that there is no
+client connection for the API to which PyDECnet connection liveness
+can be tied).
 
 Note that dictionary fields in the replies are not in any particular
 order (since that does not affect the meaning).  Similarly, unless
@@ -91,7 +110,6 @@ example:
       "reservation_timer" : 0,
       "device" : "PCL11-B UNIBUS multiple CPU link",
       "datalink" : "CSMA-CD",
-      "carrier" : 0,
       "hwaddr" : "ce-e6-14-13-4f-11",
       "console_user" : "",
       "software" : "DECnet/Python",
@@ -165,25 +183,49 @@ This begins, continues, or terminates a console carrier session.  To
 continue or terminate a session, the session handle returned by the
 request to begin the session must be included.  For the request to
 begin a session, the POST data is a JSON encoded dictionary carrying
-the request parameters:
+the request parameters: "dest" (the destination MAC address) and
+"verification" (the MOP console carrier verification string,
+essentially an access password.  Both are required.  For example:
 
-<TBD>
+{
+   "verification" : "Plugh",
+   "dest" : "aa-00-04-00-0b-08"
+}
 
-To continue a console carrier session, the POST data is a JSON encoded
-dictionary with these parameters:
+The response is status and, if successful, the session handle:
 
-<TBD>
+{
+   "handle" : 8246003421459976741,
+   "status" : "ok"
+}
 
-To terminate a console carrier session, the POST data
-is a JSON encoded dictionary with these parameters:
+Once the session is created, the API user must issue subsequent
+requests within 60 seconds, and when the last pending request
+completes must issue another within 60 seconds.  If not, the session
+times out and is closed.
 
-<TBD>
+To read or write a console carrier session, the POST data is a JSON
+encoded dictionary containing the handle returned by the session
+begin.  For a write, it contains a "data" argument with the data to
+send; a read omits that argument.  The return is a dictionary
+containing status, and in the case of a read, the data.  Data may be
+null if the read timed out (but status is still ok in that case).
 
-The reply data for each of these requests is a JSON encoded dictionary
-reporting the result of the operation. One of the elements is a
-session handle, which is an opaque string that refers to the state
-kept by PyDECnet for this session.  In requests other than session
-start, this element must be included in the request.  For example:
+{
+   "data" : "login: ",
+   "status" : "ok"
+}
+
+To terminate a console carrier session, the POST data is a JSON
+encoded dictionary with handle and the "close" flag, for example:
+
+{
+   "handle" : 8246003421459976741,
+   "close" : 1
+}
+
+On completion, the console session has been closed, including the
+release of the console reservation at the destination.
 
 POST /api/mop/circuits/<circuitname>/counters
 

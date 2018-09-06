@@ -10,7 +10,6 @@ import os
 import sys
 import struct
 import socket
-import random
 
 from .common import *
 from . import logging

@@ -6,7 +6,6 @@
 
 import select
 import socket
-from random import random
 import queue
 import errno
 
@@ -296,7 +295,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.connsocket = None
         # Wait a random time (60-120 seconds) for the outbound connection
         # to succeed.  If we get a timeout, give up on it and try again.
-        self.node.timers.start (self, random () * UDPTMR + UDPTMR)
+        self.node.timers.start (self, random.random () * UDPTMR + UDPTMR)
 
     def close_sockets (self):
         self.state = self.s0
@@ -820,7 +819,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if self.tcp:
             tmo = STACKTMR
         else:
-            tmo = random () * UDPTMR + UDPTMR
+            tmo = random.random () * UDPTMR + UDPTMR
         self.sendmsg (msg, tmo)
 
     def send_stack (self):

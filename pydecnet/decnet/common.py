@@ -8,6 +8,8 @@ import re
 import threading
 import struct
 import sys
+import random
+import time
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
@@ -401,3 +403,41 @@ class StopThread (threading.Thread):
                 else:
                     logging.trace ("Thread {} stopped", self.name)
 
+class Listener (object):
+    """A simple object that accepts a work item as Element would, and
+    delivers it to another thread that's waiting for it.
+    """
+    def __init__ (self):
+        self.sem = threading.Semaphore (value = 0)
+        self.item = None
+        
+    def dispatch (self, work):
+        logging.trace ("Listener work posted {}", repr (work))
+        self.item = work
+        self.sem.release ()
+
+    def wait (self, timeout = 2):
+        if self.sem.acquire (timeout = timeout):
+            return self.item
+        # Timeout
+        return None
+
+class ConnApiHelper (Element):
+    """A helper class to implement the API for a connection class.
+    """
+    def __init__ (self, parent, connclass):
+        super ().__init__ (parent)
+        self.connclass = connclass
+        
+    def post_api (self, data):
+        if "handle" in data:
+            try:
+                conn = self.parent.conn_clients[data["handle"]]
+            except KeyError:
+                return { "status" : "unknown handle" }
+            conn.last_post = time.time ()
+            return conn.post_api (data)
+        listen = Listener ()
+        conn = self.connclass (self.parent, data, listen)
+        return listen.wait (timeout = 60)
+    

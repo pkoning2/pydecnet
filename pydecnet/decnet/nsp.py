@@ -4,7 +4,6 @@
 
 """
 
-import random
 from collections import deque
 
 from .common import *

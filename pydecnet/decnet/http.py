@@ -5,7 +5,9 @@
 """
 
 import http.server
+import socketserver
 import json
+import traceback
 import cgitb
 import io
 from urllib.parse import urlparse, parse_qs
@@ -84,7 +86,7 @@ class Monitor:
                                             server_side = True)
         httpd.serve_forever ()
         
-class DECnetMonitor (http.server.HTTPServer):
+class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
     def __init__ (self, addr, rclass, nodelist, config, secure):
         self.nodelist = nodelist
         self.api = config.api
@@ -232,19 +234,27 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         if not what or what == ['']:
             for n in self.server.nodelist:
                 data.update (n.json_description ())
+            return dnEncoder.encode (data)
         elif not tnode:
             self.send_error (404, "No such API object")
             return
-        else:
-            try:
-                ent = self.getapientity (what, tnode)
-                data = ent.get_api ()
-            except (KeyError, AttributeError):
-                logging.trace ("API GET error", exc_info = True)
-                data = None
-        if data is None:
+        try:
+            ent = self.getapientity (what, tnode)
+            handler = ent.get_api
+        except (KeyError, AttributeError):
+            logging.trace ("API GET handler lookup error", exc_info = True)
             self.send_error (404, "No such API object")
             return None
+        try:
+            handler = ent.get_api
+        except AttributeError:
+            self.send_error (405, "No such object or not supported with GET")
+            return None
+        try:
+            data = handler ()
+        except Exception:
+            logging.debug ("API GET handler error", exc_info = True)
+            data = { "status" : "exception", "exception" : traceback.format_exc () }
         return dnEncoder.encode (data)
 
     def json_post (self, what, tnode):
@@ -259,11 +269,18 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         logging.trace ("POST input data: {}", str (data))
         try:
             ent = self.getapientity (what, tnode)
-            ret = ent.post_api (data)
         except (KeyError, AttributeError):
-            logging.trace ("API POST error", exc_info = True)
-            ret = None
-        if ret is None:
+            logging.trace ("API POST handler lookup error", exc_info = True)
             self.send_error (404, "No such API object")
             return None
+        try:
+            handler = ent.post_api
+        except AttributeError:
+            self.send_error (405, "No such object or not supported with POST")
+            return None
+        try:
+            ret = handler (data)
+        except Exception:
+            logging.debug ("API POST handler error", exc_info = True)
+            ret = { "status" : "exception", "exception" : traceback.format_exc () }
         return dnEncoder.encode (ret)
