@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.2
+#!/usr/bin/env python3
 
 """ MOP console carrier client test.
 
@@ -11,11 +11,14 @@ import sys
 import select
 from fcntl import *
 import os
-import io
 import threading
-import socket
+import requests
+import warnings
 
-def kb (wf, bufsiz = 100):
+# Suppress "insecure" warnings from Requests.
+warnings.simplefilter ("ignore")
+
+def kb (bufsiz = 100):
     """Run a keyboard raw keystroke input loop, sending all received
     characters to "chan".  The loop exits when Ctrl-] is entered.
     """
@@ -35,61 +38,78 @@ def kb (wf, bufsiz = 100):
                 if not x:
                     break
                 if '\x1d' in x:
-                    # Ctrl-] (as in telnet) -- just quit
+                    # Ctrl-] (as in telnet) -- disconnect
+                    req = { "handle" : handle, "close" : 1 }
+                    resp = ses.post (url, json = req, verify = False)
+                    ret = resp.json ()
+                    stat = ret["status"]
+                    if stat != "ok":
+                        print ("\r\nconsole close failure:", stat, "\r")
                     return
                 x.replace ("\r", "\n")
-                wf.write (x.encode ("latin1", "ignore"))
-                wf.flush ()
-    except (OSError, socket.error, ValueError):
-        print ("connection closed")
+                req = { "handle" : handle, "data" : x }
+                resp = ses.post (url, json = req, verify = False)
+                ret = resp.json ()
+                stat = ret["status"]
+                if stat != "ok":
+                    print ("\r\nconsole send failure:", stat, "\r")
+                    return
     finally:
         termios.tcsetattr (sys.stdin, termios.TCSADRAIN, oldtty)
         fcntl (infd, F_SETFL, oldflags)
 
-def tt (rf):
+def tt ():
+    oses = requests.Session ()
     while True:
-        x = rf.read (1)
-        if not x:
-            break
-        sys.stdout.write (x.decode ("latin1", "ignore"))
-        sys.stdout.flush ()
-            
-# We need this because socket.makefile does not support the line_buffering
-# argument for text mode.
-def makefile (sock, mode, buf = -1):
-    f = sock.makefile (mode + "b", buffering = buf)
-    f = io.TextIOWrapper (f, encoding = "ascii",
-                          errors = "ignore", newline = None,
-                          line_buffering = True)
-    f.mode = mode
-    return f
-    
-sock = socket.socket (socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect ("decnetsocket")
-rf = makefile (sock, "r", buf = 1)
-wf = makefile (sock, "w")
+        req = { "handle" : handle }
+        resp = ses.post (url, json = req, verify = False)
+        ret = resp.json ()
+        stat = ret["status"]
+        if stat != "ok":
+            if stat != "closed":
+                print ("\r\nconsole receive failure:", stat, "\r")
+            return
+        x = ret["data"]
+        if x:
+            sys.stdout.write (x)
+            sys.stdout.flush ()
 
+if len (sys.argv) < 4:
+    print ("usage: rctest circuit destaddr verification [ sysname ]")
+    sys.exit (0)
+    
 port = sys.argv[1]
 dest = sys.argv[2]
 verification = sys.argv[3]
+try:
+    sysname = sys.argv[4]
+except IndexError:
+    sysname = None
 
-print ("console", port, dest, verification, file = wf)
-r = rf.readline ()
-code = r.split()[0]
-if code == "101":
-    # Switch to binary unbuffered mode
-    rf = rf.detach ().detach ()
-    wf = wf.detach ().detach ()
-    # Start the output thread
-    t = threading.Thread(target = tt, args = (rf,))
-    t.daemon = True
-    t.start ()
-    # Enter the keyboard loop
-    kb (wf)
-else:
-    print (r)
-    print (rf.read ())
+# Build the destination URL.  This is the same for all the requests we
+# will send.
+url = "https://127.0.0.1:8443/api/mop/circuits/{}/console".format (port)
+if sysname:
+    url += "?system={}".format (sysname)
+ses = requests.Session ()
 
-rf.close ()
-wf.close ()
-sock.close ()
+# Issue the console client start request
+req = { "dest" : dest, "verification" : verification }
+resp = ses.post (url, json = req, verify = False)
+ret = resp.json ()
+stat = ret["status"]
+if stat != "ok":
+    print ("console start failure:", stat)
+    sys.exit (1)
+handle = ret["handle"]
+
+print ("console client started, handle:", handle)
+
+# Start the output thread
+t = threading.Thread(target = tt)
+t.daemon = True
+t.start ()
+# Enter the keyboard loop
+kb ()
+
+print ("\nconsole client closed")

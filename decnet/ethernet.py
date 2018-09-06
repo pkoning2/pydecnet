@@ -8,7 +8,6 @@ try:
     from fcntl import *
 except ImportError:
     fcntl = None
-import random
 import select
 import socket
 import struct
