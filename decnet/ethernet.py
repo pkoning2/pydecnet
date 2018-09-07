@@ -260,6 +260,23 @@ class _BridgeEth (_Ethernet):
                                      socket.IPPROTO_UDP)
         dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        for retry in range (3):
+            # This ought to work reliably, but on Python 3.7 it
+            # occasionally does not, and on older pythons it seems to
+            # fail more frequently.  So try a few times if necessary.
+            sock = self.socket
+            if not sock:
+                return
+            self.sellist = [ sock.fileno () ]
+            try:
+                sock.bind (("", self.lport))
+                break
+            except (OSError, socket.error):
+                logging.exception ("Ethernet bridge {} socket {} bind {} failed",
+                                   self.name, sock, self.lport)
+            self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
+                                         socket.IPPROTO_UDP)
+            self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         super ().open ()
         
     def close (self):
@@ -271,26 +288,9 @@ class _BridgeEth (_Ethernet):
         self.socket = None
 
     def run (self):
+        sellist = self.sellist
+        sock = self.socket
         logging.trace ("Ethernet bridge {} receive thread started", self.name)
-        for retry in range (3):
-            # This ought to work reliably, but on Python 3.7 it
-            # occasionally does not, and on older pythons it seems to
-            # fail more frequently.  So try a few times if necessary.
-            sock = self.socket
-            if not sock:
-                return
-            sellist = [ sock.fileno () ]
-            try:
-                sock.bind (("", self.lport))
-                break
-            except (OSError, socket.error):
-                logging.exception ("Ethernet bridge {} socket {} bind {} failed",
-                                   self.name, sock, self.lport)
-            self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                         socket.IPPROTO_UDP)                
-        logging.trace ("Ethernet bridge {} bound to {}",
-                       self.name, self.lport)
-        
         while True:
             # Look for traffic
             try:
