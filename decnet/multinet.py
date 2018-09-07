@@ -82,7 +82,7 @@ class Multinet (datalink.PtpDatalink):
             # Tell the point to point datalink dependent sublayer to
             # work around the fact that Multinet in UDP mode violates
             # most of the point to point datalink requirements.
-            logging.warn ("Multinet UDP mode not recommended since it violates DECnet architecture")
+            logging.warning ("Multinet UDP mode not recommended since it violates DECnet architecture")
             self.start_works = False
             if lport:
                 self.lport = int (lport[1:])
