@@ -106,6 +106,8 @@ class TestGre (DnTest):
         self.assertEqual (self.rport.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x91\x00" + self.tdata)
         self.lastwork (2)   # Check that nothing new is posted
+        if self.gre.unk_dest != 1:
+            time.sleep (0.1)
         self.assertEqual (self.gre.unk_dest, 1)
         self.assertEqual (self.gre.bytes_recv, 62)
         self.assertEqual (self.lport.bytes_recv, 30)
