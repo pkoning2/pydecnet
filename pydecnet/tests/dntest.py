@@ -116,6 +116,11 @@ class DnTest (unittest.TestCase):
         return w, dest
 
     def lastwork (self, calls, back = 0, itype = Received):
+        # The work we expect to be posted comes from a separate
+        # thread, which means it might not be here quite yet.  Allow
+        # for that.
+        if self.node.addwork.call_count != calls:
+            time.sleep (0.1)
         self.assertEqual (self.node.addwork.call_count, calls)
         if back:
             a, k = self.node.addwork.call_args_list[-1 - back]
