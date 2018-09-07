@@ -5,8 +5,6 @@
 from tests.dntest import *
 
 import queue
-from urllib.request import urlopen
-import json
 
 from decnet import mop
 from decnet import packet
@@ -63,16 +61,6 @@ class TestMop (DnTest):
         self.assertEqual (dest, Macaddr (b"foobar"))
         
     def test_recsysid (self):
-        hc = container ()
-        c = hc.http = container ()
-        c.http_port = 8000
-        c.https_port = 0
-        c.api = c.insecure_api = True
-        srv = http.Monitor (hc)
-        t = StopThread (target = srv.serverstart, name = "http",
-                        args = ([ self.node ], c, False))
-        t.start ()
-        self.httpthread = t
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         self.node.mopcircuit = c
         c.start ()
@@ -85,11 +73,12 @@ class TestMop (DnTest):
                                b"\x64\x00\x01\x07"
                                b"\xc8\x00\x09\x08Unittest")
         c.dispatch (w)
-        resp = urlopen ("http://127.0.0.1:8000/api/mopcircuit/sysid")
-        ret = json.loads (resp.read ())
+        # Use the api, but called directly (don't go through the
+        # trouble of bringing up the http server)
+        ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]
-        self.assertEqual (reply["srcaddr"], str (macid))
+        self.assertEqual (reply["srcaddr"], macid)
         self.assertEqual (reply["device"], "Computer Interconnect interface")
         self.assertEqual (reply["software"], "Unittest")
         # Now update the entry.  Include an unknown (software dependent)
@@ -102,11 +91,10 @@ class TestMop (DnTest):
                                b"\xc8\x00\x09\x08New text"
                                b"\xca\x00\x0cSW dependent")
         c.dispatch (w)
-        resp = urlopen ("http://127.0.0.1:8000/api/mopcircuit/sysid")
-        ret = json.loads (resp.read ())
+        ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]
-        self.assertEqual (reply["srcaddr"], str (macid))
+        self.assertEqual (reply["srcaddr"], macid)
         self.assertEqual (reply["device"], "Computer Interconnect interface")
         self.assertEqual (reply["software"], "New text")
         # Locate the sysid entry
