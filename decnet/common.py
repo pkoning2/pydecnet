@@ -240,21 +240,21 @@ class Macaddr (bytes):
             bl = _mac_re.split (s)
             if len (bl) != 6:
                 if _nodeid_re.match (s):
-                    s = Nodeid (s)
-                    if not s.area:
+                    b = Nodeid (s)
+                    if not b.area:
                         raise ValueError ("Invalid MAC address string {}".format (s))
-                    s = HIORD + bytes (s)
+                    b = HIORD + bytes (b)
                 else:
                     raise ValueError ("Invalid MAC address string {}".format (s))
             else:
-                s = bytes (int (f, 16) for f in bl)
+                b = bytes (int (f, 16) for f in bl)
         elif isinstance (s, Nodeid):
-            s = HIORD + bytes (s)
+            b = HIORD + bytes (s)
         else:
-            s = bytes (s)
-            if len (s) != 6:
-                raise DecodeError ("Invalid MAC address string {}".format (s))
-        return bytes.__new__ (cls, s)
+            b = bytes (s)
+            if len (b) != 6:
+                raise ValueError ("Invalid MAC address string {}".format (s))
+        return bytes.__new__ (cls, b)
 
     @classmethod
     def decode (cls, buf):
@@ -289,12 +289,17 @@ class Ethertype (bytes):
             if len (bl) != 2:
                 raise ValueError ("Invalid MAC address string {}".format (s))
             else:
-                s = bytes (int (f, 16) for f in bl)
+                b = bytes (int (f, 16) for f in bl)
+        elif isinstance (s, int):
+            try:
+                b = s.to_bytes (2, "big")
+            except OverflowError:
+                raise ValueError ("Invalid Ethertype value {}".format (s)) from None
         else:
-            s = bytes (s)
-            if len (s) != 2:
-                raise DecodeError ("Invalid Ethertype string {}".format (s))
-        return bytes.__new__ (cls, s)
+            b = bytes (s)
+            if len (b) != 2:
+                raise ValueError ("Invalid Ethertype string {}".format (s))
+        return bytes.__new__ (cls, b)
 
     @classmethod
     def decode (cls, buf):
