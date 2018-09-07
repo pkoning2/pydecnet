@@ -5,12 +5,14 @@
 from tests.dntest import *
 
 import queue
+from urllib.request import urlopen
+import json
 
 from decnet import mop
 from decnet import packet
 from decnet import timers
 from decnet import datalink
-from decnet.apiserver import ApiRequest
+from decnet import http
 
 tconfig = container ()
 tconfig.device = None
@@ -25,7 +27,13 @@ class TestMop (DnTest):
         self.dl.use_mop = True
         self.cp = unittest.mock.Mock ()
         self.dl.create_port.return_value = self.cp
+        self.httpthread = None
         
+    def tearDown (self):
+        if self.httpthread:
+            self.httpthread.stop ()
+        super ().tearDown ()
+    
     def lelen (self, d):
         return len (d).to_bytes (2, "little")
 
@@ -40,6 +48,7 @@ class TestMop (DnTest):
         self.assertEqual (sysid.software, "DECnet/Python")
         self.assertEqual (sysid.receipt, 0)
         self.assertEqual (dest, Macaddr ("AB-00-00-02-00-00"))
+
     def test_reqid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
@@ -54,7 +63,18 @@ class TestMop (DnTest):
         self.assertEqual (dest, Macaddr (b"foobar"))
         
     def test_recsysid (self):
+        hc = container ()
+        c = hc.http = container ()
+        c.http_port = 8000
+        c.https_port = 0
+        c.api = c.insecure_api = True
+        srv = http.Monitor (hc)
+        t = StopThread (target = srv.serverstart, name = "http",
+                        args = ([ self.node ], c, False))
+        t.start ()
+        self.httpthread = t
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
+        self.node.mopcircuit = c
         c.start ()
         send = self.cp.send
         macid = Macaddr (b"Foobar")
@@ -65,20 +85,13 @@ class TestMop (DnTest):
                                b"\x64\x00\x01\x07"
                                b"\xc8\x00\x09\x08Unittest")
         c.dispatch (w)
-        w2 = unittest.mock.Mock ()
-        w2.__class__ = ApiRequest
-        w2.circuit = "mop-0"
-        w2.command = "sysid"
-        s = c.sysid
-        s.dispatch (w2)
-        a, k = w2.done.call_args
-        reply = a[0]
-        self.assertRegex (reply, str (macid))
-        self.assertRegex (reply, "Computer Interconnect interface")
-        h = s.html (None)
-        self.assertRegex (h, str (macid))
-        self.assertRegex (h, "Computer Interconnect interface")
-        self.assertRegex (h, "Unittest")
+        resp = urlopen ("http://127.0.0.1:8000/api/mopcircuit/sysid")
+        ret = json.loads (resp.read ())
+        self.assertEqual (len (ret), 1)
+        reply = ret[0]
+        self.assertEqual (reply["srcaddr"], str (macid))
+        self.assertEqual (reply["device"], "Computer Interconnect interface")
+        self.assertEqual (reply["software"], "Unittest")
         # Now update the entry.  Include an unknown (software dependent)
         # field to validate open ended TLV parsing
         w = datalink.Received (owner = c, src = macid,
@@ -89,13 +102,15 @@ class TestMop (DnTest):
                                b"\xc8\x00\x09\x08New text"
                                b"\xca\x00\x0cSW dependent")
         c.dispatch (w)
-        h = s.html (None)
-        self.assertRegex (h, str (macid))
-        self.assertRegex (h, "Computer Interconnect interface")
-        self.assertNotRegex (h, "Unittest")
-        self.assertRegex (h, "New text")
+        resp = urlopen ("http://127.0.0.1:8000/api/mopcircuit/sysid")
+        ret = json.loads (resp.read ())
+        self.assertEqual (len (ret), 1)
+        reply = ret[0]
+        self.assertEqual (reply["srcaddr"], str (macid))
+        self.assertEqual (reply["device"], "Computer Interconnect interface")
+        self.assertEqual (reply["software"], "New text")
         # Locate the sysid entry
-        entry = s.heard[macid]
+        entry = c.sysid.heard[macid]
         self.assertEqual (entry.field202, b"SW dependent")
         
 if __name__ == "__main__":

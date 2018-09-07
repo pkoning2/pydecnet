@@ -64,7 +64,6 @@ class t_node (node.Node):
     def start (self, mainthread = False): pass
     def mainloop (self): raise Exception
     def stop (self): pass
-    def register_api (self, command, handler, help = None): pass
 
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
@@ -186,3 +185,9 @@ class DnTest (unittest.TestCase):
         ret.decode (b)
         return ret
     
+_port = 6665
+
+def nextport ():
+    global _port
+    _port += 1
+    return _port

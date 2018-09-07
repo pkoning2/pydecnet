@@ -20,8 +20,9 @@ class EthTest (DnTest):
         self.config = container ()
         self.config.device = self.dev
         self.config.random_address = False
+        self.config.single_address = False
+        self.config.hwaddr = Macaddr ("02-03-04-05-06-07")
         self.eth = ethernet.Ethernet (self.node, "eth-0", self.config)
-        self.eth.hwaddr = Macaddr ("02-03-04-05-06-07")
         self.eth.open ()
         
     def tearDown (self):
@@ -50,7 +51,7 @@ class EthTest (DnTest):
     def test_rcv1 (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         w = self.lastwork (1)
@@ -65,7 +66,7 @@ class EthTest (DnTest):
         rcirc = self.circ ()
         lcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.lport = self.eth.create_port (lcirc, LOOPPROTO, False)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
@@ -99,7 +100,7 @@ class EthTest (DnTest):
     def test_addrfilter (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         w = self.lastwork (1)
@@ -129,7 +130,7 @@ class EthTest (DnTest):
     def test_promisc (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.rport.set_promiscuous (True)
         # Individual address
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
@@ -169,7 +170,7 @@ class EthTest (DnTest):
     def test_multiproto (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.rport.add_proto (LATPROTO)
         self.rport.add_proto (MOPDLPROTO)
         # Routing packet
@@ -244,7 +245,7 @@ class EthTest (DnTest):
 
     def test_xmit (self):
         self.rport = self.eth.create_port (self.node, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.lport = self.eth.create_port (self.node, LOOPPROTO, False)
         self.rport.send (self.tdata, Macaddr (Nodeid (1, 42)))
         b = self.lastSent ()
@@ -266,7 +267,7 @@ class EthTest (DnTest):
     def test_randpdu (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         for i in range (100):
             pkt = randpkt (10, 1500)
             self.postPacket (pkt, False)
@@ -274,7 +275,7 @@ class EthTest (DnTest):
     def test_randproto (self):
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04"
         for i in range (100):
             pkt = randpkt (10, 1500)
@@ -284,7 +285,7 @@ class EthTest (DnTest):
         hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04\x60\x03"
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         for i in range (100):
             pkt = randpkt (10, 1500)
             self.postPacket (hdr + pkt, False)
@@ -293,7 +294,7 @@ class EthTest (DnTest):
         hdr = b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04\x60\x03"
         rcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
-        self.rport.set_macaddr (Macaddr (Nodeid (1, 3)))
+        self.rport.macaddr = Macaddr (Nodeid (1, 3))
         for i in range (100):
             pkt = randpkt (10, 1498)
             self.postPacket (hdr + self.lelen (pkt) + pkt, False)
@@ -393,15 +394,16 @@ class TestEthTap (EthTest):
         return bytes (write[0][1])
 
 class TestEthUdp (EthTest):
-    dev = "udp:9999:127.0.0.1:9998"
-    
     def setUp (self):
         # First open the Ethernet
+        self.lport = nextport ()
+        self.cport = nextport ()
+        self.dev = "udp:{}:127.0.0.1:{}".format (self.cport, self.lport)
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", 9998))
+        self.socket.bind (("", self.lport))
         
     def tearDown (self):
         self.socket.close ()
@@ -410,13 +412,13 @@ class TestEthUdp (EthTest):
     def postPacket (self, pkt, wait = True):
         if len (pkt) < 60:
             pkt += bytes (60 - len (pkt))
-        self.socket.sendto (pkt, ("127.0.0.1", 9999))
+        self.socket.sendto (pkt, ("127.0.0.1", self.cport))
         if wait:
             time.sleep (0.1)
             
     def lastSent (self):
         b, addr = self.socket.recvfrom (1500)
-        self.assertEqual (addr, ("127.0.0.1", 9999))
+        self.assertEqual (addr, ("127.0.0.1", self.cport))
         return b
     
 if __name__ == "__main__":

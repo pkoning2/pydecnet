@@ -73,9 +73,25 @@ class TestMacaddr (DnTest):
 
     def test_newbytes (self):
         a = common.Macaddr (b"abcdef")
-        self.assertRaises (common.DecodeError, common.Macaddr, b"abcde")
-        self.assertRaises (common.DecodeError, common.Macaddr, b"abcdefg")
+        self.assertRaises (ValueError, common.Macaddr, b"abcde")
+        self.assertRaises (ValueError, common.Macaddr, b"abcdefg")
         a, b = common.Macaddr.decode (b"abcdefABC")
+        self.assertEqual (b, b"ABC")
+
+class TestEthertype (DnTest):
+    def test_newstr (self):
+        a = common.Ethertype ("05-06")
+        b = common.Ethertype ("3:4")
+        c = common.Ethertype (0x6003)
+        self.assertRaises (ValueError, common.Ethertype, "03")
+        self.assertRaises (ValueError, common.Ethertype, "03-04-05")
+        self.assertRaises (ValueError, common.Ethertype, 0x123456)
+
+    def test_newbytes (self):
+        a = common.Ethertype (b"ab")
+        self.assertRaises (ValueError, common.Ethertype, b"a")
+        self.assertRaises (ValueError, common.Ethertype, b"abc")
+        a, b = common.Ethertype.decode (b"abABC")
         self.assertEqual (b, b"ABC")
 
 class tthread (common.StopThread):

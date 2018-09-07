@@ -94,11 +94,12 @@ class SimhDMCBase (DnTest):
 class TestSimhDMCconnect (SimhDMCBase):
     def setUp (self):
         self.tconfig = container ()
-        self.tconfig.device = "127.0.0.1:6666"  # active TCP
+        self.lport = nextport ()
+        self.tconfig.device = "127.0.0.1:{}".format (self.lport)  # active TCP
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", 6666))
+        self.socket.bind (("", self.lport))
         self.socket.listen (1)
         self.rport.open ()
         sock, ainfo = self.socket.accept ()
@@ -111,13 +112,14 @@ class TestSimhDMCconnect (SimhDMCBase):
 class TestSimhDMClisten (SimhDMCBase):
     def setUp (self):
         self.tconfig = container ()
-        self.tconfig.device = "127.0.0.1:6666:secondary"  # passive TCP
+        self.cport = nextport ()
+        self.tconfig.device = "127.0.0.1:{}:secondary".format (self.cport)  # passive TCP
         super ().setUp ()
         self.rport.open ()
         time.sleep (0.1)
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.connect (("127.0.0.1", 6666))
+        self.socket.connect (("127.0.0.1", self.cport))
         time.sleep (0.1)
         self.assertUp ()
 
