@@ -74,7 +74,13 @@ class TestMultinetUDP (MultinetBase):
         self.lport = nextport ()
         self.cport = nextport ()
         self.tconfig.device = "127.0.0.1:{}:{}".format (self.lport, self.cport)  # UDP mode
+        # Initially turn off warnings such as the Multinet UDP "don't
+        # do this" warning.
+        self.loglevel = logging.ERROR
         super ().setUp ()
+        self.assertEqual (logging.warning.call_count, 1)
+        # Revert to the default logging level, set in the class
+        self.setloglevel (self.__class__.loglevel)
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
