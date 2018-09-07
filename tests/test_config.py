@@ -137,33 +137,33 @@ class TestLogging_err (Logchecker):
         self.checkerr ("logging wrongsink", "invalid choice")
         self.checkerr ("logging console --frob", "unrecognized argument")
 
-class TestSystem (Logchecker):
-    req = """routing 1.1
-    """
+class TestHttp (Logchecker):
+    req = ""
     
     def test_basic (self):
-        c = self.ctest ("").system
-        self.assertIsNone (c.api_socket)
+        c = self.ctest ("http").http
+        self.assertFalse (c.api)
         self.assertEqual (c.http_port, 8000)
-        self.assertEqual (c.https_port, 8001)
+        self.assertEqual (c.https_port, 8443)
+        self.assertEqual (c.certificate, "decnet.pem")
         
     def test_allargs (self):
-        c = self.ctest ("system --api foo --http-port 99 --https 102").system
-        self.assertEqual (c.api_socket, "foo")
+        c = self.ctest ("http --api --http-port 99 --https 102 --certificate frob.pem").http
+        self.assertTrue (c.api)
         self.assertEqual (c.http_port, 99)
         self.assertEqual (c.https_port, 102)
-
-class TestSystem_err (Logchecker):
-    req = """routing 1.1
-    """
+        self.assertEqual (c.certificate, "frob.pem")
+        
+class TestHttp_err (Logchecker):
+    req = ""
     loglevel = logging.CRITICAL
     
     def test_errors (self):
-        self.checkerr ("system --frob", "unrecognized argument")
-        self.checkerr ("system --http-port -1", "invalid choice")
-        self.checkerr ("system --http-port 65536", "invalid choice")
-        self.checkerr ("system --https-port -1", "invalid choice")
-        self.checkerr ("system --https-port 65536", "invalid choice")
+        self.checkerr ("http --frob", "unrecognized argument")
+        self.checkerr ("http --http-port -1", "invalid choice")
+        self.checkerr ("http --http-port 65536", "invalid choice")
+        self.checkerr ("http --https-port -1", "invalid choice")
+        self.checkerr ("http --https-port 65536", "invalid choice")
         
 class TestRouting (Logchecker):
     def test_basic (self):

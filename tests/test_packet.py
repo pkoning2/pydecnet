@@ -150,7 +150,6 @@ class TestPacket (DnTest):
                       extended = 12, sint = -2,
                       byte5 = b"hound", int4 = 511,
                       node = Nodeid (2, 2))
-        print (a)
         b = bytes (a)
         self.assertEqual (b, b"\x95\x02\xfe\x01\006defghi\377\177\000\000\000\000"
                           b"\014\376\377hound\000\377\001\000\000\002\010")

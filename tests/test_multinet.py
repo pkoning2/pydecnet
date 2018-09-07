@@ -71,12 +71,14 @@ class MultinetBase (DnTest):
 class TestMultinetUDP (MultinetBase):
     def setUp (self):
         self.tconfig = container ()
-        self.tconfig.device = "127.0.0.1:6666:6667"  # UDP mode
+        self.lport = nextport ()
+        self.cport = nextport ()
+        self.tconfig.device = "127.0.0.1:{}:{}".format (self.lport, self.cport)  # UDP mode
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", 6666))
+        self.socket.bind (("", self.lport))
         self.rport.open ()
         time.sleep (0.1)
         self.assertUp ()
@@ -90,11 +92,11 @@ class TestMultinetUDP (MultinetBase):
     
     def receivepdu (self):
         b, addr = self.socket.recvfrom (1500)
-        self.assertEqual (addr, ("127.0.0.1", 6667))
+        self.assertEqual (addr, ("127.0.0.1", self.cport))
         return b
     
     def sendpdu (self, pdu):
-        self.socket.sendto (pdu, ("127.0.0.1", 6667))
+        self.socket.sendto (pdu, ("127.0.0.1", self.cport))
 
 class MultinetTCPbase (MultinetBase):
     def tearDown (self):
@@ -124,11 +126,12 @@ class MultinetTCPbase (MultinetBase):
 class TestMultinetTCPconnect (MultinetTCPbase):
     def setUp (self):
         self.tconfig = container ()
-        self.tconfig.device = "127.0.0.1:6666:connect"  # active TCP
+        self.lport = nextport ()
+        self.tconfig.device = "127.0.0.1:{}:connect".format (self.lport)  # active TCP
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", 6666))
+        self.socket.bind (("", self.lport))
         self.socket.listen (1)
         self.rport.open ()
         sock, ainfo = self.socket.accept ()
@@ -141,13 +144,14 @@ class TestMultinetTCPconnect (MultinetTCPbase):
 class TestMultinetTCPlisten (MultinetTCPbase):
     def setUp (self):
         self.tconfig = container ()
-        self.tconfig.device = "127.0.0.1:6666:listen"  # passive TCP
+        self.cport = nextport ()
+        self.tconfig.device = "127.0.0.1:{}:listen".format (self.cport)  # passive TCP
         super ().setUp ()
         self.rport.open ()
         time.sleep (0.1)
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.connect (("127.0.0.1", 6666))
+        self.socket.connect (("127.0.0.1", self.cport))
         time.sleep (0.1)
         self.assertUp ()
 
