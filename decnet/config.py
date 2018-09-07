@@ -130,7 +130,9 @@ cp.add_argument ("--https-port", metavar = "S", default = 8443,
 cp.add_argument ("--certificate", metavar = "C", default = "decnet.pem",
                  help = "Name of certificate file for HTTPS, default = decnet.pem")
 cp.add_argument ("--api", action = "store_true", default = False,
-                 help = "Enable JSON API, over HTTPS only")
+                 help = "Enable JSON API, by default over HTTPS only")
+cp.add_argument ("--insecure-api", action = "store_true", default = False,
+                 help = "Allow JSON API over HTTP")
 
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",

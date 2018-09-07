@@ -90,7 +90,7 @@ class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
     def __init__ (self, addr, rclass, nodelist, config, secure):
         self.nodelist = nodelist
         self.api = config.api
-        self.secure = secure
+        self.secure = secure or config.insecure_api
         super ().__init__ (addr, rclass)
         dont_close (self.socket)
 
