@@ -55,6 +55,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.blksize = self.id = 0
         self.verif = config.verify
         self.datalink = datalink.create_port (self)
+        self.init_counters ()
         if self.node.phase == 2:
             self.initmsg = NodeInit (srcnode = parent.tid,
                                      nodename = parent.name,

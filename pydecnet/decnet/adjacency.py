@@ -98,7 +98,7 @@ class Adjacency (Element, timers.Timer):
         self.routing.adj_up (self)
         
     def down (self, **kwargs):
-        self.circuit.adj_down += 1
+        self.circuit.datalink.counters.adj_down += 1
         self.node.timers.stop (self)
         self.routing.adj_down (self)
     

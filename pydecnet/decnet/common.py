@@ -446,3 +446,53 @@ class ConnApiHelper (Element):
         conn = self.connclass (self.parent, data, listen)
         return listen.wait (timeout = 60)
     
+class BaseCounters (object):
+    """Base class for counters.  This handles the time-since-zeroed
+    element, and provides a method for copying the counters to another
+    object (such as a packet) by copying fields with matching names.
+
+    There is no "zero" operation; to implement that, simply replace the
+    current counter object with a newly created one.
+    """
+    def __init__ (self, owner):
+        self._owner = owner
+        self._time_zeroed = time.time ()
+
+    @property
+    def time_since_zeroed (self):
+        delta = int (time.time () - self._time_zeroed)
+        if delta > 65535:
+            delta = 65535
+        return delta
+
+    def copy (self, other):
+        """This copies the counters to the destination, for each counter
+        name that is a current attribute of "other".  Those names are
+        taken from dir(other), which will give us all names in __slots__
+        (such as packet fields), or attributes of the class, or
+        attributes previously assigned to "other".
+        """
+        onames = set (dir (other))
+        for k, v in self.makedict ().items ():
+            if k in onames:
+                setattr (other, k, v)
+            else:
+                print ("unknown counters field", k)
+        
+    def makedict (self):
+        """Return the current counters, in the form of a dictionary.
+        """
+        return { k : getattr (self, k) for k in dir (self) if not k.startswith ("_")
+                     and not callable (getattr (self, k)) }
+
+    # We use the above to implement the API GET operation
+    get_api = makedict
+
+    def html (self):
+        ret = [ "<td>{}</td>".format (self._owner.name) ]
+        for f in self.html_fields:
+            v = getattr (self, f, "")
+            ret.append ("<td>{}</td}".format (v))
+        return "".join (ret)
+    
+    

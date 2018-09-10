@@ -110,13 +110,26 @@ class Circuit (Element):
         self.config = config
         self.cost = config.cost
         self.t1 = config.t1
+
+    def init_counters (self):
         # A subset of the counters defined by the architecture
-        # We use the datalink (which is actually a Port) counter start time
-        self.term_recv = self.orig_sent = 0
-        self.trans_recv = self.trans_sent = 0
-        #self.term_cong = self.trans_cong = 0    # congestion loss, needed?
-        self.cir_down = self.adj_down = self.init_fail = 0
-        
+        # Add these to the base datalink (port actually) counters, which
+        # were initialized before we get here.
+        self.datalink.counters.term_recv = 0
+        self.datalink.counters.orig_sent = 0
+        self.datalink.counters.trans_recv = 0
+        self.datalink.counters.trans_sent = 0
+        #self.datalink.counters.term_cong = 0
+        #self.datalink.counters.trans_cong = 0    # congestion loss, needed?
+        self.datalink.counters.cir_down = 0
+        self.datalink.counters.adj_down = 0
+        self.datalink.counters.init_fail = 0
+
+    def getentity (self, name):
+        if name == "counters":
+            return self.datalink.counters
+        return super ().getentity (name)
+    
 class L1Circuit (Circuit):
     """The routing layer circuit behavior for a circuit in a level 1
     router (or the level 1 functionality of an area router).
@@ -159,8 +172,8 @@ class PtpL2Circuit (PtpL1Circuit, L2Circuit):
     """Point to point circuit on an area router.  
     """
     def __init__ (self, parent, name, datalink, config):
-        PtpL1Circuit.__init__ (self, parent, name, datalink, config)
         L2Circuit.__init__ (self, parent, name, datalink, config)
+        PtpL1Circuit.__init__ (self, parent, name, datalink, config)
         # Use the circuit override of t1 if specified, else the
         # exec setting of t1
         t1 = config.t1 or self.routing.config.t1
@@ -351,7 +364,7 @@ class EndnodeRouting (BaseRouter):
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
         logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
-        self.circuit.orig_sent += 1
+        self.circuit.datalink.counters.orig_sent += 1
         return self.circuit.send (pkt, None, tryhard)
 
     def dispatch (self, item):
@@ -400,7 +413,7 @@ class Phase2Routing (BaseRouter):
                            len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
                              dstnode = dest, src = None)
-            a.circuit.orig_sent += 1
+            a.circuit.datalink.counters.orig_sent += 1
             # For now, destination is also nexthop.  If we do intercept,
             # that will no longer be true.
             return a.circuit.send (pkt, dest)
@@ -760,10 +773,10 @@ class L1Router (BaseRouter):
                 if pkt.visit < limit:
                     # Visit limit still ok, send it and exit
                     if orig:
-                        a.circuit.orig_sent += 1
+                        a.circuit.datalink.counters.orig_sent += 1
                     else:
-                        srcadj.circuit.trans_recv += 1
-                        a.circuit.trans_sent += 1
+                        srcadj.circuit.datalink.counters.trans_recv += 1
+                        a.circuit.datalink.counters.trans_sent += 1
                         pkt.visit += 1
                     logging.trace ("Sending {} byte packet to {}: {}",
                        len (pkt), a, pkt)
@@ -826,7 +839,8 @@ class L1Router (BaseRouter):
                             ctr = [ ]
                             ctr.extend ([ """<tr><td colspan=2 />
                             <td colspan=2>{0}</td>
-                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c, f))
+                            <td colspan=2>{1}</td></tr>""".format (fl,
+                                                             getattr (c.datalink.counters, f))
                                              for fl, f in
                                              (("Terminating packets received", "term_recv"),
                                               ("Originating packets sent", "orig_sent"),
@@ -837,7 +851,7 @@ class L1Router (BaseRouter):
                                               ("Initialization failure", "init_fail")) ])
                             ctr.extend ([ """<tr><td colspan=2 />
                             <td colspan=2>{0}</td>
-                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c.datalink.parent, f))
+                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c.datalink.counters, f))
                                              for fl, f in
                                              (("Bytes received", "bytes_recv"),
                                               ("Bytes sent", "bytes_sent"),

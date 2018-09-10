@@ -52,8 +52,8 @@ class EthPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[14:14 + l] = msg
             l += 14
-        self.bytes_sent += l
-        self.pkts_sent += 1
+        self.counters.bytes_sent += l
+        self.counters.pkts_sent += 1
         # Always send packet padded to min of 60 if need be, whether
         # pad mode is specified or not.
         if l < 60:
@@ -118,17 +118,17 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             port = self.ports[proto]
         except KeyError:
             # No protocol type match, ignore packet
-            self.unk_dest += 1
+            self.counters.unk_dest += 1
             return
         dest = packet[:6]
         # Note that we don't count packets that fail the address
         # filter, otherwise we'd count lots of stuff for others.
         if dest == port.macaddr or dest in port.destfilter:
             if dest[0] & 1:
-                self.mcbytes_recv += plen
-                self.mcpkts_recv += 1
-            port.bytes_recv += plen
-            port.pkts_recv += 1
+                self.counters.mcbytes_recv += plen
+                self.counters.mcpkts_recv += 1
+            port.counters.bytes_recv += plen
+            port.counters.pkts_recv += 1
             src = Macaddr (packet[6:12])
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)

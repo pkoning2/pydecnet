@@ -43,6 +43,7 @@ class LanCircuit (timers.Timer):
         super ().__init__ ()
         self.t3 = config.t3 or 10
         self.datalink = datalink.create_port (self, ROUTINGPROTO)
+        self.init_counters ()
         self.datalink.macaddr = parent.nodemacaddr
         self.lasthello = 0
         self.holdoff = False

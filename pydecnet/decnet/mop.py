@@ -339,13 +339,13 @@ class Counters (MopHdr):
     # but we define them so that we can parse and report them in
     # messages from other systems where they do have meaning.
     _layout = ( ( "b", "receipt", 2 ),
-                ( "deltat", "ctr_zero_time", 2 ),
-                ( "ctr", "bytes_recd", 4 ),
+                ( "b", "time_since_zeroed", 2 ),
+                ( "ctr", "bytes_recv", 4 ),
                 ( "ctr", "bytes_sent", 4 ),
-                ( "ctr", "pkts_recd", 4 ),
+                ( "ctr", "pkts_recv", 4 ),
                 ( "ctr", "pkts_sent", 4 ),
-                ( "ctr", "mcbytes_recd", 4 ),
-                ( "ctr", "mcpkts_recd", 4 ),
+                ( "ctr", "mcbytes_recv", 4 ),
+                ( "ctr", "mcpkts_recv", 4 ),
                 ( "ctr", "pkts_deferred", 4),
                 ( "ctr", "pkts_1_collision", 4),
                 ( "ctr", "pkts_mult_collision", 4),
@@ -499,6 +499,11 @@ class MopCircuit (Element):
         self.console_verification = config.console
         self.console = ConnApiHelper (self, CarrierClient)
         
+    def getentity (self, name):
+        if name == "counters":
+            return self.datalink.counters
+        return super ().getentity (name)
+    
     def start (self):
         if self.datalink.use_mop:
             # Do this only on datalinks where we want MOP (Ethernet, basically)
@@ -514,7 +519,7 @@ class MopCircuit (Element):
             self.consport = consport
             consport.add_multicast (CONSMC)
             self.sysid = SysIdHandler (self, consport)
-            self.counters = CounterHandler (self, consport)
+            self.request_counters = CounterHandler (self, consport)
             # No console carrier server just now
             self.carrier_server = None
             services = list ()
@@ -689,8 +694,9 @@ class CounterHandler (Element):
             return { "status" : "timeout" }
         ret = { "status" : "ok" }
         for t, n, *x in Counters._layout:
-            if t in { "ctr", "deltat" }:
+            if t == "ctr":
                 ret[n] = getattr (reply, n)
+        ret["time_since_zeroed"] = reply.time_since_zeroed
         return ret
         
 class SysIdHandler (Element, timers.Timer):
@@ -752,7 +758,8 @@ class SysIdHandler (Element, timers.Timer):
         self.port.send (sysid, dest)
 
     def send_ctrs (self, dest, receipt):
-        reply = Counters (src = self.port.parent, receipt = receipt)
+        reply = Counters (receipt = receipt)
+        self.port.parent.counters.copy (reply)
         self.port.send (reply, dest)
 
     def html (self, what):

@@ -215,6 +215,10 @@ class PtpPort (Port):
     def __init__ (self, datalink, owner, proto = None):
         super ().__init__ (datalink, owner)
 
+    @property
+    def counters (self):
+        return self.parent.counters
+    
     def open (self):
         self.parent.port_open ()
 
@@ -223,13 +227,21 @@ class PtpPort (Port):
         
     def send (self, msg, dest = None):
         self.parent.send (msg)
+
+# Point to point datalink counters
+class PtpCounters (BaseCounters):
+    def __init__ (self, owner):
+        super ().__init__ (owner)
+        # A subset of the counters defined by the architecture
+        self.bytes_sent = self.pkts_sent = 0
+        self.bytes_recv = self.pkts_recv = 0
         
 # Point to point datalink base class
-
 class PtpDatalink (Datalink):
     """Base class for point to point datalinks.
     """
     port_class = PtpPort
+    counter_class = PtpCounters
     # This attribute is True if datalink start obeys the required
     # semantics, i.e., data link requirement #2 "Detection of remote startup"
     # is implemented.
@@ -238,10 +250,7 @@ class PtpDatalink (Datalink):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
         self.port = None
-        # A subset of the counters defined by the architecture
-        self.ctr_zero_time = time.time ()
-        self.bytes_sent = self.pkts_sent = 0
-        self.bytes_recv = self.pkts_recv = 0
+        self.counters = self.counter_class (self)
         
     def create_port (self, owner, proto = None, *args):
         port = super ().create_port (owner, proto, *args)
@@ -249,22 +258,12 @@ class PtpDatalink (Datalink):
             raise RuntimeError ("Creating second port on point to point datalink")
         self.port = port
         return port
-    
-# Broadcast datalink base class
 
-class BcDatalink (Datalink):
-    """Base class for broadcast (LAN) datalinks.
-    """
-    use_mop = True     # True since we want MOP to run on this type of datalink
-
-    def __init__ (self, owner, name, config):
-        super ().__init__ (owner, name, config)
-        # macaddr is the current MAC address, if in single address mode
-        self.hwaddr = self.macaddr = None
-        self.single_address = config.single_address
-        self.ports = dict ()
+# Broadcast datalink counters
+class BcCounters (BaseCounters):
+    def __init__ (self, owner):
+        super ().__init__ (owner)
         # A subset of the counters defined by the architecture
-        self.ctr_zero_time = time.time ()
         # The traffic counters are derived from the per-port counters
         #self.bytes_sent = self.pkts_sent = 0
         #self.bytes_recv = seld.pkts_recv = 0
@@ -291,9 +290,24 @@ class BcDatalink (Datalink):
         # Note that a given port can appear more than once in the
         # ports dictionary.  Count it only once here, under its
         # primary port number (the one given at port create time).
-        return sum (getattr (v, attr) for k, v in self.ports.items ()
+        return sum (getattr (v.counters, attr) for k, v in self._owner.ports.items ()
                     if v.proto == k)
     
+# Broadcast datalink base class
+class BcDatalink (Datalink):
+    """Base class for broadcast (LAN) datalinks.
+    """
+    use_mop = True     # True since we want MOP to run on this type of datalink
+    counter_class = BcCounters
+    
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        # macaddr is the current MAC address, if in single address mode
+        self.hwaddr = self.macaddr = None
+        self.single_address = config.single_address
+        self.ports = dict ()
+        self.counters = self.counter_class (self)
+
     def create_port (self, owner, proto, *args):
         port = super ().create_port (owner, proto, *args)
         proto = port.proto
@@ -313,6 +327,16 @@ class _Any (object):
 
 _any = _Any ()
 
+class BcPortCounters (BaseCounters):
+    def __init__ (self, owner):
+        super ().__init__ (owner)
+        # A subset of the counters defined by the architecture (just
+        # traffic counters, not error counters because those in
+        # general don't make it into here).
+        self.bytes_sent = self.pkts_sent = 0
+        self.bytes_recv = self.pkts_recv = 0
+        self.mcbytes_recv = self.mcpkts_recv = 0
+        
 class BcPort (Port):
     """Base class for a broadcast (LAN) datalink port.  A port
     describes an upper layer's use of the datalink, specifically
@@ -329,13 +353,7 @@ class BcPort (Port):
         self.proto = proto
         self.protoset = set ()
         self.protoset.add (proto)
-        # A subset of the counters defined by the architecture (just
-        # traffic counters, not error counters because those in
-        # general don't make it into here).
-        self.ctr_zero_time = time.time ()
-        self.bytes_sent = self.pkts_sent = 0
-        self.bytes_recv = self.pkts_recv = 0
-        self.mcbytes_recv = self.mcpkts_recv = 0
+        self.counters = BcPortCounters (self)
 
     @property
     def macaddr (self):

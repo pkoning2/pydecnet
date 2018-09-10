@@ -315,6 +315,18 @@ msgmap[(NspHdr.CTL << 2) + (NspHdr.NOP << 4)] = None
 # Mapping from reason to specific Disconnect Confirm subclass
 dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
 
+class NspCounters (BaseCounters):
+    def __init__ (self, owner):
+        super ().__init__ (owner)
+        self.byt_rcv = 0
+        self.byt_xmt = 0
+        self.msg_rcv = 0
+        self.msg_xmt = 0
+        self.con_rcv = 0
+        self.con_xmt = 0
+        self.con_rej = 0
+        self.timeout = 0
+        
 class NSPNode (object):
     """The remote node state needed by NSP.  This is a base class of
     the Nodeinfo object, which is what node.nodeinfo() returns.
@@ -325,15 +337,8 @@ class NSPNode (object):
     def __init__ (self):
         # NSP specific node state -- see NSP 4.0.1 spec, table 6.
         self.delay = 0
-        self.byt_rcv = 0
-        self.byt_xmt = 0
-        self.msg_rcv = 0
-        self.msg_xmt = 0
-        self.con_rcv = 0
-        self.con_xmt = 0
-        self.con_rej = 0
-        self.timeout = 0
-
+        self.counters = NspCounters (self)
+        
     def get_api (self):
         ret = dict ()
         # Supply counts, but only if we have some
