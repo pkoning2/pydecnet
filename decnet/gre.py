@@ -45,8 +45,8 @@ class GREPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[4:4 + l] = msg
             l += 4
-        self.bytes_sent += l
-        self.pkts_sent += 1
+        self.counters.bytes_sent += l
+        self.counters.pkts_sent += 1
         # We don't do padding, since GRE doesn't require it (it isn't
         # real Ethernet and doesn't have minimum frame lenghts)
         self.parent.send_frame (memoryview (f)[:l])
@@ -138,11 +138,11 @@ class GRE (datalink.BcDatalink, StopThread):
                     port = self.ports[proto]
                 except KeyError:
                     # No protocol type match, ignore msg
-                    self.unk_dest += 1
+                    self.counters.unk_dest += 1
                     continue
                 plen = len (msg) - (pos + 4)
-                port.bytes_recv += plen
-                port.pkts_recv += 1
+                port.counters.bytes_recv += plen
+                port.counters.pkts_recv += 1
                 if port.pad:
                     plen2 = msg[pos + 4] + (msg[pos + 5] << 8)
                     if plen < plen2:

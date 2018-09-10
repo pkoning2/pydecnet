@@ -774,8 +774,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 logging.trace ("Received DDCMP message on {} len {}: {!r}",
                                self.name, len (msg), msg)
                 if self.port:
-                    self.bytes_recv += len (msg)
-                    self.pkts_recv += 1
+                    self.counters.bytes_recv += len (msg)
+                    self.counters.pkts_recv += 1
                     self.node.addwork (Received (self.port.owner, packet = msg))
                 else:
                     logging.trace ("Message discarded, no port open")
@@ -908,8 +908,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             # We don't have any maintenance ports yet, so for now just
             # discard the packet
             if False: #self.port:
-                self.bytes_recv += len (msg)
-                self.pkts_recv += 1
+                self.counters.bytes_recv += len (msg)
+                self.counters.pkts_recv += 1
                 self.node.addwork (Received (self.port.owner, packet = msg))
             else:
                 logging.trace ("Message discarded, no port open")
@@ -937,8 +937,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             mlen = len (data)
             logging.trace ("Sending DDCMP message on {} len {}: {!r}",
                            self.name, mlen, data)
-            self.bytes_sent += mlen
-            self.pkts_sent += 1
+            self.counters.bytes_sent += mlen
+            self.counters.pkts_sent += 1
             # Build a DDCMP Data message.
             crc = CRC16 (data)
             msg = DataMsg (payload = data + bytes (crc), count = mlen,
