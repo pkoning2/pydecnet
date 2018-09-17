@@ -92,7 +92,7 @@ class SelfAdj (adjacency.Adjacency):
         # here as well) are not counted since there isn't any circuit
         # on which to count them.
         if pkt.src and pkt.src.circuit:
-            pkt.src.circuit.term_recv += 1
+            pkt.src.circuit.datalink.counters.term_recv += 1
         work = Received (self.node.nsp, packet = pkt.payload,
                          src = pkt.srcnode, rts = pkt.rts)
         self.node.addwork (work, self.node.nsp)

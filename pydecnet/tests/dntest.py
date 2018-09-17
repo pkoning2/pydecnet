@@ -178,7 +178,7 @@ class DnTest (unittest.TestCase):
         for l in range (1, maxlen):
             try:
                 ret = cls (b[:l])
-                self.fail ("Accepted truncated data: %d %s" % (l, ret))
+                self.fail ("Accepted truncated data: length %d result %s" % (l, ret))
             except packet.DecodeError:
                 pass
             except AssertionError:
@@ -188,6 +188,24 @@ class DnTest (unittest.TestCase):
                            % (e, b[:l], l))
         ret = cls ()
         ret.decode (b)
+        return ret
+
+    def shortfield (self, b, cls, maxlen = None):
+        if not maxlen:
+            maxlen = len (b) - 1
+        for l in range (1, maxlen):
+            try:
+                ret, x = cls.decode (b[:l])
+                self.fail ("Accepted truncated data: length %d result %s" % (l, ret))
+            except packet.DecodeError:
+                pass
+            except AssertionError:
+                raise
+            except Exception as e:
+                self.fail ("Unexpected exception %s for input %s (len %d)"
+                           % (e, b[:l], l))
+        ret, b = cls.decode (b)
+        self.assertEqual (b, b"")
         return ret
     
 _port = 6665

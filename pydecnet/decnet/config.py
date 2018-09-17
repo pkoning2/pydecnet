@@ -176,13 +176,14 @@ cp.add_argument ("--inbound-verification", default = None,
 cp = config_cmd ("nsp", "NSP layer configuration")
 # The choices are given as a list not a set so they will be shown
 # in order in the help string:
-cp.add_argument ("--max-connections", type = int, default = 4095,
+cp.add_argument ("--max-connections", type = int, default = 4095, metavar = "MC",
                  choices = [ (1 << i) - 1 for i in range (8, 16) ],
-                 help = "Maximum number of connections")
-cp.add_argument ("--nsp-weight", type = int, default = 3,
+                 help = """Maximum number of connections, choice of
+                        255, 511, 1023, 2047, 4095, 8191, 16383, 32767""")
+cp.add_argument ("--nsp-weight", type = int, default = 3, metavar = "W",
                  choices = range (256),
                  help = "NSP round trip averaging weight (range 0..255)")
-cp.add_argument ("--nsp-delay", type = float, default = 2.0,
+cp.add_argument ("--nsp-delay", type = float, default = 2.0, metavar = "D",
                  help = "NSP round trip delay factor (range 1..15.94)")
 
 cp = config_cmd ("logging", "Event logging configuration", collection = True,
@@ -196,6 +197,28 @@ cp.add_argument ("--sink-file", type = str, default = "events.dat",
 cp.add_argument ("--events", type = str, default = "",
                  help = "Events to enable (default: known events for"
                  " local console, none otherwise")
+
+cp = config_cmd ("session", "Session Control layer configuration")
+cp.add_argument ("--default-user", metavar = "DEF",
+                 help = """Default username for objects with default
+                        authentication enabled""")
+
+cp = config_cmd ("object", "Session Control object", collection = True)
+cp.add_argument ("--name", help = "Object name")
+cp.add_argument ("--number", type = int, choices = range (1, 256),
+                 default = 0, metavar = "N", help = "Object number")
+ogroup = cp.add_mutually_exclusive_group ()
+ogroup.add_argument ("--file", metavar = "FN",
+                     help = "Program file name to execute")
+ogroup.add_argument ("--module", metavar = "M",
+                     help = "Python module identifier to execute")
+cp.add_argument ("--argument", metavar = "A",
+                 help = "Optional argument to pass to application when started")
+cp.add_argument ("--authentication", choices = ("on", "off"), default = "on",
+                 help = """'on' to have PyDECnet verify username/password,
+                        'off' to ignore username/password.  Default: on.""")
+cp.add_argument ("--disable", action = "store_true", default = False,
+                 help = "Disable built-in object")
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", type = str, help = "Bridge name")

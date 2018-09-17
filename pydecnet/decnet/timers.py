@@ -22,7 +22,7 @@ class Cque (object):
 
     reset = __init__
     
-    def add (self, item):
+    def add_after (self, item):
         """Insert "item" as the successor of this object, i.e., first
         on the list if this is the list head.
         """
@@ -30,6 +30,15 @@ class Cque (object):
         item.next = self.next
         self.next.prev = item
         self.next = item
+
+    def add_before (self, item):
+        """Insert "item" as the predecessor of this object, i.e., last
+        on the list if this is the list head.
+        """
+        item.next = self
+        item.prev = self.prev
+        self.prev.next = item
+        self.prev = item
 
     def remove (self):
         """Remove this item from whatever circular queue it is on.
@@ -111,7 +120,11 @@ class TimerWheel (Element, StopThread):
         with self.lock:
             pos = (self.pos + ticks) % self.maxtime
             item.remove ()
-            self.wheel[pos].add (item)
+            # Add this new item to the end of the list.  This is
+            # important to insure that items with the same expiration
+            # time expire in the order they were added.  NSP needs
+            # that to avoid retransmitting packets out of order.
+            self.wheel[pos].add_before (item)
         logging.trace ("Started {} second timeout for {}", timeout, item)
         
     def run (self):

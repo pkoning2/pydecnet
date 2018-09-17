@@ -245,6 +245,34 @@ class packet_encoding_meta (type):
             
 class ReadOnlyError (AttributeError): "Attempt to change a read-only attribute"
 
+def encode_i_value (val, maxlen):
+    if isinstance (val, str):
+        val = bytes (val, "latin-1", "ignore")
+    vl = len (val)
+    if vl > maxlen:
+        logging.debug ("Value too long for {} byte field", maxlen)
+        raise FieldOverflow
+    return byte (vl) + val
+
+def decode_i_value (buf, maxlen):
+    if not buf:
+        logging.debug ("No data left for image field")
+        raise MissingData
+    flen = buf[0]
+    if flen > maxlen:
+        logging.debug ("Image field length {} longer than max length {}",
+                       flen, maxlen)
+        raise FieldOverflow (flen, maxlen)
+    v = buf[1:flen + 1]
+    if len (v) != flen:
+        logging.debug ("Not {} bytes left for image field", flen)
+        raise MissingData
+    return flen, v
+
+def decode_a_value (buf, maxlen):
+    flen, v = decode_i_value (buf, maxlen)
+    return flen, str (v, encoding = "latin1")
+
 class Packet (metaclass = packet_encoding_meta):
     """Base class for DECnet packets.
 
@@ -354,31 +382,14 @@ class Packet (metaclass = packet_encoding_meta):
         signalled.
         """
         val = getattr (self, field, b"")
-        if isinstance (val, str):
-            val = bytes (val, "latin-1", "ignore")
-        vl = len (val)
-        if vl > maxlen:
-            logging.debug ("Value too long for {} byte field", maxlen)
-            raise FieldOverflow
-        return byte (vl) + val
+        return encode_i_value (val, maxlen)
 
     def decode_i (self, buf, field, maxlen):
         """Decode "field" from an image field with max length "maxlen".
         If the field is too large, packet format error is signalled.
         Returns the remaining buffer.
         """
-        if not buf:
-            logging.debug ("No data left for image field")
-            raise MissingData
-        flen = buf[0]
-        if flen > maxlen:
-            logging.debug ("Image field length {} longer than max length {}",
-                           flen, maxlen)
-            raise FieldOverflow (flen, maxlen)
-        v = buf[1:flen + 1]
-        if len (v) != flen:
-            logging.debug ("Not {} bytes left for image field", flen)
-            raise MissingData
+        flen, v = decode_i_value (buf, maxlen)
         setattr (self, field, v)
         return buf[flen + 1:]
 
@@ -389,18 +400,8 @@ class Packet (metaclass = packet_encoding_meta):
         The value found is converted to a Latin-1 string.
         Returns the remaining buffer.
         """
-        if not buf:
-            logging.debug ("No data left for image field")
-            raise MissingData
-        flen = buf[0]
-        if flen > maxlen:
-            logging.debug ("Image field longer than max length {}", maxlen)
-            raise FieldOverflow
-        v = buf[1:flen + 1]
-        if len (v) != flen:
-            logging.debug ("Not {} bytes left for image field", flen)
-            raise MissingData
-        setattr (self, field, str (v, encoding = "latin1"))
+        flen, v = decode_a_value (buf, maxlen)
+        setattr (self, field, v)
         return buf[flen + 1:]
 
     def encode_b (self, field, flen):
