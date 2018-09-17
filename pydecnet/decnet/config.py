@@ -212,13 +212,13 @@ ogroup.add_argument ("--file", metavar = "FN",
                      help = "Program file name to execute")
 ogroup.add_argument ("--module", metavar = "M",
                      help = "Python module identifier to execute")
+ogroup.add_argument ("--disable", action = "store_true", default = False,
+                     help = "Disable built-in object")
 cp.add_argument ("--argument", metavar = "A",
                  help = "Optional argument to pass to application when started")
 cp.add_argument ("--authentication", choices = ("on", "off"), default = "on",
                  help = """'on' to have PyDECnet verify username/password,
                         'off' to ignore username/password.  Default: on.""")
-cp.add_argument ("--disable", action = "store_true", default = False,
-                 help = "Disable built-in object")
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", type = str, help = "Bridge name")

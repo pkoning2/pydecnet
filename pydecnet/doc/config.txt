@@ -333,10 +333,13 @@ the shell as an executable command, either an explicit path spec
 pointing to an executable file, or a command that is mapped to a
 program via the PATH environment variable.
 
---module: Python module specification.  Either file or module must be
-specified.  If module is specified, the object is executed within
-PyDECnet.  The argument is a Python module identifier, for example
-"decnet.mirror".
+--module: Python module specification.  Either --file, --module, or
+--disable must be specified.  If module is specified, the object is
+executed within PyDECnet.  The argument is a Python module
+identifier, for example "decnet.mirror".
+
+--disable: If specified for an entry that matches a built-in object
+(for example --number 25, which is MIRROR), disables that object.
 
 --argument: An optional argument to pass to the application when it is
 started.   PyDECnet does not interpret this.
@@ -344,9 +347,6 @@ started.   PyDECnet does not interpret this.
 --authentication: Either "on" (the default) or "off".  "on" means that
 PyDECnet will verify the supplied authentication information, "off"
 means that information is not needed and is ignored if present.
-
---disable: If specified for an entry that matches a built-in object
-(for example --number 25, which is MIRROR), disables that object.
 
 Component "bridge"
 
