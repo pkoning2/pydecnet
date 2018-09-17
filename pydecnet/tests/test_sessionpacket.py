@@ -57,7 +57,7 @@ class test_packets (DnTest):
     def test_ci (self):
         # Basic CI, no optional fields
         p = b"\x00\x15\x01\x00\x04PAUL\x00"
-        baseci = self.short (p, session.ConnectInit)
+        baseci = self.short (p, session.SessionConnInit)
         self.assertEqual (baseci.dstname.num, 21)
         self.assertEqual (baseci.srcname.name, "PAUL")
         self.assertEqual (baseci.auth, 0)
@@ -68,7 +68,7 @@ class test_packets (DnTest):
         self.assertEqual (baseci.connectdata, b"")
         # CI with auth data
         p = b"\x00\x15\x01\x00\x04PAUL\x01\x04User\x08Password\x03Act"
-        baseci = self.short (p, session.ConnectInit)
+        baseci = self.short (p, session.SessionConnInit)
         self.assertEqual (baseci.dstname.num, 21)
         self.assertEqual (baseci.srcname.name, "PAUL")
         self.assertEqual (baseci.auth, 1)
@@ -79,7 +79,7 @@ class test_packets (DnTest):
         self.assertEqual (baseci.connectdata, b"")
         # CI with application connect data
         p = b"\x00\x15\x01\x00\x04PAUL\x02\x04Conn"
-        baseci = self.short (p, session.ConnectInit)
+        baseci = self.short (p, session.SessionConnInit)
         self.assertEqual (baseci.dstname.num, 21)
         self.assertEqual (baseci.srcname.name, "PAUL")
         self.assertEqual (baseci.auth, 0)
@@ -90,7 +90,7 @@ class test_packets (DnTest):
         self.assertEqual (baseci.connectdata, b"Conn")
         # CI with both optional elements
         p = b"\x00\x15\x01\x00\x04PAUL\x03\x04User\x08Password\x03Act\x05Hello"
-        baseci = self.short (p, session.ConnectInit)
+        baseci = self.short (p, session.SessionConnInit)
         self.assertEqual (baseci.dstname.num, 21)
         self.assertEqual (baseci.srcname.name, "PAUL")
         self.assertEqual (baseci.auth, 1)
