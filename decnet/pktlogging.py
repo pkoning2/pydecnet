@@ -66,5 +66,5 @@ def tracepkt (msg, pkt, layer = 2):
             pkt = b''
     if pkt:
         parse.append (str (pkt))
-    logging.trace ("{}{}".format (msg, "\n  ".join (parse)))
+    logging.trace ("{}{}", msg, "\n  ".join (parse))
     

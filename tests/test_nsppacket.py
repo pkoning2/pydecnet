@@ -3,7 +3,6 @@
 from tests.dntest import *
 
 from decnet import nsp
-from decnet.timers import Timeout
 from decnet import logging
 
 rcount = 5000

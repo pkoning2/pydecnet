@@ -388,3 +388,16 @@ value.  For example:
    "aa-00-04-00-01-08" : "ETH-43",
    "aa-00-04-00-0b-08" : "ETH-42"
 }
+
+API for Session
+
+POST requests to the session layer implement the session control API,
+allowing DECnet applications to be written as programs that request
+service from the session layer via the API.  Such programs may request
+outbound connections, or handle inbound ones, or both.  A simple
+example can be found in samples/mirror.py, which implements the
+standard Mirror protocol via the API.  Note that normally Mirror is a
+built-in object (its code is in decnet/mirror.py) but it is possible
+to override that by specifying a file to execute instead, using:
+  object --number 25 --file samples/mirror.py
+  

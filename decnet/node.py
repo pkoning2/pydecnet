@@ -21,6 +21,7 @@ from . import nsp
 from . import http
 from . import event_logger
 from . import bridge
+from . import session
 
 class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     """A container for node database entries.  This contains the attributes
@@ -64,7 +65,7 @@ class Node (Entity):
     entire network within a single process).
     """
     startlist = ( "event_logger", "datalink", "mop", "routing", "nsp",
-                  "bridge" )
+                  "session", "bridge" )
 
     def __init__ (self, config):
         self.node = self
@@ -89,7 +90,7 @@ class Node (Entity):
             self.nodename = self.nodeinfo (self.nodeid).nodename
         else:
             # bridge, dummy up some attributes
-            self.mop = self.routing = self.nsp = None
+            self.mop = self.routing = self.nsp = self.session = None
             self.phase = 0
             self.nodeid = None
             self.nodename = config.bridge.name
@@ -105,6 +106,7 @@ class Node (Entity):
             self.mop = mop.Mop (self, config)
             self.routing = routing.Router (self, config)
             self.nsp = nsp.NSP (self, config)
+            self.session = session.Session (self, config)
         else:
             self.bridge = bridge.Bridge (self, config)
 

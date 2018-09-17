@@ -309,6 +309,45 @@ terminate at this node.  Allowed values are 255, 511, 1023, 2047,
 specification, specifically the section discussing "intercept"
 operation. 
 
+Component "object"
+
+This defines a session control object -- an application that can be
+started by inbound connection requests matching the supplied name or
+number.
+
+Some objects are built into PyDECnet, for example object 25
+("MIRROR").  Those can still be overridden by definitions in the
+config file, or turned off by an entry that has the --disable switch.
+
+--number: Object number, in the range 1 to 255.  Numbers 1 through 127
+are defined by Digital, higher values are "for customer use".
+
+--name: Object name, a string of up to 16 characters.  It will be
+converted to upper case.  For each object, at least one of name and
+number must be specified; if both are specified then the object can be
+referenced either by connections that ask for a number, or ones that
+ask for the object by name.
+
+--file: Command to run.  This is a string that would be recognized by
+the shell as an executable command, either an explicit path spec
+pointing to an executable file, or a command that is mapped to a
+program via the PATH environment variable.
+
+--module: Python module specification.  Either file or module must be
+specified.  If module is specified, the object is executed within
+PyDECnet.  The argument is a Python module identifier, for example
+"decnet.mirror".
+
+--argument: An optional argument to pass to the application when it is
+started.   PyDECnet does not interpret this.
+
+--authentication: Either "on" (the default) or "off".  "on" means that
+PyDECnet will verify the supplied authentication information, "off"
+means that information is not needed and is ignored if present.
+
+--disable: If specified for an entry that matches a built-in object
+(for example --number 25, which is MIRROR), disables that object.
+
 Component "bridge"
 
 This component is required for a Bilquist bridge node.  Its only
