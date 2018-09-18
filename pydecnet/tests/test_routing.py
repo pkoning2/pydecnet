@@ -230,6 +230,14 @@ class test_ethend (rtest):
         # Check that last received count doesn't change
         self.lastwork (2)
         self.assertEqual (self.c1.datalink.counters.term_recv, 2)
+
+    def test_sendself (self):
+        # Send a packet to our own address
+        self.r.send (b"payload", Nodeid (1, 5))
+        w = self.lastwork (1)
+        self.assertEqual (w.packet, b"payload")
+        self.assertEqual (w.src, Nodeid (1, 5))
+        self.assertFalse (w.rts)
         
 class test_ptpend (rtest):
     ntype = "endnode"
@@ -475,6 +483,14 @@ class test_ptpend (rtest):
         w = self.lastwork (2)
         self.assertEqual (w.packet, b"\x00abcdef payload")
         self.assertEqual (w.src, Nodeid (1, 66))
+        self.assertFalse (w.rts)
+
+    def test_sendself (self):
+        # Send a packet to our own address
+        self.r.send (b"payload", Nodeid (1, 5))
+        w = self.lastwork (2)
+        self.assertEqual (w.packet, b"payload")
+        self.assertEqual (w.src, Nodeid (1, 5))
         self.assertFalse (w.rts)
         
 class test_ph2 (rtest):
@@ -859,6 +875,14 @@ class test_ph4l1a (rtest):
         w = self.lastwork (4)
         self.assertEqual (w.packet, b"\x00Other payload")
         self.assertEqual (w.src, Nodeid (1, 44))
+        self.assertFalse (w.rts)
+
+    def test_sendself (self):
+        # Send a packet to our own address
+        self.r.send (b"payload", Nodeid (1, 5))
+        w = self.lastwork (3)
+        self.assertEqual (w.packet, b"payload")
+        self.assertEqual (w.src, Nodeid (1, 5))
         self.assertFalse (w.rts)
 
 if __name__ == "__main__":
