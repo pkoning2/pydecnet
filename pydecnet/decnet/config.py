@@ -49,6 +49,7 @@ configparser = dnparser (prog = "", add_help = False)
 configparser.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
 subparser = configparser.add_subparsers ()
 coll_init = set ()
+list_init = set ()
 single_init = set ()
 
 class LoggingConfig (argparse.Namespace):
@@ -57,13 +58,15 @@ class LoggingConfig (argparse.Namespace):
     def name (self):
         return (self.sink_node, self.type)
     
-def config_cmd (name, help, collection = False, namespace = None):
+def config_cmd (name, help, collection = False, clist = False, namespace = None):
     cp = subparser.add_parser (name, add_help = False)
     cp.add_argument ("-h", action = "help", help = argparse.SUPPRESS)
-    cp.set_defaults (collection = collection, attr = name,
+    cp.set_defaults (collection = collection, clist = clist, attr = name,
                      namespace = namespace)
     if collection:
         coll_init.add (name)
+    elif clist:
+        list_init.add (name)
     else:
         single_init.add (name)
     return cp
@@ -203,7 +206,7 @@ cp.add_argument ("--default-user", metavar = "DEF",
                  help = """Default username for objects with default
                         authentication enabled""")
 
-cp = config_cmd ("object", "Session Control object", collection = True)
+cp = config_cmd ("object", "Session Control object", clist = True)
 cp.add_argument ("--name", help = "Object name")
 cp.add_argument ("--number", type = int, choices = range (1, 256),
                  default = 0, metavar = "N", help = "Object number")
@@ -241,6 +244,9 @@ class Config (object):
         # First supply empty dicts for each collection config component
         for name in coll_init:
             setattr (self, name, dict ())
+        # Similarly, lists for where we want that
+        for name in list_init:
+            setattr (self, name, list ())
         # Also set defaults for non-collections:
         for name in single_init:
             p, msg = configparser.parse_args ([ name ])
@@ -270,6 +276,8 @@ class Config (object):
                     p.__class__ = p.namespace
                 if p.collection:
                     getattr (self, p.attr)[p.name] = p
+                elif p.clist:
+                    getattr (self, p.attr).append (p)
                 else:
                     setattr (self, p.attr, p)
         f.close ()
