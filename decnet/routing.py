@@ -365,7 +365,11 @@ class EndnodeRouting (BaseRouter):
                         payload = data, src = None)
         logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.datalink.counters.orig_sent += 1
-        return self.circuit.send (pkt, None, tryhard)
+        if dest != self.nodeid:
+            return self.circuit.send (pkt, None, tryhard)
+        else:
+            # Addressed to self, send it back up to NSP.
+            self.dispatch (pkt)
 
     def dispatch (self, item):
         """A received packet is sent up to NSP if it is for this node,
