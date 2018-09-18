@@ -327,6 +327,7 @@ class Session (Element):
                     else:
                         awork = Disconnect (self, message = pkt.data_ctl,
                                             connection = conn, reason = pkt.reason)
+                    del self.conns[nspconn]
                 else:
                     logging.debug ("Unexpected work item {}", item)
                     return
