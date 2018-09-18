@@ -99,3 +99,6 @@ class test_packets (DnTest):
         self.assertEqual (baseci.account, "Act")
         self.assertEqual (baseci.userdata, 1)
         self.assertEqual (baseci.connectdata, b"Hello")
+
+if __name__ == "__main__":
+    unittest.main ()

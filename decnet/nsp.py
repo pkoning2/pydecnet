@@ -66,6 +66,12 @@ class AckNum (object):
 
     def __str__ (self):
         return "{} {}".format (self._labels[self.qual], self.num)
+
+    def __eq__ (self, other):
+        return self.num == other.num and self.qual == other.qual
+
+    def __ne__ (self, other):
+        return not self == other
     
     @classmethod
     def decode (cls, buf):
@@ -407,7 +413,7 @@ class NSP (Element):
                 t = msgmap[msgflg]
             except KeyError:
                 # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
-                logging.trace ("NSP packet received from {}: {}",
+                logging.trace ("Ill formatted NSP packet received from {}: {}",
                                item.src, item.packet)
                 logging.trace ("Unrecognized msgflg value {}, ignored", msgflg)
                 # FIXME: this needs to log the message in the right format
@@ -462,6 +468,8 @@ class NSP (Element):
                         try:
                             conn = Connection (self, inbound = item)
                             self.rconnections[cikey] = conn
+                            # All done (constructor did all the work)
+                            return
                         except Exception:
                             # Can't create another connection, give it
                             # to the reserved port for a No Resources reply.
@@ -733,7 +741,7 @@ class Data_Subchannel (Subchannel):
             if ql > Seq.maxdelta or \
                (self.flow == ConnMsg.SVC_SEG and ql > self.reqnum) or \
                (self.flow == ConnMsg.SVC_MSG and self.mm () > self.reqnum):
-                # Not allowed to send.  The firs term is there because we
+                # Not allowed to send.  The first term is there because we
                 # queue without limit, but we can't ever have more than
                 # half the sequence number space worth of packets in
                 # flight.  So even without flow control, the limit of
@@ -1220,8 +1228,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         straight to RUN state).
         """
         pkt = item.packet
-        if isinstance (pkt, (AckData, IntMsg, LinkSvcMsg, AckOther)):
-            self.data.ack (0)   # Treat as ACK of CC message
+        if isinstance (pkt, (DataSeg, AckData, IntMsg, LinkSvcMsg, AckOther)):
+            self.data.ack (0)   # Treat ack or data as ACK of CC message
         self.state = self.run
         return self.run (item)
 
@@ -1278,6 +1286,7 @@ class ReservedPort (Element):
         response depends on what we're replying to.
         """
         pkt = item.packet
+        logging.trace ("Processing {} in reserved port", pkt)
         if isinstance (pkt, ConnInit):
             # ConnInit could not be mapped, send No Resources
             t = NoRes
