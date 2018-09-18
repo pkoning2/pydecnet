@@ -350,7 +350,7 @@ class TestObject (Logchecker):
         self.assertEqual (cc.authentication, "off")
         self.assertEqual (cc.argument, "hello")
 
-class TestNSP_err (Logchecker):
+class TestObject_err (Logchecker):
     req = """routing 1.1
     """
     loglevel = logging.CRITICAL
