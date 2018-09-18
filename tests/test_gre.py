@@ -78,9 +78,9 @@ class TestGre (DnTest):
         w = self.lastwork (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
-        self.assertEqual (self.gre.unk_dest, 0)
-        self.assertEqual (self.gre.bytes_recv, 32)
-        self.assertEqual (self.rport.bytes_recv, 32)
+        self.assertEqual (self.gre.counters.unk_dest, 0)
+        self.assertEqual (self.gre.counters.bytes_recv, 32)
+        self.assertEqual (self.rport.counters.bytes_recv, 32)
         
     def test_rcvdemux (self):
         rcirc = self.circ ()
@@ -92,26 +92,26 @@ class TestGre (DnTest):
         w = self.lastwork (1)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
-        self.assertEqual (self.gre.unk_dest, 0)
-        self.assertEqual (self.gre.bytes_recv, 32)
-        self.assertEqual (self.lport.bytes_recv, 0)
-        self.assertEqual (self.rport.bytes_recv, 32)
+        self.assertEqual (self.gre.counters.unk_dest, 0)
+        self.assertEqual (self.gre.counters.bytes_recv, 32)
+        self.assertEqual (self.lport.counters.bytes_recv, 0)
+        self.assertEqual (self.rport.counters.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x90\x00" + self.tdata)
         w = self.lastwork (2)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (w.packet, self.tdata)
-        self.assertEqual (self.gre.unk_dest, 0)
-        self.assertEqual (self.gre.bytes_recv, 62)
-        self.assertEqual (self.lport.bytes_recv, 30)
-        self.assertEqual (self.rport.bytes_recv, 32)
+        self.assertEqual (self.gre.counters.unk_dest, 0)
+        self.assertEqual (self.gre.counters.bytes_recv, 62)
+        self.assertEqual (self.lport.counters.bytes_recv, 30)
+        self.assertEqual (self.rport.counters.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x91\x00" + self.tdata)
         self.lastwork (2)   # Check that nothing new is posted
-        if self.gre.unk_dest != 1:
+        if self.gre.counters.unk_dest != 1:
             time.sleep (0.1)
-        self.assertEqual (self.gre.unk_dest, 1)
-        self.assertEqual (self.gre.bytes_recv, 62)
-        self.assertEqual (self.lport.bytes_recv, 30)
-        self.assertEqual (self.rport.bytes_recv, 32)
+        self.assertEqual (self.gre.counters.unk_dest, 1)
+        self.assertEqual (self.gre.counters.bytes_recv, 62)
+        self.assertEqual (self.lport.counters.bytes_recv, 30)
+        self.assertEqual (self.rport.counters.bytes_recv, 32)
 
     def test_xmit (self):
         self.rport = self.gre.create_port (self.node, ROUTINGPROTO)
@@ -125,9 +125,9 @@ class TestGre (DnTest):
         expected = b"\x00\x00\x60\x03\x1e\x00four score and seven years ago"
         self.assertEqual (addr, dest)
         self.assertEqual (b[:len (expected)], expected)
-        self.assertEqual (self.gre.bytes_sent, 36)
-        self.assertEqual (self.lport.bytes_sent, 0)
-        self.assertEqual (self.rport.bytes_sent, 36)
+        self.assertEqual (self.gre.counters.bytes_sent, 36)
+        self.assertEqual (self.lport.counters.bytes_sent, 0)
+        self.assertEqual (self.rport.counters.bytes_sent, 36)
         self.lport.send (b"four score and seven years ago", None)
         data = self.sock.sendto.call_args
         a, k = data
@@ -136,9 +136,9 @@ class TestGre (DnTest):
         expected = b"\x00\x00\x90\x00four score and seven years ago"
         self.assertEqual (addr, dest)
         self.assertEqual (b[:len (expected)], expected)
-        self.assertEqual (self.gre.bytes_sent, 70)
-        self.assertEqual (self.lport.bytes_sent, 34)
-        self.assertEqual (self.rport.bytes_sent, 36)
+        self.assertEqual (self.gre.counters.bytes_sent, 70)
+        self.assertEqual (self.lport.counters.bytes_sent, 34)
+        self.assertEqual (self.rport.counters.bytes_sent, 36)
 
     def test_randpdu (self):
         rcirc = self.circ ()

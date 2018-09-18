@@ -98,7 +98,7 @@ class PtpCircuit (statemachine.StateMachine):
         
     def restart (self, event = None, msg = None, **kwargs):
         if self.state == self.ru:
-            self.cir_down += 1
+            self.datalink.counters.cir_down += 1
             if self.adj:
                 self.adj.down ()
         if msg:
@@ -448,7 +448,7 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, timers.Timeout):
             # Process timeout
-            self.counters.init_fail += 1
+            self.datalink.counters.init_fail += 1
             return self.restart (msg = "timeout")
         elif isinstance (item, Received):
             # Process received packet
@@ -460,7 +460,7 @@ class PtpCircuit (statemachine.StateMachine):
                         pkt.srcnode > self.parent.maxnodes ):
                     logging.debug ("{} Phase II node id out of range: {}",
                                    self.name, pkt.srcnode)
-                    self.counters.init_fail += 1
+                    self.datalink.counters.init_fail += 1
                     n = self.optnode (pkt.srcnode)
                     return self.restart (events.init_oper,
                                          "node id out of range",
@@ -529,7 +529,7 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.ntype not in { ENDNODE, L1ROUTER, L2ROUTER } \
                            or pkt.blo:
                         # Log invalid packet (bad node type or blocking)
-                        self.counters.init_fail += 1
+                        self.datalink.counters.init_fail += 1
                         return self.restart (events.init_swerr,
                                              "bad ntype",
                                              adjacent_node = self.optnode (),
@@ -546,7 +546,7 @@ class PtpCircuit (statemachine.StateMachine):
                          and area != self.parent.homearea):
                         logging.debug ("{} Node address out of range: {}",
                                        self.name, pkt.srcnode)
-                        self.counters.init_fail += 1
+                        self.datalink.counters.init_fail += 1
                         n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
@@ -565,7 +565,7 @@ class PtpCircuit (statemachine.StateMachine):
                         return
                     if pkt.ntype not in { ENDNODE, L1ROUTER }:
                         # Log invalid packet (bad node type)
-                        self.counters.init_fail += 1
+                        self.datalink.counters.init_fail += 1
                         return self.restart (events.init_swerr,
                                              "bad ntype for phase 3",
                                              adjacent_node = self.optnode (),
@@ -576,7 +576,7 @@ class PtpCircuit (statemachine.StateMachine):
                             pkt.srcnode > self.parent.maxnodes ):
                         logging.debug ("{} Phase III node id out of range: {}",
                                        self.name, pkt.srcnode)
-                        self.counters.init_fail += 1
+                        self.datalink.counters.init_fail += 1
                         n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
@@ -585,7 +585,7 @@ class PtpCircuit (statemachine.StateMachine):
                     if pkt.ntype == L1ROUTER and \
                        self.parent.ntype in { L1ROUTER, L2ROUTER } and \
                        pkt.blksize < self.parent.maxnodes * 2 + 6:
-                        self.counters.init_fail += 1
+                        self.datalink.counters.init_fail += 1
                         n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
                                              "node id out of range",
@@ -639,7 +639,7 @@ class PtpCircuit (statemachine.StateMachine):
                 return self.ru
             else:
                 # Some unexpected message
-                self.counters.init_fail += 1
+                self.datalink.counters.init_fail += 1
                 return self.restart (events.init_swerr,
                                      "unexpected message",
                                      adjacent_node = self.optnode (),
@@ -647,7 +647,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
-            self.counters.init_fail += 1
+            self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
                                  adjacent_node = self.optnode (),
@@ -666,7 +666,7 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if isinstance (item, timers.Timeout):
             # Process timeout
-            self.counters.init_fail += 1
+            self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault, 
                                  "verification timeout",
                                  adjacent_node = self.optnode (),
@@ -678,7 +678,7 @@ class PtpCircuit (statemachine.StateMachine):
             if not verif:
                 logging.debug ("{} verification required but not set",
                                self.name)
-                self.counters.init_fail += 1
+                self.datalink.counters.init_fail += 1
                 self.routing.ver_rejects += 1
                 return self.restart (events.ver_rej,
                                      "verification reject",
@@ -688,7 +688,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if self.rphase > 2 and not self.checksrc (pkt.srcnode):
                     logging.debug ("{} packet from wrong node {}",
                                    self.name, pkt.srcnode)
-                    self.counters.init_fail += 1
+                    self.datalink.counters.init_fail += 1
                     return self.restart (events.adj_down, 
                                          "adjacency down",
                                          adjacent_node = self.optnode (),
@@ -696,7 +696,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if pkt.fcnval != verif:
                     logging.debug ("{} verification value mismatch",
                                    self.name)
-                    self.counters.init_fail += 1
+                    self.datalink.counters.init_fail += 1
                     self.routing.ver_rejects += 1
                     return self.restart (events.ver_rej, 
                                          "verification reject",
@@ -709,7 +709,7 @@ class PtpCircuit (statemachine.StateMachine):
                 if pkt.password != verif:
                     logging.debug ("{} verification value mismatch",
                                    self.name)
-                    self.counters.init_fail += 1
+                    self.datalink.counters.init_fail += 1
                     self.routing.ver_rejects += 1
                     return self.restart (events.ver_rej,
                                          "verification reject",
@@ -718,7 +718,7 @@ class PtpCircuit (statemachine.StateMachine):
                 self.up ()
                 return self.ru                
             else:
-                self.counters.init_fail += 1
+                self.datalink.counters.init_fail += 1
                 return self.restart (events.init_swerr,
                                      "unexpected message",
                                      adjacent_node = self.optnode (),
@@ -726,7 +726,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
-            self.counters.init_fail += 1
+            self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
                                  adjacent_node = self.optnode (),
