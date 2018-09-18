@@ -46,6 +46,14 @@ def randpkt (minlen, maxlen):
 class container (object):
     """An empty object, but you can assign attributes to it."""
 
+def start_timer (item, timeout):
+    #print ("starting timeout {} on {}", timeout, item)
+    item.next = False
+    
+def stop_timer (item):
+    #print ("stopping timer on {}", item)
+    item.next = item
+    
 class t_node (node.Node):
     nodeid = Nodeid (42, 1023)
     nodename = "NEMO"
@@ -56,6 +64,8 @@ class t_node (node.Node):
         self.nodeinfo_byid = dict()
         self.addwork = unittest.mock.Mock ()
         self.timers = unittest.mock.Mock ()
+        self.timers.start.side_effect = start_timer
+        self.timers.stop.side_effect = stop_timer
         self.dispatch = unittest.mock.Mock ()
         self.ecounts = collections.Counter ()
         self.event_logger = event_logger.EventLogger (self, None)

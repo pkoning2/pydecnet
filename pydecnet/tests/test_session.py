@@ -1,5 +1,11 @@
 #!/usr/bin/env/python3
 
+"""Unit test for the Session Control layer.
+
+This also tests the mirror application (in a basic way) as part of
+verifying successful connection to an application.  
+"""
+
 from tests.dntest import *
 from decnet import nsp
 from decnet import session
@@ -56,3 +62,11 @@ class test_inbound_err (stest):
         self.assertEqual (m.reject.call_args, unittest.mock.call (session.NO_OBJ, b""))
         self.assertEqual (len (self.s.conns), 0)
         
+class test_outbound (stest):
+    def test_outbound (self):
+        conn = unittest.mock.Mock ()
+        nsp = self.node.nsp
+        nsp.connect.return_value = conn
+
+if __name__ == "__main__":
+    unittest.main ()

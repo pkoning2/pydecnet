@@ -443,3 +443,5 @@ class test_packets_err (DnTest):
         with self.assertRaises (nsp.InvalidLS) as e:
             nsp.LinkSvcMsg (p)
 
+if __name__ == "__main__":
+    unittest.main ()
