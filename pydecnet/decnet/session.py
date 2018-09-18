@@ -250,7 +250,7 @@ class Session (Element):
             # Add default (built-in) objects
             obj = SessionObject (self, d.number, d.name, d.module)
         # Add objects from the config
-        for obj in config.object.values ():
+        for obj in config.object:
             if obj.disable:
                 try:
                     o2 = self.obj_num[obj.number]
