@@ -73,9 +73,9 @@ class rtest (DnTest):
                                             self.dl, self.config)
         self.c.routing = self.r
         self.c.t3 = 15
-        self.c.term_recv = self.c.orig_sent = 0
-        self.c.trans_recv = self.c.trans_sent = 0
-        self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
+        #self.c.term_recv = self.c.orig_sent = 0
+        #self.c.trans_recv = self.c.trans_sent = 0
+        #self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
         self.c.start ()
         self.assertState ("ha")
         self.dispatch ()
@@ -337,7 +337,7 @@ class test_ph3 (rtest):
         # test listen timeout
         self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertEvent (events.circ_down, reason = "listener_timeout",
                           adjacent_node = 2)
         
@@ -578,7 +578,7 @@ class test_ph4 (rtest):
         # test listen timeout
         self.c.adj.dispatch (Timeout (owner = self.c.adj))
         self.assertState ("ha")
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertEvent (events.circ_down, reason = "listener_timeout",
                           adjacent_node = 1026)
         # test restart after circuit down
@@ -1045,7 +1045,7 @@ class test_ph4restart (rtest):
         self.dispatch ()
         self.assertEvent (events.circ_fault, reason = "sync_lost",
                           adjacent_node = 1026)
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertState ("ds")
         
     def test_init (self):
@@ -1056,7 +1056,7 @@ class test_ph4restart (rtest):
                           reason = "unexpected_packet_type",
                           packet_header = ( 1, 1026 ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertState ("ha")
         
     def test_shortinit (self):
@@ -1065,7 +1065,7 @@ class test_ph4restart (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertEvent (events.fmt_err,
                           packet_beginning = b"\x01\x02\x04\x02\x10\x02")
-        self.assertEqual (self.c.cir_down, 0)
+        self.assertEqual (self.c.datalink.counters.cir_down, 0)
         self.assertState ("ru")
         
     def test_init3 (self):
@@ -1076,7 +1076,7 @@ class test_ph4restart (rtest):
                           reason = "unexpected_packet_type",
                           packet_header = ( 1, 2 ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertState ("ha")
         
     def test_init2 (self):
@@ -1088,7 +1088,7 @@ class test_ph4restart (rtest):
                           reason = "unexpected_packet_type",
                           ni_packet_header = ( 0x58, 1, 66, "REMOTE" ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.cir_down, 1)
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertState ("ha")
         
     def test_init_workaround (self):
@@ -1167,7 +1167,7 @@ class test_ph4restart_rv (rtest):
         self.c.dispatch (datalink.DlStatus (owner = self.c, status = False))
         self.assertEvent (events.init_fault, reason = "sync_lost",
                           adjacent_node = Nodeid (1, 2))
-        self.assertEqual (self.c.init_fail, 1)
+        self.assertEqual (self.c.datalink.counters.init_fail, 1)
         self.assertState ("ha")
         self.dispatch ()
         self.assertState ("ds")
@@ -1180,7 +1180,7 @@ class test_ph4restart_rv (rtest):
         self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
                           packet_header = ( 1, 1026 ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.init_fail, 1)
+        self.assertEqual (self.c.datalink.counters.init_fail, 1)
         
     def test_init3 (self):
         self.startup ()
@@ -1190,7 +1190,7 @@ class test_ph4restart_rv (rtest):
         self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
                           packet_header = ( 1, 2 ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.init_fail, 1)
+        self.assertEqual (self.c.datalink.counters.init_fail, 1)
         
     def test_init2 (self):
         self.startup ()
@@ -1201,7 +1201,7 @@ class test_ph4restart_rv (rtest):
         self.assertEvent (events.init_swerr, reason = "unexpected_packet_type",
                           ni_packet_header = ( 0x58, 1, 66, "REMOTE" ),
                           adjacent_node = 1026)
-        self.assertEqual (self.c.init_fail, 1)
+        self.assertEqual (self.c.datalink.counters.init_fail, 1)
         
 if __name__ == "__main__":
     unittest.main ()

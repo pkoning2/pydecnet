@@ -18,10 +18,6 @@ class lantest (DnTest):
         super ().setUp ()
         self.r = unittest.mock.Mock ()
         self.r.node = self.node
-        # Counters:
-        self.r.unreach_loss = self.r.aged_loss = self.r.node_oor_loss = 0
-        self.r.oversized_loss = self.r.partial_update_loss = 0
-        self.r.fmt_errors = self.r.ver_rejects = 0        
         self.r.nodeid = Nodeid (1, 5)
         self.r.nodemacaddr = Macaddr (self.r.nodeid)
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
@@ -44,9 +40,6 @@ class lantest (DnTest):
         self.c.parent = self.r
         self.c.node = self.node
         self.c.t3 = 15
-        self.c.term_recv = self.c.orig_sent = 0
-        self.c.trans_recv = self.c.trans_sent = 0
-        self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
         self.c.name = "lan-0"
         self.c.start ()
         

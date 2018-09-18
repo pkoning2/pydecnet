@@ -290,6 +290,76 @@ class TestBridge_err (Logchecker):
         self.checkerr ("bridge", "arguments are required")
         self.checkerr ("bridge", "name")
         self.checkerr ("bridge -frob br-0 cir-0", "unrecognized argument")
+
+class TestObject (Logchecker):
+    req = """routing 1.1
+    """
+
+    def test_num (self):
+        c = self.ctest ("object --number 25")
+        cc = c.object[0]
+        self.assertEqual (cc.number, 25)
+        self.assertIsNone (cc.name)
+        self.assertFalse (cc.disable)
+        self.assertIsNone (cc.file)
+        self.assertIsNone (cc.module)
+        self.assertEqual (cc.authentication, "on")
+        self.assertIsNone (cc.argument)
+        
+    def test_name (self):
+        c = self.ctest ("object --name frob")
+        cc = c.object[0]
+        self.assertEqual (cc.number, 0)
+        self.assertEqual (cc.name, "frob")
+        self.assertFalse (cc.disable)
+        self.assertIsNone (cc.file)
+        self.assertIsNone (cc.module)
+        self.assertEqual (cc.authentication, "on")
+        self.assertIsNone (cc.argument)
+        
+    def test_allargs1 (self):
+        c = self.ctest ("object --number 25 --name mirror --file mir.tec --argument hello --authentication off")
+        cc = c.object[0]
+        self.assertEqual (cc.number, 25)
+        self.assertEqual (cc.name, "mirror")
+        self.assertFalse (cc.disable)
+        self.assertEqual (cc.file, "mir.tec")
+        self.assertIsNone (cc.module)
+        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.argument, "hello")
+        
+    def test_allargs2 (self):
+        c = self.ctest ("object --number 25 --name mirror --disable --argument hello --authentication off")
+        cc = c.object[0]
+        self.assertEqual (cc.number, 25)
+        self.assertEqual (cc.name, "mirror")
+        self.assertTrue (cc.disable)
+        self.assertIsNone (cc.file)
+        self.assertIsNone (cc.module)
+        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.argument, "hello")
+        
+    def test_allargs1 (self):
+        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --authentication off")
+        cc = c.object[0]
+        self.assertEqual (cc.number, 25)
+        self.assertEqual (cc.name, "mirror")
+        self.assertFalse (cc.disable)
+        self.assertIsNone (cc.file)
+        self.assertEqual (cc.module, "decnet.mirror")
+        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.argument, "hello")
+
+class TestNSP_err (Logchecker):
+    req = """routing 1.1
+    """
+    loglevel = logging.CRITICAL
+    
+    def test_errors (self):
+        self.checkerr ("object --frob", "unrecognized arguments")
+        self.checkerr ("object --disable --file foo", "not allowed with argument")
+        self.checkerr ("object --disable --module foo", "not allowed with argument")
+        self.checkerr ("object --file bar --module foo", "not allowed with argument")
         
 if __name__ == "__main__":
     unittest.main ()

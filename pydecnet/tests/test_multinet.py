@@ -39,13 +39,13 @@ class MultinetBase (DnTest):
         self.rport.send (self.testsdu, None)
         b = self.receivedata ()
         self.assertEqual (b, expected)
-        self.assertEqual (self.mult.bytes_sent, len (self.testsdu))
+        self.assertEqual (self.mult.counters.bytes_sent, len (self.testsdu))
         # and another
         expected = self.pdu (1, self.testsdu)
         self.rport.send (self.testsdu, None)
         b = self.receivedata ()
         self.assertEqual (b, expected)
-        self.assertEqual (self.mult.bytes_sent, 2 * len (self.testsdu))
+        self.assertEqual (self.mult.counters.bytes_sent, 2 * len (self.testsdu))
 
     def lastwork (self, calls):
         self.assertEqual (self.node.addwork.call_count, calls)
@@ -66,7 +66,7 @@ class MultinetBase (DnTest):
         w = self.lastwork (2)
         b = w.packet
         self.assertEqual (b, self.testsdu)
-        self.assertEqual (self.mult.bytes_recv, 30)        
+        self.assertEqual (self.mult.counters.bytes_recv, 30)        
 
 class TestMultinetUDP (MultinetBase):
     def setUp (self):
