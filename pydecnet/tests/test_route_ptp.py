@@ -73,9 +73,6 @@ class rtest (DnTest):
                                             self.dl, self.config)
         self.c.routing = self.r
         self.c.t3 = 15
-        #self.c.term_recv = self.c.orig_sent = 0
-        #self.c.trans_recv = self.c.trans_sent = 0
-        #self.c.cir_down = self.c.adj_down = self.c.init_fail = 0
         self.c.start ()
         self.assertState ("ha")
         self.dispatch ()
