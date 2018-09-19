@@ -85,21 +85,21 @@ class EndUser (object):
         fmt = buf[0]
         num = buf[1]
         if fmt > 2:
-            raise BadEndUser ("Invalid end user format")
+            raise BadEndUser ("Invalid end user format {}", fmt)
         if fmt == 0:
             if num == 0:
                 raise BadEndUser ("Format 0 with zero number")
             return cls (num), buf[2:]
         if fmt == 1:
             if num != 0:
-                raise BadEndUser ("Format 1 with non-zero number")
+                raise BadEndUser ("Format 1 with non-zero number {}", num)
             flen, name = packet.decode_a_value (buf[2:], 16)
             if not name:
                 raise BadEndUser ("Format 1 with no name")
             return cls (name = name), buf[3 + flen:]
         # Format 2, we ignore the group/user fields
         if num != 0:
-            raise BadEndUser ("Format 2 with non-zero number")
+            raise BadEndUser ("Format 2 with non-zero number {}", num)
         flen, name = packet.decode_a_value (buf[6:], 16)
         if not name:
             raise BadEndUser ("Format 2 with no name")
