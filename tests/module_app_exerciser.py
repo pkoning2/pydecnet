@@ -8,6 +8,7 @@ various session layer APIs.
 
 from decnet.common import Element
 from decnet import session
+from decnet import logging
 
 class Application (Element):
     def __init__ (self, parent, obj):
@@ -44,5 +45,6 @@ class Application (Element):
             conn.interrupt (b"echo: " + item.message)
         elif isinstance (item, session.Disconnect):
             # Nothing to do
-            pass
+            logging.info ("Disconnected")
+            
         

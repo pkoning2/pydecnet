@@ -94,6 +94,9 @@ class test_inbound (stest):
                       packet = disc, reject = False)
         self.s.dispatch (w)
         self.assertEqual (len (self.s.conns), 0)
+        self.assertEqual (logging.info.call_count, 1)
+        self.assertEqual (logging.info.call_args,
+                          unittest.mock.call ("Disconnected"))
         
     def test_app_disc (self):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
