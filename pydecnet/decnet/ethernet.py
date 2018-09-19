@@ -121,6 +121,10 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             self.counters.unk_dest += 1
             return
         dest = packet[:6]
+        src = Macaddr (packet[6:12])
+        if src.ismulti ():
+            # "source routed"?  Ignore
+            return
         # Note that we don't count packets that fail the address
         # filter, otherwise we'd count lots of stuff for others.
         if dest == port.macaddr or dest in port.destfilter:
@@ -129,7 +133,6 @@ class _Ethernet (datalink.BcDatalink, StopThread):
                 self.counters.mcpkts_recv += 1
             port.counters.bytes_recv += plen
             port.counters.pkts_recv += 1
-            src = Macaddr (packet[6:12])
             if port.pad:
                 plen2 = packet[14] + (packet[15] << 8)
                 if plen < plen2 + 16:

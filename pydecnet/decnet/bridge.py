@@ -85,7 +85,7 @@ class AddrEnt (timers.Timer):
 
     def update (self, circ):
         logging.trace ("MAC address {} moved from circuit {} to {}",
-                       addr, self.circuit, circ)
+                       self.addr, self.circuit, circ)
         self.circuit = circ
         self.alive ()
 
@@ -182,7 +182,9 @@ class Bridge (Element):
             logging.trace ("Received packet from {} on {}", src, circ)
             if dest in self.addrdb:
                 out = self.addrdb[dest].circuit
-                if out is not circ:
+                if out is circ:
+                    logging.trace ("Dropping frame, output == input")
+                else:
                     logging.trace ("Forwarding to {}", out)
                     out.send_frame (packet, work.extra)
             else:
