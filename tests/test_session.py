@@ -19,7 +19,13 @@ class stest (DnTest):
         self.node.phase = 4
         self.config = container ()
         self.config.session = container ()
-        self.config.object = [ ]
+        self.config.object = [ container () ]
+        self.config.object[0].number = 0
+        self.config.object[0].file = None
+        self.config.object[0].disable = False
+        self.config.object[0].name = "TESTER"
+        self.config.object[0].module = "tests.module_app_exerciser"
+        self.config.object[0].argument = "myargument"
         self.node.nsp = unittest.mock.Mock ()
         self.s = session.Session (self.node, self.config)
         #self.setloglevel (logging.TRACE)
@@ -42,7 +48,139 @@ class test_inbound (stest):
                       packet = d, reject = False)
         self.s.dispatch (w)
         self.assertEqual (m.send_data.call_count, 1)
-        self.assertEqual (m.send_data.call_args, unittest.mock.call (b"\x01" + p[1:]))
+        self.assertEqual (m.send_data.call_args,
+                          unittest.mock.call (b"\x01" + p[1:]))
+        # Close the connection
+        disc = nsp.DiscInit (data_ctl = b"", reason = 0)
+        w = Received (owner = self.s, connection = m,
+                      packet = disc, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (len (self.s.conns), 0)
+
+    def test_reject (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06reject"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.reject.call_count, 1)
+        self.assertEqual (m.reject.call_args,
+                          unittest.mock.call (0, b"rejected"))
+        self.assertEqual (len (self.s.conns), 0)
+        
+    def test_inbound_disc (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        # Send a data packet
+        p = b"test data"
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.send_data.call_count, 1)
+        self.assertEqual (m.send_data.call_args,
+                          unittest.mock.call (b"echo: test data"))
+        # Close the connection
+        disc = nsp.DiscInit (data_ctl = b"", reason = 0)
+        w = Received (owner = self.s, connection = m,
+                      packet = disc, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (len (self.s.conns), 0)
+        
+    def test_app_disc (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        # Send a data packet
+        p = b"disconnect"
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.disconnect.call_count, 1)
+        self.assertEqual (m.disconnect.call_args,
+                          unittest.mock.call (session.APPLICATION, b"as requested"))
+        self.assertEqual (len (self.s.conns), 0)
+        
+    def test_app_abort (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        # Send a data packet
+        p = b"abort"
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.abort.call_count, 1)
+        self.assertEqual (m.abort.call_args,
+                          unittest.mock.call (session.ABORT, b"aborted"))
+        self.assertEqual (len (self.s.conns), 0)
+
+    def test_bigdata (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        # Send a data packet
+        p = bytes (range (256)) * 32    # 8k bytes
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.send_data.call_count, 1)
+        self.assertEqual (m.send_data.call_args,
+                          unittest.mock.call (b"echo: " + p))
+        # Close the connection
+        disc = nsp.DiscInit (data_ctl = b"", reason = 0)
+        w = Received (owner = self.s, connection = m,
+                      packet = disc, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (len (self.s.conns), 0)
+        
+    def test_interrupt (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        p = b"interrupt test message"
+        d = nsp.IntMsg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.interrupt.call_count, 1)
+        self.assertEqual (m.interrupt.call_args,
+                          unittest.mock.call (b"echo: " + p))
         # Close the connection
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
@@ -59,8 +197,41 @@ class test_inbound_err (stest):
                       packet = ci, reject = False)
         self.s.dispatch (w)
         self.assertEqual (m.reject.call_count, 1)
-        self.assertEqual (m.reject.call_args, unittest.mock.call (session.NO_OBJ, b""))
+        self.assertEqual (m.reject.call_args,
+                          unittest.mock.call (session.NO_OBJ))
         self.assertEqual (len (self.s.conns), 0)
+        
+    def test_conncrash (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x05crash"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.reject.call_count, 1)
+        self.assertEqual (m.reject.call_args,
+                          unittest.mock.call (session.OBJ_FAIL))
+        self.assertEqual (len (self.s.conns), 0)
+        
+    def test_runcrash (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        # Send a data packet
+        p = b"crash"
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.abort.call_count, 1)
+        self.assertEqual (m.abort.call_args,
+                          unittest.mock.call (session.OBJ_FAIL))
         
 class test_outbound (stest):
     def test_outbound (self):
