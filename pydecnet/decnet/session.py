@@ -28,8 +28,10 @@ class BadEndUser (DecodeError): "Invalid value in EndUser field"
 # Reason codes for connect reject
 APPLICATION = 0     # Application reject (or disconnect)
 NO_OBJ = 4          # Destination end user does not exist
+BAD_FMT = 5         # Connect Init format error
 BAD_AUTH = 34       # Authorization data not valid (username/password)
 BAD_ACCT = 36       # Account not valid
+OBJ_FAIL = 38       # Object failed
 UNREACH = 39        # Destination unreachable
 AUTH_LONG = 43      # Authorization data fields too long
 
@@ -292,7 +294,12 @@ class Session (Element):
                 if not isinstance (pkt, nsp.ConnInit):
                     raise UnexpectedPkt
                 # Parse the connect data
-                spkt = SessionConnInit (pkt.payload)
+                try:
+                    spkt = SessionConnInit (pkt.payload)
+                except packet.DecodeError:
+                    logging.trace ("Invalid Connect Init data {}", pkt.payload)
+                    nspconn.reject (BAD_FMT, b"")
+                    return
                 logging.debug ("ci packet: {}", spkt)
                 # Look up the object
                 try:
@@ -303,7 +310,7 @@ class Session (Element):
                 except KeyError:
                     logging.debug ("Replying with connect reject, no such object {0.num} ({0.name})",
                                    spkt.dstname)
-                    nspconn.reject (NO_OBJ, b"") #TODO
+                    nspconn.reject (NO_OBJ, b"")
                     return
                 conn = SessionConnection (self, nspconn)
                 self.conns[nspconn] = conn
