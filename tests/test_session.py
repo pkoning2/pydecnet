@@ -68,5 +68,14 @@ class test_outbound (stest):
         nsp = self.node.nsp
         nsp.connect.return_value = conn
 
+class test_random (stest):
+    def test_random (self):
+        m = unittest.mock.Mock ()
+        for i in range (5000):
+            pkt = nsp.ConnInit (payload = randpkt (8, 64))
+            w = Received (owner = self.s, connection = m,
+                          packet = pkt, reject = False)
+            self.s.dispatch (w)
+        
 if __name__ == "__main__":
     unittest.main ()
