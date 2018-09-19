@@ -423,7 +423,12 @@ class NSP (Element):
                 # NOP message to be ignored, do so.
                 logging.trace ("NSP NOP packet received from {}: {}", item.src, item.packet)
                 return
-            pkt = t (buf)
+            try:
+                pkt = t (buf)
+            except packet.DecodeError:
+                logging.trace ("Invalid packet {}", buf)
+                # Ignore it
+                return
             if t is DiscConf:
                 # Do a further lookup on disconnect confirm reason code
                 # (step 5)
