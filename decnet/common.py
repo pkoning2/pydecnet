@@ -34,10 +34,16 @@ ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 MSS = MTU - 13           # Max TSDU size
 
 # Exceptions
-class DNAException (Exception): pass
+class DNAException (Exception):
+    def __str__ (self):
+        if self.args:
+            text, *args = self.args
+            return text.format (*args)
+        return self.__doc__
 
 # Exceptions related to packet encode/decode
-class DecodeError (DNAException): pass
+class DecodeError (DNAException):
+    """Packet decode error."""
 class WrongValue (DecodeError):
     """Constant field in packet with wrong value."""
 class ExtraData (DecodeError):
