@@ -33,8 +33,11 @@ class rtest (DnTest):
         self.config.routing.t1 = 50
         self.config.routing.bct1 = 10
         self.config.routing.maxnodes = 100
+        self.config.routing.maxarea = 10
         self.config.routing.maxhops = 5
+        self.config.routing.amaxhops = 5
         self.config.routing.maxcost = 20
+        self.config.routing.amaxcost = 20
         self.config.routing.maxvisits = 30
         self.config.circuit = dict ()
         self.node.datalink = container ()
@@ -49,6 +52,7 @@ class rtest (DnTest):
             self.config.circuit[n].cost = 1
             self.config.circuit[n].priority = 32
             self.config.circuit[n].verify = False
+            self.config.circuit[n].nr = 30
             self.node.datalink.circuits[n] = unittest.mock.Mock ()
             if lan:
                 self.node.datalink.circuits[n].__class__ = datalink.BcDatalink
@@ -885,5 +889,22 @@ class test_ph4l1a (rtest):
         self.assertEqual (w.src, Nodeid (1, 5))
         self.assertFalse (w.rts)
 
+class test_random (rtest):
+    ntype = "endnode"
+    circ = (( "lan-0", True ),)
+
+    def test_random (self):
+        src = Nodeid (1, 42)
+        for i in range (5000):
+            pkt = randpkt (8, 64)
+            w = Received (owner = self.c1, src = src, packet = pkt)
+            self.c1.dispatch (w)
+
+class test_random_rtr (test_random):
+    ntype = "l2router"
+
+class test_random_ptp (test_random_rtr):
+    circ = (( "ptp-0", False ),)
+    
 if __name__ == "__main__":
     unittest.main ()

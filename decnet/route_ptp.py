@@ -52,7 +52,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.t3 = config.t3 or 60
         self.timer = 0
         self.tiver = self.adj = None
-        self.blksize = self.id = 0
+        self.blksize = self.id = self.rphase = 0
         self.verif = config.verify
         self.datalink = datalink.create_port (self)
         self.init_counters ()
