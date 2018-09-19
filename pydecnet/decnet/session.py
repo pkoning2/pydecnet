@@ -221,7 +221,8 @@ class SessionConnection (Element):
         return self.nspconn.accept (data)
 
     def reject (self, data = b""):
-        return self.nspconn.reject (APPLICATION, data)
+        self.nspconn.reject (APPLICATION, data)
+        del self.parent.conns[self.nspconn]
     
     def disconnect (self, data = b""):
         self.nspconn.disconnect (APPLICATION, data)
@@ -300,7 +301,6 @@ class Session (Element):
                     logging.trace ("Invalid Connect Init data {}", pkt.payload)
                     nspconn.reject (BAD_FMT, b"")
                     return
-                logging.debug ("ci packet: {}", spkt)
                 # Look up the object
                 try:
                     if spkt.dstname.num:
@@ -310,33 +310,54 @@ class Session (Element):
                 except KeyError:
                     logging.debug ("Replying with connect reject, no such object {0.num} ({0.name})",
                                    spkt.dstname)
-                    nspconn.reject (NO_OBJ, b"")
+                    nspconn.reject (NO_OBJ)
                     return
                 conn = SessionConnection (self, nspconn)
                 self.conns[nspconn] = conn
                 data = spkt.connectdata
                 awork = ConnectInit (self, message = data, connection = conn)
                 # TODO: find api user in "listen" mode
-                conn.client = sesobj.app_class (self, sesobj)
-                conn.client.dispatch (awork)
+                try:
+                    logging.trace ("starting object {0.num} ({0.name})",
+                                   spkt.dstname)
+                    conn.client = sesobj.app_class (self, sesobj)
+                    conn.client.dispatch (awork)
+                except Exception:
+                    logging.debug ("Object application (module) exception at startup")
+                    nspconn.reject (OBJ_FAIL)
+                    del self.conns[nspconn]
+                    return
             else:
                 conn = self.conns[nspconn]
                 if isinstance (pkt, nsp.DataSeg):
-                    awork = Data (self, message = pkt.payload, connection = conn)
+                    awork = Data (self, message = pkt.payload,
+                                  connection = conn)
                 elif isinstance (pkt, nsp.IntMsg):
-                    awork = Interrupt (self, message = pkt.payload, connection = conn)
+                    awork = Interrupt (self, message = pkt.payload,
+                                       connection = conn)
                 elif isinstance (pkt, nsp.ConnConf):
-                    awork = Accept (self, message = pkt.data_ctl, connection = conn)
+                    awork = Accept (self, message = pkt.data_ctl,
+                                    connection = conn)
                 elif isinstance (pkt, (nsp.DiscInit, nsp.DiscConf)):
                     if item.reject:
-                        awork = Reject (self, message = pkt.data_ctl, connection = conn,
+                        awork = Reject (self, message = pkt.data_ctl,
+                                        connection = conn,
                                         reason = pkt.reason)
                     else:
                         awork = Disconnect (self, message = pkt.data_ctl,
-                                            connection = conn, reason = pkt.reason)
+                                            connection = conn,
+                                            reason = pkt.reason)
                     del self.conns[nspconn]
                 else:
                     logging.debug ("Unexpected work item {}", item)
                     return
-                conn.client.dispatch (awork)
-            
+                try:
+                    conn.client.dispatch (awork)
+                except Exception:
+                    logging.debug ("Object application (module) exception")
+                    try:
+                        nspconn.abort (OBJ_FAIL)
+                    except Exception:
+                        logging.exception ("abort failed")
+                    del self.conns[nspconn]
+                    return
