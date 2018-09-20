@@ -284,6 +284,11 @@ class Session (Element):
 
     def get_api (self):
         return { "version" : "2.0.0" }    # ?
+
+    def connect (self, dest, payload):
+        nspconn = self.node.nsp.connect (dest, payload)
+        self.conns[nspconn] = ret = SessionConnection (self, nspconn)
+        return ret
     
     def dispatch (self, item):
         if isinstance (item, Received):

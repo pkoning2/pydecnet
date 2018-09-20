@@ -241,6 +241,17 @@ class test_outbound (stest):
         conn = unittest.mock.Mock ()
         nsp = self.node.nsp
         nsp.connect.return_value = conn
+        dest = Nodeid (42, 1)
+        payload = b"good morning"
+        sc = self.s.connect (dest, payload)
+        self.assertIs (sc.nspconn, conn)
+        self.assertEqual (len (self.s.conns), 1)
+        self.assertEqual (self.s.conns[conn], sc)
+        self.assertEqual (nsp.connect.call_count, 1)
+        self.assertEqual (nsp.connect.call_args,
+                          unittest.mock.call (dest, payload))
+        sc.disconnect ()
+        self.assertEqual (len (self.s.conns), 0)
 
 class test_random (stest):
     def test_random (self):
