@@ -593,7 +593,7 @@ class MopCircuit (Element):
 
         The response packet is returned, or None to indicate timeout.
         """
-        listener = Listener ()
+        listener = WorkHandler ()
         try:
             rnum = self.request (listener, pkt, dest, port, receipt = receipt)
             ret = listener.wait ()
@@ -865,7 +865,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                 except Queue.Empty:
                     ret = { "status" : "closed" }
             return ret
-        listen = Listener ()
+        listen = WorkHandler ()
         w = ConsolePost (self, data = data, listener = listen)
         self.node.addwork (w)
         ret = listen.wait (timeout = 60)
