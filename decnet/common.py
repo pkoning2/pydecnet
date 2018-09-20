@@ -414,7 +414,7 @@ class StopThread (threading.Thread):
                 else:
                     logging.trace ("Thread {} stopped", self.name)
 
-class Listener (object):
+class WorkHandler (object):
     """A simple object that accepts a work item as Element would, and
     delivers it to another thread that's waiting for it.
     """
@@ -423,7 +423,7 @@ class Listener (object):
         self.item = None
         
     def dispatch (self, work):
-        logging.trace ("Listener work posted {}", repr (work))
+        logging.trace ("WorkHandler work posted {}", repr (work))
         self.item = work
         self.sem.release ()
 
@@ -448,7 +448,7 @@ class ConnApiHelper (Element):
                 return { "status" : "unknown handle" }
             conn.last_post = time.time ()
             return conn.post_api (data)
-        listen = Listener ()
+        listen = WorkHandler ()
         conn = self.connclass (self.parent, data, listen)
         return listen.wait (timeout = 60)
     
