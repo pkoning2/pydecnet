@@ -2,9 +2,10 @@ Prerequisites
 
 PyDECnet requires Python 3.3 or later.
 
-Apart from standard Python modules, it requires the python-daemon
-module.  The sample programs apitest2 and rctest use the "requests"
-module. 
+Apart from standard Python modules, it uses the python-daemon module
+to enable the --daemon command line option (If that module is missing,
+the option is not supported).  The sample programs apitest2 and rctest
+use the "requests" module.
 
 Installation
 
