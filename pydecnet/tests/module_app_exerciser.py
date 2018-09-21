@@ -42,7 +42,7 @@ class Application (Element):
                 reply = b"echo: " + msg
             conn.send_data (reply)
         elif isinstance (item, session.Interrupt):
-            conn.interrupt (b"echo: " + item.message)
+            conn.interrupt (b"echo interrupt")
         elif isinstance (item, session.Disconnect):
             # Nothing to do
             logging.info ("Disconnected")
