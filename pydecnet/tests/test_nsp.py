@@ -263,6 +263,9 @@ class test_inbound_noflow_phase2 (test_inbound_noflow_phase3):
     info = b'\x01'       # NSP 3.1 (phase 2)
     cdadj = 0
     
+class test_inbound_segflow_phase4 (inbound_base):
+    services = b'\x05'   # Segment flow control
+
 class test_random (ntest):
     def test_random (self):
         src = Nodeid (1, 42)
