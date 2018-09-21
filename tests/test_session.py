@@ -176,14 +176,14 @@ class test_inbound (stest):
         self.assertEqual (m.accept.call_count, 1)
         self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
         self.assertTrue (m in self.s.conns)
-        p = b"interrupt test message"
+        p = b"interrupt test"
         d = nsp.IntMsg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
         self.s.dispatch (w)
         self.assertEqual (m.interrupt.call_count, 1)
         self.assertEqual (m.interrupt.call_args,
-                          unittest.mock.call (b"echo: " + p))
+                          unittest.mock.call (b"echo interrupt"))
         # Close the connection
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
