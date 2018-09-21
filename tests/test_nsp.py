@@ -29,6 +29,7 @@ class inbound_base (ntest):
     services = b'\x01'   # Services, which carries FCOPT in bits 2-3
     info = b'\x02'       # Info, which carries NSP version in bits 0-1
     remnode = Nodeid (1, 42)
+    cdadj = 1            # Outbound packet adjustment because of CD
     
     def setUp (self):
         super ().setUp ()
@@ -43,11 +44,12 @@ class inbound_base (ntest):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check reply
-        self.assertEqual (r.send.call_count, 1)
-        args, kwargs = r.send.call_args
-        ack, dest = args
-        self.assertEqual (dest, self.remnode)
-        self.assertEqual (ack.dstaddr, rla)
+        self.assertEqual (r.send.call_count, self.cdadj)
+        if self.cdadj:
+            args, kwargs = r.send.call_args
+            ack, dest = args
+            self.assertEqual (dest, self.remnode)
+            self.assertEqual (ack.dstaddr, rla)
         # Check data to Session Control
         self.assertEqual (self.node.addwork.call_count, 1)
         args, kwargs = self.node.addwork.call_args
@@ -68,7 +70,7 @@ class inbound_base (ntest):
         nc.accept (b"excellent")
         # Verify confirm went out
         r = self.node.routing
-        self.assertEqual (r.send.call_count, 2)
+        self.assertEqual (r.send.call_count, 1 + self.cdadj)
         args, kwargs = r.send.call_args
         cc, dest = args
         self.assertIsInstance (cc, nsp.ConnConf)
@@ -100,14 +102,17 @@ class inbound_base (ntest):
         self.assertEqual (pkt.payload, b"data payload")
         # Check new connection state
         self.assertEqual (nc.state, nc.run)
-        # Check inactivity timer active
-        self.assertTrue (nc.islinked ())
+        # Check inactivity timer active, if Phase 3 or later
+        if self.cdadj:
+            self.assertTrue (nc.islinked ())
+        else:
+            self.assertFalse (nc.islinked ())
         # No reply yet
-        self.assertEqual (r.send.call_count, 2)
+        self.assertEqual (r.send.call_count, 1 + self.cdadj)
         # Send a data message
         nc.send_data (b"hello world")
         # Verify data was sent, with piggyback ack
-        self.assertEqual (r.send.call_count, 3)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -122,7 +127,7 @@ class inbound_base (ntest):
         # Send a big data message (11 * 80 bytes, two segments)
         nc.send_data (b"hello world" * 80)
         # Verify data was sent, without piggyback ack
-        self.assertEqual (r.send.call_count, 5)
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         d1, d2 = r.send.call_args_list[-2:]
         args, kwargs = d1
         ds, dest = args
@@ -184,7 +189,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (nc.state, nc.run)
         nc.interrupt (b"hello decnet")
         # Verify data was sent
-        self.assertEqual (r.send.call_count, 3)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -221,7 +226,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Send a second interrupt
         nc.interrupt (b"interrupt 2")
         # Verify data was sent
-        self.assertEqual (r.send.call_count, 4)
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -235,7 +240,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Send a third interrupt
         nc.interrupt (b"interrupt 3")
         # Verify data was sent
-        self.assertEqual (r.send.call_count, 5)
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -250,6 +255,14 @@ class test_inbound_noflow_phase4 (inbound_base):
         with self.assertRaises (nsp.CantSend):
             nc.interrupt (b"frob again")
 
+class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
+    info = b'\x00'       # NSP 3.2 (phase 3)
+    remnode = Nodeid (42)
+
+class test_inbound_noflow_phase2 (test_inbound_noflow_phase3):
+    info = b'\x01'       # NSP 3.1 (phase 2)
+    cdadj = 0
+    
 class test_random (ntest):
     def test_random (self):
         src = Nodeid (1, 42)
