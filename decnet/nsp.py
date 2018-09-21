@@ -21,7 +21,8 @@ class WrongState (NSPException): "Connection is in the wrong state"
 class RangeError (NSPException): "Parameter is out of range"
 class ConnectionLimit (NSPException): "Connection limit reached"
 class CantSend (NSPException): "Can't send interrupt at this time"
-
+class IntLength (NSPException): "Interrupt message too long"
+    
 # Packet parsing exceptions
 class NSPDecodeError (packet.DecodeError): pass
 class InvalidAck (NSPDecodeError): "ACK fields in error"
@@ -795,14 +796,13 @@ class Other_Subchannel (Subchannel):
     def process_data (self, item):
         pkt = item.packet
         if isinstance (pkt, IntMsg):
-            if self.reqnum < 1:
-                logging.debug ("Interrupt message flow control violation")
-                return
-            # Charge flow control for a delivered interrupt message.
-            self.reqnum -= 1
-            return self.parent.to_sc (pkt)
+            # We don't bother checking inbound flow control, i.e.,
+            # while we never issue any outbound requests for interrupt
+            # messages, we still permit the other end to send more
+            # than one.
+            return self.parent.to_sc (item)
         # Not interrupt, so it's link service.
-        if pkt.fcval_int == DATA_REQ:
+        if pkt.fcval_int == pkt.DATA_REQ:
             self.other.process_ls (pkt)
         else:
             self.process_ls (pkt)
@@ -828,9 +828,12 @@ class Other_Subchannel (Subchannel):
         appear to be any good reason for using data subchannel flow
         control.)
         """
-        if self.reqnum < 1:
+        ql = len (self.pending_ack)
+        if self.reqnum - ql < 1:
             # Interrupt sends are refused if we're not allowed to send
-            # right now.  
+            # right now.  The queue length is subtracted here because
+            # we only debit reqnum when the ack arrives (so
+            # retransmits work).
             raise CantSend
         qe = txqentry (pkt, self)
         self.pending_ack.append (qe)
@@ -1084,6 +1087,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         """
         if self.state != self.run or self.shutdown:
             raise WrongState
+        if len (data) > 16:
+            raise IntLength
         sc = self.other
         pkt = self.makepacket (IntMsg, payload = data,
                                segnum = sc.seqnum)
