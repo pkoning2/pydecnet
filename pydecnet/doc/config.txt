@@ -309,6 +309,18 @@ terminate at this node.  Allowed values are 255, 511, 1023, 2047,
 specification, specifically the section discussing "intercept"
 operation. 
 
+-- nsp-weight: the weighing factor for calculating the weighted
+average round trip delay.  Default is 3, values are 1..255.
+
+--nsp-delay: round trip delay factor.  The estimated round trip delay
+is multipled by this value to derive the ack timeout.  Default is 2,
+range is 1 to 15.94.
+
+--qmax: Maximum number of unacknowledged data segments in the queue
+for any given connection.  Default is 2047, range is 1 to 2047.  This
+is primarily a test tool; the default should normally work fine.  Very
+small values will impair performance.
+
 Component "object"
 
 This defines a session control object -- an application that can be

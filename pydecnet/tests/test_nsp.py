@@ -9,16 +9,18 @@ from decnet import routing
 from decnet import logging
 
 class ntest (DnTest):
-    phase = 4
+    myphase = 4
+    qmax = nsp.Seq.maxdelta
     
     def setUp (self):
         super ().setUp ()
-        self.node.phase = 4
+        self.node.phase = self.myphase
         self.config = container ()
         self.config.nsp = container ()
         self.config.nsp.max_connections = 511
         self.config.nsp.nsp_delay = 3
         self.config.nsp.nsp_weight = 3
+        self.config.nsp.qmax = self.qmax
         self.node.routing = unittest.mock.Mock ()
         self.node.session = unittest.mock.Mock ()
         self.nsp = nsp.NSP (self.node, self.config)
@@ -30,6 +32,7 @@ class inbound_base (ntest):
     info = b'\x02'       # Info, which carries NSP version in bits 0-1
     remnode = Nodeid (1, 42)
     cdadj = 1            # Outbound packet adjustment because of CD
+    phase = 4
     
     def setUp (self):
         super ().setUp ()
@@ -80,6 +83,8 @@ class inbound_base (ntest):
         self.assertEqual (cc.data_ctl, b"excellent")
         # Check new connection state
         self.assertEqual (nc.state, nc.cc)
+        # Make sure phase is set properly
+        self.assertEqual (nc.cphase, min (self.phase, self.node.phase))
         
     def test_normalconn (self):
         # Basic good inbound connection (accept, data, disconnect)
@@ -89,7 +94,8 @@ class inbound_base (ntest):
         r = self.node.routing
         s = self.node.session        
         # Send a data segment
-        d = b"\x60" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x00data payload"
+        d = b"\x60" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00data payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
         self.nsp.dispatch (w)
@@ -103,7 +109,7 @@ class inbound_base (ntest):
         # Check new connection state
         self.assertEqual (nc.state, nc.run)
         # Check inactivity timer active, if Phase 3 or later
-        if self.cdadj:
+        if self.phase > 2:
             self.assertTrue (nc.islinked ())
         else:
             self.assertFalse (nc.islinked ())
@@ -111,6 +117,17 @@ class inbound_base (ntest):
         self.assertEqual (r.send.call_count, 1 + self.cdadj)
         # Send a data message
         nc.send_data (b"hello world")
+        # If we have explicit flow control, it wasn't sent yet.
+        if self.services != b'\x01':
+            self.assertEqual (r.send.call_count, 1 + self.cdadj)
+            # Incoming Link Service to ask for 2 more items
+            p = b"\x10" + lla.to_bytes (2, "little") + \
+                b"\x03\x00\x01\x00\x00\x02"
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            # Not delivered to Session Control
+            self.assertEqual (self.node.addwork.call_count, 2)
         # Verify data was sent, with piggyback ack
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -122,11 +139,27 @@ class inbound_base (ntest):
         self.assertTrue (ds.bom)
         self.assertTrue (ds.eom)
         self.assertEqual (ds.acknum, nsp.AckNum (1))
-        self.assertFalse (hasattr (ds, "acknum2"))
+        if self.services != b'\x01' and self.phase == 4:
+            # There should be a cross subchannel ack of the link
+            # service (flow on) message.
+            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
+        else:
+            self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"hello world")
         # Send a big data message (11 * 80 bytes, two segments)
         nc.send_data (b"hello world" * 80)
-        # Verify data was sent, without piggyback ack
+        # If we have segment flow control, one segment is blocked
+        if self.services == b'\x05':
+            self.assertEqual (r.send.call_count, 3 + self.cdadj)
+            # Incoming Link Service to ask for 5 more items
+            p = b"\x10" + lla.to_bytes (2, "little") + \
+                b"\x03\x00\x02\x00\x00\x05"
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            # Not delivered to Session Control
+            self.assertEqual (self.node.addwork.call_count, 2)
+        # Verify all data was sent now
         self.assertEqual (r.send.call_count, 4 + self.cdadj)
         d1, d2 = r.send.call_args_list[-2:]
         args, kwargs = d1
@@ -148,7 +181,13 @@ class inbound_base (ntest):
         self.assertFalse (ds2.bom)
         self.assertTrue (ds2.eom)
         self.assertFalse (hasattr (ds2, "acknum"))
-        self.assertFalse (hasattr (ds2, "acknum2"))
+        # If doing segment flow control, this one was originally
+        # blocked, then unblocked by the second LS message, so it
+        # should carry the piggyback LS ack if phase 4.
+        if self.services == b'\x05' and self.phase == 4:
+            self.assertEqual (ds2.acknum2, nsp.AckNum (2, nsp.AckNum.XACK))
+        else:
+            self.assertFalse (hasattr (ds2, "acknum2"))
         self.assertEqual (ds.payload + ds2.payload, b"hello world" * 80)
         # Inbound disconnect
         disc = b"\x38" + lla.to_bytes (2, "little") + \
@@ -258,13 +297,18 @@ class test_inbound_noflow_phase4 (inbound_base):
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
     remnode = Nodeid (42)
+    phase = 3
 
 class test_inbound_noflow_phase2 (test_inbound_noflow_phase3):
     info = b'\x01'       # NSP 3.1 (phase 2)
     cdadj = 0
+    phase = 2
     
 class test_inbound_segflow_phase4 (inbound_base):
     services = b'\x05'   # Segment flow control
+
+class test_inbound_msgflow_phase4 (inbound_base):
+    services = b'\x09'   # Message flow control
 
 class test_random (ntest):
     def test_random (self):
