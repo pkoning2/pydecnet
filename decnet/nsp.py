@@ -549,13 +549,17 @@ class txqentry (timers.Timer):
     Each entry has a timer, which is the retransmit timer for that
     particular packet.
     """
-    __slots__ = ("packet", "txtime", "channel", "tries")
+    __slots__ = ("packet", "txtime", "channel", "tries",
+                 "msgnum", "segnum", "sent")
     
-    def __init__ (self, packet, channel):
+    def __init__ (self, packet, channel, segnum = 0, msgnum = 0):
         super ().__init__ ()
         self.packet = packet
         self.channel = channel
         self.tries = self.txtime = 0
+        self.sent = False
+        self.segnum = segnum
+        self.msgnum = msgnum
 
     def send (self):
         pkt = self.packet
@@ -566,30 +570,28 @@ class txqentry (timers.Timer):
                 pkt.subtype = NspHdr.CI
         if isinstance (pkt, AckHdr):
             self.channel.set_acks (pkt)
+        # TODO: Skip this if phase 2 local node?
         self.channel.node.timers.start (self, self.channel.parent.acktimeout ())
         self.tries += 1
         if self.txtime == 0:
             self.txtime = time.time ()
         self.channel.parent.sendmsg (self.packet)
+        self.sent = True
 
     def ack (self):
         """Handle acknowledgment of packet.  Also used when the packet
         is not going to be transmitted again for some other reason
         (like connection abort).
-
-        Returns True if this is a packet for which the message flow control
-        request count is adjusted.
         """
         self.channel.node.timers.stop (self)
         if self.txtime:
             self.channel.parent.update_delay (self.txtime)
-        t = type (self.packet)
-        return t is IntMsg or (t is DataSeg and t.eom)
 
     def dispatch (self, item):
         """Handle timeout for the packet.
         """
         # Simply send it again.  TODO: do we want a retry limit?
+        self.sent = False
         self.send ()
         
 class Subchannel (Element, timers.Timer):
@@ -607,15 +609,18 @@ class Subchannel (Element, timers.Timer):
         Element.__init__ (self, parent)
         timers.Timer.__init__ (self)
         self.pending_ack = deque ()   # List of pending txqentry items
-        self.seqnum = Seq (1)         # Next transmitted sequence number
+        self.nextseg = 1              # Next segment number
+        self.nextmsg = 1              # Next message number
+        self.maxseg = 0               # Max segment number allowed to be sent
+        self.maxmsg = 0               # Max message number allowed to be sent
+        self.maxseqsent = Seq (0)     # Highest sequence number actually sent
+        self.maxackseg = 0            # Highest segment number acked
         self.acknum = Seq (0)         # Outbound ack number
-        self.numhigh = Seq (0)        # Sequence number of last packet queued
+        self.ackpending = False       # No deferred ack
         # The flow control parameters are remote flow control -- we don't
         # do local flow control other than to request another interrupt
         # each time we get one.  So there are no explicit local flow
         # attributes.
-        self.reqnum = 0               # Count requested by remote
-        self.minreq = 0               # Lowest allowed value of minreq
         self.xon = True               # Flow on/off switch
         self.flow = ConnMsg.SVC_NONE  # Outbound flow control selected
         self.ooo = dict ()            # Pending received out of order packets
@@ -648,12 +653,13 @@ class Subchannel (Element, timers.Timer):
             # in the out of order cache that are now in order.
             while item:
                 self.acknum = num
+                self.ackpending = True
                 self.process_data (item)
                 num += 1
                 item = self.ooo.get (num, None)
             # Done with in-sequence packets, start the ACK holdoff timer
             # if it isn't already running.
-            if not self.islinked ():
+            if self.ackpending and not self.islinked ():
                 # ACK holdoff timer is not yet running, start it
                 self.node.timers.start (self, self.HOLDOFF)
 
@@ -664,13 +670,15 @@ class Subchannel (Element, timers.Timer):
         self.parent.sendmsg (ack)
 
     def set_acks (self, pkt, explicit = False):
-        if explicit or self.islinked ():
+        if explicit or self.ackpending:
+            self.ackpending = False
             self.node.timers.stop (self)
             pkt.acknum = AckNum (self.acknum)
         if self.parent.cphase == 4:
             # Phase IV, we can use cross-subchannel ACK.
             other = self.cross
-            if other.islinked ():
+            if other.ackpending:
+                other.ackpending = False
                 self.node.timers.stop (other)
                 pkt.acknum2 = AckNum (other.acknum, AckNum.XACK)
         
@@ -680,7 +688,7 @@ class Subchannel (Element, timers.Timer):
                 if self.parent.cphase < 4:
                     logging.debug ("Cross-subchannel ACK/NAK but phase is {}",
                                    self.parent.cphase)
-                self.other.ack (num.num)
+                self.cross.ack (num.num)
             else:
                 self.ack (num.num)
 
@@ -692,22 +700,24 @@ class Subchannel (Element, timers.Timer):
         except IndexError:
             return
         if isinstance (firsttxq.packet, (IntMsg, DataSeg)):
-            if acknum < firsttxq.packet.segnum or acknum >= self.seqnum:
+            adjflow = True
+            if acknum < firsttxq.packet.segnum or acknum > self.maxseqsent:
                 # Duplicate or out of range ack, ignore.
                 # Note that various control packets end up in the Data
                 # subchannel as well, and those don't have sequence numbers.
                 logging.trace ("Ignoring ack, first {} last {}, got {}",
-                               firsttxq.packet.segnum, self.seqnum - 1, acknum)
+                               firsttxq.packet.segnum, self.maxseqsent, acknum)
                 return
             count = acknum - firsttxq.packet.segnum + 1
         else:
+            adjflow = False
             count = 1
+        acked = None
         for i in range (count):
             acked = self.pending_ack.popleft ()
-            adj = (acked.ack () and self.flow == ConnMsg.SVC_MSG) or \
-                  self.flow == ConnMsg.SVC_SEG
-            self.reqnum -= adj
-
+            acked.ack ()
+            self.maxackseg = acked.segnum
+            
     def close (self):
         """Handle connection close actions for this subchannel.  This is
         also used for connection abort, to discard all pending packets and
@@ -724,37 +734,72 @@ class Data_Subchannel (Subchannel):
     Ack = AckData
     name = "data"
 
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        self.qmax = parent.parent.config.qmax
+        
     def process_data (self, item):
         """Process a data packet that is next in sequence.
         """
         self.parent.to_sc (item)
-        
+
+    def flow_ok (self, qe):
+        """Return True if this queue entry can be transmitted now, False
+        if not, according to the current flow control state.
+
+        The rule is: this packet can be sent if:
+        1. In flight packet count is <= maxq parameter (2047 by default), and
+        2. Flow is on (xon/xoff state is "xon"), and
+        3. One of:
+        a. No flow control, or
+        b. segment flow ctl, and this segment <= max allowed segment, or
+        c. message flow ctl, and this message <= max allowed message
+        """
+        if self.pending_ack:
+            maxq = self.pending_ack[0].segnum + \
+              self.parent.parent.config.qmax - 1
+            if qe.segnum > maxq:
+                return False
+        return self.xon and qe.segnum <= maxq and \
+               (self.flow == ConnMsg.SVC_NONE or
+                (self.flow == ConnMsg.SVC_SEG and qe.segnum <= self.maxseg) or
+                (self.flow == ConnMsg.SVC_MSG and qe.msgnum <= self.maxmsg))
+                 
     def send (self, pkt):
-        """Queue a packet for transmission, and send it if we're allowed.
+        """Queue a packet for transmission, and try to send it.
 
         Note that the data subchannel is used not just for data
         segments, but also for control packets that are retransmitted:
         Connect Init, Connect Confirm, Disconnect Init.
         """
-        qe = txqentry (pkt, self)
-        self.pending_ack.append (qe)
         if isinstance (pkt, DataSeg):
+            pkt.segnum = Seq (self.nextseg % Seq.modulus)
+            qe = txqentry (pkt, self, self.nextseg, self.nextmsg)
+            self.nextseg += 1
+            if pkt.eom:
+                self.nextmsg += 1
+        else:
+            qe = txqentry (pkt, self)
+        self.pending_ack.append (qe)
+        if self.send_qe (qe) and isinstance (pkt, DataSeg):
+            self.maxseqsent = max (self.maxseqsent, pkt.segnum)
+
+    def send_qe (self, qe):
+        """Attempt to send an item that has previously been put on the
+        transmit queue.  Return True if it was sent, False if it cannot
+        be sent right now due to flow control or too many unacknowledged
+        segments.
+        """
+        if isinstance (qe.packet, DataSeg):
             # For data segments, check if we can transmit now.  If not,
             # just leave it queued; it will be transmitted when flow
             # control permits.
-            self.numhigh += 1
-            ql = len (self.pending_ack)
-            if ql > Seq.maxdelta or \
-               (self.flow == ConnMsg.SVC_SEG and ql > self.reqnum) or \
-               (self.flow == ConnMsg.SVC_MSG and self.mm () > self.reqnum):
-                # Not allowed to send.  The first term is there because we
-                # queue without limit, but we can't ever have more than
-                # half the sequence number space worth of packets in
-                # flight.  So even without flow control, the limit of
-                # sent but unacked packets is 2047.
-                return
+            if not self.flow_ok (qe):
+                # Not allowed to send.
+                return False
         # Good to go; send it and start the timeout.
         qe.send ()
+        return True
     
     def process_ls (self, pkt):
         """Process a link service packet that updates the data
@@ -763,21 +808,26 @@ class Data_Subchannel (Subchannel):
         """
         if self.flow == ConnMsg.SVC_MSG:
             delta = pkt.fcval
-            if delta >= 0 and self.reqnum + delta <= 127:
-                self.reqnum += delta
+            if delta >= 0 and self.maxmsg + delta < self.maxackseg + 128:
+                self.maxmsg += delta
             else:
                 logging.debug ("Invalid LS (Data Request, message mode) message {}", pkt)
                 return
         elif self.flow == ConnMsg.SVC_SEG:
             delta = pkt.fcval
-            if -128 <= self.reqnum + delta <= 127:
-                self.reqnum += delta
+            if self.maxackseg <= self.maxmsg + delta < self.maxackseg + 128:
+                self.maxseg += delta
             else:
                 logging.debug ("Invalid LS (Data Request, segment mode) message {}", pkt)
                 return
         if pkt.fcmod:
             self.xon = pkt.fcmod == XON
-        # TODO: send any unblocked data segments now
+        # Look for not-sent packets in the transmit queue, and retry
+        # sending them.  Quit when one is refused again.
+        for qe in self.pending_ack:
+            if not qe.sent:
+                if not self.send_qe (qe):
+                    break
         
 class Other_Subchannel (Subchannel):
     # Class for ACKs send from this subchannel
@@ -786,11 +836,10 @@ class Other_Subchannel (Subchannel):
     
     def __init__ (self, parent):
         super ().__init__ (parent)
-        self.reqnum = 1               # Other data req count initially 1
+        self.seqnum = Seq (1)         # Next transmitted sequence number
+        self.maxmsg = 1               # Allowed to send one interrupt
         # Interrupt flow control is different from data flow control, but
-        # the closest analog is message flow control because the count
-        # cannot be negative, and not every packet is subjected to control.
-        # (In this case, interrupts are but link service messages are not.)
+        # the closest analog is message flow control.
         self.flow = ConnMsg.SVC_MSG
 
     def process_data (self, item):
@@ -803,7 +852,7 @@ class Other_Subchannel (Subchannel):
             return self.parent.to_sc (item)
         # Not interrupt, so it's link service.
         if pkt.fcval_int == pkt.DATA_REQ:
-            self.other.process_ls (pkt)
+            self.cross.process_ls (pkt)
         else:
             self.process_ls (pkt)
 
@@ -814,8 +863,8 @@ class Other_Subchannel (Subchannel):
         non-negative, and the total request count cannot exceed 127.
         """
         delta = pkt.fcval
-        if delta >= 0 and self.reqnum + delta <= 127:
-            self.reqnum += delta
+        if delta >= 0:
+            self.maxmsg += delta
         else:
             logging.debug ("Invalid LS (Interrupt Request) message {}", pkt)
         
@@ -826,19 +875,18 @@ class Other_Subchannel (Subchannel):
         Link Service messages currently.  (If we ever allow more than
         one Interrupt message inbound that would change; there does not
         appear to be any good reason for using data subchannel flow
-        control.)
+        control.)  
         """
-        ql = len (self.pending_ack)
-        if self.reqnum - ql < 1:
+        if self.maxmsg < self.nextmsg:
             # Interrupt sends are refused if we're not allowed to send
-            # right now.  The queue length is subtracted here because
-            # we only debit reqnum when the ack arrives (so
-            # retransmits work).
+            # right now.  
             raise CantSend
-        qe = txqentry (pkt, self)
+        qe = txqentry (pkt, self, msgnum = self.nextmsg)
+        self.nextmsg += 1
         self.pending_ack.append (qe)
         # Good to go; send it and start the timeout.
         qe.send ()
+        self.maxseqsent = max (self.maxseqsent, pkt.segnum)
         
 class Connection (Element, statemachine.StateMachine, timers.Timer):
     """An NSP connection object.  This contains the connection state
@@ -1068,9 +1116,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             if dl - i <= self.segsize:
                 eom = 1
             pkt = self.makepacket (DataSeg, bom = bom, eom = eom,
-                                   payload = data[i:i + self.segsize],
-                                   segnum = self.data.seqnum)
-            self.data.seqnum += 1
+                                   payload = data[i:i + self.segsize])
             bom = 0
             self.data.send (pkt)
         return True

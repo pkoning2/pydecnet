@@ -14,6 +14,7 @@ from .common import *
 from . import datalink
 from . import datalinks    # All the datalinks we know
 from . import logging
+from .nsp import Seq
 
 class dnparser_message (Exception): pass
 class dnparser_error (Exception): pass
@@ -184,10 +185,13 @@ cp.add_argument ("--max-connections", type = int, default = 4095, metavar = "MC"
                  help = """Maximum number of connections, choice of
                         255, 511, 1023, 2047, 4095, 8191, 16383, 32767""")
 cp.add_argument ("--nsp-weight", type = int, default = 3, metavar = "W",
-                 choices = range (256),
-                 help = "NSP round trip averaging weight (range 0..255)")
+                 choices = range (1, 256),
+                 help = "NSP round trip averaging weight (range 1..255)")
 cp.add_argument ("--nsp-delay", type = float, default = 2.0, metavar = "D",
                  help = "NSP round trip delay factor (range 1..15.94)")
+cp.add_argument ("--qmax", default = Seq.maxdelta, metavar = "Q", 
+                 choices = range (1, Seq.maxdelta + 1),
+                 help = "Max data queue entries")
 
 cp = config_cmd ("logging", "Event logging configuration", collection = True,
                  namespace = LoggingConfig)
