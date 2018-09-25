@@ -3,6 +3,22 @@
 """Unit test for the NSP layer.
 """
 
+# To do:
+# 1. Various ACK cases for outbound data
+# 2. Out of order packets
+# 3. Duplicate packets
+# 4. Xoff flow control
+# 5. Queue limit
+# 6. Bad ACKs
+# 7. Bad flow control updates
+# 8. Outbound disconnect (with data pending)
+# 9. Outbound abort
+# 10. Outbound connection accept and reject
+# 11. Packets that are wrong for a given state (if any?)
+# 12. Packets not matched to an open port (connection)
+# 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
+# etc.
+
 from tests.dntest import *
 from decnet import nsp
 from decnet import routing
@@ -189,6 +205,58 @@ class inbound_base (ntest):
         else:
             self.assertFalse (hasattr (ds2, "acknum2"))
         self.assertEqual (ds.payload + ds2.payload, b"hello world" * 80)
+        # These transmitted messages have not yet been acked, so they
+        # should be on the pending queue.
+        self.assertEqual (len (nc.data.pending_ack), 3)
+        # Ack just segment 1
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # Should have two segments left on the pending queue
+        self.assertEqual (len (nc.data.pending_ack), 2)
+        # Ack through segment 3
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # Should have nothing left on the pending queue
+        self.assertEqual (len (nc.data.pending_ack), 0)
+        # Send one more message.  It should be blocked only for
+        # message flow control, which just had the original request
+        # for 2.
+        nc.send_data (b"hello world again")
+        # If we have message flow control, this message is blocked
+        if self.services == b'\x09':
+            self.assertEqual (r.send.call_count, 4 + self.cdadj)
+            # Incoming Link Service to ask for 4 more items
+            p = b"\x10" + lla.to_bytes (2, "little") + \
+                b"\x03\x00\x02\x00\x00\x04"
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            # Not delivered to Session Control
+            self.assertEqual (self.node.addwork.call_count, 2)
+        # Verify all data was sent now
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertTrue (ds.bom)
+        self.assertTrue (ds.eom)
+        self.assertFalse (hasattr (ds, "acknum"))
+        if self.services == b'\x09' and self.phase == 4:
+            # There should be a cross subchannel ack of the link
+            # service (flow on) message if we sent one.
+            self.assertEqual (ds.acknum2, nsp.AckNum (2, nsp.AckNum.XACK))
+        else:
+            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"hello world again")
+        
+
         # Inbound disconnect
         disc = b"\x38" + lla.to_bytes (2, "little") + \
                b"\x03\x00\x05\x00\x07payload"
@@ -224,8 +292,10 @@ class test_inbound_noflow_phase4 (inbound_base):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
         self.nsp.dispatch (w)
-        # That should get us into RUN state
+        # That should get us into RUN state, and empty queue
         self.assertEqual (nc.state, nc.run)
+        self.assertEqual (len (nc.data.pending_ack), 0)
+        # Send an interrupt message
         nc.interrupt (b"hello decnet")
         # Verify data was sent
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
