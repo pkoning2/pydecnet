@@ -828,6 +828,7 @@ class Data_Subchannel (Subchannel):
             if not qe.sent:
                 if not self.send_qe (qe):
                     break
+            self.maxseqsent = max (self.maxseqsent, qe.packet.segnum)
         
 class Other_Subchannel (Subchannel):
     # Class for ACKs send from this subchannel
