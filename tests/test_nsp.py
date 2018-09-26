@@ -11,9 +11,9 @@
 # 5. Queue limit
 # 6. Bad ACKs
 # 7. Bad flow control updates
-# 8. Outbound disconnect (with data pending)
-# 9. Outbound abort
-# 10. Outbound connection accept and reject
+# 8. Outbound disconnect (with and without data pending)  **DONE
+# 9. Outbound abort    **DONE
+# 10. Outbound connection accept and reject     **DONE
 # 11. Packets that are wrong for a given state (if any?)
 # 12. Packets not matched to an open port (connection)
 # 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
@@ -69,6 +69,7 @@ class inbound_base (ntest):
         if self.cdadj:
             args, kwargs = r.send.call_args
             ack, dest = args
+            self.assertIsInstance (ack, nsp.AckConn)
             self.assertEqual (dest, self.remnode)
             self.assertEqual (ack.dstaddr, rla)
         # Check data to Session Control
@@ -816,6 +817,53 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Resulting flow control state should be XON (since that was
         # what the highest numbered LS message said)
         self.assertTrue (nc.data.xon)
+
+    def test_disc_out (self):
+        """Outbound disconnect, no pending data"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session        
+        self.accept ()
+        nc.disconnect (payload = b"goodbye")
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        d, dest = args
+        self.assertIsInstance (d, nsp.DiscInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (d.dstaddr, rla)
+        self.assertEqual (d.srcaddr, lla)
+        self.assertEqual (d.data_ctl, b"goodbye")
+        # It should be on the queue
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        # State is now DI
+        self.assertEqual (nc.state, nc.di)
+        
+    def test_abort_out (self):
+        """Outbound abort with pending data"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session        
+        self.accept ()
+        nc.send_data (b"data packet")
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        # Abort will go out anyway
+        nc.abort (payload = b"goodbye")
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        d, dest = args
+        self.assertIsInstance (d, nsp.DiscInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (d.dstaddr, rla)
+        self.assertEqual (d.srcaddr, lla)
+        self.assertEqual (d.data_ctl, b"goodbye")
+        # It should be on the queue
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        # State is now DI
+        self.assertEqual (nc.state, nc.di)
         
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
@@ -833,6 +881,192 @@ class test_inbound_segflow_phase4 (inbound_base):
 class test_inbound_msgflow_phase4 (inbound_base):
     services = b'\x09'   # Message flow control
 
+class outbound_base (ntest):
+    services = b'\x01'   # Services, which carries FCOPT in bits 2-3
+    info = b'\x02'       # Info, which carries NSP version in bits 0-1
+    remnode = Nodeid (1, 42)
+    cdadj = 1            # Inbound packet adjustment because of CD
+    phase = 4
+    
+    def setUp (self):
+        super ().setUp ()
+        r = self.node.routing
+        s = self.node.session
+        # Issue connect initiate
+        self.nsp.connect (self.remnode, b"connect")
+        # We should have one connection
+        self.assertEqual (len (self.nsp.connections), 1)
+        # Not yet in the remote connection table (no remote address
+        # yet)
+        self.assertEqual (len (self.nsp.rconnections), 0)
+        for lla, nc in self.nsp.connections.items ():
+            break
+        # Check that it was sent
+        self.assertEqual (r.send.call_count, 1)
+        args, kwargs = r.send.call_args
+        ci, dest = args
+        self.assertIsInstance (ci, nsp.ConnInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ci.dstaddr, 0)
+        self.assertEqual (ci.srcaddr, lla)
+        self.assertEqual (ci.payload, b"connect")
+        # Check connection state
+        self.assertEqual (nc.srcaddr, lla)
+        self.assertEqual (nc.state, nc.ci)
+        # Verify that the connection timeout is running
+        self.assertTrue (nc.islinked ())
+        # Remember the connection
+        self.nspconn = nc
+
+    def test_outbound_basic (self):
+        """Outbound connection accepted"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        r = self.node.routing
+        s = self.node.session        
+        if self.phase > 2:
+            self.assertTrue (nc.data.pending_ack[0].islinked ())
+            p = b"\x24" + lla.to_bytes (2, "little")
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            self.assertEqual (len (nc.data.pending_ack), 0)
+            self.assertEqual (nc.state, nc.cd)
+        # Deliver a connect confirm
+        # Connect Init, flow control and version from class attributes
+        # Sender's link address is 3, segsize is 0x100, i.e., 256.
+        p = b"\x28" + lla.to_bytes (2, "little") + \
+            b"\x03\x00" + self.services + self.info + \
+            b"\x00\x01\x07payload"
+        rla = 3
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check data to Session Control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.ConnConf)
+        self.assertEqual (pkt.data_ctl, b"payload")
+        # Check connection state
+        self.assertEqual (nc.state, nc.run)
+        # Ack for connect confirm should have gone out
+        if nc.cphase > 2:
+            self.assertEqual (r.send.call_count, 2)
+            args, kwargs = r.send.call_args
+            ack, dest = args
+            self.assertIsInstance (ack, nsp.AckData)
+            self.assertEqual (dest, self.remnode)
+            self.assertEqual (ack.dstaddr, rla)
+            self.assertEqual (ack.srcaddr, lla)
+            self.assertEqual (ack.acknum, nsp.AckNum (0))
+            self.assertFalse (hasattr (ack, "acknum2"))
+        # Send a data packet
+        nc.send_data (b"data packet")
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        d, dest = args
+        self.assertIsInstance (d, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (d.dstaddr, rla)
+        self.assertEqual (d.srcaddr, lla)
+        self.assertTrue (d.bom)
+        self.assertTrue (d.eom)
+        self.assertEqual (d.payload, b"data packet")
+        # It should be on the queue
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        # Request shutdown (clean disconnect)
+        nc.disconnect (reason = 69)
+        # State is still run
+        self.assertEqual (nc.state, nc.run)
+        # More transmits should be rejected
+        with self.assertRaises (nsp.WrongState):
+            nc.send_data (b"frob")
+        with self.assertRaises (nsp.WrongState):
+            nc.interrupt (b"frob")
+        # Deliver an inbound data segment
+        d = b"\x60" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00inbound data"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d, rts = False)
+        self.nsp.dispatch (w)
+        # Check data to Session Control
+        self.assertEqual (self.node.addwork.call_count, 2)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"inbound data")
+        # Should still be in run state
+        self.assertEqual (nc.state, nc.run)
+        # Ack the outbound data
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # That should trigger the disconnect
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        d, dest = args
+        self.assertIsInstance (d, nsp.DiscInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (d.dstaddr, rla)
+        self.assertEqual (d.srcaddr, lla)
+        self.assertEqual (d.reason, 69)
+        # It should be on the queue
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        # State is now DI
+        self.assertEqual (nc.state, nc.di)
+        
+    def test_outbound_reject (self):
+        """Outbound connection rejected"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        r = self.node.routing
+        s = self.node.session        
+        if self.phase > 2:
+            self.assertTrue (nc.data.pending_ack[0].islinked ())
+            p = b"\x24" + lla.to_bytes (2, "little")
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            self.assertEqual (len (nc.data.pending_ack), 0)
+            self.assertEqual (nc.state, nc.cd)
+        # Deliver a connect confirm
+        # Connect reject, reason 1
+        p = b"\x38" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00\x07payload"
+        rla = 3
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check data to Session Control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertTrue (w.reject)
+        self.assertEqual (pkt.reason, 1)
+        self.assertEqual (pkt.data_ctl, b"payload")
+        # Check connection state
+        self.assertEqual (nc.state, nc.closed)
+        
+class test_outbound_phase4 (outbound_base):
+    pass
+
+class test_outbound_phase3 (test_outbound_phase4):
+    info = b'\x00'       # NSP 3.2 (phase 3)
+    remnode = Nodeid (42)
+    phase = 3
+
+class test_outbound_phase2 (test_outbound_phase3):
+    info = b'\x01'       # NSP 3.1 (phase 2)
+    cdadj = 0
+    phase = 2
+    
+    
 class test_random (ntest):
     def test_random (self):
         """Random packets inbound"""
