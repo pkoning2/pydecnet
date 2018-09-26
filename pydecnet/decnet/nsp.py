@@ -661,7 +661,10 @@ class Subchannel (Element, timers.Timer):
                 self.ackpending = True
                 self.process_data (item)
                 num += 1
-                item = self.ooo.get (num, None)
+                # Remove the packet with the next higher sequence number
+                # from the OOO cache, if it is there, and keep going if
+                # so.
+                item = self.ooo.pop (num, None)
             # Done with in-sequence packets, start the ACK holdoff timer
             # if it isn't already running.
             if self.ackpending and not self.islinked ():
