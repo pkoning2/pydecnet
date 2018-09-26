@@ -1358,14 +1358,13 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
     def di (self, item):
         if isinstance (item, Received):
             pkt = item.packet
-            if isinstance (item, DiscInit):
+            if isinstance (pkt, DiscInit):
                 ack = self.makepacket (DiscComp)
                 self.sendmsg (ack)
                 return self.close ()
-            elif isinstance (item, DiscConf):
-                self.to_sc (item)
+            elif isinstance (pkt, DiscConf):
                 return self.close ()
-
+                
     def dr (self, item):
         # We handle this the same as DI state
         self.di (item)
