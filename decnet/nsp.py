@@ -1236,8 +1236,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 ca = self.makepacket (AckConn)
                 self.sendmsg (ca)
         elif isinstance (item, timers.Timeout):
-            # Timeout waiting for application confirm (or reject)
+            # Timeout waiting for application confirm (or reject).
+            # Reject it with reason 38, and also deliver a disconnect up
+            # to session control.
             self.reject (OBJ_FAIL)
+            disc = DiscInit (reason = OBJ_FAIL)
+            self.to_sc (disc, True)
 
     def ci (self, item):
         """Connect Init sent state.  This just checks for Connect Ack
