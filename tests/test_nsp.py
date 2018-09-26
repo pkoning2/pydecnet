@@ -5,7 +5,7 @@
 
 # To do:
 # 1. Various ACK cases for outbound data
-# 2. Out of order packets
+# 2. Out of order packets     ** DONE
 # 3. Duplicate packets
 # 4. Xoff flow control  **DONE
 # 5. Queue limit
@@ -18,6 +18,7 @@
 # 12. Packets not matched to an open port (connection)
 # 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
 # 14. Timeouts. **DONE except for outbound CI
+# 15. Inbound connection reject.    **DONE
 
 from tests.dntest import *
 from decnet import nsp
@@ -129,7 +130,7 @@ class inbound_base (ntest):
         self.assertEqual (len (nc.data.pending_ack), 0)
         
     def test_normalconn (self):
-        # Basic good inbound connection (accept, data, disconnect)
+        """Basic good inbound connection (accept, data, disconnect)"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -320,6 +321,7 @@ class inbound_base (ntest):
         self.assertEqual (len (self.nsp.rconnections), 0)
 
     def test_timers (self):
+        """Timeouts: inactivity, ack holdoff, packet timeout"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -481,6 +483,7 @@ class inbound_base (ntest):
             
 class test_inbound_noflow_phase4 (inbound_base):
     def test_interrupt (self):
+        """Interrupt messages (in and out)"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -557,6 +560,7 @@ class test_inbound_noflow_phase4 (inbound_base):
             nc.interrupt (b"frob again")
         
     def test_conntimeout (self):
+        """Timeout on inbound CI (no answer from application)"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -583,6 +587,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (pkt.reason, 38)
 
     def test_crtimeout (self):
+        """Timeout of CR message"""
         if self.phase == 2:
             # Test does not apply, handle as pass
             return
@@ -621,6 +626,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (cc.data_ctl, b"excellent")
         
     def test_reject (self):
+        """Inbound connection, rejected by application"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -666,6 +672,150 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (nc.state, nc.closed)
         self.assertEqual (len (self.nsp.connections), 0)
         self.assertEqual (len (self.nsp.rconnections), 0)
+
+    def test_ooo (self):
+        """Out of order packets, data subchannel"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session        
+        self.accept ()
+        # Build four data packets
+        d1 = b"\x60" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x01\x00data 1"
+        d2 = b"\x60" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x02\x00data 2"
+        d3 = b"\x60" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x03\x00data 3"
+        d4 = b"\x60" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x04\x00data 4"
+        # Deliver packets 2 and 4 (both out of order)
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d2, rts = False)
+        self.nsp.dispatch (w)
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d4, rts = False)
+        self.nsp.dispatch (w)
+        # Nothing yet to session control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        # No acks yet
+        self.assertFalse (nc.data.islinked ())
+        # Two packets in out of order cache
+        self.assertEqual (len (nc.data.ooo), 2)
+        # Deliver packet 1
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d1, rts = False)
+        self.nsp.dispatch (w)
+        # This should produce two packets to session control
+        self.assertEqual (self.node.addwork.call_count, 3)
+        r1, r2 = self.node.addwork.call_args_list[-2:]
+        args, kwargs = r1
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"data 1")
+        args, kwargs = r2
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"data 2")
+        # One packet left in OOO cache
+        self.assertEqual (len (nc.data.ooo), 1)
+        # Force ACK
+        w = timers.Timeout (self.nsp)
+        nc.data.dispatch (w)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.AckData)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertEqual (ds.acknum, nsp.AckNum (2))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (nc.data.islinked ())
+        # Deliver packet 3
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d3, rts = False)
+        self.nsp.dispatch (w)
+        # This should produce the other two packets to session control
+        self.assertEqual (self.node.addwork.call_count, 5)
+        r1, r2 = self.node.addwork.call_args_list[-2:]
+        args, kwargs = r1
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"data 3")
+        args, kwargs = r2
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"data 4")
+        # OOO cache now empty
+        self.assertEqual (len (nc.data.ooo), 0)
+        # Force ACK
+        w = timers.Timeout (self.nsp)
+        nc.data.dispatch (w)
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.AckData)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertEqual (ds.acknum, nsp.AckNum (4))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (nc.data.islinked ())
+
+    def test_ooo_other (self):
+        """Out of order packets, Int/LS subchannel"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session        
+        self.accept ()
+        # Build two link service packets (XOFF then XON)
+        p1 = b"\x10" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x01\x00\x01\x00"
+        p2 = b"\x10" + lla.to_bytes (2, "little") + \
+             b"\x03\x00\x02\x00\x02\x00"
+        # Deliver packet 2 (out of order)
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p2, rts = False)
+        self.nsp.dispatch (w)
+        # Nothing to session control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        # No acks yet
+        self.assertFalse (nc.other.islinked ())
+        # One packet in out of order cache for Int/LS subchannel (yes,
+        # we have one)
+        self.assertEqual (len (nc.other.ooo), 1)
+        # Deliver packet 1
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p1, rts = False)
+        self.nsp.dispatch (w)
+        # Still nothing to session control (not SC data)
+        self.assertEqual (self.node.addwork.call_count, 1)
+        # OOO cache is now empty
+        self.assertEqual (len (nc.data.ooo), 0)
+        # Force ACK
+        w = timers.Timeout (self.nsp)
+        nc.other.dispatch (w)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.AckOther)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertEqual (ds.acknum, nsp.AckNum (2))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (nc.data.islinked ())
+        # Resulting flow control state should be XON (since that was
+        # what the highest numbered LS message said)
+        self.assertTrue (nc.data.xon)
         
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
@@ -685,6 +835,7 @@ class test_inbound_msgflow_phase4 (inbound_base):
 
 class test_random (ntest):
     def test_random (self):
+        """Random packets inbound"""
         src = Nodeid (1, 42)
         for i in range (5000):
             pkt = randpkt (8, 64)
