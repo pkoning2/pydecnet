@@ -751,6 +751,12 @@ class Data_Subchannel (Subchannel):
         """
         self.parent.to_sc (item)
 
+    def process_ack (self, num):
+        super ().process_ack (num)
+        if self.parent.shutdown and not self.pending_ack:
+            self.parent.disc_rej (*self.parent.pending_disc)
+            self.parent.state = self.parent.di
+            
     def flow_ok (self, qe):
         """Return True if this queue entry can be transmitted now, False
         if not, according to the current flow control state.
@@ -929,6 +935,9 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
 
     This means that the DRC, CN, and DIC states do not exist either.
 
+    Finally, there is no DR state because it does the same thing as DI;
+    we use DI state instead.
+
     Note, though, that CL exists after a fashion.  When a connection is
     closed, NSP no longer knows about it (for example, it is no longer
     listed in the connection address lookup tables) but it is possible for
@@ -1026,13 +1035,16 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             ret["node"] = self.destnode.nodeid
         return ret
             
-    def close (self):
+    def close (self, ci = False):
         """Get rid of this connection.  This doesn't send anything;
         if messages are needed, that is up to the caller.  
+
+        If "ci" is True, don't try to delete the connection from the
+        outbound connections table (because it isn't there yet).
         """
         self.node.timers.stop (self)
         del self.parent.connections[self.srcaddr]
-        if self.dstaddr:
+        if self.dstaddr and not ci:
             del self.parent.rconnections[(self.dest, self.dstaddr)]
         self.parent.ret_id (self.srcaddr)
         # Clean up the subchannels
@@ -1106,7 +1118,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             self.pending_disc = (reason, payload)
         else:
             self.disc_rej (reason, payload)
-        self.state = self.di
+            self.state = self.di
         return True
     
     def abort (self, reason = 0, payload = b""):
@@ -1221,6 +1233,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         return pkt
     
     def sendmsg (self, pkt):
+        logging.trace ("NSP sending packet {}", pkt)
         self.parent.routing.send (pkt, self.dest)
 
     def validate (self, item):
@@ -1285,7 +1298,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 self.data.ack (0)    # Treat this as ACK of the CI
                 if self.cphase > 2:
                     # If phase 3 or later, send data Ack
-                    ack = self.makepacket (DataAck,
+                    ack = self.makepacket (AckData,
                                            acknum = AckNum (self.data.acknum))
                     self.sendmsg (ack)
                     self.node.timers.start (self, self.inact_time)
@@ -1301,7 +1314,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 # Ack the reject message
                 ack = self.makepacket (DiscComp)
                 self.sendmsg (ack)
-                return self.close ()
+                return self.close (True)
             elif isinstance (pkt, (NoRes, DiscConf)):
                 # No resources, or Phase 2 reject.
                 # Send the reject up to Session Control
@@ -1368,10 +1381,6 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             elif isinstance (pkt, DiscConf):
                 return self.close ()
                 
-    def dr (self, item):
-        # We handle this the same as DI state
-        self.di (item)
-    
 class ReservedPort (Element):
     """An NSP "reserved port".  This is a descriptive trick to talk about
     error responses not tied to an active connection, things like no such
