@@ -19,7 +19,7 @@
 # 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
 # 14. Timeouts. **DONE except for outbound CI
 # 15. Inbound connection reject.    **DONE
-# 16. Returned CI
+# 16. Returned CI    **DONE
 
 from tests.dntest import *
 from decnet import nsp
@@ -1313,6 +1313,34 @@ class outbound_base (ntest):
         self.assertTrue (w.reject)
         self.assertEqual (pkt.reason, 1)
         self.assertEqual (pkt.data_ctl, b"payload")
+        # Check connection state
+        self.assertEqual (nc.state, nc.closed)
+
+    def test_outbound_unreachable (self):
+        """Outbound connection request returned by routing"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        r = self.node.routing
+        s = self.node.session
+        # Pick up what we sent
+        args, kwargs = r.send.call_args
+        ci, dest = args
+        self.assertIsInstance (ci, nsp.ConnInit)
+        # Convert it to bytes so NSP top level input can parse it
+        ci = bytes (ci)
+        # Deliver it as a returned packet
+        w = Received (owner = self.nsp, src = self.node.nodeid,
+                      packet = ci, rts = True)
+        self.nsp.dispatch (w)
+        # Check data to Session Control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertTrue (w.reject)
+        # Reason is unreachable
+        self.assertEqual (pkt.reason, 39)
         # Check connection state
         self.assertEqual (nc.state, nc.closed)
 
