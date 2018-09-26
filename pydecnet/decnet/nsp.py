@@ -307,6 +307,8 @@ class DiscInit (NspHdr):
     type = NspHdr.CTL
     subtype = NspHdr.DI
 
+OBJ_FAIL = 38       # Object failed (copied from session.py)
+
 # Mapping from packet type code (msgflg field) to packet class
 msgmap = { (c.type << 2) + (c.subtype << 4) : c
            for c in ( AckData, AckOther, AckConn, ConnConf,
@@ -592,7 +594,10 @@ class txqentry (timers.Timer):
         """
         # Simply send it again.  TODO: do we want a retry limit?
         self.sent = False
-        self.send ()
+        # Don't send just yet if flow control forbids it
+        if not isinstance (self.packet, DataSeg) or \
+          self.channel.flow_ok (self):
+            self.send ()
         
 class Subchannel (Element, timers.Timer):
     """A subchannel (data or other-data) within an NSP connection.  This
@@ -815,13 +820,13 @@ class Data_Subchannel (Subchannel):
                 return
         elif self.flow == ConnMsg.SVC_SEG:
             delta = pkt.fcval
-            if self.maxackseg <= self.maxmsg + delta < self.maxackseg + 128:
+            if self.maxackseg <= self.maxseg + delta < self.maxackseg + 128:
                 self.maxseg += delta
             else:
                 logging.debug ("Invalid LS (Data Request, segment mode) message {}", pkt)
                 return
         if pkt.fcmod:
-            self.xon = pkt.fcmod == XON
+            self.xon = pkt.fcmod == pkt.XON
         # Look for not-sent packets in the transmit queue, and retry
         # sending them.  Quit when one is refused again.
         for qe in self.pending_ack:
@@ -941,6 +946,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.shutdown = False
         # Parameters
         self.inact_time = 300
+        self.conn_timeout = 30
         # Initialize the data segment reassembly list
         self.asmlist = list ()
         self.data = Data_Subchannel (self)
@@ -957,7 +963,10 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.parent.connections[srcaddr] = self
         # Now do the correct action for this new connection, depending
         # on whether it was an arriving one (CI packet) or originating
-        # (session layer "connect" call).
+        # (session layer "connect" call).  But either way we start a
+        # timeout to reject the connection if the other end (outbound)
+        # or the local application (inbound) takes too long.
+        self.node.timers.start (self, self.conn_timeout)
         if inbound:
             pkt = inbound.packet
             # Inbound connection.  Save relevant state about the remote
@@ -1040,12 +1049,17 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                               info = self.parent.nspver,
                               segsize = MSS)
         logging.trace ("Accepting to {}: {}", self.srcaddr, payload)
-        # Send it on the data subchannel
-        self.data.send (cc)
-        self.state = self.cc
-        if self.node.phase == 2:
-            # Phase 2, go directly to RUN state.
+        # Send it on the data subchannel as an acknowledged message if
+        # phase 3 or later, but send it direct (no ack expected) for
+        # phase 2.
+        if self.cphase == 2:
+            self.sendmsg (cc)
             self.state = self.run
+            # Stop the connect timer
+            self.node.timers.stop (self)
+        else:
+            self.data.send (cc)
+            self.state = self.cc
         return True
         
     def reject (self, reason = 0, payload = b""):
@@ -1054,8 +1068,10 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         """
         if self.state != self.cr:
             raise WrongState
+        # Stop the connect timer
+        self.node.timers.stop (self)
         self.disc_rej (reason, payload)
-        self.state = self.dr
+        self.state = self.di
         return True
     
     def disc_rej (self, reason, payload):
@@ -1213,70 +1229,84 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         Control to decide what to do about an inbound connection.
         We also ACK any retransmitted CI messages.
         """
-        pkt = item.packet
-        if isinstance (pkt, ConnInit) and self.cphase > 2:
-            # Retransmitted or out of order CI.  Resend the CA.
-            ca = self.makepacket (AckConn)
-            self.sendmsg (ca)
+        if isinstance (item, Received):
+            pkt = item.packet
+            if isinstance (pkt, ConnInit) and self.cphase > 2:
+                # Retransmitted or out of order CI.  Resend the CA.
+                ca = self.makepacket (AckConn)
+                self.sendmsg (ca)
+        elif isinstance (item, timers.Timeout):
+            # Timeout waiting for application confirm (or reject)
+            self.reject (OBJ_FAIL)
 
     def ci (self, item):
         """Connect Init sent state.  This just checks for Connect Ack
         and returned Connect Init, everything else is common with the
         CD state.
         """
-        pkt = item.packet
-        if isinstance (pkt, AckConn) and self.node.phase > 2:
-            # Connect Ack, go to CD state
-            self.data.ack (0)    # Process ACK of the CI
-            return self.cd
-        elif isinstance (pkt, ConnInit):
-            # Returned outbound CI.  Report unreachable to Session
-            # Control, after substituting a disconnect (reject) message.
-            #
-            # Note that inbound CI doesn't come here, it comes in via the
-            # constructor, or if retransmitted to the CR state handler.
-            item.packet = DiscInit (reason = 39)
-            self.to_sc (item, True)
-            return self.close ()
+        if isinstance (item, Received):
+            pkt = item.packet
+            if isinstance (pkt, AckConn) and self.node.phase > 2:
+                # Connect Ack, go to CD state
+                self.data.ack (0)    # Process ACK of the CI
+                return self.cd
+            elif isinstance (pkt, ConnInit):
+                # Returned outbound CI.  Report unreachable to Session
+                # Control, after substituting a disconnect (reject) message.
+                #
+                # Note that inbound CI doesn't come here, it comes in via the
+                # constructor, or if retransmitted to the CR state handler.
+                item.packet = DiscInit (reason = 39)
+                self.to_sc (item, True)
+                return self.close ()
         return self.cd (item)
 
     def cd (self, item):
         """Connect Delivered state.  This also serves as common code for
         the Connect Init state since they are nearly identical.
         """
-        pkt = item.packet
-        if isinstance (pkt, ConnConf):
-            # Connection was accepted.  Save relevant state about the remote
-            # node, and send the payload up to session control.
-            self.dstaddr = pkt.srcaddr
-            # Save connection version information
-            self.setphase (pkt)
-            self.data.flow = pkt.fcopt
-            self.segsize = min (pkt.segsize, MSS)
-            self.data.ack (0)    # Treat this as ACK of the CI
-            if self.cphase > 2:
-                # If phase 3 or later, send data Ack
-                ack = self.makepacket (DataAck,
-                                       acknum = AckNum (self.data.acknum))
+        if isinstance (item, Received):
+            pkt = item.packet
+            if isinstance (pkt, ConnConf):
+                # Connection was accepted.  Save relevant state about the remote
+                # node, and send the payload up to session control.
+                self.dstaddr = pkt.srcaddr
+                # Save connection version information
+                self.setphase (pkt)
+                self.data.flow = pkt.fcopt
+                self.segsize = min (pkt.segsize, MSS)
+                self.data.ack (0)    # Treat this as ACK of the CI
+                if self.cphase > 2:
+                    # If phase 3 or later, send data Ack
+                    ack = self.makepacket (DataAck,
+                                           acknum = AckNum (self.data.acknum))
+                    self.sendmsg (ack)
+                    self.node.timers.start (self, self.inact_time)
+                # Send the accept up to Session Control
+                self.to_sc (item)
+                # Transition to RUN state
+                return self.run
+            elif isinstance (pkt, DiscInit):
+                # Connect Reject
+                self.dstaddr = pkt.srcaddr
+                # Send the reject up to Session Control
+                self.to_sc (item, True)
+                # Ack the reject message
+                ack = self.makepacket (DiscComp)
                 self.sendmsg (ack)
-                self.node.timers.start (self, self.inact_time)
-            # Send the accept up to Session Control
-            self.to_sc (item)
-            # Transition to RUN state
-            return self.run
-        elif isinstance (pkt, DiscInit):
-            # Connect Reject
-            self.dstaddr = pkt.srcaddr
-            # Send the reject up to Session Control
-            self.to_sc (item, True)
-            # Ack the reject message
-            ack = self.makepacket (DiscComp)
-            self.sendmsg (ack)
-            return self.close ()
-        elif isinstance (pkt, (NoRes, DiscConf)):
-            # No resources, or Phase 2 reject.
-            # Send the reject up to Session Control
-            self.to_sc (item, True)
+                return self.close ()
+            elif isinstance (pkt, (NoRes, DiscConf)):
+                # No resources, or Phase 2 reject.
+                # Send the reject up to Session Control
+                self.to_sc (item, True)
+                return self.close ()
+        elif isinstance (item, timers.Timeout):
+            # Timeout waiting for confirm (or reject).  We can't send
+            # anything to the other end because the protocol makes no
+            # provision for disconnect in CR state.  So just deliver
+            # failure locally and make the connection go away.
+            disc = DiscInit (reason = OBJ_FAIL)
+            self.to_sc (disc, True)
             return self.close ()
 
     def cc (self, item):
@@ -1284,10 +1314,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         gets us to this point (except in Phase II where that goes
         straight to RUN state).
         """
-        pkt = item.packet
-        if isinstance (pkt, (DataSeg, AckData, IntMsg, LinkSvcMsg, AckOther)):
-            self.data.ack (0)   # Treat ack or data as ACK of CC message
-        self.state = self.run
+        if isinstance (item, Received):
+            pkt = item.packet
+            if isinstance (pkt, (DataSeg, AckData, IntMsg,
+                                 LinkSvcMsg, AckOther)):
+                self.data.ack (0)   # Treat ack or data as ACK of CC message
+            self.state = self.run
         return self.run (item)
 
     def run (self, item):
@@ -1311,9 +1343,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 return self.close ()
         elif isinstance (item, timers.Timeout):
             # Inactivity timeout, send a no-change Link Service message
-            # (make it XON for grins, we never send XOFF so this is in
-            # effect a no-change message).
-            pkt = LinkSvcMsg (fcval_int = DATA_REQ, fcmod = XON)
+            pkt = self.makepacket (LinkSvcMsg,
+                                   segnum = self.other.seqnum,
+                                   fcmod = LinkSvcMsg.DATA_REQ,
+                                   fcval_int = LinkSvcMsg.DATA_REQ,
+                                   fcval = 0)
+            self.other.seqnum += 1
             self.other.send (pkt)
 
     def di (self, item):
@@ -1340,7 +1375,8 @@ class ReservedPort (Element):
     def dispatch (self, item):
         """Handle a work item for the reserved port.  Typically these
         generate an error response back to the sender; the specific
-        response depends on what we're replying to.
+        response depends on what we're replying to.  Only Received items
+        come here.
         """
         pkt = item.packet
         logging.trace ("Processing {} in reserved port", pkt)
