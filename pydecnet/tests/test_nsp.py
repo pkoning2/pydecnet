@@ -17,7 +17,7 @@
 # 11. Packets that are wrong for a given state (if any?)
 # 12. Packets not matched to an open port (connection)
 # 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
-# etc.
+# 14. Timeouts. **DONE except for outbound CI
 
 from tests.dntest import *
 from decnet import nsp
@@ -581,6 +581,91 @@ class test_inbound_noflow_phase4 (inbound_base):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 38)
+
+    def test_crtimeout (self):
+        if self.phase == 2:
+            # Test does not apply, handle as pass
+            return
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        # SC send accept
+        nc.accept (b"excellent")
+        # Verify confirm went out
+        r = self.node.routing
+        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        args, kwargs = r.send.call_args
+        cc, dest = args
+        self.assertIsInstance (cc, nsp.ConnConf)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (cc.srcaddr, nc.srcaddr)
+        self.assertEqual (cc.dstaddr, 3)
+        self.assertEqual (cc.data_ctl, b"excellent")
+        # Make sure phase is set properly
+        self.assertEqual (nc.cphase, min (self.phase, self.node.phase))
+        # Check new connection state
+        self.assertEqual (nc.state, nc.cc)
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        # Time out the confirm
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (cc, nsp.ConnConf)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (cc.srcaddr, nc.srcaddr)
+        self.assertEqual (cc.dstaddr, 3)
+        self.assertEqual (cc.data_ctl, b"excellent")
+        
+    def test_reject (self):
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        # SC send accept
+        nc.reject (0, b"not excellent")
+        # Verify reject went out
+        r = self.node.routing
+        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        args, kwargs = r.send.call_args
+        rj, dest = args
+        self.assertIsInstance (rj, nsp.DiscInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (rj.srcaddr, nc.srcaddr)
+        self.assertEqual (rj.dstaddr, 3)
+        self.assertEqual (rj.reason, 0)
+        self.assertEqual (rj.data_ctl, b"not excellent")
+        self.assertEqual (nc.state, nc.di)
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        # Time out the reject
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        rj, dest = args
+        self.assertIsInstance (rj, nsp.DiscInit)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (rj.srcaddr, nc.srcaddr)
+        self.assertEqual (rj.dstaddr, 3)
+        self.assertEqual (rj.reason, 0)
+        self.assertEqual (rj.data_ctl, b"not excellent")
+        self.assertEqual (nc.state, nc.di)
+        # Deliver a confirm (disconnect complete)
+        p = b"\x48" + lla.to_bytes (2, "little") + b"\x03\x00\x2a\x00"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)        
+        # Check new connection state, and that there no longer is an
+        # NSP connection in its database.
+        self.assertEqual (nc.state, nc.closed)
+        self.assertEqual (len (self.nsp.connections), 0)
+        self.assertEqual (len (self.nsp.rconnections), 0)
         
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
