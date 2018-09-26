@@ -649,6 +649,7 @@ class Subchannel (Element, timers.Timer):
             if num <= self.acknum:
                 # Duplicate, send an explicit ack, but otherwise ignore it.
                 self.send_ack ()
+                return
             elif num != self.acknum + 1:
                 # Not next in sequence, save it
                 logging.trace ("Saving out of order NSP packet {}", pkt)
@@ -1298,9 +1299,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 self.data.ack (0)    # Treat this as ACK of the CI
                 if self.cphase > 2:
                     # If phase 3 or later, send data Ack
-                    ack = self.makepacket (AckData,
-                                           acknum = AckNum (self.data.acknum))
-                    self.sendmsg (ack)
+                    ack = self.data.send_ack ()
                     self.node.timers.start (self, self.inact_time)
                 # Send the accept up to Session Control
                 self.to_sc (item)
@@ -1361,6 +1360,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             elif isinstance (pkt, DiscConf):
                 self.to_sc (item)
                 return self.close ()
+            elif isinstance (pkt, ConnConf):
+                # Duplicate confirm
+                if self.cphase > 2:
+                    # If phase 3 or later, send data Ack
+                    ack = self.data.send_ack ()
+                    return
         elif isinstance (item, timers.Timeout):
             # Inactivity timeout, send a no-change Link Service message
             pkt = self.makepacket (LinkSvcMsg,
