@@ -574,6 +574,13 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (ds.dstaddr, rla)
         self.assertEqual (ds.reason, 38)
         self.assertEqual (nc.state, nc.di)
+        # Check that the timeout came to session control as a disconnect
+        self.assertEqual (self.node.addwork.call_count, 1 + self.cdadj)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertEqual (pkt.reason, 38)
         
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
