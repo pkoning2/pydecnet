@@ -1241,7 +1241,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # to session control.
             self.reject (OBJ_FAIL)
             disc = DiscInit (reason = OBJ_FAIL)
-            self.to_sc (disc, True)
+            self.to_sc (Received (self, packet = disc))
 
     def ci (self, item):
         """Connect Init sent state.  This just checks for Connect Ack

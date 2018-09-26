@@ -575,7 +575,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (ds.reason, 38)
         self.assertEqual (nc.state, nc.di)
         # Check that the timeout came to session control as a disconnect
-        self.assertEqual (self.node.addwork.call_count, 1 + self.cdadj)
+        self.assertEqual (self.node.addwork.call_count, 2)
         args, kwargs = self.node.addwork.call_args
         w, owner = args
         pkt = w.packet
