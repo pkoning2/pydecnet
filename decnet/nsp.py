@@ -446,12 +446,8 @@ class NSP (Element):
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
-                if pkt.dstaddr != 0:
-                    logging.trace ("CI with nonzero dstaddr")
-                    # FIXME: this needs to log the message in the right format
-                    self.node.logevent (events.inv_msg, message = buf,
-                                        source_node = item.src)
-                    return
+                # Note that the error case of CI with non-zero dest addr
+                # is caught by the general DecodeError handling above.
                 if item.rts:
                     try:
                         conn = self.connections[pkt.srcaddr]
@@ -460,6 +456,7 @@ class NSP (Element):
                             return
                     except KeyError:
                         # Not there, must have been deleted.  Ignore.
+                        logging.trace ("Returned CI not matched, ignored")
                         return
                 else:
                     # Step 3: see if this is a retransmit, otherwise
@@ -517,6 +514,7 @@ class NSP (Element):
                     if t in (AckConn, NoRes, DiscConf, DiscComp, NoLink,
                              AckData, AckOther):
                         # discard the packet silently
+                        logging.trace ("Packet with bad address discarded: {}", pkt)
                         return
                     # Something with data, map to reserved port
                     conn = self.resport
@@ -528,6 +526,7 @@ class NSP (Element):
             
     def init_id (self):
         # Initialize the free connection ID list
+        # FIXME: This doesn't look right -- need random without replacement?
         c = self.maxconns + 1
         self.freeconns = deque (i + random.randrange (0, 65536, c)
                                 for i in range (1, c))
@@ -709,7 +708,6 @@ class Subchannel (Element, timers.Timer):
         except IndexError:
             return
         if isinstance (firsttxq.packet, (IntMsg, DataSeg)):
-            adjflow = True
             if acknum < firsttxq.packet.segnum or acknum > self.maxseqsent:
                 # Duplicate or out of range ack, ignore.
                 # Note that various control packets end up in the Data
@@ -719,7 +717,6 @@ class Subchannel (Element, timers.Timer):
                 return
             count = acknum - firsttxq.packet.segnum + 1
         else:
-            adjflow = False
             count = 1
         acked = None
         for i in range (count):
@@ -736,7 +733,7 @@ class Subchannel (Element, timers.Timer):
         for pkt in self.pending_ack:
             pkt.ack ()
         self.pending_ack.clear ()
-        self.ooo = dict ()
+        self.ooo.clear ()
 
 class Data_Subchannel (Subchannel):
     # Class for ACKs send from this subchannel

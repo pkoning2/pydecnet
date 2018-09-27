@@ -6,6 +6,7 @@ import time
 import random
 import collections
 from collections.abc import Sequence
+import re
 
 import unittest
 import unittest.mock
@@ -102,6 +103,8 @@ class DnTest (unittest.TestCase):
         h = logging.StreamHandler (sys.stdout)
         logging.basicConfig (handlers = [ h ], level = self.loglevel)
         self.setloglevel (self.loglevel)
+        self.lasttrace = 0
+        self.lastdebug = 0
         
     def setloglevel (self, level):
         logging.getLogger ().setLevel (level)
@@ -217,7 +220,33 @@ class DnTest (unittest.TestCase):
         ret, b = cls.decode (b)
         self.assertEqual (b, b"")
         return ret
-    
+
+    def assertTrace (self, pat, msg = None):
+        if not msg:
+            msg = "No new trace message matching '{}' found".format (pat)
+        lt = self.lasttrace
+        self.lasttrace = logging.trace.call_count
+        self.assertGreater (self.lasttrace, lt, msg)
+        pat_re = re.compile (pat, re.I)
+        for c in logging.trace.call_args_list[lt:]:
+            args, kwargs = c
+            if pat_re.search (args[0]):
+                return args
+        self.fail (msg)
+        
+    def assertDebug (self, pat, msg = None):
+        if not msg:
+            msg = "No new debug message matching '{}' found".format (pat)
+        lt = self.lastdebug
+        self.lastdebug = logging.debug.call_count
+        self.assertGreater (self.lastdebug, lt, msg)
+        pat_re = re.compile (pat, re.I)
+        for c in logging.debug.call_args_list[lt:]:
+            args, kwargs = c
+            if pat_re.search (args[0]):
+                return args
+        self.fail (msg)
+        
 _port = 6665
 
 def nextport ():

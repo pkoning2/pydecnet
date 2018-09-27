@@ -14,10 +14,10 @@
 # 8. Outbound disconnect (with and without data pending)  **DONE
 # 9. Outbound abort    **DONE
 # 10. Outbound connection accept and reject     **DONE
-# 11. Packets that are wrong for a given state (if any?)
-# 12. Packets not matched to an open port (connection)
-# 13. Phase II behavior: no CD, no CC state, DC instead of DI message.
-# 14. Timeouts. **DONE except for outbound CI
+# 11. Packets that are wrong for a given state   **DONE
+# 12. Packets not matched to an open port (connection)  **DONE
+# 13. Phase II behavior: no CD, no CC state, DC instead of DI message. **DONE
+# 14. Timeouts. **DONE
 # 15. Inbound connection reject.    **DONE
 # 16. Returned CI    **DONE
 
@@ -1245,6 +1245,8 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 2)
+        # Check log
+        self.assertTrace ("Ignoring ack")
         # Ack number too high (3)
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
         w = Received (owner = self.nsp, src = self.remnode,
@@ -1253,6 +1255,8 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 2)
+        # Check log
+        self.assertTrace ("Ignoring ack")
         # Same but interrupt subchannel
         # Incoming Link Service to ask for more interrupts
         p = b"\x10" + lla.to_bytes (2, "little") + \
@@ -1283,6 +1287,8 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
+        # Check log
+        self.assertTrace ("Ignoring ack")
         # Ack number too high (3)
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
         w = Received (owner = self.nsp, src = self.remnode,
@@ -1291,7 +1297,143 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
-
+        # Check log
+        self.assertTrace ("Ignoring ack")
+        # Cross-subchannel ACK but not phase 4
+        if nc.cphase < 4:
+            ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x05\xb0"
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = ack, rts = False)
+            self.nsp.dispatch (w)
+            self.assertDebug ("Cross-subchannel")
+            
+    def test_bad_packet (self):
+        """Handling of various illegal or unexpected packets"""
+        # The tests here are derived from the rules for mapping an
+        # arriving packet to a port (Connection object), see NSP 4.0.1
+        # spec section 6.2 (receive dispatcher).
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        self.accept ()
+        # Send a packet with bad flags
+        p = b"\xccabcdef"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check log message
+        args = self.assertTrace ("Ill formatted")
+        self.assertEqual (args[2], p)
+        # Send half an ack
+        p = b"\x04"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check log message
+        args = self.assertTrace ("Invalid packet")
+        self.assertEqual (args[1], p)
+        # Ack with extra bytes after the valid data
+        p = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x00\x80\x00\x00"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check log message
+        args = self.assertTrace ("Invalid packet")
+        self.assertEqual (args[1], p)
+        # Send a NOP
+        p = b"\x08abcdef"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check log message
+        self.assertTrace ("NSP NOP")
+        # CI message with bad destination address
+        p = b"\x18\x01\x00\x03\x00" + self.services + self.info + \
+            b"\x00\x01payload"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check log message, this is also just a decode error
+        args = self.assertTrace ("Invalid packet")
+        self.assertEqual (args[1], p)
+        # Packet (ack) with wrong source link address
+        p = b"\x04" + lla.to_bytes (2, "little") + b"\x99\x00\x00\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        args = self.assertTrace ("Packet with bad address")
+        self.assertEqual (args[1], p)
+        # Ditto but data segment
+        d = b"\x60" + lla.to_bytes (2, "little") + \
+            b"\x73\x00\x01\x00inbound data"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d, rts = False)
+        self.nsp.dispatch (w)
+        self.assertTrace ("in reserved port")
+        # That should produce a No Link response
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.NoLink)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        # Dest link address is taken from the offending field in the
+        # received packet
+        self.assertEqual (ds.dstaddr, 0x73)
+        # Returned CI or RCI not matching current port in CI state
+        p = b"\x18\x00\x00\x03\x00" + self.services + self.info + \
+            b"\x00\x01payload"
+        # Deliver it as a returned packet
+        w = Received (owner = self.nsp, src = self.node.nodeid,
+                      packet = p, rts = True)
+        self.nsp.dispatch (w)
+        # Check the log
+        self.assertTrace ("Returned CI not matched")
+        # Incoming Link Service with invalid fcval_int
+        p = b"\x10" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00\x08\x00"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check logs
+        args = self.assertTrace ("Invalid packet")
+        self.assertEqual (args[1], p)
+        # Incoming Link Service with invalid fcmod
+        p = b"\x10" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00\x03\x00"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check logs
+        args = self.assertTrace ("Invalid packet")
+        self.assertEqual (args[1], p)
+        # Packet to unknown local link address
+        p = b"\x04" + (lla + 1).to_bytes (2, "little") + b"\x03\x00\x00\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        args = self.assertTrace ("Packet with bad address")
+        self.assertEqual (args[1], p)
+        # Ditto but data segment
+        d = b"\x60" + (lla + 1).to_bytes (2, "little") + \
+            b"\x73\x00\x01\x00inbound data"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = d, rts = False)
+        self.nsp.dispatch (w)
+        self.assertTrace ("in reserved port")
+        # That should produce a No Link response
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.NoLink)
+        self.assertEqual (dest, self.remnode)
+        # Link addresses are taken from the offending field in the
+        # received packet
+        self.assertEqual (ds.srcaddr, lla + 1)
+        self.assertEqual (ds.dstaddr, 0x73)
+        
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
     remnode = Nodeid (42)
@@ -1571,6 +1713,34 @@ class outbound_base (ntest):
             self.assertEqual (ack.srcaddr, lla)
             self.assertEqual (ack.acknum, nsp.AckNum (0))
             self.assertFalse (hasattr (ack, "acknum2"))
+        
+    def test_citimeout (self):
+        """Outbound connection, timeout/retransmit CI"""
+        if self.phase == 2:
+            # Test does not apply, handle as pass
+            return
+        nc = self.nspconn
+        lla = nc.srcaddr
+        r = self.node.routing
+        s = self.node.session
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.ci)
+        # Time out the CI
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        self.assertEqual (r.send.call_count, 2)
+        args, kwargs = r.send.call_args
+        ci, dest = args
+        self.assertIsInstance (ci, nsp.ConnInit)
+        # Different subtype for retransmit
+        self.assertEqual (ci.subtype, nsp.NspHdr.RCI)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ci.dstaddr, 0)
+        self.assertEqual (ci.srcaddr, lla)
+        self.assertEqual (ci.payload, b"connect")
+        # Still same state
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.ci)
         
 class test_outbound_phase4 (outbound_base):
     pass
