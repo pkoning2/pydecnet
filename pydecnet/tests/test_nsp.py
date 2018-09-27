@@ -4,12 +4,12 @@
 """
 
 # To do:
-# 1. Various ACK cases for outbound data
+# 1. Various ACK cases for outbound data  **DONE
 # 2. Out of order packets     ** DONE
 # 3. Duplicate packets    **DONE
 # 4. Xoff flow control  **DONE
 # 5. Queue limit
-# 6. Bad ACKs
+# 6. Bad ACKs     **DONE
 # 7. Bad flow control updates
 # 8. Outbound disconnect (with and without data pending)  **DONE
 # 9. Outbound abort    **DONE
@@ -866,7 +866,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # State is now DI
         self.assertEqual (nc.state, nc.di)
 
-    def test_acks (self):
+    def test_partial_acks (self):
         """Partial acks (less than total currently pending)"""
         nc = self.nspconn
         lla = nc.srcaddr
@@ -874,6 +874,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         r = self.node.routing
         s = self.node.session
         self.accept ()
+        # Send two data packets
         nc.send_data (b"packet 1")
         nc.send_data (b"packet 2")
         # Both should have been sent
@@ -897,6 +898,14 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, but queue length is now 1
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 1)
+        # Ack the second one
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x02\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue now empty
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (len (nc.data.pending_ack), 0)
         # Same, but for interrupts
         # Incoming Link Service to ask for more interrupts
         p = b"\x10" + lla.to_bytes (2, "little") + \
@@ -927,6 +936,82 @@ class test_inbound_noflow_phase4 (inbound_base):
         # No retransmits, but queue length is now 1
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 1)
+        # Ack the second one
+        ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x02\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue now empty
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (len (nc.other.pending_ack), 0)
+        # Send two more data packets
+        nc.send_data (b"packet 3")
+        nc.send_data (b"packet 4")
+        # Both should have been sent
+        self.assertEqual (r.send.call_count, 7 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet 4")
+        # Both are awaiting ack
+        self.assertEqual (len (nc.data.pending_ack), 2)
+        # Time out the first packet
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        self.assertEqual (r.send.call_count, 8 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet 3")
+        # Turn off flow
+        if self.services == b'\x05':
+            # Send segment count delta -1
+            p = b"\x10" + lla.to_bytes (2, "little") + \
+                b"\x03\x00\x02\x00\x00\xff"
+        else:
+            # Not segment flow control, send xoff
+            p = b"\x10" + lla.to_bytes (2, "little") + \
+                b"\x03\x00\x02\x00\x01\x00"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Holdoff timer expiration should generate explicit ACK
+        w = timers.Timeout (self.nsp)
+        nc.other.dispatch (w)
+        self.assertEqual (r.send.call_count, 9 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.AckOther)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertEqual (ds.acknum, nsp.AckNum (2))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (nc.other.islinked ())
+        # Time out the second packet, should not send
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[1].dispatch (w)
+        self.assertFalse (nc.data.pending_ack[1].sent)
+        self.assertEqual (r.send.call_count, 9 + self.cdadj)
+        # Ack both.
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x04\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # Even though the second packet was not resent, it was sent
+        # once before so an ack for it is valid.  So both packets
+        # should be acked now.
+        self.assertEqual (len (nc.data.pending_ack), 0)
 
     def test_dup_ci (self):
         """Duplicate Connect Initiate packets"""
@@ -1127,6 +1212,85 @@ class test_inbound_noflow_phase4 (inbound_base):
         self.assertEqual (nc.state, nc.closed)
         self.assertEqual (len (self.nsp.connections), 0)
         self.assertEqual (len (self.nsp.rconnections), 0)
+
+    def test_bad_acks (self):
+        """Various invalid ACK cases"""
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        self.accept ()
+        # Send two packets
+        nc.send_data (b"packet 1")
+        nc.send_data (b"packet 2")
+        # Both should have been sent
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet 2")
+        # Both are awaiting ack
+        self.assertEqual (len (nc.data.pending_ack), 2)
+        # Ack number too low (4090)
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\xf6\x8f"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue unchanged
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (len (nc.data.pending_ack), 2)
+        # Ack number too high (3)
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue unchanged
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (len (nc.data.pending_ack), 2)
+        # Same but interrupt subchannel
+        # Incoming Link Service to ask for more interrupts
+        p = b"\x10" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00\x06\x02"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        nc.interrupt (b"packet 1")
+        nc.interrupt (b"packet 2")
+        # Both should have been sent
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.IntMsg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet 2")
+        # Both are awaiting ack
+        self.assertEqual (len (nc.other.pending_ack), 2)
+        # Ack number too low (4090)
+        ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\xf6\x8f"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue unchanged
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (len (nc.other.pending_ack), 2)
+        # Ack number too high (3)
+        ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue unchanged
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (len (nc.other.pending_ack), 2)
 
 class test_inbound_noflow_phase3 (test_inbound_noflow_phase4):
     info = b'\x00'       # NSP 3.2 (phase 3)
