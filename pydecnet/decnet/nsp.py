@@ -494,8 +494,13 @@ class NSP (Element):
                     if conn.state in (conn.ci, conn.cd):
                         # CI or CD state, check the message (rule 6 first
                         # part, rule 7 note).
-                        if t not in (AckConn, NoRes, ConnConf, DiscInit,
-                                     DiscConf):
+                        if t in (NoRes, ConnConf, DiscInit, DiscConf):
+                            if conn.dstaddr == 0:
+                                # Dest address not set yet
+                                cikey = (item.src, pkt.srcaddr)
+                                self.rconnections[cikey] = conn
+                                conn.dstaddr = pkt.srcaddr
+                        elif t is not AckConn:
                             conn = None   # Not a valid mapping
                     else:
                         # We have a remote address, do a full check
@@ -762,6 +767,9 @@ class Data_Subchannel (Subchannel):
 
     def process_ack (self, num):
         super ().process_ack (num)
+        # Some transmits may have been blocked that are now ok, try
+        # again.
+        self.send_blocked ()
         if self.parent.shutdown and not self.pending_ack:
             self.parent.disc_rej (*self.parent.pending_disc)
             self.parent.state = self.parent.di
@@ -845,13 +853,18 @@ class Data_Subchannel (Subchannel):
                 return
         if pkt.fcmod:
             self.xon = pkt.fcmod == pkt.XON
-        # Look for not-sent packets in the transmit queue, and retry
-        # sending them.  Quit when one is refused again.
+        self.send_blocked ()
+
+    def send_blocked (self):
+        """Look for not-sent packets in the transmit queue, and retry
+        sending them.  Quit when one is refused again.
+        """
         for qe in self.pending_ack:
             if not qe.sent:
                 if not self.send_qe (qe):
                     break
-            self.maxseqsent = max (self.maxseqsent, qe.packet.segnum)
+            if isinstance (qe.packet, DataSeg):
+                self.maxseqsent = max (self.maxseqsent, qe.packet.segnum)
         
 class Other_Subchannel (Subchannel):
     # Class for ACKs send from this subchannel
@@ -1044,16 +1057,15 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             ret["node"] = self.destnode.nodeid
         return ret
             
-    def close (self, ci = False):
+    def close (self):
         """Get rid of this connection.  This doesn't send anything;
         if messages are needed, that is up to the caller.  
-
-        If "ci" is True, don't try to delete the connection from the
-        outbound connections table (because it isn't there yet).
         """
         self.node.timers.stop (self)
         del self.parent.connections[self.srcaddr]
-        if self.dstaddr and not ci:
+        # dstaddr isn't set yet if we're closing due to timeout after
+        # CI, or CI returned to sender.
+        if self.dstaddr:
             del self.parent.rconnections[(self.dest, self.dstaddr)]
         self.parent.ret_id (self.srcaddr)
         # Clean up the subchannels
@@ -1321,7 +1333,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 # Ack the reject message
                 ack = self.makepacket (DiscComp)
                 self.sendmsg (ack)
-                return self.close (True)
+                return self.close ()
             elif isinstance (pkt, (NoRes, DiscConf)):
                 # No resources, or Phase 2 reject.
                 # Send the reject up to Session Control

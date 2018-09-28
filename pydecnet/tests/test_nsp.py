@@ -4,25 +4,7 @@
 """
 
 # To do:
-# 1. Various ACK cases for outbound data  **DONE
-# 2. Out of order packets     ** DONE
-# 3. Duplicate packets    **DONE
-# 4. Xoff flow control  **DONE
-# 5. Queue limit
-# 6. Bad ACKs     **DONE
-# 7. Bad flow control updates
-# 8. Outbound disconnect (with and without data pending)  **DONE
-# 9. Outbound abort    **DONE
-# 10. Outbound connection accept and reject     **DONE
-# 11. Packets that are wrong for a given state   **DONE
-# 12. Packets not matched to an open port (connection)  **DONE
-# 13. Phase II behavior: no CD, no CC state, DC instead of DI message. **DONE
-# 14. Timeouts. **DONE
-# 15. Inbound connection reject.    **DONE
-# 16. Returned CI    **DONE
-# 17. Link address assignment rules   **DONE
-# 18. Correct management of connection databases   **DONE
-# 19. Max connection reached    **DONE
+# -- Counters (to be implemented still)
 
 from tests.dntest import *
 from decnet import nsp
@@ -32,8 +14,8 @@ from decnet import timers
 
 class ntest (DnTest):
     myphase = 4
+    max_connections = 511
     qmax = nsp.Seq.maxdelta
-    max_connections = 15
     
     def setUp (self):
         super ().setUp ()
@@ -144,7 +126,8 @@ class inbound_base (ntest):
         # That should get us into RUN state, and empty queue
         self.assertEqual (nc.state, nc.run)
         self.assertEqual (len (nc.data.pending_ack), 0)
-        
+
+class common_inbound (inbound_base):
     def test_normalconn (self):
         """Basic good inbound connection (accept, data, disconnect)"""
         nc = self.nspconn
@@ -496,7 +479,7 @@ class inbound_base (ntest):
             self.assertEqual (ds.fcval_int, 0)
             self.assertEqual (ds.fcval, 0)
             
-class test_inbound_noflow_phase4 (inbound_base):
+class test_inbound_noflow_phase4 (common_inbound):
     def test_interrupt (self):
         """Interrupt messages (in and out)"""
         nc = self.nspconn
@@ -1454,10 +1437,10 @@ class test_inbound_noflow_phase2 (test_inbound_noflow_phase3):
     cdadj = 0
     phase = 2
     
-class test_inbound_segflow_phase4 (inbound_base):
+class test_inbound_segflow_phase4 (common_inbound):
     services = b'\x05'   # Segment flow control
 
-class test_inbound_msgflow_phase4 (inbound_base):
+class test_inbound_msgflow_phase4 (common_inbound):
     services = b'\x09'   # Message flow control
 
 class outbound_base (ntest):
@@ -1531,7 +1514,7 @@ class outbound_base (ntest):
         # Check connection state
         self.assertEqual (nc.state, nc.run)
         # Check databases
-        self.assertConn (1)
+        self.assertConns (1)
         # Ack for connect confirm should have gone out
         if nc.cphase > 2:
             self.assertEqual (r.send.call_count, 2)
@@ -1808,6 +1791,9 @@ class test_linkids (ntest):
         # The cycle length should be the available number space
         self.assertEqual (cycle, 65536 - 65536 // (mc + 1))
 
+class test_linkids_4095 (test_linkids):
+    max_connections = 4095
+    
 class test_connlimit_phase4 (ntest):
     # Not a standard value, but any power of 2 - 1 works
     max_connections = 15
@@ -1895,6 +1881,73 @@ class test_connlimit_phase2 (test_connlimit_phase3):
     info = b'\x01'       # NSP 3.1 (phase 2)
     phase = 2
     cdadj = 0
-    
+
+class test_qlimit_phase4 (inbound_base):
+    qmax = 10
+
+    def test_qlimit (self):
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        self.accept ()
+        # Fill the queue
+        for i in range (self.qmax):
+            nc.send_data (byte (i))
+            self.assertEqual (r.send.call_count, i + 2 + self.cdadj)
+            args, kwargs = r.send.call_args
+            d, dest = args
+            self.assertIsInstance (d, nsp.DataSeg)
+            self.assertEqual (dest, self.remnode)
+            self.assertEqual (d.srcaddr, nc.srcaddr)
+            self.assertEqual (d.dstaddr, 3)
+            self.assertEqual (d.payload[0], i)
+        # Queue up a pile more
+        for i in range (self.qmax * 2):
+            nc.send_data (b"hi" + byte (i))
+            # Not transmitted
+            self.assertEqual (r.send.call_count, self.qmax + 1 + self.cdadj)
+        # All those transmits are pending
+        self.assertEqual (len (nc.data.pending_ack), self.qmax * 3)
+        # Try an ack that's too high (beyond highest ever sent)
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00" + \
+              (self.qmax + 1 + 0x8000).to_bytes (2, "little")
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # No retransmits, queue unchanged
+        self.assertEqual (r.send.call_count, self.qmax + 1 + self.cdadj)
+        self.assertEqual (len (nc.data.pending_ack), self.qmax * 3)
+        # Check log
+        self.assertTrace ("Ignoring ack")
+        # Ack most of what was sent
+        ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00" + \
+              (self.qmax - 1 + 0x8000).to_bytes (2, "little")
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = ack, rts = False)
+        self.nsp.dispatch (w)
+        # Pending queue is shorter now
+        self.assertEqual (len (nc.data.pending_ack), self.qmax * 2 + 1)        
+        # Check that a pile more were sent
+        self.assertEqual (r.send.call_count, self.qmax * 2 + self.cdadj)
+        args, kwargs = r.send.call_args
+        d, dest = args
+        self.assertIsInstance (d, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (d.srcaddr, nc.srcaddr)
+        self.assertEqual (d.dstaddr, 3)
+        self.assertEqual (d.payload, b"hi" + byte (self.qmax - 2))
+        
+class test_qlimit_phase3 (test_qlimit_phase4):
+    remnode = Nodeid (42)
+    info = b'\x00'       # NSP 3.2 (phase 3)
+    phase = 3
+
+class test_qlimit_phase2 (test_qlimit_phase3):
+    info = b'\x01'       # NSP 3.1 (phase 2)
+    phase = 2
+    cdadj = 0
+
 if __name__ == "__main__":
     unittest.main ()
