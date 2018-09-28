@@ -27,11 +27,18 @@ class ntest (DnTest):
         self.config.nsp.nsp_weight = 3
         self.config.nsp.qmax = self.qmax
         self.node.routing = unittest.mock.Mock ()
+        self.node.routing.send = unittest.mock.Mock (wraps = self.rsend)
         self.node.session = unittest.mock.Mock ()
         self.nsp = nsp.NSP (self.node, self.config)
         #self.setloglevel (logging.TRACE)
         self.nsp.start ()
         self.assertConns (0)
+
+    def rsend (self, pkt, dest):
+        if dest == self.node.nodeid:
+            w = Received (owner = self.nsp, src = dest,
+                          packet = bytes (pkt), rts = False)
+            self.nsp.dispatch (w)
 
     def assertConns (self, count, ci = False):
         if ci:
@@ -1740,7 +1747,7 @@ class outbound_base (ntest):
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
         self.assertConns (1, True)        
-        
+
 class test_outbound_phase4 (outbound_base):
     pass
 
@@ -1945,6 +1952,160 @@ class test_qlimit_phase3 (test_qlimit_phase4):
     phase = 3
 
 class test_qlimit_phase2 (test_qlimit_phase3):
+    info = b'\x01'       # NSP 3.1 (phase 2)
+    phase = 2
+    cdadj = 0
+
+class test_connself_phase4 (ntest):
+    info = b'\x02'       # Info, which carries NSP version in bits 0-1
+    cdadj = 1            # Inbound packet adjustment because of CD
+    phase = 4
+    
+    def setUp (self):
+        self.myphase = self.phase
+        super ().setUp ()
+        r = self.node.routing
+        s = self.node.session
+        # Issue connect initiate
+        remnode = Nodeid (0)
+        nc = self.nsp.connect (remnode, b"connect")
+        lla1 = nc.srcaddr
+        # We should have two connections (one for each side)
+        self.assertConns (2, True)
+        # One side is half-open
+        self.assertEqual (len (self.nsp.rconnections), 1)
+        # Check that CI and, if applicable, CA were sent
+        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        args, kwargs = r.send.call_args_list[0]
+        ci, dest = args
+        self.assertIsInstance (ci, nsp.ConnInit)
+        self.assertEqual (dest, self.node.nodeid)
+        self.assertEqual (ci.dstaddr, 0)
+        self.assertEqual (ci.srcaddr, lla1)
+        self.assertEqual (ci.payload, b"connect")
+        # Check connection state
+        self.assertEqual (nc.srcaddr, lla1)
+        if self.phase == 2:
+            self.assertEqual (nc.state, nc.ci)
+        else:
+            self.assertEqual (nc.state, nc.cd)
+        # Verify that the connection timeout is running
+        self.assertTrue (nc.islinked ())
+        # Remember the connection
+        self.nspconn1 = nc
+        # Check data to Session Control for the inbound connection
+        self.assertEqual (self.node.addwork.call_count, 1)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertEqual (pkt, ci)
+        # Check connection state
+        rla2 = lla1
+        nc2 = w.connection
+        self.assertIs (self.nsp.rconnections[(self.node.nodeid, rla2)], nc2)
+        self.assertEqual (nc2.dstaddr, rla2)
+        lla2 = nc2.srcaddr
+        self.assertIs (self.nsp.connections[lla2], nc2)
+        self.assertEqual (nc2.state, nc2.cr)
+        # Verify that the connection timeout is running
+        self.assertTrue (nc2.islinked ())
+        # Remember the connection
+        self.nspconn2 = nc2
+
+    def test_connself_accept (self):
+        nc1 = self.nspconn1
+        nc2 = self.nspconn2
+        lla1 = nc1.srcaddr
+        lla2 = nc2.srcaddr
+        r = self.node.routing
+        s = self.node.session
+        nc2.accept (b"ok")
+        # Check data to Session Control on first (outbound) connection
+        self.assertEqual (self.node.addwork.call_count, 2)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIs (w.connection, nc1)
+        self.assertIsInstance (pkt, nsp.ConnConf)
+        self.assertEqual (pkt.data_ctl, b"ok")
+        # Check databases
+        self.assertConns (2)
+        # Check connection state
+        self.assertEqual (nc1.state, nc1.run)
+        if self.phase > 2:
+            self.assertEqual (nc2.state, nc2.cc)
+            # Expire the ack holdoff
+            w = timers.Timeout (self.nsp)
+            nc1.data.dispatch (w)
+            # Check new state
+        self.assertEqual (nc2.state, nc2.run)
+        # Send a data message
+        nc2.send_data (b"data")
+        self.assertEqual (self.node.addwork.call_count, 3)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIs (w.connection, nc1)
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"data")
+        # Send a data message the other way
+        nc1.send_data (b"reply")
+        self.assertEqual (self.node.addwork.call_count, 4)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIs (w.connection, nc2)
+        self.assertIsInstance (pkt, nsp.DataSeg)
+        self.assertEqual (pkt.payload, b"reply")
+        # Force the pending ACK
+        w = timers.Timeout (self.nsp)
+        nc2.data.dispatch (w)        
+        # Close the outbound connection
+        nc1.disconnect (payload = b"bye")
+        # That should produce a session control message on the other one
+        self.assertEqual (self.node.addwork.call_count, 5)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIs (w.connection, nc2)
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertEqual (pkt.reason, 0)
+        self.assertEqual (pkt.data_ctl, b"bye")
+        # Everything should be cleaned up
+        self.assertEqual (nc1.state, nc1.closed)
+        self.assertEqual (nc2.state, nc2.closed)
+        # Check databases
+        self.assertConns (0)
+
+    def test_connself_reject (self):
+        nc1 = self.nspconn1
+        nc2 = self.nspconn2
+        lla1 = nc1.srcaddr
+        lla2 = nc2.srcaddr
+        r = self.node.routing
+        s = self.node.session
+        nc2.reject (payload = b"no")
+        # Check data to Session Control on first (outbound) connection
+        self.assertEqual (self.node.addwork.call_count, 2)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIs (w.connection, nc1)
+        self.assertTrue (w.reject)
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertEqual (pkt.reason, 0)
+        self.assertEqual (pkt.data_ctl, b"no")
+        # Everything should be cleaned up
+        self.assertEqual (nc1.state, nc1.closed)
+        self.assertEqual (nc2.state, nc2.closed)
+        # Check databases
+        self.assertConns (0)
+        
+class test_connself_phase3 (test_connself_phase4):
+    info = b'\x00'       # NSP 3.2 (phase 3)
+    phase = 3
+
+class test_connself_phase2 (test_connself_phase3):
     info = b'\x01'       # NSP 3.1 (phase 2)
     phase = 2
     cdadj = 0

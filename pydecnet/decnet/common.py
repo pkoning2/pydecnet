@@ -168,9 +168,9 @@ class Nodeid (int):
         a Mac address, or anything that can be converted to a byte string
         of length 2.
 
-        Note that this accepts some technically invalid values, such as
-        node number of zero or area number of zero, to avoid running into
-        trouble in some use cases.
+        Node 0 is accepted for string or integer inputs; that is
+        intended to represent the local node but that conversion has to
+        be handled by the caller.
         """
         if isinstance (s, str):
             m = _nodeid_re.match (s)
@@ -192,12 +192,16 @@ class Nodeid (int):
             if s[:4] != HIORD:
                 raise ValueError ("Invalid DECnet Mac address {}".format (s))
             a, n = divmod (int.from_bytes (s[4:], "little"), 1024)
+            if n == 0 or a == 0:
+                raise ValueError ("Invalid node ID {}".format (s))
         else:
             s = bytes (s)
             if len (s) != 2:
                 raise DecodeError ("Invalid node ID {}".format (s))
             a, n = divmod (int.from_bytes (s, "little"), 1024)
-        if a > 63 or n > 1023:
+            if n == 0:
+                raise ValueError ("Invalid node ID {}".format (s))
+        if a > 63 or n > 1023 or (n == 0 and a != 0):
             raise ValueError ("Invalid node ID {}".format (s))
         return int.__new__ (cls, (a << 10) + n)
 
