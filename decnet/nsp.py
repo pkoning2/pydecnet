@@ -1022,6 +1022,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             dest, payload = outbound
             # Create an outbound connection to the given destination node,
             # with the supplied session control layer payload.
+            if dest == Nodeid (0):
+                dest = self.parent.node.nodeid
             self.dest = dest
             self.destnode = self.parent.node.nodeinfo (dest)
             ci = self.makepacket (ConnInit, payload = payload,
@@ -1029,9 +1031,11 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                                   info = self.parent.nspver,
                                   segsize = MSS)
             logging.trace ("Connecting to {}: {}", dest, payload)
+            # Do this first otherwise that packet is processed in the
+            # wrong state if it is address to ourselves.
+            self.state = self.ci
             # Send it on the data subchannel
             self.data.send (ci)
-            self.state = self.ci
         else:
             raise ValueError ("missing inbound or outbound argument")
 
@@ -1106,8 +1110,10 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             raise WrongState
         # Stop the connect timer
         self.node.timers.stop (self)
-        self.disc_rej (reason, payload)
+        # Do this first so the state will be DI if this is the local
+        # node where the DiscComp comes back immediately.
         self.state = self.di
+        self.disc_rej (reason, payload)
         return True
     
     def disc_rej (self, reason, payload):
@@ -1138,8 +1144,10 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             self.shutdown = True
             self.pending_disc = (reason, payload)
         else:
-            self.disc_rej (reason, payload)
+            # Do this first so the state will be DI if this is the local
+            # node where the DiscComp comes back immediately.
             self.state = self.di
+            self.disc_rej (reason, payload)
         return True
     
     def abort (self, reason = 0, payload = b""):
