@@ -20,6 +20,9 @@
 # 14. Timeouts. **DONE
 # 15. Inbound connection reject.    **DONE
 # 16. Returned CI    **DONE
+# 17. Link address assignment rules   **DONE
+# 18. Correct management of connection databases   **DONE
+# 19. Max connection reached    **DONE
 
 from tests.dntest import *
 from decnet import nsp
@@ -30,13 +33,14 @@ from decnet import timers
 class ntest (DnTest):
     myphase = 4
     qmax = nsp.Seq.maxdelta
+    max_connections = 15
     
     def setUp (self):
         super ().setUp ()
         self.node.phase = self.myphase
         self.config = container ()
         self.config.nsp = container ()
-        self.config.nsp.max_connections = 511
+        self.config.nsp.max_connections = self.max_connections
         self.config.nsp.nsp_delay = 3
         self.config.nsp.nsp_weight = 3
         self.config.nsp.qmax = self.qmax
@@ -45,7 +49,18 @@ class ntest (DnTest):
         self.nsp = nsp.NSP (self.node, self.config)
         #self.setloglevel (logging.TRACE)
         self.nsp.start ()
+        self.assertConns (0)
 
+    def assertConns (self, count, ci = False):
+        if ci:
+            self.assertLessEqual (len (self.nsp.rconnections), count)
+        else:
+            self.assertEqual (len (self.nsp.rconnections), count)
+        self.assertEqual (len (self.nsp.connections), count)
+        # Calculate the expected connection ID pool size
+        idcount = self.config.nsp.max_connections - count
+        self.assertEqual (len (self.nsp.freeconns), idcount)
+        
 class inbound_base (ntest):
     services = b'\x01'   # Services, which carries FCOPT in bits 2-3
     info = b'\x02'       # Info, which carries NSP version in bits 0-1
@@ -84,11 +99,10 @@ class inbound_base (ntest):
         nc = w.connection
         self.assertIs (self.nsp.rconnections[(self.remnode, rla)], nc)
         self.assertEqual (nc.dstaddr, rla)
-        self.assertEqual (len (self.nsp.rconnections), 1)
         lla = nc.srcaddr
         self.assertIs (self.nsp.connections[lla], nc)
         self.assertEqual (nc.state, nc.cr)
-        self.assertEqual (len (self.nsp.connections), 1)
+        self.assertConns (1)
         # Verify that the connection timeout is running
         self.assertTrue (nc.islinked ())
         # Remember the connection
@@ -319,8 +333,7 @@ class inbound_base (ntest):
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
-        self.assertEqual (len (self.nsp.connections), 0)
-        self.assertEqual (len (self.nsp.rconnections), 0)
+        self.assertConns (0)
 
     def test_timers (self):
         """Timeouts: inactivity, ack holdoff, packet timeout"""
@@ -672,8 +685,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
-        self.assertEqual (len (self.nsp.connections), 0)
-        self.assertEqual (len (self.nsp.rconnections), 0)
+        self.assertConns (0)
 
     def test_ooo (self):
         """Out of order packets, data subchannel"""
@@ -1167,8 +1179,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
-        self.assertEqual (len (self.nsp.connections), 0)
-        self.assertEqual (len (self.nsp.rconnections), 0)
+        self.assertConns (0)
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = disc, rts = False)
@@ -1210,8 +1221,7 @@ class test_inbound_noflow_phase4 (inbound_base):
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
-        self.assertEqual (len (self.nsp.connections), 0)
-        self.assertEqual (len (self.nsp.rconnections), 0)
+        self.assertConns (0)
 
     def test_bad_acks (self):
         """Various invalid ACK cases"""
@@ -1464,7 +1474,7 @@ class outbound_base (ntest):
         # Issue connect initiate
         self.nsp.connect (self.remnode, b"connect")
         # We should have one connection
-        self.assertEqual (len (self.nsp.connections), 1)
+        self.assertConns (1, True)
         # Not yet in the remote connection table (no remote address
         # yet)
         self.assertEqual (len (self.nsp.rconnections), 0)
@@ -1520,6 +1530,8 @@ class outbound_base (ntest):
         self.assertEqual (pkt.data_ctl, b"payload")
         # Check connection state
         self.assertEqual (nc.state, nc.run)
+        # Check databases
+        self.assertConn (1)
         # Ack for connect confirm should have gone out
         if nc.cphase > 2:
             self.assertEqual (r.send.call_count, 2)
@@ -1602,8 +1614,7 @@ class outbound_base (ntest):
             self.nsp.dispatch (w)
             self.assertEqual (len (nc.data.pending_ack), 0)
             self.assertEqual (nc.state, nc.cd)
-        # Deliver a connect confirm
-        # Connect reject, reason 1
+        # Deliver a connect reject, reason 1
         p = b"\x38" + lla.to_bytes (2, "little") + \
             b"\x03\x00\x01\x00\x07payload"
         rla = 3
@@ -1621,7 +1632,8 @@ class outbound_base (ntest):
         self.assertEqual (pkt.data_ctl, b"payload")
         # Check connection state
         self.assertEqual (nc.state, nc.closed)
-
+        self.assertConns (0)
+        
     def test_outbound_unreachable (self):
         """Outbound connection request returned by routing"""
         nc = self.nspconn
@@ -1649,6 +1661,7 @@ class outbound_base (ntest):
         self.assertEqual (pkt.reason, 39)
         # Check connection state
         self.assertEqual (nc.state, nc.closed)
+        self.assertConns (0)
 
     def test_dup_cr (self):
         """Duplicate connect confirm"""
@@ -1683,6 +1696,7 @@ class outbound_base (ntest):
         self.assertEqual (pkt.data_ctl, b"payload")
         # Check connection state
         self.assertEqual (nc.state, nc.run)
+        self.assertConns (1)        
         # Ack for connect confirm should have gone out
         if nc.cphase > 2:
             self.assertEqual (r.send.call_count, 2)
@@ -1702,6 +1716,7 @@ class outbound_base (ntest):
         self.assertEqual (self.node.addwork.call_count, 1)
         # Check connection state
         self.assertEqual (nc.state, nc.run)
+        self.assertConns (1)        
         # Another ack for connect confirm should have gone out
         if nc.cphase > 2:
             self.assertEqual (r.send.call_count, 3)
@@ -1741,6 +1756,7 @@ class outbound_base (ntest):
         # Still same state
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
+        self.assertConns (1, True)        
         
 class test_outbound_phase4 (outbound_base):
     pass
@@ -1755,7 +1771,6 @@ class test_outbound_phase2 (test_outbound_phase3):
     cdadj = 0
     phase = 2
     
-    
 class test_random (ntest):
     def test_random (self):
         """Random packets inbound"""
@@ -1765,6 +1780,121 @@ class test_random (ntest):
             w = Received (owner = self.nsp, src = src,
                           packet = pkt, rts = False)
             self.nsp.dispatch (w)
-            
+
+class test_linkids (ntest):
+    def test_alloc (self):
+        mc = self.config.nsp.max_connections
+        ids = set ()
+        for c in range (mc):
+            i = self.nsp.get_id ()
+            j = i & mc
+            self.assertNotEqual (j, 0)
+            self.assertNotIn (j, ids)
+            ids.add (j)
+        i = self.nsp.get_id ()
+        self.assertIsNone (i)
+        
+    def test_reuse (self):
+        mc = self.config.nsp.max_connections
+        ids = set ()
+        cycle = 0
+        while True:
+            i = self.nsp.get_id ()
+            if i in ids:
+                break
+            cycle += 1
+            ids.add (i)
+            self.nsp.ret_id (i)
+        # The cycle length should be the available number space
+        self.assertEqual (cycle, 65536 - 65536 // (mc + 1))
+
+class test_connlimit_phase4 (ntest):
+    # Not a standard value, but any power of 2 - 1 works
+    max_connections = 15
+
+    services = b'\x01'   # Services, which carries FCOPT in bits 2-3
+    info = b'\x02'       # Info, which carries NSP version in bits 0-1
+    remnode = Nodeid (1, 42)
+    cdadj = 1            # Outbound packet adjustment because of CD
+    phase = 4
+
+    def test_outbound (self):
+        for i in range (self.max_connections):
+            self.nsp.connect (self.remnode, b"connect")
+            self.assertConns (i + 1, True)
+        with self.assertRaises (nsp.ConnectionLimit):
+            self.nsp.connect (self.remnode, b"no go")
+        self.assertConns (self.max_connections, True)
+
+    def test_inbound (self):
+        r = self.node.routing
+        s = self.node.session
+        for i in range (1, self.max_connections + 1):
+            rla = i
+            # Connect Init, flow control and version from class attributes
+            # Sender's link address is 3, segsize is 0x100, i.e., 256.
+            p = b"\x18\x00\x00" + rla.to_bytes (2, "little") + \
+                self.services + self.info + \
+                b"\x00\x01payload"
+            w = Received (owner = self.nsp, src = self.remnode,
+                          packet = p, rts = False)
+            self.nsp.dispatch (w)
+            # Check reply
+            self.assertEqual (r.send.call_count, i * self.cdadj)
+            if self.cdadj:
+                args, kwargs = r.send.call_args
+                ack, dest = args
+                self.assertIsInstance (ack, nsp.AckConn)
+                self.assertEqual (dest, self.remnode)
+                self.assertEqual (ack.dstaddr, rla)
+            # Check data to Session Control
+            self.assertEqual (self.node.addwork.call_count, i)
+            args, kwargs = self.node.addwork.call_args
+            w, owner = args
+            pkt = w.packet
+            self.assertIsInstance (pkt, nsp.ConnInit)
+            self.assertEqual (pkt.payload, b"payload")
+            # Check connection state
+            nc = w.connection
+            self.assertIs (self.nsp.rconnections[(self.remnode, rla)], nc)
+            self.assertEqual (nc.dstaddr, rla)
+            lla = nc.srcaddr
+            self.assertIs (self.nsp.connections[lla], nc)
+            self.assertEqual (nc.state, nc.cr)
+            self.assertConns (i)
+            # Verify that the connection timeout is running
+            self.assertTrue (nc.islinked ())
+        # One more (past the limit)
+        rla += 1
+        # Connect Init, flow control and version from class attributes
+        # Sender's link address is 3, segsize is 0x100, i.e., 256.
+        p = b"\x18\x00\x00" + rla.to_bytes (2, "little") + \
+            self.services + self.info + \
+            b"\x00\x01payload"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Check reply
+        self.assertEqual (r.send.call_count, i * self.cdadj + 1)
+        args, kwargs = r.send.call_args
+        ack, dest = args
+        self.assertIsInstance (ack, nsp.NoRes)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ack.dstaddr, rla)
+        # Check no additional data to Session Control
+        self.assertEqual (self.node.addwork.call_count, i)
+        # No new connections
+        self.assertConns (i)
+
+class test_connlimit_phase3 (test_connlimit_phase4):
+    remnode = Nodeid (42)
+    info = b'\x00'       # NSP 3.2 (phase 3)
+    phase = 3
+
+class test_connlimit_phase2 (test_connlimit_phase3):
+    info = b'\x01'       # NSP 3.1 (phase 2)
+    phase = 2
+    cdadj = 0
+    
 if __name__ == "__main__":
     unittest.main ()

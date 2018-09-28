@@ -525,17 +525,28 @@ class NSP (Element):
             conn.dispatch (item)
             
     def init_id (self):
-        # Initialize the free connection ID list
-        # FIXME: This doesn't look right -- need random without replacement?
+        # Initialize the free connection ID list.  The algorithm used
+        # meets the requirements of the Phase II NSP spec for the case
+        # where the node talks to an intercept node.
+        #
+        # This requires:
+        # 1. The low order bits of the ID must be unique
+        # 2. The low order bits must not be zero
+        # 3. Previously used IDs must not be reused for as long as possible.
+        #
+        # The solution is to use a circular list (deque) where IDs are
+        # taken from one end and put back in the other.  The list is
+        # initialized with max-connections entries, each with a
+        # different non-zero low order value (for example, if
+        # max-connections is 511, "low order" means the bottom 9 bits).
+        # Each entry has a random value in the high order bits.  When an
+        # ID is freed, the high order part is incremented.
         c = self.maxconns + 1
-        self.freeconns = deque (i + random.randrange (0, 65536, c)
-                                for i in range (1, c))
+        fc = [ i + random.randrange (0, 65536, c) for i in range (1, c) ]
+        random.shuffle (fc)
+        self.freeconns = deque (fc)
         
     def get_id (self):
-        """Return a free connection ID, per the algorithm in the NSP spec.
-        Note that the Phase 2 spec mandates this (it's not just a suggestion)
-        for "intercept" node interoperability.
-        """
         if not self.freeconns:
             return None
         return self.freeconns.popleft ()
