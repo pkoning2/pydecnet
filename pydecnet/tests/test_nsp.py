@@ -92,6 +92,8 @@ class inbound_base (ntest):
         self.assertIs (self.nsp.connections[lla], nc)
         self.assertEqual (nc.state, nc.cr)
         self.assertConns (1)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.con_rcv, 1)
         # Verify that the connection timeout is running
         self.assertTrue (nc.islinked ())
         # Remember the connection
@@ -158,6 +160,9 @@ class common_inbound (inbound_base):
         self.assertEqual (pkt.payload, b"data payload")
         # Check connection state
         self.assertEqual (nc.state, nc.run)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.msg_rcv, 1)
+        self.assertEqual (nc.destnode.counters.byt_rcv, 12)
         # No reply yet
         self.assertEqual (r.send.call_count, 1 + self.cdadj)
         # Deliver an XOFF message
@@ -170,6 +175,9 @@ class common_inbound (inbound_base):
         self.assertEqual (self.node.addwork.call_count, 2)
         # Send a data message
         nc.send_data (b"hello world")
+        # Check counters
+        self.assertEqual (nc.destnode.counters.msg_xmt, 1)
+        self.assertEqual (nc.destnode.counters.byt_xmt, 11)
         # It should be on the pending queue
         self.assertEqual (len (nc.data.pending_ack), 1)
         # It wasn't sent (due to XOFF)
@@ -497,6 +505,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.accept ()
         # Send an interrupt message
         nc.interrupt (b"hello decnet")
+        # Check counters
+        self.assertEqual (nc.destnode.counters.msg_xmt, 1)
+        self.assertEqual (nc.destnode.counters.byt_xmt, 12)
         # Verify data was sent
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -515,6 +526,10 @@ class test_inbound_noflow_phase4 (common_inbound):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.nsp.dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.msg_rcv, 1)
+        self.assertEqual (nc.destnode.counters.byt_rcv, 7)
+        # Check data to SC
         self.assertEqual (self.node.addwork.call_count, 2)
         args, kwargs = self.node.addwork.call_args
         w, owner = args
@@ -590,6 +605,8 @@ class test_inbound_noflow_phase4 (common_inbound):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 38)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 1)
 
     def test_crtimeout (self):
         """Timeout of CR message"""
@@ -1470,6 +1487,8 @@ class outbound_base (ntest):
         self.assertEqual (len (self.nsp.rconnections), 0)
         for lla, nc in self.nsp.connections.items ():
             break
+        # Check counters
+        self.assertEqual (nc.destnode.counters.con_xmt, 1)
         # Check that it was sent
         self.assertEqual (r.send.call_count, 1)
         args, kwargs = r.send.call_args
@@ -1611,6 +1630,8 @@ class outbound_base (ntest):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.nsp.dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.con_rej, 1)
         # Check data to Session Control
         self.assertEqual (self.node.addwork.call_count, 1)
         args, kwargs = self.node.addwork.call_args
