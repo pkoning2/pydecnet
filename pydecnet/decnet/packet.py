@@ -159,8 +159,9 @@ def process_slots (layout):
         if newslots - slots != newslots:
             raise InvalidField ("Duplicate field in layout")
         slots |= newslots
-    if wild:
-        return None
+        if wild:
+            # We want to be able to add random attribute names
+            slots.add ("__dict__")
     return slots
 
 class packet_encoding_meta (type):
@@ -186,27 +187,27 @@ class packet_encoding_meta (type):
             # Build the set of new fields from that, which will be
             # the __slots__ class variable.
             slots = process_slots (layout)
-            if slots is not None:
-                # Any attributes defined as class attributes will not be
-                # created as instance attributes.
-                slots -= set (classdict)
-                # See if there is an attempt to redefine previous fields
-                for c in bases:
-                    try:
-                        if slots - c.__slots__ != slots:
-                            raise InvalidField ("Layout redefines field "
-                                                "from base class {}".format (c.__name__))
-                    except AttributeError:
-                        pass
+            # Any attributes defined as class attributes will not be
+            # created as instance attributes.
+            slots -= set (classdict)
+            # See if there is an attempt to redefine previous fields,
+            # but ignore __dict__ in doing that check.
+            tslots = slots - { "__dict__" }
+            for c in bases:
+                try:
+                    if tslots - c.__slots__ != tslots:
+                        raise InvalidField ("Layout redefines field "
+                                            "from base class {}".format (c.__name__))
+                except AttributeError:
+                    pass
         else:
             slots = set ()
         # Add any extra slots requested by the class
         addslots = classdict.get ("_addslots", None)
-        if slots is not None:
-            if addslots:
-                addslots = set (addslots)
-                slots |= addslots
-            classdict["__slots__"] = slots
+        if addslots:
+            addslots = set (addslots)
+            slots |= addslots
+        classdict["__slots__"] = slots
         result = type.__new__ (cls, name, bases, classdict)
         # Remember the set of all slots (of the inheritance hierarchy)
         # because sometimes we need to know whether a particular attribute
@@ -595,9 +596,6 @@ class Packet (metaclass = packet_encoding_meta):
                     fieldargs = fieldargs[0], vlen
             except KeyError:
                 if wild:
-                    # FIXME: This doesn't work, because the class
-                    # has __slots__ defined so we can't make up
-                    # attribute names on the fly.
                     e, d, fieldargs = ( Packet.encode_bs, Packet.decode_bs,
                                         ( "field{}".format (tag), vlen ) )
                 else:
