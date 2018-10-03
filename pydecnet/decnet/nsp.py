@@ -611,6 +611,8 @@ class txqentry (timers.Timer):
         """
         # Simply send it again.  TODO: do we want a retry limit?
         self.sent = False
+        # Count a timeout
+        self.channel.parent.destnode.counters.timeout += 1
         # Don't send just yet if flow control forbids it
         if not isinstance (self.packet, DataSeg) or \
           self.channel.flow_ok (self):
@@ -1245,8 +1247,6 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         elif isinstance (pkt, IntMsg):
             nc.byt_rcv += len (pkt.payload)
             nc.msg_rcv += 1
-        elif isinstance (pkt, DiscInit) and reject:
-            nc.con_rej += 1
         item.reject = reject
         item.src = self
         item.connection = self
@@ -1368,7 +1368,6 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # anything to the other end because the protocol makes no
             # provision for disconnect in CR state.  So just deliver
             # failure locally and make the connection go away.
-            self.destnode.counters.timeout += 1
             disc = DiscInit (reason = OBJ_FAIL)
             self.to_sc (disc, True)
             return self.close ()
@@ -1448,6 +1447,13 @@ class ReservedPort (Element):
         if isinstance (pkt, ConnInit):
             # ConnInit could not be mapped, send No Resources
             t = NoRes
+            # Increment con_rej, which actually means the number of
+            # times that NSP could not handle another inbound
+            # connection.  (It has nothing to do with reject messages in
+            # either direction.)
+            destnode = self.parent.node.nodeinfo (item.src)
+            if destnode:
+                destnode.counters.con_rej += 1
         else:
             # Some other message could not be mapped, send No Link
             t = NoLink

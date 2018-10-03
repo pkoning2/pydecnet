@@ -399,6 +399,9 @@ class common_inbound (inbound_base):
         # Time out the first packet
         w = timers.Timeout (self.nsp)
         nc.data.pending_ack[0].dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 1)
+        # Check retransmit occurred
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -605,8 +608,6 @@ class test_inbound_noflow_phase4 (common_inbound):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 38)
-        # Check counters
-        self.assertEqual (nc.destnode.counters.timeout, 1)
 
     def test_crtimeout (self):
         """Timeout of CR message"""
@@ -638,6 +639,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Time out the confirm
         w = timers.Timeout (self.nsp)
         nc.data.pending_ack[0].dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 1)
+        # Check the retransmit
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -1630,8 +1634,9 @@ class outbound_base (ntest):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.nsp.dispatch (w)
-        # Check counters
-        self.assertEqual (nc.destnode.counters.con_rej, 1)
+        # Check counters.  Note that con_rej doesn't apply for this
+        # case.
+        self.assertEqual (nc.destnode.counters.con_rej, 0)
         # Check data to Session Control
         self.assertEqual (self.node.addwork.call_count, 1)
         args, kwargs = self.node.addwork.call_args
@@ -1764,6 +1769,8 @@ class outbound_base (ntest):
         self.assertEqual (ci.dstaddr, 0)
         self.assertEqual (ci.srcaddr, lla)
         self.assertEqual (ci.payload, b"connect")
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 1)
         # Still same state
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
@@ -1899,6 +1906,8 @@ class test_connlimit_phase4 (ntest):
         self.assertEqual (self.node.addwork.call_count, i)
         # No new connections
         self.assertConns (i)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.con_rej, 1)
 
 class test_connlimit_phase3 (test_connlimit_phase4):
     remnode = Nodeid (42)
