@@ -345,11 +345,13 @@ class NSPNode (object):
     """
     fields = ( "delay", "byt_rcv", "byt_xmt", "msg_rcv", "msg_xmt",
                "con_rcv", "con_xmt", "con_rej", "timeout" )
-        
+    # Allow a subclass to change what counters this node has.
+    counterclass = NspCounters
+    
     def __init__ (self):
         # NSP specific node state -- see NSP 4.0.1 spec, table 6.
         self.delay = 0
-        self.counters = NspCounters (self)
+        self.counters = self.counterclass (self)
         
     def get_api (self):
         ret = dict ()
@@ -1007,6 +1009,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # node, and send the payload up to session control.
             self.dest = inbound.src
             self.destnode = self.parent.node.nodeinfo (self.dest)
+            self.destnode.counters.con_rcv += 1
             self.dstaddr = pkt.srcaddr
             self.setphase (pkt)
             self.data.flow = pkt.fcopt
@@ -1026,6 +1029,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 dest = self.parent.node.nodeid
             self.dest = dest
             self.destnode = self.parent.node.nodeinfo (dest)
+            self.destnode.counters.con_xmt += 1
             ci = self.makepacket (ConnInit, payload = payload,
                                   fcopt = ConnMsg.SVC_NONE,
                                   info = self.parent.nspver,
@@ -1170,6 +1174,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         """
         if self.state != self.run or self.shutdown:
             raise WrongState
+        self.destnode.counters.byt_xmt += len (data)
+        self.destnode.counters.msg_xmt += 1
         bom = 1
         dl = len (data)
         for i in range (0, dl, self.segsize):
@@ -1196,6 +1202,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             raise WrongState
         if len (data) > 16:
             raise IntLength
+        self.destnode.counters.byt_xmt += len (data)
+        self.destnode.counters.msg_xmt += 1
         sc = self.other
         pkt = self.makepacket (IntMsg, payload = data,
                                segnum = sc.seqnum)
@@ -1209,6 +1217,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         """Send a work item to Session Control.
         """
         pkt = item.packet
+        nc = self.destnode.counters
         if isinstance (pkt, DataSeg):
             if self.asmlist:
                 # Not first segment
@@ -1231,6 +1240,13 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                     self.asmlist.append (pkt.payload)
                     return
                 # Single segment message, pass it up as is.
+            nc.byt_rcv += len (pkt.payload)
+            nc.msg_rcv += 1
+        elif isinstance (pkt, IntMsg):
+            nc.byt_rcv += len (pkt.payload)
+            nc.msg_rcv += 1
+        elif isinstance (pkt, DiscInit) and reject:
+            nc.con_rej += 1
         item.reject = reject
         item.src = self
         item.connection = self
@@ -1352,6 +1368,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # anything to the other end because the protocol makes no
             # provision for disconnect in CR state.  So just deliver
             # failure locally and make the connection go away.
+            self.destnode.counters.timeout += 1
             disc = DiscInit (reason = OBJ_FAIL)
             self.to_sc (disc, True)
             return self.close ()
