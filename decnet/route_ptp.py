@@ -173,8 +173,10 @@ class PtpCircuit (statemachine.StateMachine):
     def validate (self, work):
         """Common processing.  If we're handling a packet, do the
         initial parse and construct the correct specific packet class.
-        If the packet is not valid, turn the work item into a datalink
-        down notification, which will produce the right outcome.
+
+        If the packet is not valid, either turn the work item into a
+        datalink down notification to force a circuit down as a result,
+        or return False which will simply ignore the offending packet.
         """
         logging.trace ("Ptp circuit {}, work item {!r}", self.name, work)
         if isinstance (work, datalink.Received):
@@ -219,7 +221,8 @@ class PtpCircuit (statemachine.StateMachine):
                     work.packet = RouteHdr (buf)
                 except packet.DecodeError:
                     # If parsing the packet raises a DecodeError
-                    # exception, log a format error
+                    # exception, log a format error and ignore the
+                    # packet.
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return False
@@ -231,7 +234,7 @@ class PtpCircuit (statemachine.StateMachine):
                                    hdr)
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
-                    return False
+                    return CircuitDown (self)
                 logging.trace ("Phase II packet with route header: {}", work.packet)
             if (hdr & 1) != 0 and self.node.phase > 2:
                 # Routing (phase 3 or 4) control packet.  Figure out which one
@@ -255,7 +258,7 @@ class PtpCircuit (statemachine.StateMachine):
                         # exception, log a format error event
                         self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
-                        return False
+                        return CircuitDown (self)
                 else:
                     # Init message type depends on major version number.
                     if len (buf) < 7:
@@ -263,6 +266,8 @@ class PtpCircuit (statemachine.StateMachine):
                                        len (buf))
                         self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
+                        # Ignore it (still in init state, but not
+                        # another restart)
                         return False
                     mver = buf[6]
                     if mver == tiver_ph3[0]:
@@ -281,7 +286,7 @@ class PtpCircuit (statemachine.StateMachine):
                         except packet.DecodeError:
                             self.node.logevent (events.fmt_err, entity = self,
                                                 packet_beginning = buf[:6])
-                            return False
+                            return CircuitDown (self)
                     elif mver == tiver_ph4[0]:
                         phase = 4
                         try:
@@ -289,7 +294,7 @@ class PtpCircuit (statemachine.StateMachine):
                         except packet.DecodeError:
                             self.node.logevent (events.fmt_err, entity = self,
                                                 packet_beginning = buf[:6])
-                            return False
+                            return CircuitDown (self)
                     elif mver < tiver_ph3[0]:
                         logging.debug ("Unknown routing version {}", mver)
                         self.node.logevent (events.init_oper, entity = self,
@@ -312,14 +317,14 @@ class PtpCircuit (statemachine.StateMachine):
                     except packet.DecodeError:
                         self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
-                        return False
+                        return CircuitDown (self)
                 elif self.node.phase > 2 and code == 2:
                     try:
                         work.packet = ShortData (buf, src = None)
                     except packet.DecodeError:
                         self.node.logevent (events.fmt_err, entity = self,
                                             packet_beginning = buf[:6])
-                        return False
+                        return CircuitDown (self)
                 elif (code & 3) == 0:
                     # Phase 2 packet.  Figure out what exactly.
                     if (hdr & 0x0f) == 8:
@@ -348,7 +353,7 @@ class PtpCircuit (statemachine.StateMachine):
                                                         entity = self,
                                                         packet_beginning =
                                                         buf[:6])
-                                    return False
+                                    return CircuitDown (self)
                             elif code == 2:
                                 try:
                                     work.packet = NodeVerify (buf)
@@ -357,7 +362,7 @@ class PtpCircuit (statemachine.StateMachine):
                                                         entity = self,
                                                         packet_beginning =
                                                         buf[:6])
-                                    return False
+                                    return CircuitDown (self)
                             else:
                                 self.node.logevent (events.init_swerr,
                                                     entity = self,

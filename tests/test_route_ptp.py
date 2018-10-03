@@ -1062,8 +1062,8 @@ class test_ph4restart (rtest):
         self.c.dispatch (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertEvent (events.fmt_err,
                           packet_beginning = b"\x01\x02\x04\x02\x10\x02")
-        self.assertEqual (self.c.datalink.counters.cir_down, 0)
-        self.assertState ("ru")
+        self.assertEqual (self.c.datalink.counters.cir_down, 1)
+        self.assertState ("ha")
         
     def test_init3 (self):
         self.startup ()
