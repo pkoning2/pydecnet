@@ -681,21 +681,21 @@ class test_ph4l1a (rtest):
         pkt = b"\x02\x42\x04\x02\x04\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
-        self.assertEqual (self.r.unreach_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.unreach_loss, 1)
         self.assertEvent (events.unreach_drop, adjacent_node = Nodeid (1, 2),
                           packet_header = (2, 1090, 1026, 17))
         # Node number out of range
         pkt = b"\x02\xfe\x04\x02\x04\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
-        self.assertEqual (self.r.node_oor_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.node_oor_loss, 1)
         self.assertEvent (events.oor_drop, adjacent_node = Nodeid (1, 2),
                           packet_header = (2, 1278, 1026, 17))
         # Too many visits
         pkt = b"\x02\x03\x04\x02\x04\x1eOther payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
-        self.assertEqual (self.r.aged_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.aged_loss, 1)
         self.assertEvent (events.aged_drop, adjacent_node = Nodeid (1, 2),
                           packet_header = (2, 1027, 1026, 30))
         # Similar but rqr set.  The packet will bounce back, and the
@@ -706,7 +706,7 @@ class test_ph4l1a (rtest):
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 2)
         self.assertEqual (self.c1.datalink.counters.trans_sent, 1)
-        self.assertEqual (self.r.unreach_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.unreach_loss, 1)
         self.assertEqual (self.eventcount (events.unreach_drop), 1)
         p, dest = self.lastsent (self.d1, 2)
         self.assertEqual (p.encode (), b"\x12\x02\x04\x42\x04\x12Other payload")
@@ -715,7 +715,7 @@ class test_ph4l1a (rtest):
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 3)
         self.assertEqual (self.c1.datalink.counters.trans_sent, 2)
-        self.assertEqual (self.r.node_oor_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.node_oor_loss, 1)
         self.assertEqual (self.eventcount (events.oor_drop), 1)
         p, dest = self.lastsent (self.d1, 3)
         self.assertEqual (p.encode (), b"\x12\x02\x04\xfe\x04\x12Other payload")
@@ -724,7 +724,7 @@ class test_ph4l1a (rtest):
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 4)
         self.assertEqual (self.c1.datalink.counters.trans_sent, 3)
-        self.assertEqual (self.r.aged_loss, 1)
+        self.assertEqual (self.r.nodeinfo.counters.aged_loss, 1)
         self.assertEqual (self.eventcount (events.aged_drop), 1)
         p, dest = self.lastsent (self.d1, 4)
         self.assertEqual (p.encode (), b"\x12\x02\x04\x03\x04\x1fOther payload")
