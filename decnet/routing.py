@@ -10,6 +10,7 @@ import sys
 
 from .common import *
 from .routing_packets import *
+from .nsp import NspCounters
 from . import logging
 from . import events
 from . import adjacency
@@ -219,6 +220,17 @@ class LanL2Circuit (LanL1Circuit, L2Circuit):
         t1 = config.t1 or self.routing.config.bct1
         self.aupdate = Update (self, t1, self.routing.aminhops,
                                self.routing.amincost, L2Routing)
+
+class ExecCounters (NspCounters):
+    """Counters for the executor (this node, as opposed to a remote
+    node).  These are the standard node counters augmented with some
+    additional counters maintained by the routing layer.
+    """
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        self.aged_loss = 0
+        self.node_oor_loss = 0
+        self.unreach_loss = 0
         
 class BaseRouter (Element):
     """The routing layer.  Mainly this is the parent of a number of control
@@ -235,7 +247,10 @@ class BaseRouter (Element):
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea, self.tid = self.nodeid.split ()
         self.typename = config.routing.type
-        self.name = parent.nodeinfo (self.nodeid).nodename
+        self.nodeinfo = parent.nodeinfo (self.nodeid)
+        self.nodeinfo.counterclass = ExecCounters
+        self.nodeinfo.counters = ExecCounters (self.nodeinfo)
+        self.name = self.nodeinfo.nodename
         # Counters:
         self.unreach_loss = self.aged_loss = self.node_oor_loss = 0
         self.oversized_loss = self.partial_update_loss = 0
@@ -806,7 +821,7 @@ class L1Router (BaseRouter):
         kwargs = evtpackethdr (pkt)
         if a:
             # Reachable, so the problem was max visits
-            self.aged_loss += 1
+            self.nodeinfo.counters.aged_loss += 1
             # The architecture spec doesn't mention the source adjacency
             # argument, but that seems like a mistake so put it in.
             self.node.logevent (events.aged_drop, srcadj.circuit,
@@ -815,10 +830,10 @@ class L1Router (BaseRouter):
         else:
             if a is False:
                 c = events.oor_drop
-                self.node_oor_loss += 1
+                self.nodeinfo.counters.node_oor_loss += 1
             else:
                 c = events.unreach_drop
-                self.unreach_loss += 1
+                self.nodeinfo.counters.unreach_loss += 1
             self.node.logevent (c, srcadj.circuit,
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
