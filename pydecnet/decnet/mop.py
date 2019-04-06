@@ -615,6 +615,9 @@ class MopCircuit (Element):
                 logging.debug ("MOP packet with unknown message code {} on {}",
                                msgcode, self.name)
                 return
+            except DNAException:
+                logging.exception ("MOP packet parse error\n {!r}", buf)
+                return
             parsed.src = work.src
         else:
             # Unknown request
