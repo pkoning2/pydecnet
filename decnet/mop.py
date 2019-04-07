@@ -616,7 +616,7 @@ class MopCircuit (Element):
                                msgcode, self.name)
                 return
             except DNAException:
-                logging.exception ("MOP packet parse error\n {!r}", buf)
+                logging.exception ("MOP packet parse error\n {}", bytes (buf))
                 return
             parsed.src = work.src
         else:
