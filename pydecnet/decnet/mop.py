@@ -607,6 +607,8 @@ class MopCircuit (Element):
             if not buf:
                 logging.debug ("Null MOP packet received on {}", self.name)
                 return
+            logging.trace ("MOP packet received on {}: {}",
+                           self.name, bytes (buf))
             header = MopHdr (buf[:1])
             msgcode = header.code
             try:
