@@ -311,7 +311,8 @@ class SysId (MopHdr):
             logging.debug ("Image field with negative length {}", flen)
             raise events.fmt_err
         elif flen > maxlen:
-            logging.debug ("Image field longer than max length {}", maxlen)
+            logging.debug ("Image field length {} longer than max length {}",
+                           flen, maxlen)
             raise events.fmt_err
         elif flen < 0:
             v = flen
