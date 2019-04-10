@@ -843,7 +843,10 @@ class SysIdHandler (Element, timers.Timer):
                 hwaddr = getattr (v, "hwaddr", "")
                 systime = getattr (v, "time", "")
                 if systime:
-                    systime = time.strftime ("%d-%b-%Y %H:%M:%S %z", systime)
+                    tzoff = systime.tm_gmtoff
+                    systime = time.strftime ("%d-%b-%Y %H:%M:%S", systime)
+                    if tzoff:
+                        systime += " {:+03d}{:02d}".format (*divmod (tzoff // 60, 60))
                 device = getattr (v, "device", "")
                 device = v.devices.get (device, (device, device))[1]
                 processor = getattr (v, "processor", "")
@@ -869,12 +872,23 @@ class SysIdHandler (Element, timers.Timer):
             item["console_user"] = getattr (v, "console_user", "")
             item["reservation_timer"] = getattr (v, "reservation_timer", 0)
             item["hwaddr"] = getattr (v, "hwaddr", "")
+            systime = getattr (v, "time", "")
+            if systime:
+                print (systime, systime.tm_gmtoff)
+                tzoff = systime.tm_gmtoff
+                systime = time.strftime ("%d-%b-%Y %H:%M:%S", systime)
+                if tzoff:
+                    systime += " {:+03d}{:02d}".format (*divmod (tzoff // 60, 60))
+                item["time"] = systime
             device = getattr (v, "device", "")
             item["device"] = v.devices.get (device, (device, device))[1]
             processor = getattr (v, "processor", "")
             item["processor"] = v.processors.get (processor, processor)
             datalink = getattr (v, "datalink", "")
             item["datalink"] = v.datalinks.get (datalink, datalink)
+            bs = getattr (v, "bufsize", None)
+            if bs:
+                item["bufsize"] = bs
             item["software"] = getattr (v, "software", "")
             item["services"] = v.services ()
             ret.append (item)
