@@ -4,7 +4,6 @@
 
 """
 
-import datetime
 import logging
 import logging.handlers
 from .common import *
@@ -36,9 +35,10 @@ Formatter = logging.Formatter
 # Additional level
 TRACE = 2
 
-# We want not just overall log record formatting, but also message string formatting
-# to be done with "format".  The "style" argument of Formatter doesn't do that, instead
-# we have to override getMessage in the LogRecord class to make that work.
+# We want not just overall log record formatting, but also message
+# string formatting to be done with "format".  The "style" argument of
+# Formatter doesn't do that, instead we have to override getMessage in
+# the LogRecord class to make that work.
 class DecnetLogRecord (logging.LogRecord):
     def getMessage (self):
         return str (self.msg).format (*self.args)
