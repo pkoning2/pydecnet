@@ -72,11 +72,12 @@ class SysId (MopHdr):
                     5 : ( "b", "console_cmd_size", 2 ),
                     6 : ( "b", "console_resp_size", 2 ),
                     7 : ( Macaddr, "hwaddr" ),
-                    8 : ( "bs", "time", 10 ),
+                    8 : ( "time", "time", 10 ),
                     100 : ( "b", "device", 1 ),
                     200 : ( "c", "software", 17 ),
                     300 : ( "b", "processor", 1 ),
-                    400 : ( "b", "datalink", 1 ) } )
+                    400 : ( "b", "datalink", 1 ),
+                    401 : ( "b", "bufsize", 2 ) } )
                 )
     
     code = 7
@@ -303,28 +304,82 @@ class SysId (MopHdr):
     def decode_c (self, buf, field, maxlen):
         """Decode "field" according to the rules for the "software"
         protocol field.  Basically this is like an I-n field, but
-        special values -1 and -2 are accepted in the first byte,
+        special values 0, -1, and -2 are accepted in the first byte,
         and string values are taken to be text strings.
         """
+        if not buf:
+            logging.debug ("No data left for C field")
+            raise MissingData
         flen = buf[0]
+        # Convert to a signed byte value
+        if flen >= 128:
+            flen -= 256
         if flen < -2:
-            logging.debug ("Image field with negative length {}", flen)
+            logging.debug ("C field with negative length {}", flen)
             raise events.fmt_err
         elif flen > maxlen:
-            logging.debug ("Image field length {} longer than max length {}",
+            logging.debug ("C field length {} longer than max length {}",
                            flen, maxlen)
             raise events.fmt_err
-        elif flen < 0:
+        elif flen <= 0:
             v = flen
             flen = 1
         else:
             v = buf[1:flen + 1]
             if len (v) != flen:
-                logging.debug ("Not {} bytes left for image field", flen)
+                logging.debug ("Not {} bytes left for C field", flen)
                 raise events.fmt_err
             v = bytes (v).decode ()
         setattr (self, field, v)
         return buf[flen + 1:]
+
+    def encode_time (self, field, flen):
+        """Encode a time.struct_time value into a 10 byte MOP encoding
+        of time.
+        """
+        assert flen == 10
+        val = getattr (self, field)
+        try:
+            tzoff = val.tm_gmtoff // 60
+        except AttributeError:
+            tzoff = 0
+        if tzoff < 0:
+            hoff, moff = divmod (-tzoff, 60)
+            hoff = (256 - hoff) & 0xff
+            moff = (256 - moff) & 0xff
+        else:
+            hoff, moff = divmod (tzoff, 60)
+        cent, yr = divmod (val.tm_year, 100)
+        eval = ( cent, yr, val.tm_mon, val.tm_mday, val.tm_hour,
+                 val.tm_min, val.tm_sec, 0, hoff, moff )
+        return bytes (eval)
+    
+    def decode_time (self, buf, field, flen):
+        """Decode a MOP time value, which is a 10 byte value vaguely
+        like what's found in a "struct tm" in Unix, or Python
+        time.struct_time.
+        """
+        assert flen == 10
+        if len (buf) < flen:
+            logging.debug ("Not {} bytes left for time field", flen)
+            raise MissingData
+        t = buf[:flen]
+        if t[0]:
+            yr = t[0] * 100 + t[1]
+        else:
+            # Not sure if is needed
+            yr = 1900 + t[1]
+        hoff = t[8]
+        if hoff >= 128:
+            hoff -= 256
+        moff = t[9]
+        if moff >= 128:
+            moff -= 256
+        tzoff = (hoff * 60 + moff) * 60
+        tm = time.struct_time ((yr, t[2], t[3], t[4], t[5], t[6],
+                                0, 0, -1, "", tzoff))
+        setattr (self, field, tm)
+        return buf[flen:]
 
 class RequestId (MopHdr):
     _layout = ( ( "res", 1 ),
@@ -749,6 +804,7 @@ class SysIdHandler (Element, timers.Timer):
                        hwaddr = self.port.parent.hwaddr,
                        loop = True,
                        counters = True,
+                       time = time.localtime (),
                        device = 9,    # PCL, to freak out some people
                        datalink = 1,  # Ethernet
                        processor = 2, # Comm server
@@ -776,7 +832,7 @@ class SysIdHandler (Element, timers.Timer):
             ret.append ("""<table border=1 cellspacing=0 cellpadding=4>
             <tr><th>Source addr</th><th>Services</th>
             <th>Console user</th><th>Reservation timer</th>
-            <th>HW address</th><th>Device</th><th>Processor</th>
+            <th>HW address</th><th>Time</th><th>Device</th><th>Processor</th>
             <th>Datalink</th><th>Software</th></tr>""")
 
             for k, v in self.heard.items ():
@@ -785,6 +841,9 @@ class SysIdHandler (Element, timers.Timer):
                 console_user = getattr (v, "console_user", "")
                 reservation_timer = getattr (v, "reservation_timer", "")
                 hwaddr = getattr (v, "hwaddr", "")
+                systime = getattr (v, "time", "")
+                if systime:
+                    systime = time.strftime ("%d-%b-%Y %H:%M:%S %z", systime)
                 device = getattr (v, "device", "")
                 device = v.devices.get (device, (device, device))[1]
                 processor = getattr (v, "processor", "")
@@ -793,10 +852,11 @@ class SysIdHandler (Element, timers.Timer):
                 datalink = v.datalinks.get (datalink, datalink)
                 software = getattr (v, "software", "")
                 ret.append ("""<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
-                <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>"""\
+                <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
+                <td>{}</td></tr>"""\
                             .format (srcaddr, services, console_user,
-                                     reservation_timer, hwaddr, device,
-                                     processor, datalink, software))
+                                     reservation_timer, hwaddr, systime,
+                                     device, processor, datalink, software))
             ret.append ("</table>")
         return '\n'.join (ret)
 
