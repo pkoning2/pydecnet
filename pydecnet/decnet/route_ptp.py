@@ -919,7 +919,7 @@ class PtpCircuit (statemachine.StateMachine):
         s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
         <td>{1}</td><td>{2}</td><td>{0.t3}</td><td>{0.blksize}</td>
         <td>{3}</td><td>{0.tiver}</td>
-        <td>{0.state.__name__}</dt></tr>""".format (self, neighbor, ntype, t4)
+        <td>{0.state.__name__}</td></tr>""".format (self, neighbor, ntype, t4)
         return hdr + s
     
     def get_api (self):
