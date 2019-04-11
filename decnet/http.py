@@ -127,7 +127,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             q = parse_qs (p.query)
             node = q["system"][0].upper ()
             for n in nodelist:
-                if n.nodename.upper () == node:
+                if n.nodename and n.nodename.upper () == node:
                     return n, parts
             self.send_error (400, "System not found")
             return None, None
