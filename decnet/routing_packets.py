@@ -228,18 +228,15 @@ class L2Segment (L1Segment):
                            self.startid, self.count)
             raise FormatError
     
-class L1Routing (CtlHdr):
-    """A Level 1 routing message.  It consists of a header,
+class RoutingMessage (CtlHdr):
+    """Routing message base class.  It consists of a header,
     followed by some number of segments, followed by a checksum.
     """
     _layout = (( "b", "srcnode", 2 ),
                ( "res", 1 ))
     _addslots = { "segments" }
-    initchecksum = 1
-    type = 3
-    segtype = L1Segment
-    lowid = 0
-    
+    initchecksum = 1    # Phase 4 case
+
     def validate (self, segs):
         segslen = len (segs)
         if not segs or (segslen & 1):
@@ -297,7 +294,12 @@ class L1Routing (CtlHdr):
                 yield i, (e.hops + 1, e.cost + cost)
                 i += 1
     
-class L2Routing (L1Routing):
+class L1Routing (RoutingMessage):
+    type = 3
+    segtype = L1Segment
+    lowid = 0
+    
+class L2Routing (RoutingMessage):
     """A level 2 routing message.  Similar to a Level 1 routing
     message, but with a different packet type code and entries
     for areas rather than nodes in the area.
@@ -306,12 +308,13 @@ class L2Routing (L1Routing):
     segtype = L2Segment
     lowid = 1
     
-class PhaseIIIRouting (L1Routing):
+class PhaseIIIRouting (RoutingMessage):
     """A Phase III routing message.  Similar to a Level 1 routing
     message, but contains only a single segment with no header
     (defining routing data for all the nodes starting at node 1).
     """
     initchecksum = 0
+    type = 3
     segtype = None
     lowid = 1
     
