@@ -634,27 +634,32 @@ class L1Router (BaseRouter):
                                besta and besta.circuit.name,
                                besta and besta.nodeid)
             if besta != oadj[i]:
+                # It's a reachability change only if either the
+                # previous or the current output is None; otherwise
+                # it's just a change from one route to another.
+                rchange = besta is None or oadj[i] is None
                 oadj[i] = besta
-                # Note that reachable events are not logged if the
-                # output adjacency is SelfAdj.  Those happen at
-                # startup.
-                if l2:
-                    if not besta:
-                        self.node.logevent (events.area_chg, i,
-                                            status = "unreachable")
-                    elif besta is not self.selfadj:
-                        self.node.logevent (events.area_chg, i,
-                                            status = "reachable")
-                elif i:
-                    # That check for 0 is there so reachability changes
-                    # of "nearest L2 router" aren't logged.
-                    nod = self.node.nodeinfo (Nodeid (self.homearea, i))
-                    if not besta:
-                        self.node.logevent (events.reach_chg, nod,
-                                            status = "unreachable")
-                    elif besta is not self.selfadj:
-                        self.node.logevent (events.reach_chg, nod,
-                                            status = "reachable")
+                if rchange and besta is not self.selfadj:
+                    # Note that reachable events are not logged if the
+                    # output adjacency is SelfAdj.  Those happen at
+                    # startup.
+                    if l2:
+                        if not besta:
+                            self.node.logevent (events.area_chg, i,
+                                                status = "unreachable")
+                        else:
+                            self.node.logevent (events.area_chg, i,
+                                                status = "reachable")
+                    elif i:
+                        # That check for 0 is there so reachability changes
+                        # of "nearest L2 router" aren't logged.
+                        nod = self.node.nodeinfo (Nodeid (self.homearea, i))
+                        if not besta:
+                            self.node.logevent (events.reach_chg, nod,
+                                                status = "unreachable")
+                        else:
+                            self.node.logevent (events.reach_chg, nod,
+                                                status = "reachable")
 
     def usecol (self, adj, l2):
         return l2 or adj.nodeid.area == self.homearea
