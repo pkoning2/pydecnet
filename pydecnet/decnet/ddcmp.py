@@ -128,6 +128,7 @@ class StartMsg (CtlMsg):
     resp = 0
     num = 0
 
+# Be careful with "isinstance (x, StartMsg)"
 class StackMsg (StartMsg):
     type = STACK
 
@@ -692,12 +693,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.send_start ()
         elif isinstance (data, Received):
             data = data.packet
-            if isinstance (data, StartMsg):
+            t = type (data)
+            # Don't use isinstance here because StackMsg is a subclass
+            # of StartMsg.
+            if t == StartMsg:
                 self.send_stack ()
                 return self.AStart
-            elif isinstance (data, StackMsg):
+            elif t == StackMsg:
                 return self.running_state ()
-            elif isinstance (data, MaintMsg):
+            elif t == MaintMsg:
                 return self.Maint
             else:
                 # Unexpected message, we use the option of ignoring it
@@ -913,7 +917,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.node.addwork (Received (self.port.owner, packet = msg))
             else:
                 logging.trace ("Message discarded, no port open")
-        elif isinstance (data, StartMsg):
+        elif type (data) == StartMsg:
             # The spec says to "notify" the user.  There isn't any obvious
             # way to do that, so instead let's halt if we get a Start.
             self.disconnected ()
