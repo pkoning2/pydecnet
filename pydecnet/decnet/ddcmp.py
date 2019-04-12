@@ -128,9 +128,13 @@ class StartMsg (CtlMsg):
     resp = 0
     num = 0
 
-# Be careful with "isinstance (x, StartMsg)"
-class StackMsg (StartMsg):
+class StackMsg (CtlMsg):
     type = STACK
+    subtype = 0
+    qsync = 1
+    select = 1
+    resp = 0
+    num = 0
 
 class Err (Work):
     """A work item that indicates a bad received message.  The "code" attribute
@@ -693,15 +697,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.send_start ()
         elif isinstance (data, Received):
             data = data.packet
-            t = type (data)
-            # Don't use isinstance here because StackMsg is a subclass
-            # of StartMsg.
-            if t == StartMsg:
+            if isinstance (data, StartMsg):
                 self.send_stack ()
                 return self.AStart
-            elif t == StackMsg:
+            elif isinstance (data, StackMsg):
                 return self.running_state ()
-            elif t == MaintMsg:
+            elif isinstance (data, MaintMsg):
                 return self.Maint
             else:
                 # Unexpected message, we use the option of ignoring it
@@ -917,7 +918,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.node.addwork (Received (self.port.owner, packet = msg))
             else:
                 logging.trace ("Message discarded, no port open")
-        elif type (data) == StartMsg:
+        elif isinstance (data, StartMsg):
             # The spec says to "notify" the user.  There isn't any obvious
             # way to do that, so instead let's halt if we get a Start.
             self.disconnected ()
