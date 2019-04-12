@@ -582,12 +582,12 @@ class txqentry (timers.Timer):
 
     def send (self):
         pkt = self.packet
-        if type (pkt) is ConnInit:
+        if isinstance (pkt, ConnInit):
             if self.tries:
                 pkt.subtype = NspHdr.RCI
             else:
                 pkt.subtype = NspHdr.CI
-        if isinstance (pkt, AckHdr):
+        elif isinstance (pkt, AckHdr):
             self.channel.set_acks (pkt)
         # TODO: Skip this if phase 2 local node?
         self.channel.node.timers.start (self, self.channel.parent.acktimeout ())
