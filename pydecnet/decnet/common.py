@@ -10,6 +10,7 @@ import struct
 import sys
 import random
 import time
+import socket
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
@@ -159,6 +160,15 @@ class Received (Work):
         except AttributeError:
             return "Received: {}".format (self.packet)
 
+class IpAddr (str):
+    """A string containing an IP address
+    """
+    def __new__ (cls, s):
+        if s and socket.inet_aton (s) == bytes (4):
+            # 0.0.0.0, replace by empty string
+            s = ""
+        return str.__new__ (cls, s)
+            
 _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
     """A DECnet Node ID.

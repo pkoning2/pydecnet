@@ -189,13 +189,14 @@ depends on the circuit type:
     value.  For TCP, the device argument is host::mode or
     host:port:mode, with the port number interpreted as above, and
     mode is either "listen" to expect an incoming TCP connection, or
-    "connect" to initiate an outgoing connection.  One of the two
-    sides must be configured to connect, the other to listen.
-    Note: as stated above, Multinet is not recommended because of its
-    design defects.  In addition, Multinet over UDP is much more
-    strongly discouraged; the design errors made by the Multinet
-    "designers" are far more obvious when you attempt to run it over
-    UDP. 
+    "connect" to initiate an outgoing connection.  For the listen
+    case, omitting the host address or specifying 0.0.0.0 means
+    connections are accepted from any address.  One of the two sides
+    must be configured to connect, the other to listen.  Note: as
+    stated above, Multinet is not recommended because of its design
+    defects.  In addition, Multinet over UDP is much more strongly
+    discouraged; the design errors made by the Multinet "designers"
+    are far more obvious when you attempt to run it over UDP.
 
     GRE: host.  This specifies GRE encapsulation to the specified
     host.  The IP protocol type is always 47 (the assigned value for
@@ -215,6 +216,11 @@ depends on the circuit type:
     regular TCP mode, the connection is treated as a transparent raw
     connection.  (For use with SimH, "tcp" mode should be used.)
     [ Note: Telnet mode is not yet implemented ]
+
+--source: source IP address to use, for devices that use IP, TCP, or
+UDP communication.  Defaults to letting the system choose the address
+(for outbound connections), or accepting any local address (for
+inbound connections).
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
 default is 1.  
