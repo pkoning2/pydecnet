@@ -9,6 +9,7 @@ from decnet import gre
 tconfig = container ()
 tconfig.device = "127.0.0.1"
 tconfig.single_address = False
+tconfig.source = "127.0.0.1"
 
 dest = ("127.0.0.1", 47)
 
