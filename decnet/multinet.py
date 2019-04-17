@@ -29,7 +29,7 @@ class MultinetPort (datalink.PtpPort):
     """
     start_works = False
 
-dev_re = re.compile (r"(.+?):(\d*)(?:(:connect)|(:listen)|(:\d+))?$")
+dev_re = re.compile (r"(.*?):(\d*)(?:(:connect)|(:listen)|(:\d+))?$")
 
 class Multinet (datalink.PtpDatalink):
     """An implementation of the Multinet tunnel.  See multinet.c
@@ -46,13 +46,14 @@ class Multinet (datalink.PtpDatalink):
     two-byte field is the payload length (the amount of data after the
     4 byte header, little endian).
     
-    The --device config parameter is required.  The device argument
-    is "host" or "host:portnum"; if the port number is omitted the
-    default (700) is assumed.  That is followed by ":connect" for
-    the active end of a TCP connection, ":listen" for the passive
-    end of a TCP connection, or neither for UDP mode where local and
-    remote port numbers are the same, or the local port number if
-    they do not match.
+    The --device config parameter is required.  The device argument is
+    "host" or "host:portnum"; if the port number is omitted the default
+    (700) is assumed.  That is followed by ":connect" for the active end
+    of a TCP connection, ":listen" for the passive end of a TCP
+    connection, or neither for UDP mode where local and remote port
+    numbers are the same, or the local port number if they do not match.
+    For TCP listen mode, the host address may be omitted, in which case
+    connections are accepted from any address.
     """
     port_class = MultinetPort
     
@@ -66,14 +67,15 @@ class Multinet (datalink.PtpDatalink):
             logging.error ("Invalid device value for Multinet datalink {}",
                            self.name)
             raise ValueError
+        self.source = config.source
         host, port, cmode, lmode, lport = m.groups ()
         if port:
             port = int (port)
         else:
             port = 700
-        self.host = datalink.HostAddress (host)
         self.portnum = self.lport = port
         self.mode = lmode or cmode
+        self.host = datalink.HostAddress (host, any = self.mode == ":listen")
         if self.mode:
             mode = "TCP " + self.mode[1:]
             self.start_works = True
@@ -147,6 +149,8 @@ class Multinet (datalink.PtpDatalink):
             return
         sellist = [ sock.fileno () ]
         if self.mode == ":connect":
+            if self.source:
+                self.socket.bind ((self.source, 0))
             # Connect to the remote host
             try:
                 self.socket.connect ((self.host.addr, self.portnum))
@@ -173,7 +177,7 @@ class Multinet (datalink.PtpDatalink):
         else:
             # Listen or UDP mode
             try:
-                self.socket.bind (("", self.lport))
+                self.socket.bind ((self.source, self.lport))
                 logging.trace ("Multinet {} bind {} done", self.name, self.lport)
             except (OSError, socket.error):
                 logging.trace ("Multinet {} bind {} failed", self.name, self.lport)

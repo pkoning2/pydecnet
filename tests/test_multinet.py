@@ -12,6 +12,7 @@ class MultinetBase (DnTest):
     testsdu = b"four score and seven years ago"
     def setUp (self):
         super ().setUp ()
+        self.tconfig.source = "127.0.0.1"
         self.mult = multinet.Multinet (self.node, "multinet-0", self.tconfig)
         self.rport = self.mult.create_port (self.node)
         

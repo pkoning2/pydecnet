@@ -19,15 +19,22 @@ class HostAddress (object):
     of name lookup information.  Thanks to Rob Jarratt for the idea, in
     a note on the HECnet list.
     """
-    def __init__ (self, name, interval = 3600):
+    def __init__ (self, name, interval = 3600, any = False):
         """Initialize a HostAddress object for the supplied name, which
         will be looked up now and re-checked every "interval" seconds.
-        The default check interval is one hour.
+        The default check interval is one hour.  If "any" is True, an
+        empty address or one that maps to 0.0.0.0 is permitted, which
+        will be interpreted by the "valid" method as "any address is
+        considered valid".  By default, the empty/null address is
+        rejected.
         """
+        if not name:
+            name = "0.0.0.0"
         self.name = name
         self.interval = interval
         self.next_check = 0
         self._addr = None
+        self.anyok = any
         self.lookup ()
 
     def lookup (self, pref = None):
@@ -41,6 +48,9 @@ class HostAddress (object):
             # Error in name resolution.  Return pref as the fallback
             return pref
         self.aset = frozenset (alist)
+        self.any = self.aset == { "0.0.0.0" }
+        if self.any and not self.anyok:
+            raise ValueError ("Null address not permitted")
         self.next_check = time.time () + self.interval
         if pref and pref in self.aset:
             self._addr = pref
@@ -54,7 +64,7 @@ class HostAddress (object):
         at the last lookup.
         """
         self.check_interval ()
-        return addr in self.aset
+        return addr in self.aset or self.any
 
     def check_interval (self):
         """Do another check, if needed.  If so, do another DNS lookup
