@@ -431,7 +431,7 @@ class NSP (Element):
             try:
                 pkt = t (buf)
             except packet.DecodeError:
-                logging.trace ("Invalid packet {}", buf)
+                logging.debug ("Invalid packet {}", buf)
                 # Ignore it
                 return
             if t is DiscConf:

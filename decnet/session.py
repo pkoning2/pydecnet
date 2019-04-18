@@ -303,7 +303,7 @@ class Session (Element):
                 try:
                     spkt = SessionConnInit (pkt.payload)
                 except packet.DecodeError:
-                    logging.trace ("Invalid Connect Init data {}", pkt.payload)
+                    logging.debug ("Invalid Connect Init data {}", pkt.payload)
                     nspconn.reject (BAD_FMT, b"")
                     return
                 # Look up the object
