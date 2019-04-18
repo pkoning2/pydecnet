@@ -394,8 +394,8 @@ class test_packets (DnTest):
         self.assertEqual (dc.srcaddr, 3)
         dc = nsp.DiscComp (dstaddr = 11, srcaddr = 3)
         self.assertEqual (dc.encode (), p)
-        # No Link Terminate (43)
-        p = b"\x48\x0b\x00\x03\x00\x2b\x00"
+        # No Link Terminate (41)
+        p = b"\x48\x0b\x00\x03\x00\x29\x00"
         dc = self.short (p, nsp.NoLink)
         self.assertEqual (dc.dstaddr, 11)
         self.assertEqual (dc.srcaddr, 3)
