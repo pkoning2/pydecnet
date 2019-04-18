@@ -296,7 +296,7 @@ class DiscComp (DiscConf):
     reason = 42
 
 class NoLink (DiscConf):
-    reason = 43
+    reason = 41
 
 # DI is like DC but it adds session control disconnect data
 class DiscInit (NspHdr):

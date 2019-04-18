@@ -1214,9 +1214,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         r = self.node.routing
         s = self.node.session
         self.accept ()
-        # Inbound disconnect confirm
+        # Inbound disconnect confirm (No Link Terminate)
         disc = b"\x48" + lla.to_bytes (2, "little") + \
-               b"\x03\x00\x2b\x00"
+               b"\x03\x00\x29\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = disc, rts = False)
         self.nsp.dispatch (w)
@@ -1226,9 +1226,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         w, owner = args
         pkt = w.packet
         # NoLink is a subclass of DiscConf, for the specific reason
-        # code 43 (no link terminate)
+        # code 41 (no link terminate)
         self.assertIsInstance (pkt, nsp.NoLink)
-        self.assertEqual (pkt.reason, 43)
+        self.assertEqual (pkt.reason, 41)
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
