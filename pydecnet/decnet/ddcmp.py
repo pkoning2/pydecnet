@@ -656,7 +656,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.socket.sendall (msg)
             else:
                 self.socket.sendto (msg, (self.host.addr, self.rport))
-        except OSError:
+        except (OSError, AttributeError):
+            # AttributeError happens if socket has been changed to "None"
             self.disconnected ()
         if timeout:
             self.node.timers.start (self, timeout)

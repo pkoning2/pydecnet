@@ -231,6 +231,8 @@ class SimhDMC (datalink.PtpDatalink):
             self.counters.pkts_sent += 1
             try:
                 self.socket.send (mlen + msg)
-            except socket.error:
+            except (socket.error, AttributeError):
+                # AttributeError happens if socket has been changed to
+                # "None"
                 self.disconnected ()
             
