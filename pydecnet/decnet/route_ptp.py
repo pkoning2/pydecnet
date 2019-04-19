@@ -15,6 +15,7 @@ from . import adjacency
 from . import datalink
 from . import timers
 from . import statemachine
+from . import html
 
 class Start (Work):
     """A work item that says "start the circuit".

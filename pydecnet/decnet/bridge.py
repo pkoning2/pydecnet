@@ -15,6 +15,7 @@ from . import events
 from . import timers
 from . import datalink
 from . import pktlogging
+from . import html
 
 def protostr (proto):
     return "{0[0]:02x}-{0[1]:02x}".format (proto)
@@ -120,6 +121,11 @@ class AddrDb (dict):
     def get_api (self):
         return { str (k) : v.get_api () for (k, v) in self.items () }
     
+infos = (( "", "Summary" ),
+         ( "/status", "Status" ),
+         ( "/counters", "Counters" ),
+         ( "/internals", "Internals" ))
+    
 class Bridge (Element):
     """A bridge.  This is roughly a "simple bridge" (no spanning tree
     protocol).  But more precisely, it's a Python version of Johnny
@@ -192,40 +198,44 @@ class Bridge (Element):
                     if c is not circ:
                         logging.trace ("Flooding packet to {}", c)
                         c.send_frame (packet, work.extra)
-
+    
     def http_get (self, parts, qs):
-        ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-        <td width=180 align=center><a href="/bridge{1}">Summary</td>
-        <td width=180 align=center><a href="/bridge/status{1}">Status</td>
-        <td width=180 align=center><a href="/bridge/counters{1}">Counters</td>
-        <td width=180 align=center><a href="/bridge/internals{1}">Internals</td></table>
-        <h3>Bridge {0}</h3>""".format (self.name, qs) ]
-        ret.append ("""<h3>Circuits</h3>
-        <table border=1 cellspacing=0 cellpadding=4>
-        <tr><th>Name</th><th>Protocols</th></tr>\n""")
+        if parts:
+            what = parts[0]
+        else:
+            what = "summary"
+        sb = html.sbelement (html.sblabel ("Information"),
+                             html.sbbutton ("bridge", "Summary", qs),
+                             #html.sbbutton ("bridge/status", "Status", qs),
+                             #html.sbbutton ("bridge/counters", "Counters", qs),
+                             html.sbbutton ("bridge/internals", "Internals", qs))
+        if what == "internals":
+            active = 2
+        else:
+            active = 1
+        sb.contents[active].__class__ = html.sbbutton_active
+        ret = [ """<h2>Bridge {0}</h3>""".format (self.name, qs) ]
         clist = list ()
         for cnam, c in sorted (self.circuits.items ()):
             p = list ()
             for proto in sorted (c.datalink.protoset):
                 p.append (protostr (proto))
             p = ", ".join (p)
-            clist.append ("<tr><td>{0}</td><td>{1}</td></tr>".format (cnam, p))
-        ret.append (''.join (clist) + "</table>")
-        if parts and parts[0] == "internals":
-            ftab = """<h3>Forwarding table</h3>
-            <table border=1 cellspacing=0 cellpadding=4>
-            <tr><th>Address</th><th>Circuit</th></tr>\n"""
-            ret.append (ftab)
-            f = list ()
-            for circ, addr in sorted ([ (str (ent.circuit), addr) for
-                                        addr, ent in self.addrdb.items () ]):
-                f.append ("<tr><td>{0}</td><td>{1}</td></tr>\n".format (addr, circ))
-            ret.extend (f)
-            ret.append ("</table>")
-        return '\n'.join (ret)
+            clist.append ((cnam, p))
+        ret.append (html.tbsection ("Circuits",
+                                    ("Name", "Protocols"),
+                                    clist))
+        if what == "internals":
+            ret.append (html.tbsection ("Forwarding table",
+                                        ("Address", "Circuit"),
+                                        ((addr, circ) for circ, addr in sorted ([ (str (ent.circuit), addr) for
+                                        addr, ent in self.addrdb.items () ]))))
+        return sb, html.main (*ret)
 
     def description (self):
-        return "<a href=\"/bridge?system={0.name}\">Bridge {0.name}</a>".format (self)
+        return html.makelink ("bridge",
+                              "Bridge {0.name}".format (self),
+                              "?system={0.name}".format (self))
 
     def json_description (self):
         return { self.name : "Bridge" }

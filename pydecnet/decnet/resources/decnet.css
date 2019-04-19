@@ -1,0 +1,82 @@
+table, th, td {
+    border-style: solid;
+    border-collapse: collapse;
+    border-width: 1px;
+    padding: 3pt;
+}
+
+.flex-page {
+    display: flex;
+    flex-direction: column;
+}
+
+.top {
+    text-align: center;
+    margin-bottom: 12pt;
+    font-weight: bold;
+    font-size: 2vw;
+}
+
+h2, h3 {
+    text-align: left;
+    font-weight: bold;
+    font-size: 1.5vw;
+    margin-top: 18pt;
+    margin-bottom: 6pt;
+}
+
+h2 {
+    margin-top: 0pt;
+}
+
+p {
+    margin: 0pt;
+    margin-top: 6pt;
+}
+
+.middle {
+    display: flex;
+    flex-direction: row;
+    margin: 4pt;
+}
+    
+.sidebar {
+    display: flex;
+    background-color: rgb(220,220,220);
+    padding: 6pt;
+    padding-top: 0pt;
+    margin-right: 8pt;
+    flex-direction: column;
+}
+
+.sidebar-element {
+    padding-bottom: 12pt;
+}
+
+.sidebar-label {
+    padding-top: 6pt;
+}
+    
+.sidebar-link, .sidebar-link-active {
+    background-color: lightblue;
+    border-style: solid;
+    border-width: 1px;
+    padding: 2pt;
+    margin: 2pt;
+    margin-left: 9pt;
+}
+    
+.sidebar-link-active {
+    background-color: rgb(220,255,220);
+    border-width: 2px;
+}
+    
+.main {
+    display: flex;
+    flex-direction: column;
+}
+
+div.footer {
+    padding: 6pt;
+    padding-top: 12pt;
+}

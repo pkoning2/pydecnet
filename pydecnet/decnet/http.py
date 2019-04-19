@@ -8,21 +8,18 @@ import http.server
 import socketserver
 import json
 import traceback
-import cgitb
 import io
+import os.path
 from urllib.parse import urlparse, parse_qs
 import re
 import ssl
+import mimetypes
 
 from .common import *
 from . import logging
+from . import html
 
-# Robots.txt response: we want to disallow all web walkers because
-# everything here is dynamic content; it doesn't make any sense to try
-# to index it.
-robots_txt = b"""User-agent: *
-Disallow: /
-"""
+resourcedir = os.path.join (os.path.dirname (__file__), "resources")
 
 class DNJsonDecoder (json.JSONDecoder):
     def __init__ (self):
@@ -99,22 +96,21 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     def setup (self):
         super ().setup ()
         self.wtfile = io.TextIOWrapper (self.wfile)
-        self.excepthook = cgitb.Hook (file = self.wtfile)
         
     def log_message (self, fmt, *args):
         logging.trace (fmt % (args))
 
     def findnode (self):
         # Identify the node addressed by the request's query argument,
-        # required if there is more than one.  Return the node object
-        # and the split-apart path string.
+        # required if there is more than one.  Return the node index,
+        # node object, and the split-apart path string.
         p = urlparse (self.path)
         if p.scheme or p.netloc or p.params or p.fragment:
             logging.trace ("Invalid path: {}", self.path)
             self.send_error (400, "Invalid request")
             return None, None
         logging.trace ("http from {} get {}", self.client_address, p.path)
-        parts = p.path.split ("/")
+        parts = os.path.realpath (p.path).split ("/")
         if not parts or parts[0]:
             self.send_error (400, "Invalid request")
             logging.trace ("Invalid path: {}", self.path)
@@ -123,60 +119,79 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         nodelist = self.server.nodelist
         if len (nodelist) > 1:
             if not p.query:
-                return None, parts
+                return 0, None, parts
             q = parse_qs (p.query)
             node = q["system"][0].upper ()
-            for n in nodelist:
+            for i, n in enumerate (nodelist):
                 if n.nodename and n.nodename.upper () == node:
-                    return n, parts
+                    return i, n, parts
             self.send_error (400, "System not found")
-            return None, None
-        return nodelist[0], parts
+            return 0, None, None
+        return 0, nodelist[0], parts
+
+    msg_500 = "Exception during server processing.<p><pre>{}</pre>"
+    def handle_exception (self, op):
+        logging.exception ("Exception handling http {} of {}", op, self.path)
+        # Replace the "explanation" part of the message for code 500
+        self.responses[500] = [self.responses[500][0],
+                               self.msg_500.format (traceback.format_exc ())]
+        self.send_error (500)
         
     def do_GET (self):
         try:
-            tnode, parts = self.findnode ()
+            nodeidx, tnode, parts = self.findnode ()
             if parts is None:
                 return
             if parts[0] == "robots.txt":
-                ret = robots_txt
-                ctype = "text/plain"
+                parts = [ "resources", "robots.txt" ]
+            if parts[0] == "api" and self.server.api:
+                if not self.server.secure:
+                    self.send_error (401, "API access requires HTTPS")
+                    return
+                ret = self.json_get (parts[1:], tnode)
+                if not ret:
+                    return
+                ctype = "application/json"
+            elif parts[0] == "resources":
+                # Fetching a resource (a constant file)
+                fn = os.path.join (resourcedir, *parts[1:])
+                ctype = mimetypes.guess_type (fn, False)[0]
+                try:
+                    with open (fn, "rt") as f:
+                        ret = f.read ()
+                except OSError:
+                    self.send_error (404, "File not found")
+                    return
             else:
-                if parts[0] == "api" and self.server.api:
-                    if not self.server.secure:
-                        self.send_error (401, "API access requires HTTPS")
+                ctype = "text/html"
+                if not tnode:
+                    if parts != ['']:
+                        logging.trace ("Missing system parameter")
+                        self.send_error (400, "Missing system parameter")
                         return
-                    ret = self.json_get (parts[1:], tnode)
-                    if not ret:
-                        return
-                    ctype = "application/json"
+                    ret = self.node_list ()
                 else:
-                    ctype = "text/html"
-                    if not tnode:
-                        if parts != ['']:
-                            logging.trace ("Missing system parameter")
-                            self.send_error (400, "Missing system parameter")
-                            return
-                        ret = self.node_list ()
-                    else:
-                        ret = tnode.http_get (parts, len (self.server.nodelist) > 1)
-                        if not ret:
-                            self.send_error (404, "File not found")
-                            return
-            if isinstance (ret, str):
-                ret = ret.encode ("utf-8", "ignore")                
+                    ret = tnode.http_get (parts)
+                    if not ret:
+                        self.send_error (404, "File not found")
+                        return
+                    title, sb, body = ret
+                    if len (self.server.nodelist) > 1:
+                        sb.insert (0, self.node_sidebar (nodeidx))
+                    sb = html.sidebar (*sb)
+                    ret = html.doc (title, html.middle (sb, body))
+            ret = str (ret).encode ("utf-8", "ignore")                
             self.send_response (200)
             self.send_header ("Content-type", ctype)
             self.send_header ("Content-Length", str (len (ret)))
             self.end_headers ()
             self.wfile.write (ret)
         except Exception:
-            logging.exception ("Exception handling http get of {}", self.path)
-            self.excepthook.handle ()
+            self.handle_exception ("GET")
 
     def do_POST (self):
         try:
-            tnode, parts = self.findnode ()
+            nodeidx, tnode, parts = self.findnode ()
             if parts is None:
                 return
             if not tnode:
@@ -202,22 +217,18 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             self.end_headers ()
             self.wfile.write (ret)
         except Exception:
-            logging.exception ("Exception handling http get of {}", self.path)
-            self.excepthook.handle ()
-            
-    def node_list (self):
-        ret = [ """<html><head>
-                <title>DECnet/Python monitoring</title></head>
-                <body>
-                <h2>DECnet/Python monitoring</h2>
-                <p>There are multiple nodes, click on one of the entries
-                below to see that one.</p>
-                <table border=1 cellspacing=0 cellpadding=4>""" ]
-        for n in self.server.nodelist:
-            ret.append ("<tr><td>{}</td></tr>".format (n.description ()))
-        ret.append ("</body></html>\n")
-        return '\n'.join (ret)
+            self.handle_exception ("POST")
 
+    def node_sidebar (self, idx = -1):
+        return html.sbelement (html.sblabel ("Systems"),
+                               *[ (html.sbbutton_active if idx == i
+                                       else html.sbbutton) (n.description ())
+                                  for i, n in enumerate (self.server.nodelist) ])
+
+    def node_list (self):
+        return html.doc ("DECnet/Python monitoring",
+                         html.sidebar (self.node_sidebar ()))
+    
     def getapientity (self, what, tnode):
         logging.trace ("getentity node {} path {}", tnode, what)
         for ent in what:

@@ -17,6 +17,7 @@ from . import datalink
 from . import timers
 from . import statemachine
 from . import logging
+from . import html
 
 if not WIN:
     from fcntl import *
@@ -508,17 +509,22 @@ class Mop (Element):
                 logging.exception ("Error stopping MOP circuit {}", name)
     
     def http_get (self, parts, qs):
+        #infos = ( "summary", "status", "counters", "internals" )
+        infos = ( "summary", "status", "internals" )
         if not parts or parts == ['']:
             what = "summary"
-        elif parts[0] in { "summary", "status", "counters", "internals" }:
+        elif parts[0] in infos:
             what = parts[0]
         else:
-            return None
-        ret = [ """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-        <td width=180 align=center><a href="/mop{0}">Summary</td>
-        <td width=180 align=center><a href="/mop/status{0}">Status</td>
-        <td width=180 align=center><a href="/mop/internals{0}">Internals</td></table>""".format (qs) ]
-        ret.append ("<h3>MOP {0}</h3>".format (what))
+            return None, None
+        active = infos.index (what) + 1
+        sb = html.sbelement (html.sblabel ("Information"),
+                             html.sbbutton ("mop", "Summary", qs),
+                             html.sbbutton ("mop/status", "Status", qs),
+                             #html.sbbutton ("mop/counters", "Counters", qs),
+                             html.sbbutton ("mop/internals", "Internals", qs))
+        sb.contents[active].__class__ = html.sbbutton_active
+        ret = [ "<h3>MOP {0}</h3>".format (what) ]
         first = True
         for c in self.circuits.values ():
             s = c.html (what, first)
@@ -533,7 +539,7 @@ class Mop (Element):
             for c in self.circuits.values ():
                 if c.sysid:
                     ret.append (c.sysid.html (what))
-        return '\n'.join (ret)
+        return sb, '\n'.join (ret)
 
     def get_api (self):
         return { "circuits" : self.circuits.get_api () }
