@@ -539,7 +539,7 @@ class Mop (Element):
             for c in self.circuits.values ():
                 if c.sysid:
                     ret.append (c.sysid.html (what))
-        return sb, '\n'.join (ret)
+        return sb, html.main (*ret)
 
     def get_api (self):
         return { "circuits" : self.circuits.get_api () }
