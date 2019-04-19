@@ -1353,7 +1353,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check log message
-        args = self.assertTrace ("Invalid packet")
+        args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
         # Ack with extra bytes after the valid data
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x00\x80\x00\x00"
@@ -1361,7 +1361,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check log message
-        args = self.assertTrace ("Invalid packet")
+        args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
         # Send a NOP
         p = b"\x08abcdef"
@@ -1377,7 +1377,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check log message, this is also just a decode error
-        args = self.assertTrace ("Invalid packet")
+        args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
         # Packet (ack) with wrong source link address
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x99\x00\x00\x80"
@@ -1419,7 +1419,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check logs
-        args = self.assertTrace ("Invalid packet")
+        args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
         # Incoming Link Service with invalid fcmod
         p = b"\x10" + lla.to_bytes (2, "little") + \
@@ -1428,7 +1428,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Check logs
-        args = self.assertTrace ("Invalid packet")
+        args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
         # Packet to unknown local link address
         p = b"\x04" + (lla + 1).to_bytes (2, "little") + b"\x03\x00\x00\x80"
