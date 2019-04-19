@@ -305,7 +305,9 @@ class Multinet (datalink.PtpDatalink):
                 hdr = mlen.to_bytes (2, "little") + b"\000\000"
                 try:
                     self.socket.send (hdr + msg)
-                except socket.error:
+                except (socket.error, AttributeError):
+                    # AttributeError happens if socket has been
+                    # changed to "None"
                     self.disconnected ()
             else:
                 # UDP mode
@@ -313,6 +315,8 @@ class Multinet (datalink.PtpDatalink):
                 self.seq += 1
                 try:
                     sock.sendto (hdr + msg, (self.host.addr, self.portnum))
-                except socket.error:
+                except (socket.error, AttributeError):
+                    # AttributeError happens if socket has been
+                    # changed to "None"
                     self.disconnected ()
             

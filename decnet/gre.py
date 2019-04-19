@@ -81,7 +81,8 @@ class GRE (datalink.BcDatalink, StopThread):
         
     def close (self):
         self.stop ()
-        self.socket.close ()
+        if self.socket:
+            self.socket.close ()
         self.socket = None
         
     def create_port (self, owner, proto, pad = True):
