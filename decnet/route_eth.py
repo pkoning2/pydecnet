@@ -14,6 +14,7 @@ from . import events
 from . import datalink
 from . import adjacency
 from . import timers
+from . import html
 
 # Some well known Ethernet addresses
 ALL_ROUTERS    = Macaddr ("AB-00-00-03-00-00")

@@ -19,6 +19,7 @@ from . import timers
 from . import statemachine
 from . import route_ptp
 from . import route_eth
+from . import html
 
 internals = """
 Notes on circuits and adjacencies.
@@ -231,7 +232,12 @@ class ExecCounters (NspCounters):
         self.aged_loss = 0
         self.node_oor_loss = 0
         self.unreach_loss = 0
-        
+
+infos = (( "", "Summary" ),
+         ( "/status", "Status" ),
+         ( "/counters", "Counters" ),
+         ( "/internals", "Internals" ))
+    
 class BaseRouter (Element):
     """The routing layer.  Mainly this is the parent of a number of control
     components and collections of circuits and adjacencies.
@@ -313,30 +319,39 @@ class BaseRouter (Element):
             del self.adjacencies[adj.nodeid]
         except KeyError:
             pass
+
+    def info_link (self, link, name, qs):
+        link, name =infos[item]
+        return '<a href="/routing/{}{}">{}'.format (link, qs, name)
     
     def http_get (self, parts, qs):
+        infos = ( "summary", "status", "counters", "internals" )
         if not parts or parts == ['']:
             what = "summary"
-        elif parts[0] in { "summary", "status", "counters", "internals" }:
+        elif parts[0] in infos:
             what = parts[0]
         else:
-            return None
-        hdr = """<table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-        <td width=180 align=center><a href="/routing{0}">Summary</td>
-        <td width=180 align=center><a href="/routing/status{0}">Status</td>
-        <td width=180 align=center><a href="/routing/counters{0}">Counters</td>
-        <td width=180 align=center><a href="/routing/internals{0}">Internals</td></table>""".format (qs)
+            return None, None
+        active = infos.index (what) + 1
+        sb = html.sbelement (html.sblabel ("Information"),
+                             html.sbbutton ("routing", "Summary", qs),
+                             html.sbbutton ("routing/status", "Status", qs),
+                             html.sbbutton ("routing/counters", "Counters", qs),
+                             html.sbbutton ("routing/internals", "Internals", qs))
+        sb.contents[active].__class__ = html.sbbutton_active
         ntype = ntypestrings[self.ntype]
-        ret = [ """{2}\n<h3>Routing {1} for node {0.nodeid} ({0.name})</h3>
-        <p>Node type: {3}<br>
+        ret = [ """<h2>Routing {1} for node {0.nodeid} ({0.name})</h2>
+        <p>Node type: {2}<br>
         Routing version: {0.tiver}
-        </p>""".format (self, what, hdr, ntype) ]
+        </p>""".format (self, what, ntype) ]
         ret.extend (self.html (what))
-        return '\n'.join (ret)
+        return sb, html.main (*ret)
 
     def description (self):
         ntype = ntypestrings[self.ntype]
-        return "<a href=\"/routing?system={0.name}\">{1} node {0.nodeid} ({0.name})</a>".format (self, ntype)
+        return html.makelink ("routing",
+                              "{1} node {0.nodeid} ({0.name})".format (self, ntype),
+                              "?system={0.name}".format (self))
 
     def json_description (self):
         return { self.name : [ ntypestrings[self.ntype], self.nodeid ] }

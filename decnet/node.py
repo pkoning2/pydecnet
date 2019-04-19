@@ -19,6 +19,7 @@ from . import mop
 from . import routing
 from . import nsp
 from . import http
+from . import html
 from . import event_logger
 from . import bridge
 from . import session
@@ -218,49 +219,40 @@ class Node (Entity):
         except AttributeError:
             return self.bridge.json_description ()
 
-    def http_get (self, parts, multisys):
+    def http_get (self, parts):
         qs = "?system={}".format (self.nodename)
         br = self.bridge
         if br:
-            ret = [ """<html><head>
-            <title>DECnet/Python monitoring on bridge {0.nodename}</title></head>
-            <body>
-            <table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-            """.format (self) ]
-            if multisys:
-                ret.append ("<td width=180 align=center><a href=\"/\">All systems</a></td>")
-            ret.append ("""<td width=180 align=center><a href="/{0}">Overall summary</a></td>
-            <td width=180 align=center><a href="/bridge{0}">Bridge layer</a></td>
-            """.format (qs))
+            title = "DECnet/Python monitoring on bridge {0.nodename}".format (self)
+            sb = html.sbelement (html.sblabel ("Entities"),
+                                 html.sbbutton ("", "Overall summary", qs),
+                                 html.sbbutton ("bridge", "Bridge layer", qs))
             if parts == ['']:
-                r = br.http_get (parts, qs)
+                active = 1
+                sb2, body = br.http_get (parts, qs)
             elif parts[0] == "bridge":
-                r = br.http_get (parts[1:], qs)
+                active = 2
+                sb2, body = br.http_get (parts[1:], qs)
             else:
                 return None
         else:
-            ret = [ """<html><head>
-                <title>DECnet/Python monitoring on node {0.nodeid} ({0.nodename})</title></head>
-                <body>
-                <table border=1 cellspacing=0 cellpadding=4 rules=none><tr>
-                """.format (self) ]
-            if multisys:
-                ret.append ("<td width=180 align=center><a href=\"/\">All systems</a></td>")
-            ret.append ("""<td width=180 align=center><a href="/{0}">Overall summary</a></td>
-                <td width=180 align=center><a href="/routing{0}">Routing layer</a></td>
-                <td width=180 align=center><a href="/mop{0}">MOP</a></td></table>
-                """.format (qs))
+            title = "DECnet/Python monitoring on node {0.nodeid} ({0.nodename})".format (self)
+            sb = html.sbelement (html.sblabel ("Entities"),
+                                 html.sbbutton ("", "Overall summary", qs),
+                                 html.sbbutton ("routing", "Routing layer", qs),
+                                 html.sbbutton ("mop", "MOP", qs))
             if parts == ['']:
-                r = self.routing.http_get (parts, qs)
+                active = 1
+                sb2, body = self.routing.http_get (parts, qs)
             elif parts[0] == "routing":
-                r = self.routing.http_get (parts[1:], qs)
+                active = 2
+                sb2, body = self.routing.http_get (parts[1:], qs)
             elif parts[0] == "mop":
-                r = self.mop.http_get (parts[1:], qs)
+                active = 3
+                sb2, body = self.mop.http_get (parts[1:], qs)
             else:
                 return None
-        if not r:
+        if not body:
             return None
-        ret.append (r)
-        ret.append ("</body></html>\n")
-        return '\n'.join (ret)
-        
+        sb.contents[active].__class__ = html.sbbutton_active
+        return title, [ sb, sb2 ], body
