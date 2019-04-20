@@ -863,7 +863,7 @@ class L1Router (BaseRouter):
         ret = [ ]
         for t in (self.LanCircuit, self.PtpCircuit):
             first = True
-            for c in self.circuits.values ():
+            for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, t):
                     h = c.html (what, first)
                     if h:
@@ -900,7 +900,7 @@ class L1Router (BaseRouter):
             if not first:
                 ret.append ("</table>")
         if what in ("status", "internals"):
-            for c in self.circuits.values ():
+            for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, self.LanCircuit):
                     h = c.html ("adjacencies", True)
                     if h:
