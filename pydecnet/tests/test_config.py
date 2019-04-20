@@ -105,7 +105,9 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 GRE foo --nr 35", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --prio -1", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --prio 128", "invalid choice")
-
+        self.checkerr ("circuit foo-0 GRE foo\ncircuit foo-0 Ethernet dev",
+                       "Duplicate name")
+        
 class TestLogging (Logchecker):
     req = """bridge br-0
     """
@@ -136,6 +138,8 @@ class TestLogging_err (Logchecker):
         self.checkerr ("logging", "required: type")
         self.checkerr ("logging wrongsink", "invalid choice")
         self.checkerr ("logging console --frob", "unrecognized argument")
+        self.checkerr ("logging console\nlogging console",
+                       "Duplicate name")
 
 class TestHttp (Logchecker):
     req = ""
@@ -248,6 +252,10 @@ class TestNode_err (Logchecker):
         self.checkerr ("node", "arguments are required")
         self.checkerr ("node 1.4", "arguments are required")
         self.checkerr ("node 1.2 foo --frob", "unrecognized argument")
+        # Note that right now we catch duplicate name but not
+        # duplicate address.
+        self.checkerr ("node 1.3 foo\nnode 1.42 foo",
+                       "Duplicate name")
 
 class TestNSP (Logchecker):
     req = """routing 1.1

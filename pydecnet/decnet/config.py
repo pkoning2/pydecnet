@@ -282,7 +282,13 @@ class Config (object):
                 if p.namespace:
                     p.__class__ = p.namespace
                 if p.collection:
-                    getattr (self, p.attr)[p.name] = p
+                    c = getattr (self, p.attr)
+                    if p.name in c:
+                        logging.error ("Config file parse error in {}:\n"
+                                       " {}\n {}", f, "Duplicate name", l)
+                        ok = False
+                    else:
+                        c[p.name] = p
                 elif p.clist:
                     getattr (self, p.attr).append (p)
                 else:
