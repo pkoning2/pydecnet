@@ -67,11 +67,9 @@ done, the home page in the monitoring HTTP service will list the
 systems, and the pages for each system will have a URL argument of the
 form "?system=<name>" appended, for example "/routing?system=NI1D".
 
-Usage
-
-pydecnet [-h] [-d] [--pid-file FN] [-L FN] [-e LV] [-k KEEP] [-V]
-         [-H [CMD]]
-         [CFN [CFN ...]]
+usage: pydecnet [-h] [-d] [--pid-file FN] [-L FN] [-e LV] [-S] [--syslog S]
+                [--log-config LC] [-k KEEP] [-V] [-H [CMD]]
+                [CFN [CFN ...]]
 
 positional arguments:
   CFN                   Configuration file
@@ -84,6 +82,10 @@ optional arguments:
   -L FN, --log-file FN  Log file (default: log to stderr)
   -e LV, --log-level LV
                         Log level (default: INFO)
+  -S                    Log to local syslog
+  --syslog S            Log to syslog at the indicated address, "local" means
+                        the appropriate local UDP or named socket
+  --log-config LC       Logging configuration file
   -k KEEP, --keep KEEP  Number of log files to keep with nightly rotation.
                         Requires a log file name to be specified.
   -V, --version         show program's version number and exit
@@ -100,10 +102,12 @@ By default, PyDECnet runs in the foreground.  If --daemon is supplied,
 it runs as a daemon.  In that case, a log file name must be supplied
 because stderr is no longer open.
 
-Logging uses the standard Python "logging" module.  DNA events are
+Logging uses the standard Python "logging" module.  DNA events can be
 logged via the logging module as well, with logging level INFO and
 text formatted as documented in the DNA Network Management
-specification.  
+specification.  This feature is off by default, but can be controlled
+by the "logging" configuration line in the individual configuration
+files (see config.txt for details).
 
 The -H switch can be used to get usage information for each type of
 entry defined for the configuration files.

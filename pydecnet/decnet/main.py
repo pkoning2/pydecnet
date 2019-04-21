@@ -52,6 +52,15 @@ dnparser.add_argument ("-e", "--log-level", default = "INFO",
                        choices = ("TRACE", "DEBUG", "INFO",
                                   "WARNING", "ERROR"),
                        help = "Log level (default: INFO)")
+dnparser.add_argument ("-S", action = "store_const", 
+                       dest = "syslog", const = "local",
+                       help = "Log to local syslog")
+dnparser.add_argument ("--syslog", metavar = "S",
+                       help = """Log to syslog at the indicated address,
+                                 "local" means the appropriate local UDP
+                                 or named socket""")
+dnparser.add_argument ("--log-config", metavar = "LC",
+                       help = "Logging configuration file")
 dnparser.add_argument ("-k", "--keep", type = int, default = 0,
                        help = """Number of log files to keep with nightly
 rotation.  Requires a log file name to be specified.""")
@@ -100,28 +109,8 @@ def main ():
     if not p.configfile:
         print ("At least one config file argument must be specified")
         sys.exit (1)
-    if p.log_file:
-        if p.keep:
-            h = logging.handlers.TimedRotatingFileHandler (filename = p.log_file,
-                                                           when = "midnight",
-                                                           backupCount = p.keep)
-        else:
-            h = logging.FileHandler (filename = p.log_file, mode = "w")
-        # If we run as daemon, we want to keep the handler's stream open
-        common.dont_close (h.stream)
-    else:
-        if p.keep:
-            print ("--keep requires --log-file")
-            sys.exit (1)
-        if p.daemon:
-            print ("--daemon requires --log-file")
-            sys.exit (1)
-        h = logging.StreamHandler (sys.stderr)
-    # Create a formatter using {} formatting, and set the message format we want
-    fmt = logging.Formatter (fmt = "{asctime}: {threadName}: {message}", style = '{')
-    fmt.default_msec_format = "%s.%03d"
-    h.setFormatter (fmt)
-    logging.basicConfig (handlers = [ h ], level = p.log_level)
+    # First start up the logging machinery
+    logging.start (p)
     # Read all the configs
     logging.info ("Starting DECnet/Python")
     configs = [ config.Config (c) for c in p.configfile ]
