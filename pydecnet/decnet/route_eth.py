@@ -349,7 +349,7 @@ class RoutingLanCircuit (LanCircuit):
             return super ().html (what, first)
         ret = list ()
         first = True
-        for a in self.adjacencies.values ():
+        for k, a in sorted (self.adjacencies.items ()):
             if a.state == UP:
                 s = a.html ("status", first)
                 if s:
