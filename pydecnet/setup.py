@@ -20,7 +20,10 @@ setup (author = "Paul Koning",
        package_data = { "decnet.resources" : [ "*.txt", "*.css" ] },
        scripts = [ "pydecnet" ],
        py_modules = [ "crc" ],
-       install_requires = [ "python-daemon-3K" ],
+       extras_require = {
+           "daemon" : "python-daemon",
+           "yaml" : "PyYAML"
+           },
        classifiers=[
            "Development Status :: 3 - Alpha",
            "Topic :: Communications",
