@@ -117,6 +117,14 @@ https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
 The file can be a YAML format file, if the PyYAML module is installed
 and the file name extension is .yaml, or a JSON format file
 otherwise.  Samples of both are provided in the samples subdirectory.
+The sample files all configure the "root" logger.  The actual log
+calls made in pydecnet use a child logger named "decnet".  By default
+that is simply a passthrough logger that delegates everything to the
+root logger, so configuring what is wanted to be logged in the root
+logger is sufficient.  For complex cases it might be useful to set
+specific configurations on the logger named "decnet".  An example
+would be if pydecnet were treated as a library, a component of a
+larger application where other parts also make logging calls.
 
 DNA events can be logged via the logging module as well, with logging
 level INFO and text formatted as documented in the DNA Network
