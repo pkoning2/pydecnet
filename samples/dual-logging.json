@@ -1,0 +1,33 @@
+{
+  "version" : 1,
+  "formatters" : {
+    "dnformatter" : {
+      "()" : "decnet.logging.DnFormatter",
+      "format" : "{asctime}: {threadName}: {message}",
+      "style" : "{"
+    },
+    "traceformatter" : {
+      "()" : "decnet.logging.DnFormatter",
+      "format" : "{asctime}: {threadName} {filename}.{lineno}: {message}",
+      "style" : "{"
+    }      
+  },
+  "handlers" : {
+    "tracehandler" : {
+      "class" : "logging.handlers.RotatingFileHandler",
+      "formatter" : "traceformatter",
+      "filename" : "decnet-trace.log",
+      "maxBytes" : 1000000,
+      "backupCount" : 10
+    },
+    "consolehandler" : {
+      "class" : "logging.StreamHandler",
+      "formatter" : "dnformatter",
+      "level" : "INFO"
+    }
+  },
+  "root" : {
+    "level" : "TRACE",
+    "handlers" : [ "tracehandler", "consolehandler" ]
+  }
+}
