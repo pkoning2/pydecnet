@@ -102,12 +102,27 @@ By default, PyDECnet runs in the foreground.  If --daemon is supplied,
 it runs as a daemon.  In that case, a log file name must be supplied
 because stderr is no longer open.
 
-Logging uses the standard Python "logging" module.  DNA events can be
-logged via the logging module as well, with logging level INFO and
-text formatted as documented in the DNA Network Management
-specification.  This feature is off by default, but can be controlled
-by the "logging" configuration line in the individual configuration
-files (see config.txt for details).
+Logging uses the standard Python "logging" module.  By default
+messages of level INFO and higher are logged to the console (stderr).
+Command line switches are available to specify a different log
+destination and/or different message levels.
+
+For detailed control of logging, including options such as logging via
+log handlers not available through the command line, or logging to
+several destinations possibly with different message levels for each,
+the --log-config argument is used to specify a log config file.  The
+information in this file is documented in the Python library manual:
+https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
+
+The file can be a YAML format file, if the PyYAML module is installed
+and the file name extension is .yaml, or a JSON format file
+otherwise.  Samples of both are provided in the samples subdirectory.
+
+DNA events can be logged via the logging module as well, with logging
+level INFO and text formatted as documented in the DNA Network
+Management specification.  This feature is off by default, but can be
+controlled by the "logging" configuration line in the individual
+configuration files (see config.txt for details).
 
 The -H switch can be used to get usage information for each type of
 entry defined for the configuration files.

@@ -57,8 +57,13 @@ containing the SSL server certificate to be used for HTTPS.  Default
 is "decnet.pem".
 
 --api: enables the JSON API.  If omitted, JSON requests (to the "api"
-URL) are rejected.  JSON is available only via HTTPS, so --https-port
-must not be zero.
+URL) are rejected.  
+
+--insecure-api: allows the JSON API (if enabled by --api) on the HTTP
+port.  By default, JSON is allowed only on the HTTPS port.
+
+--source: source IP address to use, for both HTTP and HTTPS.  Defaults
+to accepting any local address.
 
 TODO: define authorization mechanisms.
 

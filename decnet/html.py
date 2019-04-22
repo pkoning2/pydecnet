@@ -60,6 +60,8 @@ class sidebar (div): open = '<div class="sidebar">'
 class sbelement (div): open = '<div class="sidebar-element">'
 class sblabel (div): open = '<div class="sidebar-label">'
 class main (div): open = '<div class="main">'
+class toptitle (div): open = '<div class="toptitle">'
+class timestamps (div): open = '<div class="timestamps">'
 
 class sbbutton (div):
     open = '<div class="sidebar-link">'
@@ -85,7 +87,13 @@ class tbsection (section):
 class textsection (section):
     def __init__ (self, title, body):
         super ().__init__ (title, lines (*body))
-        
+
+class top (div):
+    open = '<div class="top">'
+    
+    def __init__ (self, title, times):
+        return super ().__init__ (toptitle (title), timestamps (times))
+    
 class doc (object):
     def __init__ (self, title, middle):
         self.title = title

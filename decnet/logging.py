@@ -11,7 +11,15 @@ from .common import *
 import traceback
 import os
 import stat
+import sys
+import json
+import time
 
+try:
+    from yaml import load, Loader
+except ImportError:
+    load = None
+    
 # Expose part of the standard logging objects
 
 handlers = logging.handlers
@@ -33,6 +41,30 @@ WARNING = logging.WARNING
 INFO = logging.INFO
 DEBUG = logging.DEBUG
 Formatter = logging.Formatter
+
+stdlog =  {
+    "version": 1,
+    "formatters": {
+        "dnformatter": {
+            "()": "decnet.logging.DnFormatter",
+            "format": "{asctime}: {threadName}: {message}",
+            "style": "{"
+            }
+        },
+    "handlers": {
+        "dnhandler": {
+            "class": "logging.StreamHandler",
+            "formatter": "dnformatter"
+            }
+        },
+    "root": {
+        "handlers": [ "dnhandler" ],
+        "level": "INFO"
+        }
+    }
+
+class DnFormatter (logging.Formatter):
+    default_msec_format = "%s.%03d"
 
 class DnSysLogHandler (logging.handlers.SysLogHandler):
     def mapPriority (self, levelname):
@@ -68,50 +100,76 @@ def trace (msg, *args, **kwargs):
 logging.addLevelName (TRACE, "TRACE")
 
 def start (p):
-    if p.log_file:
-        if p.keep:
-            h = logging.handlers.TimedRotatingFileHandler (filename = p.log_file,
-                                                           when = "midnight",
-                                                           backupCount = p.keep)
-        else:
-            h = logging.FileHandler (filename = p.log_file, mode = "w")
-        # If we run as daemon, we want to keep the handler's stream open
-        common.dont_close (h.stream)
-    elif p.syslog:
-        if p.syslog == "local":
-            # Pseudo-destination meaning whatever appears to be the
-            # correct way to talk to the local syslog daemon.
-            for dest in ("/dev/log", "/var/run/syslog"):
-                try:
-                    s = os.stat (dest)
-                    if stat.S_ISSOCK (s.st_mode):
-                        break
-                except OSError:
-                    pass
-            else:
-                dest = ("localhost", logging.handlers.SYSLOG_UDP_PORT)
-        else:
-            hp = p.syslog.split (":")
-            if len (hp) > 2:
-                print ("Invalid syslog argument", p.syslog)
+    if p.log_config:
+        fn = p.log_config
+        with open (fn, "rt") as f:
+            lc = f.read ()
+        if fn.endswith (".yaml"):
+            if not load:
+                print ("YAML config file but no YAML support",
+                       file = sys.stderr)
                 sys.exit (1)
-            if len (hp) == 2:
-                dest = (hp[0], int (hp[1]))
-            else:
-                dest = (hp[0], logging.handlers.SYSLOG_UDP_PORT)
-        h = DnSysLogHandler (dest)
+            lc = load (lc, Loader = Loader)
+        else:
+            lc = json.loads (lc)
     else:
-        if p.keep:
-            print ("--keep requires --log-file")
-            sys.exit (1)
-        if p.daemon:
-            print ("--daemon requires --log-file")
-            sys.exit (1)
-        h = logging.StreamHandler (sys.stderr)
-    # Create a formatter using {} formatting, and set the message format we want
-    fmt = logging.Formatter (fmt = "{asctime}: {threadName}: {message}",
-                             style = '{')
-    fmt.default_msec_format = "%s.%03d"
-    h.setFormatter (fmt)
-    logging.basicConfig (handlers = [ h ], level = p.log_level)
-    info ("DECnet/Python started")
+        lc = stdlog
+        h = lc["handlers"]["dnhandler"]
+        rl = lc["root"]
+        if p.log_file:
+            h["filename"] = p.log_file
+            if p.keep:
+                h["class"] = "logging.handlers.TimedRotatingFileHandler"
+                h["when"] = "midnight"
+                h["backupCount"] = p.keep
+            else:
+                h["class"] = "logging.FileHandler"
+                h["mode"] = "w"
+        elif p.syslog:
+            if p.syslog == "local":
+                # Pseudo-destination meaning whatever appears to be the
+                # correct way to talk to the local syslog daemon.
+                for dest in ("/dev/log", "/var/run/syslog"):
+                    try:
+                        s = os.stat (dest)
+                        if stat.S_ISSOCK (s.st_mode):
+                            break
+                    except OSError:
+                        pass
+                else:
+                    dest = ("localhost", logging.handlers.SYSLOG_UDP_PORT)
+            else:
+                hp = p.syslog.split (":")
+                if len (hp) > 2:
+                    print ("Invalid syslog argument", p.syslog, file = sys.stderr)
+                    sys.exit (1)
+                if len (hp) == 2:
+                    dest = [ hp[0], int (hp[1]) ]
+                else:
+                    dest = [ hp[0], logging.handlers.SYSLOG_UDP_PORT ]
+            h["class"] = "decnet.logging.DnSysLogHandler"
+            h["address"] = dest
+        else:
+            if p.keep:
+                print ("--keep requires --log-file", file = sys.stderr)
+                sys.exit (1)
+            if p.daemon:
+                print ("--daemon requires --log-file", file = sys.stderr)
+                sys.exit (1)
+        rl["level"] = p.log_level
+    #print ("Logging config is:\n", lc)
+    # Create a formatter using {} formatting, and set the message
+    # format we want
+    logging.config.dictConfig (lc)
+    global decnetLogger
+    decnetLogger = logging.getLogger ("decnet")
+    decnetLogger.info ("DECnet/Python started")
+    # If we run as daemon, we want to keep the handler's stream open
+    # TODO:
+    #common.dont_close (h.stream)
+    return
+
+def stop ():
+    logging.info ("DECnet/Python shut down")
+    logging.shutdown ()
+    

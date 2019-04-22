@@ -1,0 +1,54 @@
+# Sample logging configuration file.
+#
+# This shows examples corresponding to the various built-in
+# logging configuration choices (via command line switches)
+
+version: 1
+formatters:
+  dnformatter:
+    # Specify a custom class.  This merely overrides the millisecond
+    # formatting string to use the "." separator (US style) rather
+    # than the "," separator (European style).
+    (): decnet.logging.DnFormatter
+    format: "{asctime}: {threadName}: {message}"
+    style: "{"
+handlers:
+  # Here are several handler definitions.  If you use the file
+  # as written, the last definition is used -- they all use the
+  # same handler name so the last definitions wins.
+  dnhandler:
+    # File handler.  This applies when a log file is specified but
+    # the --keep argument is not.
+    class: logging.FileHandler
+    formatter: dnformatter
+    filename: decnet.log
+  dnhandler:
+    # Timed rotation file handler.  This applies when a log file
+    # and a --keep argument are both specified.  
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: dnformatter
+    filename: decnet.log
+    when: midnight
+    backupCount: 3    # --keep value
+  dnhandler:
+    # Syslog handler.  This example shows the local case
+    # using a UDP socket
+    #
+    # Use a custom class; this is necessary to do a reasonable
+    # mapping for the TRACE level.  If trace logging is not done
+    # (it is recommended not to do that to syslog) then the
+    # standard class logging.handlers.SysLogHandler is equivalent
+    # and can be used instead.
+    class: decnet.logging.DnSysLogHandler
+    formatter: dnformatter
+    address: [ "localhost", 514 ]
+    facility: 1    # LOG_USER
+    socktype: ext://socket.SOCK_DGRAM
+  dnhandler:
+    # Without any switches, this is the handler used.  Without a
+    # stream argument, it defaults to sys.stderr
+    class: logging.StreamHandler
+    formatter: dnformatter
+root:
+  level: INFO
+  handlers: [ dnhandler ]
