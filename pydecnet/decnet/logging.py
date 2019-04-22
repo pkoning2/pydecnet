@@ -8,39 +8,17 @@ import logging
 import logging.config
 import logging.handlers
 from .common import *
-import traceback
 import os
 import stat
 import sys
 import json
 import time
+import functools
 
 try:
     from yaml import load, Loader
 except ImportError:
     load = None
-    
-# Expose part of the standard logging objects
-
-handlers = logging.handlers
-exception = logging.exception
-critical = logging.critical
-error = logging.error
-warning = logging.warning
-info = logging.info
-debug = logging.debug
-log = logging.log
-getLogger = logging.getLogger
-FileHandler = logging.FileHandler
-StreamHandler = logging.StreamHandler
-basicConfig = logging.basicConfig
-shutdown = logging.shutdown
-CRITICAL = logging.CRITICAL
-ERROR = logging.ERROR
-WARNING = logging.WARNING
-INFO = logging.INFO
-DEBUG = logging.DEBUG
-Formatter = logging.Formatter
 
 stdlog =  {
     "version": 1,
@@ -85,18 +63,6 @@ class DecnetLogRecord (logging.LogRecord):
 
 logging.setLogRecordFactory (DecnetLogRecord)
 
-def trace (msg, *args, **kwargs):
-    caller = traceback.extract_stack (limit = 2)[0]
-    try:
-        fn = caller.filename
-        ln = caller.lineno
-    except AttributeError:
-        # Python 3.3 has a tuple
-        fn = caller[0]
-        ln = caller[1]
-    logging.log (TRACE, "{}:{}: {}".format (os.path.basename (fn), ln, msg),
-                 *args, **kwargs)
-    
 logging.addLevelName (TRACE, "TRACE")
 
 def start (p):
@@ -161,15 +127,33 @@ def start (p):
     # Create a formatter using {} formatting, and set the message
     # format we want
     logging.config.dictConfig (lc)
+
+    # We're going to make a child logger "decnet" for everything we
+    # do.  By default that will simply delegate to the root logger,
+    # but a custom log config could set up something special for it if
+    # desired.
     global decnetLogger
+    global critical, error, warning, info, debug, trace, exception
     decnetLogger = logging.getLogger ("decnet")
-    decnetLogger.info ("DECnet/Python started")
+    critical = decnetLogger.critical
+    error = decnetLogger.error
+    warning = decnetLogger.warning
+    info = decnetLogger.info
+    debug = decnetLogger.debug
+    # Handle TRACE as a call to the "log" method with the level
+    # supplied ahead of time.  Doing it this way, rather than via a
+    # simple "trace" function in this module, results in the correct
+    # caller info in the message (the place where the "trace" call is
+    # made, rather than a trace function here calling "log").
+    trace = functools.partial (decnetLogger.log, TRACE)
+    exception = decnetLogger.exception
+    info ("DECnet/Python started")
     # If we run as daemon, we want to keep the handler's stream open
     # TODO:
     #common.dont_close (h.stream)
     return
 
 def stop ():
-    logging.info ("DECnet/Python shut down")
+    info ("DECnet/Python shut down")
     logging.shutdown ()
     
