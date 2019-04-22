@@ -50,12 +50,13 @@ knowledge.
 
 Dependencies: Async DDCMP support, over an actual serial port (as
 opposed to a Telnet connection) requires the "serial" package.
-Ethernet support requires libpcap or TAP support.  TAP support has
-only been done for Mac OS X at this time; it depends on the
-"tuntaposx" package by Mattias Nissler (see
-http://tuntaposx.sourceforge.net/ for details).  The sample program
-"rcexpect" depends on the "pexpect" package, modified for Python 3
-support.
+Ethernet support (over real Ethernet, as opposed to Ethernet-style
+bridging via Johnny Bilquist's bridge program) requires libpcap or TAP
+support.  TAP support has only been done for Mac OS X at this time; it
+depends on the "tuntaposx" package by Mattias Nissler (see
+http://tuntaposx.sourceforge.net/ for details). To run as a daemon,
+you need the python-daemon package.  To use YAML files in the
+--log-config option, you need the PyYAML package.
 
 A note on pcap: The original implementation used a modified version of
 the pylibpcap package (changed for Python 3 support and to add the
@@ -66,35 +67,50 @@ decnet.pcap pure Python wrapper is used instead.
 
 Project status:
 
-As of 8/14/2018, the following are implemented and at least somewhat
-tested: 
+As of 4/22/2019, the following are implemented and at least somewhat
+tested:
+
 - Data links: LAN and point to point frameworks, Ethernet (via the
 Johnny Bilquist bridge; via pcap; on Mac OS, via TAP); GRE
 encapsulation of Ethernet; DDCMP (point to point only, over TCP or
 over an actual UART); SIMH 3.9 payload-only DMC-11 emulation; Multinet
 over UDP (not recommended due to the fact that this protocol grossly
-violates the DECnet specifications). 
-- MOP on Ethernet, including console carrier (but not counters
-request)
+violates the DECnet specifications) and over TCP. 
+
+- MOP on Ethernet, including console carrier and counters request.
+
 - Routing layer: endnode, level 1, level 2 (area router).  Phase II,
 Phase III, and Phase IV are all implemented.  Phase II includes
 partial "intercept node" support (the routing part but not the
 connection tracking part).  All have received at least cursory
 testing. 
-- NSP: just the first few bits of packet parsing.
-- Simple monitoring via HTTP.
-- An API framework accessed via a Unix domain socket.  At the moment
-the only facility available this way is a MOP Console Carrier client.
+
+- NSP and Session Control layer, with support for internal
+applications (implemented as Python modules).  There is a functional
+"mirror" application module which is enabled by default. 
+
+- Fairly complete monitoring via HTTP or HTTPS, with partial CSS
+support.
+
+- An API framework accessed via JSON.  At the moment this supports
+status queries (accessing about the same data as the HTTP monitoring
+does) as well as a MOP Console Carrier client and MOP Counters Request
+client. 
+
 - Other infrastructure: simple event logging tied into the Python
 logging module.  Configuration file handling somewhat like the DECnet
 "permanent database" but with syntax similar to Unix commands.
+
 - An implementation in Python of Johnny Bilquist's bridge, ported from
 his C program.  While this is not actually DECnet it is supporting
 infrastructure and handy for testing.
 
 To do:
+
 - More documentation.
-- NSP, Session layer, selected application protocols.
-- DECnet socket API.  I am planning to replace the earlier API
-mechanism with one based on streaming JSON.
+
+- More built-in application: NML (NICE protocol server), EVL (event
+logger remote source/sink).  Also support for external applications
+via additional JSON API mechanisms.
+
 - Control (not just monitoring) via HTTP.
