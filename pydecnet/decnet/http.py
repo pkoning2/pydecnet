@@ -14,6 +14,8 @@ from urllib.parse import urlparse, parse_qs
 import re
 import ssl
 import mimetypes
+import time
+from datetime import timedelta
 
 from .common import *
 from . import logging
@@ -57,6 +59,8 @@ class Monitor:
         self.config = config
 
     def start (self, nodelist):
+        global start_time
+        start_time = time.time ()
         ports = list ()
         config = self.config.http
         if config.http_port:
@@ -71,10 +75,10 @@ class Monitor:
 
     def serverstart (self, nodelist, config, secure):
         if secure:
-            server_address = ("", config.https_port)
+            server_address = (config.source, config.https_port)
             logging.debug ("Starting https server on port {}", config.https_port)
         else:
-            server_address = ("", config.http_port)
+            server_address = (config.source, config.http_port)
             logging.debug ("Starting http server on port {}", config.http_port)
         httpd = DECnetMonitor (server_address, DECnetMonitorRequest, nodelist, config, secure)
         if secure:
@@ -136,7 +140,13 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         self.responses[500] = [self.responses[500][0],
                                self.msg_500.format (traceback.format_exc ())]
         self.send_error (500)
-        
+
+    def http_title (self, title):
+        now = time.time ()
+        uptime = str (timedelta (int (now - start_time) / 86400.))
+        now = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (now))
+        return html.top (title, "Reported {}, up {}".format (now, uptime))
+    
     def do_GET (self):
         try:
             nodeidx, tnode, parts = self.findnode ()
@@ -179,6 +189,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                     if len (self.server.nodelist) > 1:
                         sb.insert (0, self.node_sidebar (nodeidx))
                     sb = html.sidebar (*sb)
+                    title = self.http_title (title)
                     ret = html.doc (title, html.middle (sb, body))
             ret = str (ret).encode ("utf-8", "ignore")                
             self.send_response (200)
@@ -226,7 +237,8 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                                   for i, n in enumerate (self.server.nodelist) ])
 
     def node_list (self):
-        return html.doc ("DECnet/Python monitoring",
+        title = self.http_title ("DECnet/Python monitoring")
+        return html.doc (title,
                          html.sidebar (self.node_sidebar ()))
     
     def getapientity (self, what, tnode):

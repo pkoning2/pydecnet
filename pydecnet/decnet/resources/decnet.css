@@ -10,11 +10,17 @@ table, th, td {
     flex-direction: column;
 }
 
-.top {
+.toptitle {
     text-align: center;
     margin-bottom: 12pt;
     font-weight: bold;
     font-size: 2vw;
+}
+
+.timestamps {
+    text-align: right;
+    font-weight: normal;
+    font-size: 10pt;
 }
 
 h2, h3 {

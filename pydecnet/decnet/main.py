@@ -157,7 +157,6 @@ def main ():
             n.stop ()
         # For symmetry with the startup messages:
         threading.current_thread ().name = "MainThread"
-        logging.info ("DECnet/Python shut down")
-        logging.shutdown ()
+        logging.stop ()
         if p.daemon:
             daemoncontext.close ()

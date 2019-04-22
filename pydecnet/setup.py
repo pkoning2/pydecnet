@@ -2,30 +2,20 @@
 
 """Installer for decnet module
 
-Copyright (c) 2013-2016, Paul Koning.
+Copyright (c) 2013-2019, Paul Koning.
 
 Licensed under open source license terms stated in file LICENSE.
 """
 
-import sys
-if sys.version_info[0] < 3 or sys.version_info[1] < 3:
-    print ("PyDECnet requires Python 3.3 or later")
-    sys.exit (1)
-
 from setuptools import setup
-
-Version = "1.0"
-License = "BSD"
-FullName = "DECnet protocol implementation in Python"
-Name = "decnet"
 
 setup (author = "Paul Koning",
        author_email = "ni1d@arrl.net",
-       license = License,
-       description = FullName,
-       name = Name,
+       license = "BSD",
+       description = "DECnet protocol implementation in Python",
+       name = "decnet",
        #url = ""
-       version = Version,
+       version = "1.0",
        packages = [ "decnet", "decnet.applications", "decnet.resources" ],
        package_data = { "decnet.resources" : [ "*.txt", "*.css" ] },
        scripts = [ "pydecnet" ],

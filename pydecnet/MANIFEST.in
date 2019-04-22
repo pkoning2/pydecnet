@@ -6,7 +6,6 @@ include samples/bridge.conf
 include pydecnet
 include crc.py
 recursive-include decnet *.py
-recursive-include samples *.py
+recursive-include samples *.py *.json *.yaml
 recursive-include tests *.py
-recursive-include doc *
-recursive-exclude doc *~
+recursive-include doc *.txt
