@@ -23,7 +23,7 @@
     "consolehandler" : {
       "class" : "logging.StreamHandler",
       "formatter" : "dnformatter",
-      "level" : "INFO"
+      "level" : "DEBUG"
     }
   },
   "root" : {
