@@ -32,7 +32,7 @@ resourcedir = os.path.join (os.path.dirname (__file__), "resources")
 # the resource directory.  It is put there when you run the program in
 # a Subversion workspace.  From there it ends up in the source kit
 # tarball.
-DNREV = "$LastChangedRevision$".split ()[1]
+DNREV = "$LastChangedRevision: 404 $".split ()[1]
 CYEAR = "$Date: 2019-xxx".split ()[1].split ("-")[0]
 AUTHORS = "Paul Koning"
 
