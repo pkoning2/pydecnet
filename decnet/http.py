@@ -33,7 +33,7 @@ resourcedir = os.path.join (os.path.dirname (__file__), "resources")
 # a Subversion workspace.  From there it ends up in the source kit
 # tarball.
 DNREV = "$LastChangedRevision$".split ()[1]
-CYEAR = "$Date: 2019-xxx".split ()[1].split ("-")[0]
+CYEAR = "$Date$".split ()[1].split ("-")[0]
 AUTHORS = "Paul Koning"
 
 # See if we have a resouces/rev.txt file.
