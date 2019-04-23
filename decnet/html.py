@@ -4,8 +4,6 @@
 
 """
 
-from decnet.common import DNVERSION, DNREV
-
 class wraphtml (object):
     open = ""
     close = ""
@@ -93,13 +91,17 @@ class top (div):
     
     def __init__ (self, title, times):
         return super ().__init__ (toptitle (title), timestamps (times))
+
+class footer (div):
+    open = '<div class="footer">'
     
 class doc (object):
-    def __init__ (self, title, top, middle):
+    def __init__ (self, title, top, middle, bottom):
         self.title = title
         self.top = top
         self.middle = middle
-
+        self.bottom = bottom
+        
     def __str__ (self):
         return """<html><head>
   <title>{0.title}</title>
@@ -109,8 +111,7 @@ class doc (object):
 <div class="flex-page">
 <div class="top">{0.top}</div>
 {0.middle}
-<div class="footer">{1}-{2} &copy; 2013-2019 by Paul Koning</div>
-</div>
+{0.bottom}
 </body></html>
-""".format (self, DNVERSION, DNREV)
+""".format (self)
 

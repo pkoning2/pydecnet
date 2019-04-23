@@ -16,12 +16,56 @@ import ssl
 import mimetypes
 import time
 from datetime import timedelta
+import subprocess
 
 from .common import *
 from . import logging
 from . import html
 
 resourcedir = os.path.join (os.path.dirname (__file__), "resources")
+
+# We want to show the correct rev information for pydecnet in the HTTP
+# monitor page footer.  Unfortunately, these two keyword substitutions
+# are not adequate because they give the information for this file --
+# which may not be changed in the latest change overall.  So we use
+# that as the starting point, but get the real data from rev.txt in
+# the resource directory.  It is put there when you run the program in
+# a Subversion workspace.  From there it ends up in the source kit
+# tarball.
+DNREV = "$LastChangedRevision$".split ()[1]
+CYEAR = "$Date: 2019-xxx".split ()[1].split ("-")[0]
+AUTHORS = "Paul Koning"
+
+# See if we have a resouces/rev.txt file.
+fn = os.path.join (resourcedir, "rev.txt")
+try:
+    with open (fn, "rt") as f:
+        DNREV = int (f.readline ())
+        CYEAR = int (f.readline ())
+except (OSError, ValueError):
+    pass
+
+# See if this is a Subversion workspace, if so update rev.txt from its
+# information.
+try:
+    cmd = "svn info -r HEAD --show-item last-changed-revision".split ()
+    cmd2 = "svn info -r HEAD --show-item last-changed-date".split ()
+    DNREV2 = int (subprocess.check_output (cmd, stderr = subprocess.DEVNULL,
+                                           universal_newlines = True))
+    revdate = subprocess.check_output (cmd2, stderr = subprocess.DEVNULL,
+                                       universal_newlines = True)
+    CYEAR2 = int (revdate.split ("-")[0])
+    if DNREV != DNREV2 or CYEAR != CYEAR2:
+        with open (fn, "wt") as f:
+            print (DNREV2, file = f)
+            print (CYEAR2, file = f)
+        DNREV = DNREV2
+        CYEAR = CYEAR2
+except Exception:
+    pass
+
+bottom = "{}-{} &copy; 2013-{} by {}".format (DNVERSION, DNREV, CYEAR, AUTHORS)
+bottom = html.footer (bottom)
 
 class DNJsonDecoder (json.JSONDecoder):
     def __init__ (self):
@@ -190,8 +234,8 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                         sb.insert (0, self.node_sidebar (nodeidx))
                     sb = html.sidebar (*sb)
                     top = self.http_title (title)
-                    ret = html.doc (title, top, html.middle (sb, body))
-            ret = str (ret).encode ("utf-8", "ignore")                
+                    ret = html.doc (title, top, html.middle (sb, body), bottom)
+            ret = str (ret).encode ("utf-8", "ignore")
             self.send_response (200)
             self.send_header ("Content-type", ctype)
             self.send_header ("Content-Length", str (len (ret)))
@@ -240,7 +284,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         title = "DECnet/Python monitoring"
         top = self.http_title (title)
         return html.doc (title, top,
-                         html.sidebar (self.node_sidebar ()))
+                         html.sidebar (self.node_sidebar ()), bottom)
     
     def getapientity (self, what, tnode):
         logging.trace ("getentity node {} path {}", tnode, what)
