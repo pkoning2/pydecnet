@@ -15,7 +15,6 @@ import socket
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
 DNVERSION = "DECnet/Python V1.0"
-DNREV = "$LastChangedRevision$".split ()[1]
 
 # Defaults
 
