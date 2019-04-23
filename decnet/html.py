@@ -95,21 +95,22 @@ class top (div):
         return super ().__init__ (toptitle (title), timestamps (times))
     
 class doc (object):
-    def __init__ (self, title, middle):
+    def __init__ (self, title, top, middle):
         self.title = title
+        self.top = top
         self.middle = middle
 
     def __str__ (self):
         return """<html><head>
-  <title>{0}</title>
+  <title>{0.title}</title>
   <link href="/resources/decnet.css" rel="stylesheet" type="text/css">
 </head>
 <body>
 <div class="flex-page">
-<div class="top">{0}</div>
-{1}
-<div class="footer">{2}-{3} &copy; 2013-2019 by Paul Koning</div>
+<div class="top">{0.top}</div>
+{0.middle}
+<div class="footer">{1}-{2} &copy; 2013-2019 by Paul Koning</div>
 </div>
 </body></html>
-""".format (self.title, self.middle, DNVERSION, DNREV)
+""".format (self, DNVERSION, DNREV)
 
