@@ -1,0 +1,109 @@
+This document outlines the design and internals of pydecnet.
+
+Rev 0.0, 4/23/2019
+
+General structure
+
+The overall structure (modules, layers, threads) of pydecnet closely
+resembles the component layering used as a descriptive technique in
+the DECNET Architecture (DNA) documents, particularly the Phase IV
+documents.  The design aims for ease of understanding and correctness
+rather than worrying much about optimizing performance.
+
+Each node (system) is implemented mostly in a single thread, whose
+name is the system name, created at pydecnet startup.  Helper threads
+are used for communication tasks -- HTTP including the JSON API, and
+the datalink receive functions -- so these can use blocking operations
+for simplicity.  Function calls "downward" roughly match those shown
+in the DNA specifications.
+
+However, pydecnet does not use the polling model for handing inbound
+data as the DNA model does.  Instead, data flow "upward" is by "work
+items" queued to the system thread and delivered when the thread looks
+for work.  That work item dispatching is in node.py.  It ensures that
+handling of external input is synchronous with the rest of the thread,
+so the single-threaded model of the spec carries over to the
+implementation.
+
+Timers are implemented by a helper thread for each system, using a
+"Timer Wheel" implementation (see the paper by Varghese and Lauck).
+Timeouts are delivered as work items.
+
+Packet parsing and generation
+
+The DNA specs use a fairly consistent way of describing packet
+layouts, as a sequence of fields of various types.  For example, a
+field might be a byte string of a fixed length, an image field (string
+preceded by a one-byte length), a 2 or 4 byte little-endian integer
+value, or various other things.  One common encoding is the "TLV"
+encoding, seen for example in the MOP System ID message.  In that
+format, there is a variable number of items, each consisting of a type
+code identifying the item and its data encoding, a length field giving
+the length of the value, and the value itself.
+
+All these encodings are handled by subclassing the packet.Packet
+class.  Each subclass defines a particular packet layout.  The fields
+for that packet are given by the _layout class attribute, which lists
+the fields and their encoding.  For details of how this is done, refer
+to the comments on function process_layout in packet.py.  Good
+examples can be found in nsp.py, mop.py, and routing_packets.py.
+
+Subclasses inherit the attributes and layout of their base class, with
+any additional slots or any additional layout items added.  So a
+common header can be defined by a subclass of Packet, and then
+particular packet types that begin with that common header can be
+subclasses of that header class with additional fields beyond the
+common header defined in each _layout.
+
+The use of classes to describe packet formats is convenient, for
+example it allows parsed packets to be passed around and code to check
+"is this an X packet" by "if isinstance (pkt, X)".  But subclassing
+needs to be done with caution.  If Y is a subclass of X, the check
+"isinstance (pkt, X)" will accept Y.  If that is not wanted -- if X
+and Y are distinct packet types that have to be handled separately --
+the solution is to make X and Y both subclasses of a common base that
+is not itself used for packets.  Example of this technique can be
+found in nsp.py, classes AckData and AckOther.
+
+Instances of packet subclasses are Python objects with attributes
+corresponding to each of the field names given in the layout table.
+In addition, if an _addslots class attribute is defined, that names
+additional attributes to be created in the packet instances.  All
+packet instances have fields "src" (the source of the data, if
+applicable) and "decoded_from" (a copy of the byte string parsed to
+build this instance, if applicable).  
+
+Packet parsing is done by constructing an instance of the packet class
+with the data to be parsed as argument.  If the packet is invalid, an
+exception will result.  If the data is longer than the defined layout,
+and there is a "payload" field listed in the _addslots class
+attribute, any extra bytes are assigned to the "payload" attribute of
+the new packet object.  Otherwise, the packet is invalid and rejected.
+
+Alternatively, an instance of the class can be created with no
+arguments (which constructs a packet with null field values), then
+filled in by calling the packet.decode method passing the byte string
+to be parsed.  For this case, any extra data is returned as the
+function result, to be handled by the caller as needed.
+
+A packet object can be built or a previously constructed one modified
+by assigning values to the packet object attributes.  For example, to
+do forwarding of data packets in the routing layer, the packet would
+be parsed, then the "visits" field updated, and the resulting packet
+is then sent if it can be forwarded.  A packet is converted to a byte
+string for transmission either by feeding it to the bytes () function,
+or by invoking the "encode" method of the object.
+
+Session layer API
+
+TBD: how applications request DECnet data services.
+
+HTML generation
+
+TBD
+
+HTTP POST JSON API
+
+TBD: monitoring, control (in the future) and data service access via
+HTTP POST of JSON requests.
+
