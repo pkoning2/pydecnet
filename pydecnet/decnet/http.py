@@ -189,8 +189,8 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                     if len (self.server.nodelist) > 1:
                         sb.insert (0, self.node_sidebar (nodeidx))
                     sb = html.sidebar (*sb)
-                    title = self.http_title (title)
-                    ret = html.doc (title, html.middle (sb, body))
+                    top = self.http_title (title)
+                    ret = html.doc (title, top, html.middle (sb, body))
             ret = str (ret).encode ("utf-8", "ignore")                
             self.send_response (200)
             self.send_header ("Content-type", ctype)
@@ -237,8 +237,9 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                                   for i, n in enumerate (self.server.nodelist) ])
 
     def node_list (self):
-        title = self.http_title ("DECnet/Python monitoring")
-        return html.doc (title,
+        title = "DECnet/Python monitoring"
+        top = self.http_title (title)
+        return html.doc (title, top,
                          html.sidebar (self.node_sidebar ()))
     
     def getapientity (self, what, tnode):
