@@ -19,6 +19,27 @@ try:
     from yaml import load, Loader
 except ImportError:
     load = None
+    
+# Additional level
+TRACE = 2
+
+# Inherit some names from the standard logging module
+CRITICAL = logging.CRITICAL
+ERROR = logging.ERROR
+WARNING = logging.WARNING
+INFO = logging.INFO
+DEBUG = logging.DEBUG
+
+# Some more names which will be replaced later, but are used when the
+# log machinery isn't actually started -- in the test suite.
+critical = logging.critical
+error = logging.error
+warning = logging.warning
+info = logging.info
+debug = logging.debug
+exception = logging.exception
+trace = functools.partial (logging.log, TRACE)
+log = logging.log
 
 stdlog =  {
     "version": 1,
@@ -49,9 +70,6 @@ class DnSysLogHandler (logging.handlers.SysLogHandler):
         if levelname == "TRACE":
             levelname = "DEBUG"
         return super ().mapPriority (levelname)
-    
-# Additional level
-TRACE = 2
 
 # We want not just overall log record formatting, but also message
 # string formatting to be done with "format".  The "style" argument of
