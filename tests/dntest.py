@@ -99,18 +99,19 @@ class DnTest (unittest.TestCase):
             m = getattr (logging, n)
             p = unittest.mock.patch ("decnet.logging.%s" % n, wraps = m)
             p.start ()
-            self.lpatches.append (p)                                     
-        h = logging.StreamHandler (sys.stdout)
-        logging.basicConfig (handlers = [ h ], level = self.loglevel)
+            self.lpatches.append (p)
+        # logging.logging is the Python standard logging module
+        h = logging.logging.StreamHandler (sys.stdout)
+        logging.logging.basicConfig (handlers = [ h ], level = self.loglevel)
         self.setloglevel (self.loglevel)
         self.lasttrace = 0
         self.lastdebug = 0
         
     def setloglevel (self, level):
-        logging.getLogger ().setLevel (level)
+        logging.logging.getLogger ().setLevel (level)
         
     def tearDown (self):
-        logging.shutdown ()
+        logging.logging.shutdown ()
         for p in self.lpatches:
             p.stop ()
             
