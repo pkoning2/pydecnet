@@ -196,8 +196,11 @@ cp.add_argument ("--nsp-weight", type = int, default = 3, metavar = "W",
 cp.add_argument ("--nsp-delay", type = float, default = 2.0, metavar = "D",
                  help = "NSP round trip delay factor (range 1..15.94)")
 cp.add_argument ("--qmax", default = Seq.maxdelta, metavar = "Q", 
-                 choices = range (1, Seq.maxdelta + 1),
+                 choices = range (1, Seq.maxdelta + 1), type = int,
                  help = "Max data queue entries")
+cp.add_argument ("--retransmits", type = int, default = 5, metavar = "R",
+                 choices = range (2, 16),
+                 help = "NSP maximum retransmits (range 2..15)")
 
 cp = config_cmd ("logging", "Event logging configuration", collection = True,
                  namespace = LoggingConfig)

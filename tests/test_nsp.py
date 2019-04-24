@@ -26,6 +26,7 @@ class ntest (DnTest):
         self.config.nsp.nsp_delay = 3
         self.config.nsp.nsp_weight = 3
         self.config.nsp.qmax = self.qmax
+        self.config.nsp.retransmits = 3
         self.node.routing = unittest.mock.Mock ()
         self.node.routing.send = unittest.mock.Mock (wraps = self.rsend)
         self.node.session = unittest.mock.Mock ()
@@ -496,6 +497,102 @@ class common_inbound (inbound_base):
             self.assertEqual (ds.fcmod, 0)
             self.assertEqual (ds.fcval_int, 0)
             self.assertEqual (ds.fcval, 0)
+            
+    def test_retransmit_limit (self):
+        """Test hitting retransmit limit"""
+        if self.phase == 2:
+            return    # Does not apply, treat as pass
+        nc = self.nspconn
+        lla = nc.srcaddr
+        rla = 3
+        r = self.node.routing
+        s = self.node.session
+        self.accept ()
+        # Check the timers are all in the correct state.
+        self.assertTrue (nc.islinked ())
+        self.assertFalse (nc.data.islinked ())
+        self.assertFalse (nc.other.islinked ())
+        # Nothing in the queues
+        self.assertEqual (len (nc.data.pending_ack), 0)
+        self.assertEqual (len (nc.other.pending_ack), 0)
+        # Incoming Link Service to ask for 2 items.  With no flow
+        # control, the count is ignored.
+        p = b"\x10" + lla.to_bytes (2, "little") + \
+            b"\x03\x00\x01\x00\x00\x02"
+        w = Received (owner = self.nsp, src = self.remnode,
+                      packet = p, rts = False)
+        self.nsp.dispatch (w)
+        # Not delivered to Session Control
+        self.assertEqual (self.node.addwork.call_count, 1)
+        # Send a packet
+        nc.send_data (b"packet")
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        self.assertEqual (len (nc.data.pending_ack), 1)
+        self.assertTrue (nc.data.pending_ack[0].sent)
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        # Time out the packet
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 1)
+        # Check retransmit occurred
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        if nc.cphase == 4:
+            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
+        else:
+            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet")
+        # Check other state
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.run)
+        self.assertConns (1, True)        
+        # Time it out again
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 2)
+        # Check retransmit occurred
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.DataSeg)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertFalse (hasattr (ds, "acknum"))
+        if nc.cphase == 4:
+            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
+        else:
+            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (ds.payload, b"packet")
+        # Check other state
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.run)
+        self.assertConns (1, True)        
+        # Time it out again.  This goes over the limit
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 3)
+        # Check retransmit did not occur
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        # Check other state
+        self.assertEqual (nc.state, nc.closed)
+        self.assertConns (0)
+        # Check that the timeout came to session control as a disconnect
+        self.assertEqual (self.node.addwork.call_count, 2)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertEqual (pkt.reason, 39)
             
 class test_inbound_noflow_phase4 (common_inbound):
     def test_interrupt (self):
@@ -1775,7 +1872,60 @@ class outbound_base (ntest):
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
         self.assertConns (1, True)        
+        # Time out the CI again
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        self.assertEqual (r.send.call_count, 3)
+        args, kwargs = r.send.call_args
+        ci, dest = args
+        self.assertIsInstance (ci, nsp.ConnInit)
+        # Different subtype for retransmit
+        self.assertEqual (ci.subtype, nsp.NspHdr.RCI)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ci.dstaddr, 0)
+        self.assertEqual (ci.srcaddr, lla)
+        self.assertEqual (ci.payload, b"connect")
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 2)
+        # Still same state
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.ci)
+        self.assertConns (1, True)        
+        # Time out the CI a third time
+        w = timers.Timeout (self.nsp)
+        nc.data.pending_ack[0].dispatch (w)
+        # No more retransmits once we hit the limit
+        self.assertEqual (r.send.call_count, 3)
+        # Check counters
+        self.assertEqual (nc.destnode.counters.timeout, 3)
+        # Still same state (connect is not aborted because destination
+        # might be phase II) but no longer being timed out.
+        self.assertFalse (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.ci)
+        self.assertConns (1, True)        
 
+    def test_outbound_conntimeout (self):
+        nc = self.nspconn
+        lla = nc.srcaddr
+        r = self.node.routing
+        s = self.node.session
+        self.assertTrue (nc.data.pending_ack[0].islinked ())
+        self.assertEqual (nc.state, nc.ci)
+        # Time out the connection (i.e., no reply from other SC)
+        w = timers.Timeout (self.nsp)
+        nc.dispatch (w)
+        # Nothing is sent when this happens
+        self.assertEqual (r.send.call_count, 1)
+        # Check that the timeout came to session control as a disconnect
+        self.assertEqual (self.node.addwork.call_count, 1)
+        args, kwargs = self.node.addwork.call_args
+        w, owner = args
+        pkt = w.packet
+        self.assertIsInstance (pkt, nsp.DiscInit)
+        self.assertEqual (pkt.reason, 38)
+        self.assertEqual (nc.state, nc.closed)
+        self.assertConns (0)        
+        
 class test_outbound_phase4 (outbound_base):
     pass
 

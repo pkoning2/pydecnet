@@ -308,6 +308,7 @@ class DiscInit (NspHdr):
     subtype = NspHdr.DI
 
 OBJ_FAIL = 38       # Object failed (copied from session.py)
+UNREACH = 39        # Destination unreachable (copied from session.py)
 
 # Mapping from packet type code (msgflg field) to packet class
 msgmap = { (c.type << 2) + (c.subtype << 4) : c
@@ -609,10 +610,32 @@ class txqentry (timers.Timer):
     def dispatch (self, item):
         """Handle timeout for the packet.
         """
-        # Simply send it again.  TODO: do we want a retry limit?
-        self.sent = False
         # Count a timeout
-        self.channel.parent.destnode.counters.timeout += 1
+        c = self.channel.parent
+        c.destnode.counters.timeout += 1
+        # See if too many tries.  It's 1 after the first try,
+        # incremented in the send operation, so check is >= not >.
+        if self.tries >= c.parent.config.retransmits:
+            # Limit exceeded, stop retransmitting.  If we're dealing
+            # with a Connect Initiate, that's all we do.  For other
+            # packets, we disconnect.  The connection is simply closed
+            # because it doesn't seem we're getting across to the
+            # other end.  The reason disconnect isn't done for CI is
+            # that the remote might be a Phase II node, which doesn't
+            # send Connect Ack.
+            logging.trace ("Retransmit limit on {}", self.packet)
+            if isinstance (self.packet, ConnInit):
+                # Stop the timer for this packet
+                self.channel.node.timers.stop (self)
+            else:
+                # Not CI, so close due to "destination unreachable"
+                disc = DiscInit (reason = UNREACH)
+                c.to_sc (Received (self, packet = disc), True)
+                c.close ()
+                # Mark connection as closed
+                c.state = c.closed
+            return
+        self.sent = False
         # Don't send just yet if flow control forbids it
         if not isinstance (self.packet, DataSeg) or \
           self.channel.flow_ok (self):
@@ -795,6 +818,8 @@ class Data_Subchannel (Subchannel):
               self.parent.parent.config.qmax - 1
             if qe.segnum > maxq:
                 return False
+        else:
+            maxq = self.parent.parent.config.qmax - 1
         return self.xon and qe.segnum <= maxq and \
                (self.flow == ConnMsg.SVC_NONE or
                 (self.flow == ConnMsg.SVC_SEG and qe.segnum <= self.maxseg) or
@@ -1321,7 +1346,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 #
                 # Note that inbound CI doesn't come here, it comes in via the
                 # constructor, or if retransmitted to the CR state handler.
-                item.packet = DiscInit (reason = 39)
+                item.packet = DiscInit (reason = UNREACH)
                 self.to_sc (item, True)
                 return self.close ()
         return self.cd (item)
@@ -1369,7 +1394,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # provision for disconnect in CR state.  So just deliver
             # failure locally and make the connection go away.
             disc = DiscInit (reason = OBJ_FAIL)
-            self.to_sc (disc, True)
+            self.to_sc (Received (self, packet = disc), True)
             return self.close ()
 
     def cc (self, item):

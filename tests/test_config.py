@@ -266,13 +266,17 @@ class TestNSP (Logchecker):
         self.assertEqual (c.max_connections, 4095)
         self.assertEqual (c.nsp_weight, 3)
         self.assertEqual (c.nsp_delay, 2.0)
+        self.assertEqual (c.qmax, 2047)
+        self.assertEqual (c.retransmits, 5)
 
     def test_allargs (self):
         c = self.ctest ("nsp --max-conn 1023 --nsp-weight 8 " \
-                        "--nsp-delay 13.5").nsp
+                        "--nsp-delay 13.5 --qmax 14 --retransmits 7").nsp
         self.assertEqual (c.max_connections, 1023)
         self.assertEqual (c.nsp_weight, 8)
         self.assertEqual (c.nsp_delay, 13.5)
+        self.assertEqual (c.qmax, 14)
+        self.assertEqual (c.retransmits, 7)
 
 class TestNSP_err (Logchecker):
     req = """routing 1.1
@@ -284,6 +288,8 @@ class TestNSP_err (Logchecker):
         self.checkerr ("nsp --max-connections 1024", "invalid choice")
         self.checkerr ("nsp --nsp-weight -1", "invalid choice")
         self.checkerr ("nsp --nsp-weight 256", "invalid choice")
+        self.checkerr ("nsp --qmax 2048", "invalid choice")
+        self.checkerr ("nsp --retransmits 20", "invalid choice")
 
 class TestBridge (Logchecker):
 
