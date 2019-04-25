@@ -119,6 +119,11 @@ class EndUser (object):
             return start + packet.encode_i_value (self.name, 16)
         return start
 
+    def __str__ (self):
+        if self.fmt == 0:
+            return "object fmt 0: {}".format (self.num)
+        return "object fmt {}: {}".format (self.fmt, self.name)
+            
 class SessionConnInit (packet.Packet):
     _addslots = { "rqstrid", "passwrd", "account", "connectdata", "payload" }
     _layout = (( EndUser, "dstname" ),
@@ -302,6 +307,7 @@ class Session (Element):
                 # Parse the connect data
                 try:
                     spkt = SessionConnInit (pkt.payload)
+                    logging.trace ("Connect Init data {}", spkt)
                 except packet.DecodeError:
                     logging.debug ("Invalid Connect Init data {}", pkt.payload)
                     nspconn.reject (BAD_FMT, b"")
