@@ -475,7 +475,6 @@ class NSP (Element):
                         item.packet = pkt
                         try:
                             conn = Connection (self, inbound = item)
-                            self.rconnections[cikey] = conn
                             # All done (constructor did all the work)
                             return
                         except Exception:
@@ -511,9 +510,11 @@ class NSP (Element):
                         if t is AckConn:
                             # Conn Ack only maps to a connection in CI state
                             conn = None
-                        # Do the source address check
-                        elif pkt.srcaddr != conn.dstaddr or \
-                                 item.src != conn.dest:
+                    if conn:
+                        # We still think we have a connection mapping,
+                        # do the source address check.
+                        if item.src != conn.dest or \
+                           (t is not AckConn and pkt.srcaddr != conn.dstaddr):
                             # Mismatch, map to reserved port or discard
                             conn = None
                 # No valid connection mapping found, send message to the
@@ -524,11 +525,11 @@ class NSP (Element):
                         # discard the packet silently
                         logging.trace ("Packet with bad address discarded: {}", pkt)
                         return
-                    # Something with data, map to reserved port
+                    # Something that needs a reply, map to reserved port
                     conn = self.resport
             # Packet is mapped to a port, so process it there.  Change
-            # the packet attribute in the work item to match the outcome
-            # of the parse done above
+            # the packet attribute in the work item to be the parsed
+            # packet from the logic above.
             item.packet = pkt
             conn.dispatch (item)
             
@@ -1004,6 +1005,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.srcaddr = srcaddr = self.parent.get_id ()
         if srcaddr is None:
             raise ConnectionLimit
+        # Add this connection to the dictionary of connections known
+        # to NSP.
         self.parent.connections[srcaddr] = self
         self.dstaddr = 0
         self.shutdown = False
@@ -1021,9 +1024,6 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         # Set the "other subchannel" references
         self.other.cross = self.data
         self.data.cross = self.other
-        # Add this connection to the dictionary of connections known
-        # to NSP.
-        self.parent.connections[srcaddr] = self
         # Now do the correct action for this new connection, depending
         # on whether it was an arriving one (CI packet) or originating
         # (session layer "connect" call).  But either way we start a
@@ -1038,6 +1038,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             self.destnode = self.parent.node.nodeinfo (self.dest)
             self.destnode.counters.con_rcv += 1
             self.dstaddr = pkt.srcaddr
+            self.parent.rconnections[(self.dest, self.dstaddr)] = self
             self.setphase (pkt)
             self.data.flow = pkt.fcopt
             self.segsize = min (pkt.segsize, MSS)
