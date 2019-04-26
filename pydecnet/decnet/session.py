@@ -130,11 +130,12 @@ class SessionConnInit (packet.Packet):
                ( EndUser, "srcname" ),
                ( "bm",
                  ( "auth", 0, 1 ),
-                 ( "userdata", 1, 1),
-                 ( "mbz", 2, 3 ),
+                 ( "userdata", 1, 1 ),
+                 ( "proxy", 2, 1 ),
+                 ( "proxy_uic", 3, 1 ),
+                 ( "reserved", 4, 1 ),
                  ( "scver", 5, 2 ),
                  ( "mbz2", 7, 1 )))
-    mbz = 0
     mbz2 = 0
     SCVER1 = 0   # Session Control 1.0
     SCVER2 = 1   # Session Control 2.0
@@ -309,7 +310,7 @@ class Session (Element):
                     spkt = SessionConnInit (pkt.payload)
                     logging.trace ("Connect Init data {}", spkt)
                 except packet.DecodeError:
-                    logging.debug ("Invalid Connect Init data {}", pkt.payload)
+                    logging.debug ("Invalid Connect Init data {}", bytes (pkt.payload))
                     nspconn.reject (BAD_FMT, b"")
                     return
                 # Look up the object
