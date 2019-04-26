@@ -15,10 +15,11 @@ class Cque (object):
     """Base class for objects that can be put on a circular queue.
     Instances of this class will also serve as list heads.
     """
-    __slots__ = ("prev", "next")
+    __slots__ = ("prev", "next", "revcount")
     
     def __init__ (self):
         self.next = self.prev = self
+        self.revcount = 0
 
     reset = __init__
     
@@ -26,6 +27,7 @@ class Cque (object):
         """Insert "item" as the successor of this object, i.e., first
         on the list if this is the list head.
         """
+        self.revcount += 1
         item.prev = self
         item.next = self.next
         self.next.prev = item
@@ -35,6 +37,7 @@ class Cque (object):
         """Insert "item" as the predecessor of this object, i.e., last
         on the list if this is the list head.
         """
+        self.revcount += 1
         item.next = self
         item.prev = self.prev
         self.prev.next = item
@@ -45,6 +48,7 @@ class Cque (object):
         To avoid trouble, we also link this item to itself, so accidental
         repeat calls to remove won't corrupt the queue.
         """
+        self.revcount += 1
         self.next.prev = self.prev
         self.prev.next = self.next
         self.reset ()
@@ -84,7 +88,36 @@ class CallbackTimer (Timer):
 class Timeout (Work):
     """A timer has timed out.
     """
-    
+    # There is some extra processing here beyond what is done for the
+    # usual case of dispatching work items.  This is done to close a
+    # timing window.
+    #
+    # Timer expiration happens in a separate thread (the timer wheel
+    # thread), so Timeout work items may be posted to the node work
+    # queue at any time, while the node thread is doing work in some
+    # layer.  That work might include making state changes that cancel
+    # and/or restart timers.  This concurrency may result in a timeout
+    # being delivered for some element after that timer was supposedly
+    # canceled.  Rather than force ever timer user to cope with this,
+    # we put the check here.  Every Timer (the base class of any
+    # element that can have timeouts delivered to it) has a "revcount"
+    # field, which is incremented for every start and stop operation.
+    # When a timeout is seen in the timer thread, the value of the
+    # revcount field at that instant is saved here.  When it comes
+    # time to dispatch this Timeout work item to its owner (the Timer
+    # subclass object) this is done only if the saved revcount still
+    # matches the value currently in the Timer.  If they differ, then
+    # the owner has done additional timer operations, such as stop,
+    # between the recognition of the timeout and now.  If so, we
+    # discard the work item rather than deliver it.
+    def __init__ (self, owner, revcount):
+        self.revcount = revcount
+        super ().__init__ (owner)
+
+    def dispatch (self):
+        if self.revcount == self.owner.revcount:
+            super ().dispatch ()
+            
 class TimerWheel (Element, StopThread):
     """A timer wheel.
     """
@@ -148,9 +181,10 @@ class TimerWheel (Element, StopThread):
             with self.lock:
                 item = qh.next
                 item.remove ()
+                revcount = item.revcount
             if item is not qh:
                 logging.trace ("Timeout for {}", item)
-                self.node.addwork (Timeout (item))
+                self.node.addwork (Timeout (item, revcount))
                 count += 1
         return count
     

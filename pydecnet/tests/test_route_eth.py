@@ -6,7 +6,6 @@ from decnet.routing_packets import *
 from decnet import route_eth
 from decnet import routing
 from decnet import datalink
-from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 
 rcount = 5000
@@ -107,17 +106,17 @@ class test_end (lantest):
         self.assertEvent (events.adj_up, adjacent_node = Nodeid (1, 2))
         # Note that change of DR doesn't generate a new endnode hello,
         # so do a hello timer expiration to get one.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, dest = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, EndnodeHello)
         self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Send timeout to DR adjacency object
-        self.c.dr.dispatch (Timeout (owner = self.c.dr))
+        DnTimeout (self.c.dr)
         self.assertEvent (events.adj_down, reason = "listener_timeout",
                           adjacent_node = Nodeid (1, 2))
         # Force another hello
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, dest = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, EndnodeHello)
         self.assertEqual (p.neighbor, NULLID)
@@ -189,7 +188,7 @@ class test_end (lantest):
         self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
                           Macaddr (Nodeid (1, 2)))
         # Expire a cache entry
-        self.c.prevhops[Nodeid (2, 2)].dispatch (Timeout (self.c))
+        DnTimeout (self.c.prevhops[Nodeid (2, 2)])
         # Only the other entry should remain
         self.assertEqual (len (self.c.prevhops), 1)
         self.assertEqual (self.c.prevhops[Nodeid (2, 1)].prevhop,
@@ -244,7 +243,7 @@ class test_end (lantest):
         p, dest = self.lastsent (self.cp, 5)
         self.assertEqual (dest, Macaddr (Nodeid (1, 1)))
         # Expire the cache entry
-        self.c.prevhops[Nodeid (1, 17)].dispatch (Timeout (self.c))
+        DnTimeout (self.c.prevhops[Nodeid (1, 17)])
         self.assertFalse (self.c.prevhops)
         # Send again, this should go to DR
         self.c.send (pkt, None)
@@ -323,7 +322,7 @@ class test_routing (lantest):
         self.assertEqual (b.state, route_eth.UP)
         self.assertEqual (b.ntype, ENDNODE)
         # Time out that adjacency
-        b.dispatch (Timeout (owner = b))
+        DnTimeout (b)
         self.assertEvent (events.adj_down, reason = "listener_timeout",
                           adjacent_node = Nodeid (1, 3))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -365,7 +364,7 @@ class test_routing (lantest):
         self.assertEqual (self.c.dr, a)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, dest = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, RouterHello)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
@@ -394,7 +393,7 @@ class test_routing (lantest):
         self.assertEqual (a.state, route_eth.UP)
         # The received hello should trigger yet another hello at T2 expiration,
         # so deliver that expiration.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, dest = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, RouterHello)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
@@ -428,12 +427,12 @@ class test_routing (lantest):
         # We're going to be DR, but not yet
         self.assertFalse (self.c.isdr)
         # Expire the DR holdoff
-        self.c.drtimer.dispatch (Timeout (self.c))
+        DnTimeout (self.c.drtimer)
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -470,12 +469,12 @@ class test_routing (lantest):
         # We're going to be DR, but not yet
         self.assertFalse (self.c.isdr)
         # Expire the DR holdoff
-        self.c.drtimer.dispatch (Timeout (self.c))
+        DnTimeout (self.c.drtimer)
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -511,12 +510,12 @@ class test_routing (lantest):
         # We're going to be DR, but not yet
         self.assertFalse (self.c.isdr)
         # Expire the DR holdoff
-        self.c.drtimer.dispatch (Timeout (self.c))
+        DnTimeout (self.c.drtimer)
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -615,12 +614,12 @@ class test_routing (lantest):
         # We're going to be DR, but not yet
         self.assertFalse (self.c.isdr)
         # Expire the DR holdoff
-        self.c.drtimer.dispatch (Timeout (self.c))
+        DnTimeout (self.c.drtimer)
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.  More precisely, two of them since
         # we're now DR.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (3, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -649,7 +648,7 @@ class test_routing (lantest):
         self.assertEqual (a.state, route_eth.UP)
         # The received hello should trigger yet another hello at T2 expiration,
         # so deliver that expiration.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -794,11 +793,11 @@ class test_l2routing (test_routing):
         self.assertFalse (self.c.isdr)
         self.assertIsNone (self.c.dr)
         # Expire the DR holdoff
-        self.c.drtimer.dispatch (Timeout (self.c))
+        DnTimeout (self.c.drtimer)
         self.assertTrue (self.c.isdr)
         # The received hello should trigger a new hello at T2 expiration,
         # so deliver that expiration.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (3, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)
@@ -828,7 +827,7 @@ class test_l2routing (test_routing):
         self.assertEqual (self.c.minrouterblk, 528)
         # The received hello should trigger yet another hello at T2 expiration,
         # so deliver that expiration.
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p1 = self.last2sent (5, Macaddr ("AB-00-00-03-00-00"),
                              Macaddr ("AB-00-00-04-00-00"))
         self.assertIsInstance (p1, RouterHello)

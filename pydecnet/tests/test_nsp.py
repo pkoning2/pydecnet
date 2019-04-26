@@ -10,7 +10,6 @@ from tests.dntest import *
 from decnet import nsp
 from decnet import routing
 from decnet import logging
-from decnet import timers
 
 class ntest (DnTest):
     myphase = 4
@@ -367,8 +366,7 @@ class common_inbound (inbound_base):
         self.assertEqual (pkt.payload, b"data payload")
         self.assertTrue (nc.data.islinked ())
         # Holdoff timer expiration should generate explicit ACK
-        w = timers.Timeout (self.nsp)
-        nc.data.dispatch (w)
+        DnTimeout (nc.data)
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -398,8 +396,7 @@ class common_inbound (inbound_base):
         self.assertTrue (nc.data.pending_ack[1].sent)
         self.assertTrue (nc.data.pending_ack[1].islinked ())
         # Time out the first packet
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 1)
         # Check retransmit occurred
@@ -429,8 +426,7 @@ class common_inbound (inbound_base):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Holdoff timer expiration should generate explicit ACK
-        w = timers.Timeout (self.nsp)
-        nc.other.dispatch (w)
+        DnTimeout (nc.other)
         self.assertEqual (r.send.call_count, 6 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -442,8 +438,7 @@ class common_inbound (inbound_base):
         self.assertFalse (hasattr (ds, "acknum2"))
         self.assertFalse (nc.other.islinked ())
         # Time out the second packet, should not send
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[1].dispatch (w)
+        DnTimeout (nc.data.pending_ack[1])
         self.assertFalse (nc.data.pending_ack[1].sent)
         # Skip this test because our simulated timeout doesn't unlink
         # the timer, the way a real timeout does.
@@ -477,8 +472,7 @@ class common_inbound (inbound_base):
         self.assertEqual (ds.payload, b"packet2")
         # Test inactivity timer, if applicable
         if nc.cphase > 2:
-            w = timers.Timeout (self.nsp)
-            nc.dispatch (w)
+            DnTimeout (nc)
             self.assertEqual (r.send.call_count, 8 + self.cdadj)
             args, kwargs = r.send.call_args
             ds, dest = args
@@ -531,8 +525,7 @@ class common_inbound (inbound_base):
         self.assertTrue (nc.data.pending_ack[0].sent)
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         # Time out the packet
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 1)
         # Check retransmit occurred
@@ -554,8 +547,7 @@ class common_inbound (inbound_base):
         self.assertEqual (nc.state, nc.run)
         self.assertConns (1, True)        
         # Time it out again
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 2)
         # Check retransmit occurred
@@ -577,8 +569,7 @@ class common_inbound (inbound_base):
         self.assertEqual (nc.state, nc.run)
         self.assertConns (1, True)        
         # Time it out again.  This goes over the limit
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 3)
         # Check retransmit did not occur
@@ -687,8 +678,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         r = self.node.routing
         s = self.node.session
         # Time out session control's response to the CI
-        w = timers.Timeout (self.nsp)
-        nc.dispatch (w)
+        DnTimeout (nc)
         self.assertEqual (r.send.call_count, 1 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -734,8 +724,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (nc.state, nc.cc)
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         # Time out the confirm
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 1)
         # Check the retransmit
@@ -772,8 +761,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (len (nc.data.pending_ack), 1)
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         # Time out the reject
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -845,8 +833,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # One packet left in OOO cache
         self.assertEqual (len (nc.data.ooo), 1)
         # Force ACK
-        w = timers.Timeout (self.nsp)
-        nc.data.dispatch (w)
+        DnTimeout (nc.data)
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -877,8 +864,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # OOO cache now empty
         self.assertEqual (len (nc.data.ooo), 0)
         # Force ACK
-        w = timers.Timeout (self.nsp)
-        nc.data.dispatch (w)
+        DnTimeout (nc.data)
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -923,8 +909,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # OOO cache is now empty
         self.assertEqual (len (nc.data.ooo), 0)
         # Force ACK
-        w = timers.Timeout (self.nsp)
-        nc.other.dispatch (w)
+        DnTimeout (nc.other)
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -1081,8 +1066,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Both are awaiting ack
         self.assertEqual (len (nc.data.pending_ack), 2)
         # Time out the first packet
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         self.assertEqual (r.send.call_count, 8 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -1106,8 +1090,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         # Holdoff timer expiration should generate explicit ACK
-        w = timers.Timeout (self.nsp)
-        nc.other.dispatch (w)
+        DnTimeout (nc.other)
         self.assertEqual (r.send.call_count, 9 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -1119,8 +1102,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertFalse (hasattr (ds, "acknum2"))
         self.assertFalse (nc.other.islinked ())
         # Time out the second packet, should not send
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[1].dispatch (w)
+        DnTimeout (nc.data.pending_ack[1])
         self.assertFalse (nc.data.pending_ack[1].sent)
         self.assertEqual (r.send.call_count, 9 + self.cdadj)
         # Ack both.
@@ -1854,8 +1836,7 @@ class outbound_base (ntest):
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
         # Time out the CI
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         self.assertEqual (r.send.call_count, 2)
         args, kwargs = r.send.call_args
         ci, dest = args
@@ -1873,8 +1854,7 @@ class outbound_base (ntest):
         self.assertEqual (nc.state, nc.ci)
         self.assertConns (1, True)        
         # Time out the CI again
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         self.assertEqual (r.send.call_count, 3)
         args, kwargs = r.send.call_args
         ci, dest = args
@@ -1892,8 +1872,7 @@ class outbound_base (ntest):
         self.assertEqual (nc.state, nc.ci)
         self.assertConns (1, True)        
         # Time out the CI a third time
-        w = timers.Timeout (self.nsp)
-        nc.data.pending_ack[0].dispatch (w)
+        DnTimeout (nc.data.pending_ack[0])
         # No more retransmits once we hit the limit
         self.assertEqual (r.send.call_count, 3)
         # Check counters
@@ -1912,8 +1891,7 @@ class outbound_base (ntest):
         self.assertTrue (nc.data.pending_ack[0].islinked ())
         self.assertEqual (nc.state, nc.ci)
         # Time out the connection (i.e., no reply from other SC)
-        w = timers.Timeout (self.nsp)
-        nc.dispatch (w)
+        DnTimeout (nc)
         # Nothing is sent when this happens
         self.assertEqual (r.send.call_count, 1)
         # Check that the timeout came to session control as a disconnect
@@ -2215,8 +2193,7 @@ class test_connself_phase4 (ntest):
         if self.phase > 2:
             self.assertEqual (nc2.state, nc2.cc)
             # Expire the ack holdoff
-            w = timers.Timeout (self.nsp)
-            nc1.data.dispatch (w)
+            DnTimeout (nc1.data)
             # Check new state
         self.assertEqual (nc2.state, nc2.run)
         # Send a data message
@@ -2238,8 +2215,7 @@ class test_connself_phase4 (ntest):
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"reply")
         # Force the pending ACK
-        w = timers.Timeout (self.nsp)
-        nc2.data.dispatch (w)        
+        DnTimeout (nc2.data)
         # Close the outbound connection
         nc1.disconnect (payload = b"bye")
         # That should produce a session control message on the other one

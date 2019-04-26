@@ -8,7 +8,6 @@ from decnet.routing_packets import *
 from decnet import route_ptp
 from decnet import routing
 from decnet import datalink
-from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 from decnet.nice import NiceNode
 
@@ -146,7 +145,7 @@ class test_ph2 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -293,7 +292,7 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.srcnode, Nodeid (1))
         self.assertEqual (spkt.dstnode, Nodeid (3))
         self.assertEqual (spkt.visit, 17)
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
@@ -332,7 +331,7 @@ class test_ph3 (rtest):
         p, dest = self.lastsent (self.cp, 5)
         self.assertIs (p, pkt)
         # test listen timeout
-        self.c.adj.dispatch (Timeout (owner = self.c.adj))
+        DnTimeout (self.c.adj)
         self.assertState ("ha")
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertEvent (events.circ_down, reason = "listener_timeout",
@@ -422,7 +421,7 @@ class test_ph3 (rtest):
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Hello timer expiration
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -536,7 +535,7 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
         # test hello transmission
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (1, 5))
@@ -573,7 +572,7 @@ class test_ph4 (rtest):
         p, dest = self.lastsent (self.cp, 5)
         self.assertIs (p, pkt)
         # test listen timeout
-        self.c.adj.dispatch (Timeout (owner = self.c.adj))
+        DnTimeout (self.c.adj)
         self.assertState ("ha")
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.assertEvent (events.circ_down, reason = "listener_timeout",
@@ -664,7 +663,7 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.dstnode, self.r.nodeid)
         self.assertEqual (spkt.visit, 1)
         # Hello timer expiration
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, NopMsg)
         self.assertRegex (p.payload, b"^\252+$")
@@ -690,7 +689,7 @@ class test_ph4 (rtest):
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
         self.assertEqual (spkt.visit, 17)
         # Hello timer expiration
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, PtpHello)
         self.assertEqual (p.srcnode, Nodeid (5))
@@ -783,7 +782,7 @@ class test_ph4verify (rtest):
         self.assertState ("rv")
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
-        self.c.dispatch (Timeout (owner = self.c))
+        DnTimeout (self.c)
         self.assertState ("ha")
         self.assertEvent (events.init_fault, reason = "verification_timeout",
                           adjacent_node = 1026)

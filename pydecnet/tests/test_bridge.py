@@ -5,7 +5,6 @@ from tests.dntest import *
 from decnet import bridge
 from decnet import ethernet
 from decnet.datalink import Received
-from decnet.timers import Timeout
 
 def makeport (*args, **kwargs):
     ret = unittest.mock.Mock ()
@@ -105,7 +104,7 @@ class test_bridge (brtest):
         self.assertTrue (ent.islinked ())
         self.assertIs (ent.circuit, self.c3)
         # Expire the third address
-        ent.dispatch (Timeout (self))
+        DnTimeout (ent)
         self.assertEqual (len (self.bridge.addrdb), 2)
         self.assertNotIn (src, self.bridge.addrdb)
         p4 = pad (b"012345bcdefg\x90\x00test reply")
