@@ -19,6 +19,7 @@ from decnet import packet
 from decnet import events
 from decnet import node
 from decnet import event_logger
+from decnet import timers
 
 def testcases (tests):
     for t in tests:
@@ -254,3 +255,9 @@ def nextport ():
     global _port
     _port += 1
     return _port
+
+# Wrapper to deliver a timeout to the specified Element
+def DnTimeout (dest):
+    t = timers.Timeout (dest, dest.revcount)
+    t.dispatch ()
+    

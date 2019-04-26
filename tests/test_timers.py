@@ -62,5 +62,28 @@ class TestTimer (DnTest):
         timers.StopThread.stop (wheel1)
         timers.StopThread.stop (wheel2)
     
+    def test_canceled (self):
+        """Verify that canceling a timer before the timeout is actually
+        delivered prevents the delivery.
+        """
+        wheel = timers.TimerWheel (tnode, 0.1, 400)
+        t2 = TTimer ()
+        class T2Timer (TTimer):
+            def dispatch (self, item):
+                wheel.stop (t2)
+                super ().dispatch (item)
+        t1 = T2Timer ()
+        self.assertIsNone (t1.fired)
+        self.assertIsNone (t2.fired)
+        now = time.time ()
+        wheel.start (t1, 1.0)
+        wheel.start (t2, 1.0)
+        time.sleep (2)
+        # Supplied delay is rounded up to the next multiple of a timer tick,
+        # and then the expiration can happen up to one tick sooner.
+        self.assertTrue (0 <= t1.fired - now <= 1.1)
+        self.assertIsNone (t2.fired)
+        timers.StopThread.stop (wheel)
+
 if __name__ == "__main__":
     unittest.main ()

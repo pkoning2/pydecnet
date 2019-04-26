@@ -6,7 +6,6 @@ from decnet.routing_packets import *
 from decnet import routing
 from decnet import route_ptp
 from decnet import datalink
-from decnet.timers import Timeout
 from decnet.node import Nodeinfo
 from decnet import logging
 
@@ -115,13 +114,13 @@ class test_ethend (rtest):
         self.assertEqual (dest, Macaddr ("aa:00:04:00:02:04"))
         # Note that change of DR doesn't generate a new endnode hello,
         # so do a hello timer expiration to get one.
-        self.c1.dispatch (Timeout (owner = self.c1))
+        DnTimeout (self.c1)
         p, dest = self.lastsent (self.d1, 4)
         self.assertIsInstance (p, EndnodeHello)
         self.assertEqual (p.neighbor, Macaddr ("aa:00:04:00:02:04"))
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Send timeout to DR adjacency object
-        self.c1.dr.dispatch (Timeout (owner = self.c1.dr))
+        DnTimeout (self.c1.dr)
         # Try sending a packet
         ok = self.r.send (b"payload", Nodeid (1,17))
         self.assertTrue (ok)
@@ -136,7 +135,7 @@ class test_ethend (rtest):
         self.assertEqual (p.payload, b"payload")
         self.assertEqual (dest, Macaddr ("aa:00:04:00:11:04"))
         # Check the hello with the DR no longer mentioned
-        self.c1.dispatch (Timeout (owner = self.c1))
+        DnTimeout (self.c1)
         p, dest = self.lastsent (self.d1, 6)
         self.assertIsInstance (p, EndnodeHello)
         self.assertEqual (p.neighbor, NULLID)

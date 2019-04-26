@@ -8,7 +8,6 @@ import queue
 
 from decnet import mop
 from decnet import packet
-from decnet import timers
 from decnet import datalink
 from decnet import http
 
@@ -40,7 +39,7 @@ class TestMop (DnTest):
         c.start ()
         send = self.cp.send
         s = c.sysid
-        s.dispatch (timers.Timeout (s))
+        DnTimeout (s)
         sysid, dest = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")

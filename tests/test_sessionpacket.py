@@ -3,7 +3,6 @@
 from tests.dntest import *
 
 from decnet import session
-from decnet.timers import Timeout
 from decnet import logging
 
 class test_packets (DnTest):
