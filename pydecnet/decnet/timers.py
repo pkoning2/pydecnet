@@ -17,11 +17,12 @@ class Cque (object):
     """
     __slots__ = ("prev", "next", "revcount")
     
-    def __init__ (self):
+    def reset (self):
         self.next = self.prev = self
+        
+    def __init__ (self):
+        self.reset ()
         self.revcount = 0
-
-    reset = __init__
     
     def add_after (self, item):
         """Insert "item" as the successor of this object, i.e., first
