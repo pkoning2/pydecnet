@@ -28,6 +28,21 @@ PR_UNK_DEST    = Macaddr ("09-00-2B-02-01-0B")
 def sortkey (adj):
     return adj.priority, adj.nodeid
 
+# Adjacency states
+INIT = 1
+UP = 2
+
+# This is used instead of an Adjacency when passing up to Routing data
+# packets received from a neighbor for which we don't have an
+# adjacency.  An example of where this happens is an endnode on the
+# LAN in a different area this node, and this node is a router.
+class DummyAdj (object):
+    state = UP
+
+    def __init__ (self, circ, src):
+        self.circuit = circ
+        self.nodeid = src
+        
 class LanCircuit (timers.Timer):
     """A broadcast circuit, i.e., the datalink dependent
     routing sublayer instance for an Ethernet type circuit.
@@ -133,7 +148,6 @@ class LanCircuit (timers.Timer):
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return
-
         return work
 
     def up (self, **kwargs):
@@ -314,10 +328,6 @@ class EndnodeLanCircuit (LanCircuit):
             ret["ni_cache"] = [ v.get_api () for v in self.prevhops.values () ]
         return ret
     
-# Adjacency states
-INIT = 1
-UP = 2
-
 class RoutingLanCircuit (LanCircuit):
     """The datalink dependent sublayer for broadcast circuits on a router.
     """
@@ -519,8 +529,9 @@ class RoutingLanCircuit (LanCircuit):
                 if hellochange:
                     self.newhello ()
         elif isinstance (item, packet.Packet):
-            # Some other packet type.  Pass it up, but only if it is for
-            # an adjacency that is in the UP state
+            # Some other packet type.  Pass it up, but non-data
+            # messages are passed up only for an adjacency that is in
+            # the UP state.
             if item.src:
                 a = self.adjacencies.get (Nodeid (item.src), None)
             else:
@@ -530,6 +541,11 @@ class RoutingLanCircuit (LanCircuit):
                 a = None
                 for a in self.adjacencies.values ():
                     break
+            if not (a and a.state == UP) and \
+               isinstance (item, (LongData, ShortData)):
+                # No adjacency, but it's a data packet, use a dummy
+                # adjacency instead.
+                a = DummyAdj (self, Nodeid (item.src))
             if a and a.state == UP:
                 item.src = a
                 logging.trace ("Routing LAN message received from {}: {}",
