@@ -61,6 +61,10 @@ class main (div): open = '<div class="main">'
 class toptitle (div): open = '<div class="toptitle">'
 class timestamps (div): open = '<div class="timestamps">'
 
+class mopdetails (div):
+    open = '<div class="mop-details">'
+    sep = "<br>\n"
+    
 class sbbutton (div):
     open = '<div class="sidebar-link">'
 

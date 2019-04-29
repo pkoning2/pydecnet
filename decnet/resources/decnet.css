@@ -23,6 +23,10 @@ table, th, td {
     font-size: 10pt;
 }
 
+.mop-details {
+    padding-left: 24pt;
+}
+
 h2, h3 {
     text-align: left;
     font-weight: bold;

@@ -518,8 +518,7 @@ class Mop (Element):
                 logging.exception ("Error stopping MOP circuit {}", name)
     
     def http_get (self, parts, qs):
-        #infos = ( "summary", "status", "counters", "internals" )
-        infos = ( "summary", "status", "internals" )
+        infos = ( "summary", "status", "details" )
         if not parts or parts == ['']:
             what = "summary"
         elif parts[0] in infos:
@@ -530,8 +529,7 @@ class Mop (Element):
         sb = html.sbelement (html.sblabel ("Information"),
                              html.sbbutton ("mop", "Summary", qs),
                              html.sbbutton ("mop/status", "Status", qs),
-                             #html.sbbutton ("mop/counters", "Counters", qs),
-                             html.sbbutton ("mop/internals", "Internals", qs))
+                             html.sbbutton ("mop/details", "Details", qs))
         sb.contents[active].__class__ = html.sbbutton_active
         ret = [ "<h3>MOP {0}</h3>".format (what) ]
         first = True
@@ -544,7 +542,7 @@ class Mop (Element):
                 ret.append (s)
         if not first:
             ret.append ("</table>")
-        if what in ("status", "internals"):
+        if what in ("status", "details"):
             for c in self.circuits.values ():
                 if c.sysid:
                     ret.append (c.sysid.html (what))
@@ -819,7 +817,6 @@ class SysIdHandler (Element, timers.Timer):
                        hwaddr = self.port.parent.hwaddr,
                        loop = True,
                        counters = True,
-                       time = time.localtime (),
                        device = 9,    # PCL, to freak out some people
                        datalink = 1,  # Ethernet
                        processor = 2, # Comm server
@@ -840,44 +837,44 @@ class SysIdHandler (Element, timers.Timer):
         self.port.send (reply, dest)
 
     def html (self, what):
-        ret = [ "<h3>Sysid data for {}</h3>".format (self.parent.name) ]
+        title = "Sysid data for {}".format (self.parent.name)
         if not self.heard:
-            ret.append ("<p><em>Nothing heard yet</em></p>")
+            return html.textsection (title, [ "<em>Nothing heard yet</em>" ])
         else:
-            ret.append ("""<table border=1 cellspacing=0 cellpadding=4>
-            <tr><th>Source addr</th><th>Services</th>
-            <th>Console user</th><th>Reservation timer</th>
-            <th>HW address</th><th>Time</th><th>Device</th><th>Processor</th>
-            <th>Datalink</th><th>Software</th></tr>""")
-
-            for k, v in self.heard.items ():
+            header = [ "Source addr", "Services", "HW Address", "Device" ]
+            rows = list ()
+            for k, v in sorted (self.heard.items ()):
                 srcaddr = getattr (v, "src", "") or k
                 services = ', '.join (v.services ())
-                console_user = getattr (v, "console_user", "")
-                reservation_timer = getattr (v, "reservation_timer", "")
                 hwaddr = getattr (v, "hwaddr", "")
-                systime = getattr (v, "time", "")
-                if systime:
-                    tzoff = systime.tm_gmtoff
-                    systime = time.strftime ("%d-%b-%Y %H:%M:%S", systime)
-                    if tzoff:
-                        systime += " {:+03d}{:02d}".format (*divmod (tzoff // 60, 60))
                 device = getattr (v, "device", "")
                 device = v.devices.get (device, (device, device))[1]
-                processor = getattr (v, "processor", "")
-                processor = v.processors.get (processor, processor)
-                datalink = getattr (v, "datalink", "")
-                datalink = v.datalinks.get (datalink, datalink)
-                software = getattr (v, "software", "")
-                ret.append ("""<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
-                <td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>
-                <td>{}</td></tr>"""\
-                            .format (srcaddr, services, console_user,
-                                     reservation_timer, hwaddr, systime,
-                                     device, processor, datalink, software))
-            ret.append ("</table>")
-        return '\n'.join (ret)
-
+                if what == "details":
+                    details = list ()
+                    for fn in ( "console_user", "reservation_timer",
+                                "time", "processor", "datalink",
+                                "blocksize", "software" ):
+                        val = getattr (v, fn, "")
+                        if val:
+                            if fn == "time":
+                                val = time.strftime ("%d-%b-%Y %H:%M:%S", val)
+                            elif fn == "processor":
+                                val = v.processors.get (val, val)
+                            elif fn == "datalink":
+                                val = v.datalinks.get (val, val)
+                            details.append (" {} = {}".format (fn, val))
+                    if details:
+                        row = '<tr><td rowspan="2">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format (srcaddr, services, hwaddr, device)
+                        rows.append (row)
+                        details = html.mopdetails (*details)
+                        details = '<tr><td colspan="3">{}</td></tr>'.format (details)
+                        rows.append (details)
+                    else:
+                        rows.append ([ srcaddr, services, hwaddr, device ])
+                else:
+                    rows.append ([ srcaddr, services, hwaddr, device ])
+            return html.tbsection (title, header, rows)
+        
     def get_api (self):
         logging.trace ("processing GET API call on sysid listener")
         ret = list ()
