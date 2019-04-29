@@ -186,6 +186,8 @@ class Node (Entity):
                     # exception, log that event and keep going.
                     # Any other exception terminates things.
                     self.logevent (e)
+        except Exception:
+            logging.exception ("Exception caught in mainloop")
         finally:
             self.stop ()
 
