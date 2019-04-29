@@ -304,7 +304,9 @@ class Session (Element):
                        pkt, nspconn, item.reject)
             if nspconn not in self.conns:
                 if not isinstance (pkt, nsp.ConnInit):
-                    raise UnexpectedPkt
+                    # Complain and then ignore this.
+                    logging.debug ("NSP packet but no connection: {}", pkt)
+                    return
                 # Parse the connect data
                 try:
                     spkt = SessionConnInit (pkt.payload)
