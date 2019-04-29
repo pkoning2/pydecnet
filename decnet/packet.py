@@ -283,6 +283,11 @@ class Packet (metaclass = packet_encoding_meta):
     """
     _addslots = { "src", "decoded_from" }
 
+    # A subclass can override this to be True, in which case some
+    # format errors are suppressed.  This is useful to accommodate
+    # non-conforming packets seen in the wild.
+    tolerant = False
+    
     @classmethod
     def allslots (cls):
         """Return a set that contains the contents of the slots for
@@ -579,6 +584,8 @@ class Packet (metaclass = packet_encoding_meta):
         while pos < blen:
             left = blen - pos
             if left < tlen + llen:
+                if self.tolerant:
+                    return b''
                 logging.debug ("Incomplete TLV at end of buffer")
                 raise MissingData
             tag = int.from_bytes (buf[pos:pos + tlen], LE)
@@ -603,9 +610,10 @@ class Packet (metaclass = packet_encoding_meta):
                     raise InvalidTag from None
             buf2 = d (self, buf[pos:pos + vlen], *fieldargs)
             if buf2:
-                logging.debug ("TLV {} Value field not fully parsed, left = {}",
-                               tag, len (buf2))
-                raise ExtraData
+                if not self.tolerant:
+                    logging.debug ("TLV {} Value field not fully parsed, left = {}",
+                                   tag, len (buf2))
+                    raise ExtraData
             pos += vlen
             
     def encode (self, layout = None):

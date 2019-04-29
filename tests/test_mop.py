@@ -37,7 +37,6 @@ class TestMop (DnTest):
     def test_periodic_sysid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
-        send = self.cp.send
         s = c.sysid
         DnTimeout (s)
         sysid, dest = self.lastsent (self.cp, 1)
@@ -49,7 +48,6 @@ class TestMop (DnTest):
     def test_reqid (self):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         c.start ()
-        send = self.cp.send
         w = datalink.Received (owner = c, src = Macaddr (b"foobar"),
                                packet = b"\x05\x00\x02\x00")
         c.dispatch (w)
@@ -63,7 +61,6 @@ class TestMop (DnTest):
         c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
         self.node.mopcircuit = c
         c.start ()
-        send = self.cp.send
         macid = Macaddr (b"Foobar")
         w = datalink.Received (owner = c, src = macid,
                                packet = b"\x07\x00\x00\x00"
@@ -99,6 +96,78 @@ class TestMop (DnTest):
         # Locate the sysid entry
         entry = c.sysid.heard[macid]
         self.assertEqual (entry.field202, b"SW dependent")
+        # An unusually complex one taken from an actual trace:
+        w = datalink.Received (owner = c, src = macid,
+                              packet = b"\x07\x00\x00\x00"
+                                       b"\x01\x00\x03\x04\x00\x00"
+                                       b"\x02\x00\x02A\x00"
+                                       b"\x07\x00\x06\xaa\x00\x04\x00\x12|"
+                                       b"d\x00\x01\xcb"
+                                       b"\x90\x01\x01\x01"
+                                       b"\xc8\x00\x01\xff"
+                                       b"\xc9\x00\x04AVMS"
+                                       b"\xca\x00\x08V8.3    "
+                                       b"\xcb\x00\x08RAPTOR  "
+                                       b"\xcc\x00\x04\xc0\x07\x00\x00"
+                                       b"\xcd\x00\x08\x17\x010\x08\x01\x00\x00\x00"
+                                       b"\xce\x00\x08\x86\x010\x08\x02\x00\x00\x00"
+                                       b"\xcf\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00"
+                                       b"\xd0\x00\x04 \x00\x00\x02"
+                                       b"\xd1\x00\x14\xa2z\xa2\x1b\x00\x00\x00\x00\x03\x00\x00\x00\x80\x00\x86\x00\x02\x02\x01\x00")
+        c.dispatch (w)
+        ret = c.sysid.get_api ()
+        self.assertEqual (len (ret), 1)
+        reply = ret[0]
+        self.assertEqual (reply["srcaddr"], macid)
+        self.assertEqual (reply["device"], 203)
+        self.assertEqual (reply["hwaddr"], Macaddr ("aa-00-04-00-12-7c"))
+        self.assertEqual (reply["software"], -1)
+        # Locate the sysid entry
+        entry = c.sysid.heard[macid]
+        self.assertEqual (entry.field201, b"AVMS")
+        self.assertEqual (entry.field202, b"V8.3    ")
+
+    def test_tolerance (self):
+        """Test the handling of non-conforming packets"""
+        c = mop.MopCircuit (self.node, "mop-0", self.dl, tconfig)
+        self.node.mopcircuit = c
+        c.start ()
+        macid = Macaddr (b"Foobar")
+        # "Software" field with ASCII string without preceding length
+        # field, and oversized.
+        w = datalink.Received (owner = c, src = macid,
+                               packet = b"\x07\x00\x00\x00"
+                                        b"\x01\x00\x03\x03\x00\x00"
+                                        b"\x02\x00\x02A\x00"
+                                        b"\x07\x00\x06\xaa\x00\x04\x00\x1d|"
+                                        b"\x08\x00\n\x14\x13\x04\x19\x109-\x00\x00\x00"
+                                        b"d\x00\x01\x0f"
+                                        b"\xc8\x002SANYALnet Labs, PANDA TOPS-20 Monitor 7.1(21733)-4"
+                                        b"\x90\x01\x01\x01"
+                                        b"\x91\x01\x02\x06\x01")
+        c.dispatch (w)
+        ret = c.sysid.get_api ()
+        self.assertEqual (len (ret), 1)
+        reply = ret[0]
+        self.assertEqual (reply["srcaddr"], macid)
+        self.assertEqual (reply["software"],
+                          "SANYALnet Labs, PANDA TOPS-20 Monitor 7.1(21733)-4")
+        # Packet with incomplete TLV ("Software" field has T but not LV)
+        del c.sysid.heard[macid]
+        w = datalink.Received (owner = c, src = macid,
+                               packet = b"\x07\x00\x00\x00"
+                                        b"\x01\x00\x03\x03\x00\x00"
+                                        b"\x02\x00\x02A\x00"
+                                        b"\x07\x00\x06\xaa\x00\x04\x00\x1c|"
+                                        b"d\x00\x01%"
+                                        b"\xc8\x00")
+        c.dispatch (w)
+        ret = c.sysid.get_api ()
+        self.assertEqual (len (ret), 1)
+        reply = ret[0]
+        self.assertEqual (reply["srcaddr"], macid)
+        self.assertEqual (reply["device"], "DELQA CSMA/CD communication link")
+        self.assertEqual (reply["software"], "")
         
 if __name__ == "__main__":
     unittest.main ()

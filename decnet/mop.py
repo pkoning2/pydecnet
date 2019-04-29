@@ -54,6 +54,7 @@ class MopHdr (packet.Packet):
     _layout = ( ( "b", "code", 1 ), )
 
 class SysId (MopHdr):
+    tolerant = True
     _layout = ( ( "res", 1 ),
                 ( "b", "receipt", 2 ),
                 ( "tlv", 2, 1, True,
@@ -75,7 +76,8 @@ class SysId (MopHdr):
                     7 : ( Macaddr, "hwaddr" ),
                     8 : ( "time", "time", 10 ),
                     100 : ( "b", "device", 1 ),
-                    200 : ( "c", "software", 17 ),
+                    # Spec says max is 17 but sometimes longer values are seen
+                    200 : ( "c", "software", 127 ),
                     300 : ( "b", "processor", 1 ),
                     400 : ( "b", "datalink", 1 ),
                     401 : ( "b", "bufsize", 2 ) } )
@@ -307,8 +309,13 @@ class SysId (MopHdr):
         protocol field.  Basically this is like an I-n field, but
         special values 0, -1, and -2 are accepted in the first byte,
         and string values are taken to be text strings.
+
+        If "tolerant" is True, the decoder accepts certain non-conforming
+        forms that are found in the wild.
         """
         if not buf:
+            if tolerant:
+                return buf
             logging.debug ("No data left for C field")
             raise MissingData
         flen = buf[0]
@@ -318,18 +325,20 @@ class SysId (MopHdr):
         if flen < -2:
             logging.debug ("C field with negative length {}", flen)
             raise events.fmt_err
-        elif flen > maxlen:
-            logging.debug ("C field length {} longer than max length {}",
-                           flen, maxlen)
-            raise events.fmt_err
         elif flen <= 0:
             v = flen
             flen = 1
         else:
-            v = buf[1:flen + 1]
-            if len (v) != flen:
-                logging.debug ("Not {} bytes left for C field", flen)
-                raise events.fmt_err
+            if flen > maxlen:
+                if self.tolerant:
+                    flen = maxlen
+                    v = buf
+                else:
+                    logging.debug ("C field length {} longer than max length {}",
+                                   flen, maxlen)
+                    raise events.fmt_err
+            else:
+                v = buf[1:flen + 1]
             v = bytes (v).decode ()
         setattr (self, field, v)
         return buf[flen + 1:]
@@ -880,7 +889,6 @@ class SysIdHandler (Element, timers.Timer):
             item["hwaddr"] = getattr (v, "hwaddr", "")
             systime = getattr (v, "time", "")
             if systime:
-                print (systime, systime.tm_gmtoff)
                 tzoff = systime.tm_gmtoff
                 systime = time.strftime ("%d-%b-%Y %H:%M:%S", systime)
                 if tzoff:
