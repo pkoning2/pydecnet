@@ -67,7 +67,7 @@ def evtpackethdr (pkt, exc = None):
             fields = splithdr (buf, (1, 2, 2, 1))
             return { "packet_header" : fields }
         elif isinstance (pkt, LongData):
-            fields = splithdr (pkt, (1, 1, 1, 6, 1, 1, 6, 1, 1, 1, 1))
+            fields = splithdr (buf, (1, 1, 1, 6, 1, 1, 6, 1, 1, 1, 1))
             return { "eth_packet_header" : fields }
         elif isinstance (pkt, CtlHdr):
             fields = splithdr (buf, (1, 2))
