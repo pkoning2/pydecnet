@@ -789,8 +789,7 @@ class L1Router (BaseRouter):
         """Send a data packet to where it should go next.  "pkt" is the
         packet object to send.  For received packets, "pkt.src" is the
         adjacency on which it was received; for originating packets,
-
-        If orig is True, and the destination is known to be unreachable,
+        if orig is True, and the destination is known to be unreachable,
         return False and don't try to send the packet.
         """
         dest = pkt.dstnode
@@ -836,6 +835,8 @@ class L1Router (BaseRouter):
             pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
             pkt.rts = 1
             pkt.rqr = 0
+            # On Ethernet does not apply to this case
+            pkt.ie = 0
             self.forward (pkt)
             return True    # Note that we did "send" it
         kwargs = evtpackethdr (pkt)
