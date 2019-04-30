@@ -91,9 +91,6 @@ class DNJsonEncoder (json.JSONEncoder):
         except Exception:
             pass
         return super ().default (o)
-
-    def encode (self, o):
-        return bytes (super ().encode (o), encoding = "latin1")
     
 dnDecoder = DNJsonDecoder ()
 dnEncoder = DNJsonEncoder ()
