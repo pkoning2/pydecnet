@@ -851,9 +851,9 @@ class SysIdHandler (Element, timers.Timer):
                 device = v.devices.get (device, (device, device))[1]
                 if what == "details":
                     details = list ()
-                    for fn in ( "console_user", "reservation_timer",
+                    for fn in [ "console_user", "reservation_timer",
                                 "time", "processor", "datalink",
-                                "blocksize", "software" ):
+                                "blocksize", "software" ] + v.xfields (True):
                         val = getattr (v, fn, "")
                         if val:
                             if fn == "time":
@@ -862,6 +862,21 @@ class SysIdHandler (Element, timers.Timer):
                                 val = v.processors.get (val, val)
                             elif fn == "datalink":
                                 val = v.datalinks.get (val, val)
+                            elif fn == "software":
+                                if isinstance (val, int):
+                                    val = ("Not specified", "Standard OS",
+                                           "Maintenance system")[-val] 
+                            elif isinstance (val, bytes):
+                                # A byte string, see if it looks printable
+                                v1 = "-".join ("{:02x}".format (b) for b in val)
+                                try:
+                                    v2 = str (val, "ascii")
+                                    if v2.isprintable ():
+                                        v1 = v2
+                                except UnicodeDecodeError:
+                                    pass
+                                val = v1
+                            fn = v.fieldlabel (fn)
                             details.append (" {} = {}".format (fn, val))
                     if details:
                         row = '<tr><td rowspan="2">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format (srcaddr, services, hwaddr, device)
@@ -902,6 +917,9 @@ class SysIdHandler (Element, timers.Timer):
                 item["bufsize"] = bs
             item["software"] = getattr (v, "software", "")
             item["services"] = v.services ()
+            # Add in any implementation dependent fields
+            for k in v.xfields ():
+                item[k] = getattr (v, k)
             ret.append (item)
         return ret
 

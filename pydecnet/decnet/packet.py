@@ -29,7 +29,11 @@ except AttributeError:
 # Checking for a bug in Python <= 3.2
 if type (memoryview (b"ab")[0]) is not int:
     raise ImportError ("Python 3.3 or later required")
-    
+
+def fieldnum (fn):
+    # Return the number part of "fieldnnn" as an integer
+    return int (fn[5:])
+
 def proc_layoutelem (cls, e):
     code, *args = e
     if isinstance (code, str):
@@ -737,3 +741,25 @@ class Packet (metaclass = packet_encoding_meta):
 
     def __ne__ (self, other):
         return bytes (self) != bytes (other)
+
+    def xfields (self, sortlist = False):
+        """Return a list of the "fieldnnn" attributes of this object,
+        sorted in numerical order if requested.
+        """
+        if "__dict__" not in self.__slots__:
+            return [ ]
+        ret = [ n for n in self.__dict__ if n.startswith ("field") ]
+        if sortlist and ret:
+            ret.sort (key = fieldnum)
+        return ret
+
+    @staticmethod
+    def fieldlabel (fn):
+        """Convert a field name to a user-friendly label string.
+        """
+        if fn.startswith ("field"):
+            return "Parameter #{}".format (fn[5:])
+        fn = fn.replace ("_", " ")
+        fn = fn[0].upper () + fn[1:]
+        return fn
+    
