@@ -17,7 +17,7 @@
       "class" : "logging.handlers.RotatingFileHandler",
       "formatter" : "traceformatter",
       "filename" : "decnet-trace.log",
-      "maxBytes" : 1000000,
+      "maxBytes" : 20000000,
       "backupCount" : 10
     },
     "consolehandler" : {
