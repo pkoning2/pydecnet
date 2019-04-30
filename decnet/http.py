@@ -170,7 +170,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             for i, n in enumerate (nodelist):
                 if n.nodename and n.nodename.upper () == node:
                     return i, n, parts
-            self.send_error (400, "System not found")
+            self.send_error (404, "System not found")
             return 0, None, None
         return 0, nodelist[0], parts
 
