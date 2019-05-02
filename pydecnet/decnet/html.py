@@ -17,6 +17,11 @@ class wraphtml (object):
                self.sep.join (str (i) for i in self.contents) + \
                self.close
 
+def wrap1 (content, cls):
+    if isinstance (content, wraphtml):
+        return content
+    return cls (content)
+
 def wrap (content, cls):
     if isinstance (content, (str, wraphtml)):
         return content
@@ -24,24 +29,73 @@ def wrap (content, cls):
 
 def makelink (path, title, qs = ""):
     return '<a href="/{}{}">{}</a>'.format (path, qs, title)
-    
-class thdr (wraphtml):
-    open = "<tr><th>"
-    close = "</th></tr>"
-    sep = "</th><th>"
+
+class cell (wraphtml):
+    tag = "td"
+    align = ' valign="top" '
+    markup = ""
+
+    def __init__ (self, contents, markup = None):
+        super ().__init__ (contents)
+        if markup:
+            self.markup = markup
+
+    def __str__ (self):
+        return '<{0.tag}{0.align}{0.markup}>{0.contents[0]}</{0.tag}>'.format (self)
+
+class hcell (cell): tag = "th"
 
 class trow (wraphtml):
-    open = "<tr><td>"
-    close = "</td></tr>"
-    sep = "</td><td>"
+    open = "<tr>"
+    close = "</tr>"
+    sep = ""
+    cclass = cell
 
+    def __init__ (self, *contents):
+        super ().__init__ (*[ wrap1 (c, self.cclass) for c in contents ])
+
+class thdr (trow): cclass = hcell
+
+class drow (trow):
+    def __init__ (self, col1, col2):
+        super ().__init__ (cell (col1, 'class="td-col1"'),
+                           cell (col2, 'class="td-col2"'))
+    
+class detailrow (trow):
+    def __init__ (self, *contents):
+        *row1, extra = contents
+        if extra:
+            row1[0] = cell (row1[0], 'rowspan="2"')
+            self.extra = dtable (extra)
+        else:
+            self.extra = None
+        super ().__init__ (*row1)
+        
+    def __str__ (self):
+        line1 = super ().__str__ ()
+        if self.extra:
+            return '{}\n<tr><td colspan="{}" class="details">{}</td></tr>' \
+                    .format (line1, len (self.contents), self.extra)
+        return line1
+            
 class table (wraphtml):
     open = "<table>"
     close = "</table>"
+    rclass = trow
 
     def __init__ (self, header, data):
         super ().__init__ (wrap (header, thdr),
-                           *[ wrap (i, trow) for i in data])
+                           *[ wrap (i, self.rclass) for i in data])
+
+class detail_table (table):
+    rclass = detailrow
+    
+class dtable (table):
+    open = '<table class="tb-details">'
+    rclass = drow
+
+    def __init__ (self, data):
+        super ().__init__ ("", data)
 
 class lines (wraphtml):
     open = "<p>"
@@ -78,18 +132,27 @@ class sbbutton_active (sbbutton): open = '<div class="sidebar-link-active">'
 
 class section (div):
     open = '<div class="section">'
-
+    hdr = "h3"
+    
     def __init__ (self, title, body):
-        super ().__init__ ("<h3>{}</h3>".format (title), body)
+        super ().__init__ ("<{0}>{1}</{0}>".format (self.hdr, title), body)
 
+class firstsection (section): hdr = "h2"
+    
 class tbsection (section):
     def __init__ (self, title, header, data):
         super ().__init__ (title, table (header, data))
+        
+class detail_section (section):
+    def __init__ (self, title, header, data):
+        super ().__init__ (title, detail_table (header, data))
         
 class textsection (section):
     def __init__ (self, title, body):
         super ().__init__ (title, lines (*body))
 
+class firsttextsection (textsection): hdr = "h2"
+    
 class top (div):
     open = '<div class="top">'
     

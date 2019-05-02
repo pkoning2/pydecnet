@@ -14,6 +14,7 @@ from . import packet
 from . import timers
 from . import statemachine
 from . import modulo
+from . import html
 
 # API exceptions
 class NSPException (DNAException): pass
@@ -329,6 +330,17 @@ msgmap[(NspHdr.CTL << 2) + (NspHdr.NOP << 4)] = None
 dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
 
 class NspCounters (BaseCounters):
+    nodecounters = [
+        ( "byt_rcv", "Bytes received" ),
+        ( "byt_xmt", "Bytes sent" ),
+        ( "msg_rcv", "Messages received" ),
+        ( "msg_xmt", "Messages sent" ),
+        ( "con_rcv", "Connects received" ),
+        ( "con_xmt", "Connects sent" ),
+        ( "timeout", "Response timeouts" ),
+        ( "no_res_rcv", "Received resource errors" )
+    ]
+
     def __init__ (self, owner):
         super ().__init__ (owner)
         self.byt_rcv = 0
@@ -337,15 +349,13 @@ class NspCounters (BaseCounters):
         self.msg_xmt = 0
         self.con_rcv = 0
         self.con_xmt = 0
-        self.con_rej = 0
         self.timeout = 0
-        
+        self.no_res_rcv = 0
+
 class NSPNode (object):
     """The remote node state needed by NSP.  This is a base class of
     the Nodeinfo object, which is what node.nodeinfo() returns.
     """
-    fields = ( "delay", "byt_rcv", "byt_xmt", "msg_rcv", "msg_xmt",
-               "con_rcv", "con_xmt", "con_rej", "timeout" )
     # Allow a subclass to change what counters this node has.
     counterclass = NspCounters
     
@@ -353,13 +363,19 @@ class NSPNode (object):
         # NSP specific node state -- see NSP 4.0.1 spec, table 6.
         self.delay = 0
         self.counters = self.counterclass (self)
-        
+
+    def used (self):
+        # Returns True if this node has been used. 
+        return self.counters.byt_rcv or self.counters.byt_xmt or \
+          self.counters.con_rcv or self.counters.con_xmt
+
     def get_api (self):
         ret = dict ()
         # Supply counts, but only if we have some
-        if self.byt_rcv or self.byt_xmt:
-            for f in self.fields:
-                ret[f] = getattr (self, f)
+        if self.used ():
+            for f, lb in self.counters.nodecounters:
+                ret[f] = getattr (self.counters, f)
+            ret["delay"] = self.delay
         return ret
     
 # Packet types that trigger No Link response if not mapped to a connection
@@ -381,6 +397,7 @@ class NSP (Element):
         self.rconnections = EntityDict ()
         self.config = config = config.nsp
         self.maxconns = config.max_connections
+        self.ectr = parent.routing.nodeinfo.counters
         self.init_id ()
         # Create the "reserved port"
         self.resport = ReservedPort (self)
@@ -563,6 +580,136 @@ class NSP (Element):
     def ret_id (self, i):
         i = (i + self.maxconns + 1) & 0xffff
         self.freeconns.append (i)
+    
+    def http_get (self, parts, qs):
+        infos = ( "summary", "status", "counters", "characteristics" )
+        if not parts or parts == ['']:
+            what = "summary"
+        elif parts[0] in infos:
+            what = parts[0]
+        else:
+            return None, None
+        active = infos.index (what) + 1
+        sb = html.sbelement (html.sblabel ("Information"),
+                             html.sbbutton ("nsp", "Summary", qs),
+                             html.sbbutton ("nsp/status", "Status", qs),
+                             html.sbbutton ("nsp/counters", "Counters", qs),
+                             html.sbbutton ("nsp/characteristics", "Characteristics", qs))
+        sb.contents[active].__class__ = html.sbbutton_active
+        ret = self.html (what)
+        return sb, html.main (*ret)
+
+    def html (self, what):
+        title = "NSP {1} for node {0.nodeid} ({0.name})".format (self.parent.routing, what)
+        if what == "summary":
+            body = [ "Version: {}".format (nspverstrings[self.nspver]),
+                     "Current connections: {}".format (len (self.connections)),
+                     "Peak connections: {}".format (self.ectr.peak_conns),
+                     "Max connections: {}".format (self.maxconns) ]
+            return [ html.firsttextsection (title, body) ]
+        if what == "characteristics":
+            echar = [ "Version: {}".format (nspverstrings[self.nspver]),
+                      "Max connections: {}".format (self.maxconns),
+                      "NSP weight: {}".format (self.config.nsp_weight),
+                      "NSP delay: {:.2f}".format (self.config.nsp_delay),
+                      "Queue limit: {}".format (self.config.qmax),
+                      "Max retransmits : {}".format (self.config.retransmits) ]
+            ret = [ html.firsttextsection (title, echar) ]
+            objects = self.parent.session.html_objects ()
+            ret.append (objects)
+            nodes = [ [ Nodeid (k), n.nodename ]
+                      for k, n in sorted (self.node.nodeinfo_byid.items ())
+                      if n.nodename ]
+            nl = len (nodes)
+            if nl < 20:
+                cols = 1
+            elif nl < 40:
+                cols = 2
+            else:
+                cols = 3
+            skip = (nl + cols - 1) // cols
+            nodes3 = list ()
+            for i in range (skip):
+                row = list ()
+                for s in range (cols):
+                    i2 = i + s * skip
+                    if i2 < nl:
+                        if s:
+                            row.append ("")
+                        row.extend (nodes[i2])
+                nodes3.append (row)
+            hdr = ([ "Node ID", "Node name", "" ] * cols)[:-1]
+            ret.append (html.tbsection ("Node database", hdr, nodes3))
+            return ret
+        if what == "status":
+            estat = [ "Version: {}".format (nspverstrings[self.nspver]),
+                      "Current connections: {}".format (len (self.connections)),
+                      "Peak connections: {}".format (self.ectr.peak_conns),
+                      "Max connections: {}".format (self.maxconns) ]
+            ret = [ html.firsttextsection (title, estat) ]
+            # Get the list of active nodes (those with traffic)
+            anodes = [ (Nodeid (k), n.nodename, "{:.1f}".format (n.delay))
+                       for k, n in sorted (self.node.nodeinfo_byid.items ())
+                       if n.used () ]
+            hdr = ( "Node ID", "Node name", "Delay" )
+            if anodes:
+                ret.append (html.tbsection ("Node status", hdr, anodes))
+            else:
+                ret.append (html.textsection ("Node status",
+                                              [ "<em>No active nodes</em>" ]))
+            conns = self.html_conns (what)
+            ret.append (conns)
+            return ret
+        if what == "counters":
+            estat = [ "Version: {}".format (nspverstrings[self.nspver]),
+                      "Current connections: {}".format (len (self.connections)),
+                      "Peak connections: {}".format (self.ectr.peak_conns),
+                      "Max connections: {}".format (self.maxconns) ]
+            ret = [ html.firsttextsection (title, estat) ]
+            # Get the executor counters
+            ctr = [ ( "{} = ".format (lb), getattr (self.ectr, fn))
+                    for fn, lb in self.ectr.nodecounters ]
+            ret.append (html.section ("Executor counters",
+                                      html.dtable (ctr)))
+            # Get the list of active nodes (those with traffic)
+            anodes = list ()
+            for k, n in sorted (self.node.nodeinfo_byid.items ()):
+                if not n.used ():
+                    continue
+                nc = n.counters
+                if nc is self.ectr:
+                    continue
+                ctr = [ ( "{} = ".format (lb), getattr (nc, fn))
+                        for fn, lb in nc.nodecounters ]
+                anodes.append ([ Nodeid (k), n.nodename, ctr ])
+            hdr = ( "Node ID", "Node name" )
+            if anodes:
+                ret.append (html.detail_section ("Node counters", hdr, anodes))
+            else:
+                ret.append (html.textsection ("Node counters",
+                                              [ "<em>No active nodes</em>" ]))
+            # Note that currently there are no connection counters;
+            # traffic on connections is counted in nodes.
+            return ret
+        # Should not get here...
+        return [ "not yet implemented" ]
+
+    def html_conns (self, what):
+        # Return an HTML item for the current connections.  For the
+        # moment this only applies to status (there are no connection
+        # counters).
+        title = "Logical links (connections)"
+        ret = list ()
+        sc = self.parent.session
+        if what == "status":
+            hdr = ("LLA", "State", "Object", "Node", "RLA", "Remote object")
+            for k, c in sorted (self.connections.items ()):
+                ret.append ((k, c.state.__name__, sc.html_localuser (c),
+                             c.destnode, c.dstaddr, sc.html_remuser (c)))
+        if ret:
+            return html.tbsection (title, hdr, ret)
+        else:
+            return html.textsection (title, [ "<em>No connections</em>" ])
     
 class txqentry (timers.Timer):
     """An entry in the retransmit queue for a subchannel.
@@ -1008,6 +1155,9 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         # Add this connection to the dictionary of connections known
         # to NSP.
         self.parent.connections[srcaddr] = self
+        ccount = len (self.parent.connections)
+        if ccount > self.parent.ectr.peak_conns:
+            self.parent.ectr.peak_conns = ccount
         self.dstaddr = 0
         self.shutdown = False
         # Parameters
@@ -1281,6 +1431,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
     def update_delay (self, txtime):
         if txtime and self.destnode:
             delta = time.time () - txtime
+            # If the time estimate is smaller than our timer
+            # granularity, round it up to one tick.  Otherwise we may
+            # end up with retransmit timeouts that are too short and
+            # produce false timeouts.
+            if delta < JIFFY:
+                delta = JIFFY
             if self.destnode.delay:
                 # There is an estimate, do weighted average
                 self.destnode.delay += (delta - self.destnode.delay) \
@@ -1386,6 +1542,11 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 return self.close ()
             elif isinstance (pkt, (NoRes, DiscConf)):
                 # No resources, or Phase 2 reject.
+                if isinstance (pkt, NoRes):
+                    # Received a "no resources" reject, count that
+                    destnode = self.parent.node.nodeinfo (item.src)
+                    if destnode:
+                        destnode.counters.no_res_rcv += 1
                 # Send the reject up to Session Control
                 self.to_sc (item, True)
                 return self.close ()
@@ -1473,13 +1634,6 @@ class ReservedPort (Element):
         if isinstance (pkt, ConnInit):
             # ConnInit could not be mapped, send No Resources
             t = NoRes
-            # Increment con_rej, which actually means the number of
-            # times that NSP could not handle another inbound
-            # connection.  (It has nothing to do with reject messages in
-            # either direction.)
-            destnode = self.parent.node.nodeinfo (item.src)
-            if destnode:
-                destnode.counters.con_rej += 1
         else:
             # Some other message could not be mapped, send No Link
             t = NoLink

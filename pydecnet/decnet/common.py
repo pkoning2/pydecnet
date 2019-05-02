@@ -34,6 +34,8 @@ MTU = 576                # Max NPDU size
 ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 MSS = MTU - 13           # Max TSDU size
 
+JIFFY = 0.1              # Timer increment in seconds
+
 # Exceptions
 class DNAException (Exception):
     def __str__ (self):

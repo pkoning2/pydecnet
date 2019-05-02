@@ -21,10 +21,6 @@ class rtest (DnTest):
         super ().setUp ()
         self.r = unittest.mock.Mock ()
         self.r.node = self.node
-        # Counters:
-        self.r.unreach_loss = self.r.aged_loss = self.r.node_oor_loss = 0
-        self.r.oversized_loss = self.r.partial_update_loss = 0
-        self.r.fmt_errors = self.r.ver_rejects = 0        
         if self.phase == 4:
             self.r.nodeid = Nodeid (1, 5)
         else:
@@ -32,7 +28,9 @@ class rtest (DnTest):
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
         info = Nodeinfo (None, self.r.nodeid)
         info.nodename = "LOCAL"
+        info.counters = routing.ExecCounters (info)
         self.node.addnodeinfo (info)
+        self.r.nodeinfo = info
         info = Nodeinfo (None, Nodeid (66))
         info.nodename = "REMOTE"
         info.iverif = b"IVERIF"

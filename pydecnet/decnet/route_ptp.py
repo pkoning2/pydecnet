@@ -685,7 +685,7 @@ class PtpCircuit (statemachine.StateMachine):
                 logging.debug ("{} verification required but not set",
                                self.name)
                 self.datalink.counters.init_fail += 1
-                self.routing.ver_rejects += 1
+                self.routing.nodeinfo.counters.ver_rejects += 1
                 return self.restart (events.ver_rej,
                                      "verification reject",
                                      adjacent_node = self.optnode (),
@@ -703,7 +703,7 @@ class PtpCircuit (statemachine.StateMachine):
                     logging.debug ("{} verification value mismatch",
                                    self.name)
                     self.datalink.counters.init_fail += 1
-                    self.routing.ver_rejects += 1
+                    self.routing.nodeinfo.counters.ver_rejects += 1
                     return self.restart (events.ver_rej, 
                                          "verification reject",
                                          adjacent_node = self.optnode (),
@@ -716,7 +716,7 @@ class PtpCircuit (statemachine.StateMachine):
                     logging.debug ("{} verification value mismatch",
                                    self.name)
                     self.datalink.counters.init_fail += 1
-                    self.routing.ver_rejects += 1
+                    self.routing.nodeinfo.counters.ver_rejects += 1
                     return self.restart (events.ver_rej,
                                          "verification reject",
                                          adjacent_node = self.optnode (),
@@ -899,15 +899,13 @@ class PtpCircuit (statemachine.StateMachine):
                       adjacent_node = self.optnode (),
                       reason = "listener_timeout")
         
-    def html (self, what, first):
-        if first:
-            hdr = """<tr><th>Name</th><th>Cost</th>
-            <th>Neighbor</th><th>Type</th>
-            <th>Hello time</th><th>Block size</th>
-            <th>Listen time</th><th>Version</th>
-            <th>State</th></tr>"""
-        else:
-            hdr = ""
+    @staticmethod
+    def html_header ():
+        return ( "Name", "Cost", "Neighbor", "Type",
+                 "Hello time", "Block size", "Listen time",
+                 "Version", "State" )
+
+    def html_row (self):
         if self.state == self.ru:
             neighbor = str (self.optnode ())
             ntype = ntypestrings[self.ntype]
@@ -917,11 +915,9 @@ class PtpCircuit (statemachine.StateMachine):
             t4 = self.adj.t4
         else:
             t4 = "-"
-        s = """<tr><td>{0.name}</td><td>{0.config.cost}</td>
-        <td>{1}</td><td>{2}</td><td>{0.t3}</td><td>{0.blksize}</td>
-        <td>{3}</td><td>{0.tiver}</td>
-        <td>{0.state.__name__}</td></tr>""".format (self, neighbor, ntype, t4)
-        return hdr + s
+        return [ self.name, self.config.cost, neighbor, ntype,
+                 self.t3, self.blksize, t4, self.tiver,
+                 self.state.__name__ ]
     
     def get_api (self):
         ret = { "name" : self.name,

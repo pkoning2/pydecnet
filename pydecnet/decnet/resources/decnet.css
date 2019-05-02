@@ -11,7 +11,7 @@ table, th, td {
 }
 
 .top {
-    background-image: url('/resources/pydecnet.svg');
+    background-image: url('pydecnet.svg');
     background-repeat: no-repeat;
     background-position: left bottom;
     background-size: auto 100%;
@@ -30,8 +30,20 @@ table, th, td {
     font-size: 10pt;
 }
 
-.mop-details {
+.tb-details, .td-col1, .td-col2 {
+    border-style: none;
+    padding: 0pt;
+}
+
+.td-col1 {
+    text-align: right;
+    padding-right: 4pt;
+}
+
+.details {
+    padding: 1pt;
     padding-left: 24pt;
+    padding-right: 3pt;
 }
 
 h2, h3 {

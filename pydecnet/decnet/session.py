@@ -17,6 +17,7 @@ from . import timers
 from . import statemachine
 from . import nsp
 from . import application_process
+from . import html
 
 # General errors for this layer
 class SessException (DNAException): pass
@@ -68,13 +69,17 @@ class ConnectConfirm (ApplicationWork):
 class EndUser (object):
     """Class for the "End user" field in Connect Initiate data.
     """
-    def __init__ (self, num = 0, name = ""):
+    def __init__ (self, num = 0, name = "", group = None, user = None):
         if num not in range (256) or len (name) > 16:
             raise ValueError ("Invalid num and/or name")
         self.num = num
         self.name = name
+        self.group = group
+        self.user = user
         if num:
             self.fmt = 0
+        elif self.group is not None:
+            self.fmt = 2
         else:
             self.fmt = 1
             
@@ -97,13 +102,14 @@ class EndUser (object):
             if not name:
                 raise BadEndUser ("Format 1 with no name")
             return cls (name = name), buf[3 + flen:]
-        # Format 2, we ignore the group/user fields
         if num != 0:
             raise BadEndUser ("Format 2 with non-zero number {}", num)
+        group = int.from_bytes (buf[2:4], packet.LE)
+        user = int.from_bytes (buf[4:6], packet.LE)
         flen, name = packet.decode_a_value (buf[6:], 16)
         if not name:
             raise BadEndUser ("Format 2 with no name")
-        return cls (name = name), buf[7 + flen:]
+        return cls (0, name, group, user), buf[7 + flen:]
 
     def __bytes__ (self):
         if self.num:
@@ -121,9 +127,13 @@ class EndUser (object):
 
     def __str__ (self):
         if self.fmt == 0:
-            return "object fmt 0: {}".format (self.num)
-        return "object fmt {}: {}".format (self.fmt, self.name)
-            
+            return "{}".format (self.num)
+        if self.fmt == 1:
+            return "{}".format (self.name)
+        return "[{0.group},{0.user}]{0.name}".format (self)
+
+LocalUser = EndUser (name = "PyDecnet")
+
 class SessionConnInit (packet.Packet):
     _addslots = { "rqstrid", "passwrd", "account", "connectdata", "payload" }
     _layout = (( EndUser, "dstname" ),
@@ -219,9 +229,11 @@ defobj = ( DefObj ("MIRROR", 25, "decnet.applications.mirror"),
          )
 
 class SessionConnection (Element):
-    def __init__ (self, parent, nspconn):
+    def __init__ (self, parent, nspconn, localuser, remuser):
         super ().__init__ (parent)
         self.nspconn = nspconn
+        self.localuser = localuser
+        self.remuser = remuser
 
     def accept (self, data = b""):
         return self.nspconn.accept (data)
@@ -292,10 +304,39 @@ class Session (Element):
         return { "version" : "2.0.0" }    # ?
 
     def connect (self, dest, payload):
+        # FIXME: this needs to be given meaningful SC type arguments,
+        # like destination object description, then the NSP payload is
+        # constructed from that.  The generated dest user field then
+        # goes into the fourth argument of SessionConnection.
         nspconn = self.node.nsp.connect (dest, payload)
-        self.conns[nspconn] = ret = SessionConnection (self, nspconn)
+        self.conns[nspconn] = ret = SessionConnection (self, nspconn,
+                                                       LocalUser, None)
         return ret
-    
+
+    def html_objects (self):
+        # Return an HTML item for the object database
+        title = "Session control object database"
+        hdr = ("Object", "Name", "Type", "Destination")
+        items = [ (0, o.name, o) for o in self.obj_name.values () if not o.number ]
+        items.extend ([ (o.number, o.name, o) for o in self.obj_num.values () ])
+        items.sort ()
+        items = [ (n if n else "", m,
+                   "Module" if o.module else "File",
+                   o.module if o.module else o.file) for n, m, o in items ]
+        return html.tbsection (title, hdr, items)
+
+    def html_localuser (self, nspconn):
+        try:
+            return self.conns[nspconn].localuser
+        except KeyError:
+            return ""
+        
+    def html_remuser (self, nspconn):
+        try:
+            return self.conns[nspconn].remuser
+        except KeyError:
+            return ""
+        
     def dispatch (self, item):
         if isinstance (item, Received):
             nspconn = item.connection
@@ -312,7 +353,8 @@ class Session (Element):
                     spkt = SessionConnInit (pkt.payload)
                     logging.trace ("Connect Init data {}", spkt)
                 except packet.DecodeError:
-                    logging.debug ("Invalid Connect Init data {}", bytes (pkt.payload))
+                    logging.debug ("Invalid Connect Init data {}",
+                                   bytes (pkt.payload))
                     nspconn.reject (BAD_FMT, b"")
                     return
                 # Look up the object
@@ -326,7 +368,8 @@ class Session (Element):
                                    spkt.dstname)
                     nspconn.reject (NO_OBJ)
                     return
-                conn = SessionConnection (self, nspconn)
+                conn = SessionConnection (self, nspconn,
+                                          spkt.dstname, spkt.srcname)
                 self.conns[nspconn] = conn
                 data = spkt.connectdata
                 awork = ConnectInit (self, message = data, connection = conn)
