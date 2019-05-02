@@ -156,23 +156,21 @@ class LanCircuit (timers.Timer):
     def down (self, **kwargs):
         pass
 
-    def html (self, what, first):
-        if first:
-            hdr = """<tr><th>Name</th><th>MAC address</th><th>Cost</th>
-            <th>Priority</th><th>Hello time</th>
-            <th>Designated router</th></tr>\n"""
-        else:
-            hdr = ""
+    @staticmethod
+    def html_header ():
+        return ( "Name", "MAC address", "Cost", "Priority",
+                 "Hello time", "Designated router" )
+
+    def html_row (self):
         if self.isdr:
             dr = self.node.nodeinfo (self.parent.nodeid)
         elif self.dr:
             dr = self.dr.adjnode ()
         else:
             dr = ""
-        s = """<tr><td>{0.name}</td><td>{2}</td><td>{0.config.cost}</td>
-        <td>{0.config.priority}</td><td>{0.t3}</td>
-        <td>{1}</td></tr>\n""".format (self, dr, self.datalink.macaddr)
-        return hdr + s
+        # This needs to return a list not a tuple
+        return [ self.name, self.datalink.macaddr, self.config.cost,
+                 self.config.priority, self.t3, dr ]
     
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop

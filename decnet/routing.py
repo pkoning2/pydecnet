@@ -47,6 +47,15 @@ go away on expiration, you can send things to the adjacency.
 called when ready for routing upper layer.
 """
 
+# Circuit counter descriptions and field (attribute) names
+fieldlist = (("Terminating packets received", "term_recv"),
+             ("Originating packets sent", "orig_sent"),
+             ("Transit packets received", "trans_recv"),
+             ("Transit packets sent", "trans_sent"),
+             ("Circuit down", "cir_down"),
+             ("Adjacency down", "adj_down"),
+             ("Initialization failure", "init_fail"))
+    
 def allocvecs (maxidx):
     hops = bytearray (maxidx + 1)
     cost = array.array ("H", [ 0 ]) * (maxidx + 1)
@@ -227,11 +236,28 @@ class ExecCounters (NspCounters):
     node).  These are the standard node counters augmented with some
     additional counters maintained by the routing layer.
     """
+    nodecounters = NspCounters.nodecounters + [
+        ( "peak_conns", "Peak logical links" ),
+        ( "aged_loss", "Aged packet loss" ),
+        ( "unreach_loss", "Node unreachable packet loss" ),
+        ( "node_oor_loss", "Node address out of range loss" ),
+        ( "oversized_loss", "Oversized packet loss" ),
+        ( "fmt_errors", "Packet format error" ),
+        ( "partial_update_loss", "Partial routing update loss" ),
+        ( "ver_rejects", "Verification reject" )
+    ]
+    
     def __init__ (self, parent):
         super ().__init__ (parent)
+        # zero out the additional counters
+        self.peak_conns = 0
         self.aged_loss = 0
-        self.node_oor_loss = 0
         self.unreach_loss = 0
+        self.node_oor_loss = 0
+        self.oversized_loss = 0
+        self.fmt_errors = 0
+        self.partial_update_loss = 0
+        self.ver_rejects = 0
 
 infos = (( "", "Summary" ),
          ( "/status", "Status" ),
@@ -257,10 +283,6 @@ class BaseRouter (Element):
         self.nodeinfo.counterclass = ExecCounters
         self.nodeinfo.counters = ExecCounters (self.nodeinfo)
         self.name = self.nodeinfo.nodename
-        # Counters:
-        self.unreach_loss = self.aged_loss = self.node_oor_loss = 0
-        self.oversized_loss = self.partial_update_loss = 0
-        self.fmt_errors = self.ver_rejects = 0        
         self.circuits = EntityDict ()
         self.adjacencies = dict ()
         self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
@@ -863,43 +885,27 @@ class L1Router (BaseRouter):
     def html (self, what):
         ret = [ ]
         for t in (self.LanCircuit, self.PtpCircuit):
-            first = True
+            if t == self.LanCircuit:
+                title = "LAN circuits"
+            else:
+                title = "Point to point circuits"
+            rows = list ()
+            header = t.html_header ()
             for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, t):
-                    h = c.html (what, first)
+                    h = c.html_row ()
                     if h:
-                        if first:
-                            first = False
-                            if t == self.LanCircuit:
-                                ret.append ("<h3>LAN circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
-                            else:
-                                ret.append ("<h3>Point to point circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
-                        ret.append (h)
                         if what == "counters":
-                            ctr = [ ]
-                            ctr.extend ([ """<tr><td colspan=2 />
-                            <td colspan=2>{0}</td>
-                            <td colspan=2>{1}</td></tr>""".format (fl,
-                                                             getattr (c.datalink.counters, f))
-                                             for fl, f in
-                                             (("Terminating packets received", "term_recv"),
-                                              ("Originating packets sent", "orig_sent"),
-                                              ("Transit packets received", "trans_recv"),
-                                              ("Transit packets sent", "trans_sent"),
-                                              ("Circuit down", "cir_down"),
-                                              ("Adjacency down", "adj_down"),
-                                              ("Initialization failure", "init_fail")) ])
-                            ctr.extend ([ """<tr><td colspan=2 />
-                            <td colspan=2>{0}</td>
-                            <td colspan=2>{1}</td></tr>""".format (fl, getattr (c.datalink.counters, f))
-                                             for fl, f in
-                                             (("Bytes received", "bytes_recv"),
-                                              ("Bytes sent", "bytes_sent"),
-                                              ("Data blocks received", "pkts_recv"),
-                                              ("Data blocks sent", "pkts_sent")) ])
-                            ret.extend (ctr)
-            if not first:
-                ret.append ("</table>")
+                            ctr = [ ( "{} =".format (fl),
+                                      getattr (c.datalink.counters, f))
+                                    for fl, f in fieldlist ]
+                            h.append (ctr)
+                        rows.append (h)
+            if rows:
+                if what == "counters":
+                    ret.append (html.detail_section (title, header, rows))
+                else:
+                    ret.append (html.tbsection (title, header, rows))
         if what in ("status", "internals"):
             for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, self.LanCircuit):

@@ -97,7 +97,7 @@ class Node (Entity):
             self.nodename = config.bridge.name
         threading.current_thread ().name = self.nodename
         logging.debug ("Initializing node {}", self.nodename)
-        self.timers = timers.TimerWheel (self, 0.1, 3600)
+        self.timers = timers.TimerWheel (self, JIFFY, 3600)
         self.workqueue = queue.Queue ()
         # We now have a node.
         # Create its child entities in the appropriate order.
@@ -242,6 +242,7 @@ class Node (Entity):
             sb = html.sbelement (html.sblabel ("Entities"),
                                  html.sbbutton ("", "Overall summary", qs),
                                  html.sbbutton ("routing", "Routing layer", qs),
+                                 html.sbbutton ("nsp", "NSP and above", qs),
                                  html.sbbutton ("mop", "MOP", qs))
             if parts == ['']:
                 active = 1
@@ -249,8 +250,11 @@ class Node (Entity):
             elif parts[0] == "routing":
                 active = 2
                 sb2, body = self.routing.http_get (parts[1:], qs)
-            elif parts[0] == "mop":
+            elif parts[0] == "nsp":
                 active = 3
+                sb2, body = self.nsp.http_get (parts[1:], qs)
+            elif parts[0] == "mop":
+                active = 4
                 sb2, body = self.mop.http_get (parts[1:], qs)
             else:
                 return None

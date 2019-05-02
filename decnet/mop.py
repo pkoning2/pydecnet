@@ -849,6 +849,7 @@ class SysIdHandler (Element, timers.Timer):
                 hwaddr = getattr (v, "hwaddr", "")
                 device = getattr (v, "device", "")
                 device = v.devices.get (device, (device, device))[1]
+                row = [ srcaddr, services, hwaddr, device ]
                 if what == "details":
                     details = list ()
                     for fn in [ "console_user", "reservation_timer",
@@ -877,17 +878,11 @@ class SysIdHandler (Element, timers.Timer):
                                     pass
                                 val = v1
                             fn = v.fieldlabel (fn)
-                            details.append (" {} = {}".format (fn, val))
-                    if details:
-                        row = '<tr><td rowspan="2">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format (srcaddr, services, hwaddr, device)
-                        rows.append (row)
-                        details = html.mopdetails (*details)
-                        details = '<tr><td colspan="3">{}</td></tr>'.format (details)
-                        rows.append (details)
-                    else:
-                        rows.append ([ srcaddr, services, hwaddr, device ])
-                else:
-                    rows.append ([ srcaddr, services, hwaddr, device ])
+                            details.append (("{} =".format (fn), val))
+                    row.append (details)
+                rows.append (row)
+            if what == "details":
+                return html.detail_section (title, header, rows)
             return html.tbsection (title, header, rows)
         
     def get_api (self):

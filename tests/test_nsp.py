@@ -28,6 +28,7 @@ class ntest (DnTest):
         self.config.nsp.retransmits = 3
         self.node.routing = unittest.mock.Mock ()
         self.node.routing.send = unittest.mock.Mock (wraps = self.rsend)
+        self.node.routing.nodeinfo.counters = routing.ExecCounters (self.node.routing.nodeinfo)
         self.node.session = unittest.mock.Mock ()
         self.nsp = nsp.NSP (self.node, self.config)
         #self.setloglevel (logging.TRACE)
@@ -1713,9 +1714,9 @@ class outbound_base (ntest):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.nsp.dispatch (w)
-        # Check counters.  Note that con_rej doesn't apply for this
+        # Check counters.  Note that no_res_rcv doesn't apply for this
         # case.
-        self.assertEqual (nc.destnode.counters.con_rej, 0)
+        self.assertEqual (nc.destnode.counters.no_res_rcv, 0)
         # Check data to Session Control
         self.assertEqual (self.node.addwork.call_count, 1)
         args, kwargs = self.node.addwork.call_args
@@ -2034,8 +2035,6 @@ class test_connlimit_phase4 (ntest):
         self.assertEqual (self.node.addwork.call_count, i)
         # No new connections
         self.assertConns (i)
-        # Check counters
-        self.assertEqual (nc.destnode.counters.con_rej, 1)
 
 class test_connlimit_phase3 (test_connlimit_phase4):
     remnode = Nodeid (42)
