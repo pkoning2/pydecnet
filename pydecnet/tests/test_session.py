@@ -239,20 +239,46 @@ class test_inbound_err (stest):
 class test_outbound (stest):
     def test_outbound (self):
         conn = unittest.mock.Mock ()
-        nsp = self.node.nsp
-        nsp.connect.return_value = conn
+        nspmock = self.node.nsp
+        nspmock.connect.return_value = conn
         dest = Nodeid (42, 1)
         payload = b"good morning"
         sc = self.s.connect (dest, payload)
         self.assertIs (sc.nspconn, conn)
         self.assertEqual (len (self.s.conns), 1)
         self.assertEqual (self.s.conns[conn], sc)
-        self.assertEqual (nsp.connect.call_count, 1)
-        self.assertEqual (nsp.connect.call_args,
+        self.assertEqual (nspmock.connect.call_count, 1)
+        self.assertEqual (nspmock.connect.call_args,
                           unittest.mock.call (dest, payload))
         sc.disconnect ()
         self.assertEqual (len (self.s.conns), 0)
 
+    def test_outbound_nores (self):
+        conn = unittest.mock.Mock ()
+        nspmock = self.node.nsp
+        nspmock.connect.return_value = conn
+        dest = Nodeid (42, 1)
+        payload = b"good morning"
+        sc = self.s.connect (dest, payload)
+        self.assertIs (sc.nspconn, conn)
+        self.assertEqual (len (self.s.conns), 1)
+        self.assertEqual (self.s.conns[conn], sc)
+        self.assertEqual (nspmock.connect.call_count, 1)
+        self.assertEqual (nspmock.connect.call_args,
+                          unittest.mock.call (dest, payload))
+        sc.client = unittest.mock.Mock ()
+        pkt = nsp.NoRes ()
+        w = Received (owner = self.s, connection = conn,
+                      packet = pkt, reject = True)
+        self.s.dispatch (w)
+        self.assertEqual (len (self.s.conns), 0)
+        self.assertEqual (sc.client.dispatch.call_count, 1)
+        w2 = sc.client.dispatch.call_args[0][0]
+        self.assertIsInstance (w2, session.Reject)
+        self.assertEqual (w2.reason, 1)
+        self.assertEqual (w2.message, b"")
+        self.assertEqual (w2.connection, sc)
+        
 class test_random (stest):
     def test_random (self):
         m = unittest.mock.Mock ()
