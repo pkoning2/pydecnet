@@ -64,7 +64,13 @@ try:
 except Exception:
     pass
 
-bottom = "{}-{} &copy; 2013-{} by {}".format (DNVERSION, DNREV, CYEAR, AUTHORS)
+bottom = "{}-{} &copy; 2013-{} by {}<br>" \
+         "Python {}.{}.{} ({}) on {}".format (DNVERSION, DNREV, CYEAR, AUTHORS,
+                                              sys.version_info.major,
+                                              sys.version_info.minor,
+                                              sys.version_info.micro,
+                                              sys.version_info.releaselevel,
+                                              sys.platform)
 bottom = html.footer (bottom)
 
 class DNJsonDecoder (json.JSONDecoder):
