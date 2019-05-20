@@ -308,6 +308,8 @@ class Session (Element):
         # like destination object description, then the NSP payload is
         # constructed from that.  The generated dest user field then
         # goes into the fourth argument of SessionConnection.
+        # FIXME: this also needs a session control client object, set
+        # as the connection "client" attribute.
         nspconn = self.node.nsp.connect (dest, payload)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
                                                        LocalUser, None)
@@ -381,7 +383,8 @@ class Session (Element):
                     conn.client = sesobj.app_class (self, sesobj)
                     conn.client.dispatch (awork)
                 except Exception:
-                    logging.debug ("Object application (module) exception at startup")
+                    logging.debug ("Object application (module) exception at startup",
+                                   exc_info = True)
                     nspconn.reject (OBJ_FAIL)
                     del self.conns[nspconn]
                     return
@@ -412,10 +415,15 @@ class Session (Element):
                 try:
                     conn.client.dispatch (awork)
                 except Exception:
-                    logging.debug ("Object application (module) exception")
+                    logging.debug ("Object application (module) exception",
+                                   exc_info = True)
                     try:
                         nspconn.abort (OBJ_FAIL)
                     except Exception:
                         logging.exception ("abort failed")
-                    del self.conns[nspconn]
+                    try:
+                        del self.conns[nspconn]
+                    except KeyError:
+                        # Connection might have been deleted already
+                        pass
                     return
