@@ -110,6 +110,7 @@ class DnTest (unittest.TestCase):
         
     def setloglevel (self, level):
         logging.logging.getLogger ().setLevel (level)
+        logging.tracing = True
         
     def tearDown (self):
         logging.logging.shutdown ()

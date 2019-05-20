@@ -84,8 +84,9 @@ class LanCircuit (timers.Timer):
         works (we don't know of "unreachable").
         """
         assert nexthop
-        logging.trace ("Sending {} byte packet to {}: {}",
-                       len (pkt), nexthop, pkt)
+        if logging.tracing:
+            logging.trace ("Sending {} byte packet to {}: {}",
+                           len (pkt), nexthop, pkt)
         if isinstance (pkt, ShortData):
             pkt = LongData (copy = pkt, payload = pkt.payload)
         self.datalink.send (pkt, nexthop)
@@ -241,7 +242,8 @@ class EndnodeLanCircuit (LanCircuit):
         self.node.timers.start (self, self.t3)
 
     def dispatch (self, item):
-        logging.trace ("{}: processessing work item {}", self.name, item)
+        if logging.tracing:
+            logging.trace ("{}: processessing work item {}", self.name, item)
         item = self.common_dispatch (item)
         if not item:
             # Rejected by common code
@@ -412,7 +414,8 @@ class RoutingLanCircuit (LanCircuit):
             self.calcdr ()
             self.sendhello ()
         elif isinstance (item, (EndnodeHello, RouterHello)):
-            logging.trace ("LAN hello message received: {}", item)
+            if logging.tracing:
+                logging.trace ("LAN hello message received: {}", item)
             id = item.id
             t4 = item.timer * BCT3MULT
             if id.area != self.parent.homearea and \
@@ -499,8 +502,9 @@ class RoutingLanCircuit (LanCircuit):
                 if selfent:
                     # We're listed, which means two way communication,
                     # so set the adjacency "up"
-                    logging.trace ("self entry in received hello is {}",
-                                   selfent)
+                    if logging.tracing:
+                        logging.trace ("self entry in received hello is {}",
+                                       selfent)
                     if a.state == INIT:
                         a.state = UP
                         self.node.logevent (events.adj_up, self,
@@ -546,8 +550,9 @@ class RoutingLanCircuit (LanCircuit):
                 a = DummyAdj (self, Nodeid (item.src))
             if a and a.state == UP:
                 item.src = a
-                logging.trace ("Routing LAN message received from {}: {}",
-                               a, item)
+                if logging.tracing:
+                    logging.trace ("Routing LAN message received from {}: {}",
+                                   a, item)
                 self.parent.dispatch (item)
             else:
                 logging.trace ("{} packet dropped, no adjacency",

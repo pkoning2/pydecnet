@@ -415,7 +415,8 @@ class EndnodeRouting (BaseRouter):
         pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
-        logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
+        if logging.tracing:
+            logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.datalink.counters.orig_sent += 1
         if dest != self.nodeid:
             return self.circuit.send (pkt, None, tryhard)
@@ -427,7 +428,8 @@ class EndnodeRouting (BaseRouter):
         """A received packet is sent up to NSP if it is for this node,
         and ignored otherwise.
         """
-        logging.trace ("{}: processessing work item {}", self.name, item)
+        if logging.tracing:
+            logging.trace ("{}: processessing work item {}", self.name, item)
         if isinstance (item, (ShortData, LongData)):
             if item.dstnode == self.nodeid:
                 self.selfadj.send (item)
@@ -465,8 +467,9 @@ class Phase2Routing (BaseRouter):
         try:
             a = self.adjacencies[dest]
             # Destination matches this adjacency, send
-            logging.trace ("Sending {} byte packet to {}: {}",
-                           len (pkt), a, pkt)
+            if logging.tracing:
+                logging.trace ("Sending {} byte packet to {}: {}",
+                               len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
                              dstnode = dest, src = None)
             a.circuit.datalink.counters.orig_sent += 1
@@ -838,8 +841,9 @@ class L1Router (BaseRouter):
                         srcadj.circuit.datalink.counters.trans_recv += 1
                         a.circuit.datalink.counters.trans_sent += 1
                         pkt.visit += 1
-                    logging.trace ("Sending {} byte packet to {}: {}",
-                       len (pkt), a, pkt)
+                    if logging.tracing:
+                        logging.trace ("Sending {} byte packet to {}: {}",
+                                       len (pkt), a, pkt)
                     a.send (pkt)
                     return True
             else:

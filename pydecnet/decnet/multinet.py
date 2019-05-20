@@ -282,8 +282,9 @@ class Multinet (datalink.PtpDatalink):
                         continue
                     # Check header?  For now just skip it.
                     msg = msg[4:]
-                logging.trace ("Received Multilink message len {}: {!r}",
-                               len (msg), msg)
+                if logging.tracing:
+                    logging.trace ("Received Multilink message len {}: {!r}",
+                                   len (msg), msg)
                 if self.port:
                     self.counters.bytes_recv += len (msg)
                     self.counters.pkts_recv += 1
@@ -296,8 +297,9 @@ class Multinet (datalink.PtpDatalink):
         if sock and self.status == RUN:
             msg = bytes (msg)
             mlen = len (msg)
-            logging.trace ("Sending Multinet message len {}: {!r}",
-                           mlen, msg)
+            if logging.tracing:
+                logging.trace ("Sending Multinet message len {}: {!r}",
+                               mlen, msg)
             self.counters.bytes_sent += mlen
             self.counters.pkts_sent += 1
             if self.mode:

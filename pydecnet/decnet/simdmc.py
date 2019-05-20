@@ -213,8 +213,9 @@ class SimhDMC (datalink.PtpDatalink):
                         self.disconnected ()
                         return
                     msg += m
-                logging.trace ("Received DMC message len {}: {!r}",
-                               len (msg), msg)
+                if logging.tracing:
+                    logging.trace ("Received DMC message len {}: {!r}",
+                                   len (msg), msg)
                 if self.port:
                     self.counters.bytes_recv += len (msg)
                     self.counters.pkts_recv += 1
@@ -225,7 +226,9 @@ class SimhDMC (datalink.PtpDatalink):
     def send (self, msg, dest = None):
         if self.status == RUN:
             msg = bytes (msg)
-            logging.trace ("Sending DMC message len {}: {!r}", len (msg), msg)
+            if logging.tracing:
+                logging.trace ("Sending DMC message len {}: {!r}",
+                               len (msg), msg)
             mlen = len (msg).to_bytes (2, "big")
             self.counters.bytes_sent += len (msg)
             self.counters.pkts_sent += 1

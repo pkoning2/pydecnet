@@ -31,7 +31,9 @@ class GREPort (datalink.BcPort):
         is point to point, the address is ignored.
         """
         l = len (msg)
-        logging.trace ("Sending {} byte {} packet", l, msg.__class__.__name__)
+        if logging.tracing:
+            logging.trace ("Sending {} byte {} packet",
+                           l, msg.__class__.__name__)
         f = self.frame
         if self.pad:
             if l > 1498:
@@ -130,8 +132,9 @@ class GRE (datalink.BcDatalink, StopThread):
                     # Sorry, we only support IPv4 for now
                     continue
                 pos = 4 * hlen
-                logging.trace ("Received GRE message len {}: {!r}",
-                               len (msg), msg)
+                if logging.tracing:
+                    logging.trace ("Received GRE message len {}: {!r}",
+                                   len (msg), msg)
                 if msg[pos:pos + 2] != greflags:
                     # Unexpected flags or version in header, ignore
                     logging.debug ("On {}, unexpected header {}",

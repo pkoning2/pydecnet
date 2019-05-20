@@ -35,8 +35,9 @@ class EthPort (datalink.BcPort):
         if len (destb) != 6:
             raise ValueError ("Invalid destination address length")
         l = len (msg)
-        logging.trace ("Sending {} byte {} packet to {}",
-                       l, msg.__class__.__name__, dest)
+        if logging.tracing:
+            logging.trace ("Sending {} byte {} packet to {}",
+                           l, msg.__class__.__name__, dest)
         f = self.frame
         f[0:6] = destb
         f[6:12] = self.macaddr
@@ -326,8 +327,9 @@ class _BridgeEth (_Ethernet):
         """
         if not self.socket:
             return
-        logging.trace ("Sending {} bytes to {}:{}", len (buf),
-                       self.host, self.rport)
+        if logging.tracing:
+            logging.trace ("Sending {} bytes to {}:{}", len (buf),
+                           self.host, self.rport)
         try:
             self.socket.sendto (buf, (self.host.addr, self.rport))
         except (IOError, socket.error) as e:

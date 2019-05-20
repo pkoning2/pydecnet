@@ -341,8 +341,9 @@ class Session (Element):
         if isinstance (item, Received):
             nspconn = item.connection
             pkt = item.packet
-            logging.trace ("Received from NSP: {} conn {} reject {}",
-                       pkt, nspconn, item.reject)
+            if logging.tracing:
+                logging.trace ("Received from NSP: {} conn {} reject {}",
+                               pkt, nspconn, item.reject)
             if nspconn not in self.conns:
                 if not isinstance (pkt, nsp.ConnInit):
                     # Complain and then ignore this.

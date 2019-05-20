@@ -648,7 +648,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         crc = CRC16 (hdr)
         # Set the Header CRC
         msg.hcrc = bytes (crc)
-        logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
+        if logging.tracing:
+            logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
         # Now encode the whole message
         msg = bytes (msg)
         try:
@@ -777,8 +778,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.ackflag = True
                 # Pass the payload up to our client.
                 msg = data.payload
-                logging.trace ("Received DDCMP message on {} len {}: {!r}",
-                               self.name, len (msg), msg)
+                if logging.tracing:
+                    logging.trace ("Received DDCMP message on {} len {}: {!r}",
+                                   self.name, len (msg), msg)
                 if self.port:
                     self.counters.bytes_recv += len (msg)
                     self.counters.pkts_recv += 1
@@ -852,8 +854,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # outstanding messages), False if not.
         count = msg.resp - self.a
         pend = self.n - self.a
-        logging.trace ("Processing DDCMP Ack on {}, count {}, pending count {}, "
-                       "a={}, n={}", self.name, count, pend, self.a, self.n)
+        if logging.tracing:
+            logging.trace ("Processing DDCMP Ack on {}, count {}, pending count {}, "
+                           "a={}, n={}", self.name, count, pend, self.a, self.n)
         if count > pend:
             # Because of sequence number wrapping, an "old" ACK will look
             # like one that acknowledges too much.  For example, one that's
@@ -941,8 +944,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.n += 1
             data = bytes (data)
             mlen = len (data)
-            logging.trace ("Sending DDCMP message on {} len {}: {!r}",
-                           self.name, mlen, data)
+            if logging.tracing:
+                logging.trace ("Sending DDCMP message on {} len {}: {!r}",
+                               self.name, mlen, data)
             self.counters.bytes_sent += mlen
             self.counters.pkts_sent += 1
             # Build a DDCMP Data message.

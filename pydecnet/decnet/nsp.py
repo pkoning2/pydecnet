@@ -285,6 +285,9 @@ class DiscConf (NspHdr):
                ( "b", "reason", 2 ))
     type = NspHdr.CTL
     subtype = NspHdr.DC
+    # Supply a dummy value in the object to allow common handling with
+    # DiscInit, which does include a disconnect data field.
+    data_ctl = b""
 
 # Three reason codes are treated as specific packets in the NSP spec;
 # all others are in effect synonyms for disconnect initiate for Phase II
@@ -444,7 +447,9 @@ class NSP (Element):
                 return
             if not t:
                 # NOP message to be ignored, do so.
-                logging.trace ("NSP NOP packet received from {}: {}", item.src, item.packet)
+                if logging.tracing:
+                    logging.trace ("NSP NOP packet received from {}: {}",
+                                   item.src, item.packet)
                 return
             try:
                 pkt = t (buf)
@@ -462,7 +467,8 @@ class NSP (Element):
                     # Parse it as a generic DiscConf packet
                     pass
                 pkt = t (buf)
-            logging.trace ("NSP packet received from {}: {}", item.src, pkt)
+            if logging.tracing:
+                logging.trace ("NSP packet received from {}: {}", item.src, pkt)
             if t is ConnInit:
                 # Step 4: if this is a returned CI, find the connection
                 # that sent it.
@@ -842,7 +848,8 @@ class Subchannel (Element, timers.Timer):
                 return
             elif num != self.acknum + 1:
                 # Not next in sequence, save it
-                logging.trace ("Saving out of order NSP packet {}", pkt)
+                if logging.tracing:
+                    logging.trace ("Saving out of order NSP packet {}", pkt)
                 self.ooo[num] = item
                 return
             # It's in sequence.  Process it, as well as packets waiting
@@ -1460,11 +1467,13 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         return pkt
     
     def sendmsg (self, pkt):
-        logging.trace ("NSP sending packet {}", pkt)
+        if logging.tracing:
+            logging.trace ("NSP sending packet {}", pkt)
         self.parent.routing.send (pkt, self.dest)
 
     def validate (self, item):
-        logging.trace ("Processing {} in connection {}", item, self)
+        if logging.tracing:
+            logging.trace ("Processing {} in connection {}", item, self)
         return True
     
     def cr (self, item):
