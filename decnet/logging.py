@@ -150,9 +150,13 @@ def start (p):
     # do.  By default that will simply delegate to the root logger,
     # but a custom log config could set up something special for it if
     # desired.
-    global decnetLogger
+    global decnetLogger, tracing
     global critical, error, warning, info, debug, trace, exception
     decnetLogger = logging.getLogger ("decnet")
+    # For optimizing trace actions when tracing isn't requested.
+    # Typically, logging.trace calls from the fastpath (as opposed to
+    # error or slow cases) should be conditional under "tracing".
+    tracing = decnetLogger.isEnabledFor (TRACE)
     critical = decnetLogger.critical
     error = decnetLogger.error
     warning = decnetLogger.warning

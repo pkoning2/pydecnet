@@ -156,7 +156,9 @@ class PtpCircuit (statemachine.StateMachine):
                                     srcnode = src.nodename,
                                     msgflag = 0x46,
                                     payload = pkt.payload)
-                    logging.trace ("Forwarding from {} {} to Phase II: {}", pkt.srcnode, src, pkt)
+                    if logging.tracing:
+                        logging.trace ("Forwarding from {} {} to Phase II: {}",
+                                       pkt.srcnode, src, pkt)
                 else:
                     # No routing, so the source must be this node.
                     if pkt.srcnode != self.routing.nodeid:
@@ -179,7 +181,8 @@ class PtpCircuit (statemachine.StateMachine):
         datalink down notification to force a circuit down as a result,
         or return False which will simply ignore the offending packet.
         """
-        logging.trace ("Ptp circuit {}, work item {!r}", self.name, work)
+        if logging.tracing:
+            logging.trace ("Ptp circuit {}, work item {!r}", self.name, work)
         if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
@@ -236,7 +239,9 @@ class PtpCircuit (statemachine.StateMachine):
                     self.node.logevent (events.fmt_err, entity = self,
                                         packet_beginning = buf[:6])
                     return CircuitDown (self)
-                logging.trace ("Phase II packet with route header: {}", work.packet)
+                if logging.tracing:
+                    logging.trace ("Phase II packet with route header: {}",
+                                   work.packet)
             if (hdr & 1) != 0 and self.node.phase > 2:
                 # Routing (phase 3 or 4) control packet.  Figure out which one
                 code = (hdr >> 1) & 7
@@ -771,7 +776,9 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt = ShortData (dstnode = dest, srcnode = src,
                                      rts = 0, rqr = 0, visit = 1,
                                      payload = payload.payload, src = self.adj)
-                    logging.trace ("Phase II data packet to routing: {}", pkt)
+                    if logging.tracing:
+                        logging.trace ("Phase II data packet to routing: {}",
+                                       pkt)
                     self.parent.dispatch (pkt)
                     return
                 if not isinstance (item.packet, packet.Packet):
@@ -784,7 +791,9 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt = ShortData (dstnode = self.parent.nodeid, visit = 1,
                                      srcnode = self.id, rts = 0, rqr = 0,
                                      payload = item.packet, src = self.adj)
-                    logging.trace ("Phase II data packet to routing: {}", pkt)
+                    if logging.tracing:
+                        logging.trace ("Phase II data packet to routing: {}",
+                                       pkt)
                     self.parent.dispatch (pkt)
                     return
             # Process received packet.  Restart the listen timer if not phase 2.
@@ -801,7 +810,9 @@ class PtpCircuit (statemachine.StateMachine):
                                      reason = "address_out_of_range")
             if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
                and self.rphase > 2:
-                logging.trace ("{} data packet to routing: {}", self.name, pkt)
+                if logging.tracing:
+                    logging.trace ("{} data packet to routing: {}",
+                                   self.name, pkt)
                 # Note that just the packet is dispatched, not the work
                 # item we received that wraps it.
                 if self.rphase < 4 and self.node.phase == 4:
@@ -839,7 +850,9 @@ class PtpCircuit (statemachine.StateMachine):
                     # circuit down, set the next state to DI, and
                     # reprocess the message we just received.
                     self.down ()
-                    logging.trace ("{} restart due to init message, using init workaround", self.name)
+                    if logging.tracing:
+                        logging.trace ("{} restart due to init message, using init workaround",
+                                       self.name)
                     # Next 3 lines lifted from "HA" state handler
                     self.tiver = None
                     # Fake a datalink up notification to generate init packet
