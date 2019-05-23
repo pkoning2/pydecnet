@@ -623,7 +623,8 @@ class NSP (Element):
             ret = [ html.firsttextsection (title, echar) ]
             objects = self.parent.session.html_objects ()
             ret.append (objects)
-            nodes = [ [ Nodeid (k), n.nodename ]
+            nodes = [ [ Nodeid (k),
+                        html.cell (n.nodename, 'class="double_right"') ]
                       for k, n in sorted (self.node.nodeinfo_byid.items ())
                       if n.nodename ]
             nl = len (nodes)
@@ -640,11 +641,12 @@ class NSP (Element):
                 for s in range (cols):
                     i2 = i + s * skip
                     if i2 < nl:
-                        if s:
-                            row.append ("")
                         row.extend (nodes[i2])
+                row[-1].markup = ""
                 nodes3.append (row)
-            hdr = ([ "Node ID", "Node name", "" ] * cols)[:-1]
+            hdr = [ "Node ID",
+                    html.hcell ("Node name", 'class="double_right"') ] * cols
+            hdr[-1] = html.hcell ("Node name")
             ret.append (html.tbsection ("Node database", hdr, nodes3))
             return ret
         if what == "status":

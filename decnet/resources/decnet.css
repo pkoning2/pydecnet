@@ -5,6 +5,10 @@ table, th, td {
     padding: 3pt;
 }
 
+.double_right {
+    border-right: double;
+}
+
 .flex-page {
     display: flex;
     flex-direction: column;
