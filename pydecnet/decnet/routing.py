@@ -704,6 +704,10 @@ class L1Router (BaseRouter):
     def usecol (self, adj, l2):
         return l2 or adj.nodeid.area == self.homearea
 
+    @staticmethod
+    def adjkey (adj):
+        return adj.nodeid, adj.circuit.name
+    
     def html_matrix (self, l2):
         if l2:
             start = 1
@@ -723,39 +727,44 @@ class L1Router (BaseRouter):
                        if k is not self.selfadj and
                          isinstance (k, adjacency.Adjacency) and
                          self.usecol (k, l2)),
-                        key = str)
+                        key = self.adjkey)
         rkeys = selfcol + rkeys
-        row = [ None ] * len (rkeys)
-        first = True
+        data = list ()
         for i in range (start, end + 1):
             inf = True
-            for ri, rk in enumerate (rkeys):
+            row = [ i ]
+            for rk in rkeys:
                 r = routeinfodict[rk]
                 e = ( r.hops[i], r.cost[i] )
-                inf = inf and e >= INF
-                row[ri] = e
-            if inf:
-                # Skip over unreachable rows
-                continue
-            if first:
-                ret.append ("""<h3>{} routing matrix</h3>
-                <table border=1 cellspacing=0 cellpadding=4>
-                <tr><th>Dest</th>""".format (what))
-                for rk in rkeys:
-                    if rk is ENDNODE:
-                        s = "Endnodes"
-                    else:
-                        s = "{!s}".format (rk)
-                    ret.append ("<th colspan=2>{}</th>".format (s))
-                ret.append ("</tr>")
-                first = False
-            ret.append ("<tr><td>{}</td>".format (i))
-            for e in row:
-                ret.append ("<td>{0[0]}</td><td>{0[1]}</td>".format (e))
-            ret.append ("</tr>")
-        if not first:
-            ret.append ("</table>")
-        return ret
+                if e >= INF:
+                    e = ( "&infin;", "&infin;" )
+                else:
+                    inf = False
+                h, c = e
+                row.extend ([ h, html.cell (c, 'class="double_right"') ])
+            if not inf:
+                row[-1].markup = ""
+                data.append (row)
+        hdr = [ html.hcell ("Dest", valign = "bottom") ]
+        prev = None
+        for rk in rkeys:
+            if rk is ENDNODE:
+                s = "Endnodes"
+            elif rk is self.selfadj:
+                s = "Self"
+            else:
+                if prev and prev.nodeid == rk.nodeid:
+                    s = "{}<br>{}".format (prev.nodeid, prev.circuit.name)
+                    hdr[-1] = html.hcell (s, 'class="double_right" colspan=2',
+                                          "bottom")
+                    s = "{}<br>{}".format (rk.nodeid, rk.circuit.name)
+                else:
+                    s = "{}".format (rk)
+                prev = rk
+            hdr.append (html.hcell (s, 'class="double_right" colspan=2',
+                                    "bottom"))
+        hdr[-1].markup = "colspan=2"
+        return html.tbsection ("{} routing matrix".format (what), hdr, data)
     
     def route (self, start, end):
         self.doroute (start, end, l2 = False)
@@ -935,7 +944,7 @@ class L1Router (BaseRouter):
                     <td>{}</td><td>{!s}</td></tr>""".format (name, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
-            ret.extend (self.html_matrix (False))
+            ret.append (self.html_matrix (False))
         return ret
 
 class Phase3Router (L1Router):
@@ -1087,7 +1096,7 @@ class L2Router (L1Router):
                     <td>{}</td><td>{!s}</td></tr>""".format (i, hops, cost, adj))
             ret.append ("</table>")
         if what == "internals":
-            ret.extend (self.html_matrix (True))
+            ret.append (self.html_matrix (True))
         return ret
 
 class Update (Element, timers.Timer):

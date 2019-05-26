@@ -35,10 +35,12 @@ class cell (wraphtml):
     align = ' valign="top" '
     markup = ""
 
-    def __init__ (self, contents, markup = None):
+    def __init__ (self, contents, markup = None, valign = None):
         super ().__init__ (contents)
         if markup:
             self.markup = markup
+        if valign:
+            self.align = ' valign="{}"'.format (valign)
 
     def __str__ (self):
         return '<{0.tag}{0.align}{0.markup}>{0.contents[0]}</{0.tag}>'.format (self)
