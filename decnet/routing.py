@@ -259,11 +259,6 @@ class ExecCounters (NspCounters):
         self.partial_update_loss = 0
         self.ver_rejects = 0
 
-infos = (( "", "Summary" ),
-         ( "/status", "Status" ),
-         ( "/counters", "Counters" ),
-         ( "/internals", "Internals" ))
-    
 class BaseRouter (Element):
     """The routing layer.  Mainly this is the parent of a number of control
     components and collections of circuits and adjacencies.
@@ -342,12 +337,11 @@ class BaseRouter (Element):
         except KeyError:
             pass
 
-    def info_link (self, link, name, qs):
-        link, name =infos[item]
-        return '<a href="/routing/{}{}">{}'.format (link, qs, name)
-    
     def http_get (self, parts, qs):
-        infos = ( "summary", "status", "counters", "internals" )
+        if self.ntype == ENDNODE or self.ntype == PHASE2:
+            infos = ( "summary", "counters" )
+        else:
+            infos = ( "summary", "status", "counters", "internals" )
         if not parts or parts == ['']:
             what = "summary"
         elif parts[0] in infos:
@@ -355,17 +349,22 @@ class BaseRouter (Element):
         else:
             return None, None
         active = infos.index (what) + 1
-        sb = html.sbelement (html.sblabel ("Information"),
-                             html.sbbutton ("routing", "Summary", qs),
-                             html.sbbutton ("routing/status", "Status", qs),
-                             html.sbbutton ("routing/counters", "Counters", qs),
-                             html.sbbutton ("routing/internals", "Internals", qs))
+        if self.ntype == ENDNODE or self.ntype == PHASE2:
+            sb = html.sbelement (html.sblabel ("Information"),
+                                 html.sbbutton ("routing", "Summary", qs),
+                                 html.sbbutton ("routing/counters", "Counters", qs))
+        else:
+            sb = html.sbelement (html.sblabel ("Information"),
+                                 html.sbbutton ("routing", "Summary", qs),
+                                 html.sbbutton ("routing/status", "Status", qs),
+                                 html.sbbutton ("routing/counters", "Counters", qs),
+                                 html.sbbutton ("routing/internals", "Internals", qs))
         sb.contents[active].__class__ = html.sbbutton_active
         ntype = ntypestrings[self.ntype]
-        ret = [ """<h2>Routing {1} for node {0.nodeid} ({0.name})</h2>
-        <p>Node type: {2}<br>
-        Routing version: {0.tiver}
-        </p>""".format (self, what, ntype) ]
+        hdr = "Routing {1} for node {0.nodeid} ({0.name})".format (self, what)
+        body = [ "Node type: {}".format (ntype),
+                 "Routing version: {0.tiver}".format (self) ]
+        ret = [ html.firsttextsection (hdr, body) ]
         ret.extend (self.html (what))
         return sb, html.main (*ret)
 
@@ -435,11 +434,17 @@ class EndnodeRouting (BaseRouter):
                 self.selfadj.send (item)
 
     def html (self, what):
-        ret = [ ]
-        ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
-        ret.append (self.circuit.html (what, True))
-        ret.append ("</table>")
-        return ret
+        header = self.circuit.html_header ()
+        h = self.circuit.html_row ()
+        if what == "counters":
+            ctr = [ ( "{} =".format (fl),
+                      getattr (self.circuit.datalink.counters, f))
+                    for fl, f in fieldlist ]
+            h.append (ctr)
+        if what == "counters":
+            return [ html.detail_section ("Circuit", header, [ h ]) ]
+        else:
+            return [ html.tbsection ("Circuit", header, [ h ]) ]
 
 class Phase3EndnodeRouting (EndnodeRouting):
     """Routing entity for Phase III endnodes.
@@ -491,10 +496,22 @@ class Phase2Routing (BaseRouter):
                 self.selfadj.send (item)
 
     def html (self, what):
-        ret = [ ]
-        ret.append ("<table border=1 cellspacing=0 cellpadding=4>")
-        ret.append (self.circuit.html (what, True))
-        ret.append ("</table>")
+        header = self.PtpCircuit.html_header ()
+        rows = list ()
+        for k, c in sorted (self.circuits.items ()):
+            h = c.html_row ()
+            if h:
+                if what == "counters":
+                    ctr = [ ( "{} =".format (fl),
+                              getattr (c.datalink.counters, f))
+                            for fl, f in fieldlist ]
+                    h.append (ctr)
+                rows.append (h)
+        if rows:
+            if what == "counters":
+                return [ html.detail_section ("Circuits", header, rows) ]
+            else:
+                return [ html.tbsection ("Circuits", header, rows) ]
     
 class RouteInfo (object):
     """The routing info, as found in the circuit or adjacency but
@@ -759,7 +776,7 @@ class L1Router (BaseRouter):
                                           "bottom")
                     s = "{}<br>{}".format (rk.nodeid, rk.circuit.name)
                 else:
-                    s = "{}".format (rk)
+                    s = "{}".format (rk.nodeid)
                 prev = rk
             hdr.append (html.hcell (s, 'class="double_right" colspan=2',
                                     "bottom"))
@@ -902,8 +919,8 @@ class L1Router (BaseRouter):
                 title = "LAN circuits"
             else:
                 title = "Point to point circuits"
-            rows = list ()
             header = t.html_header ()
+            rows = list ()
             for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, t):
                     h = c.html_row ()
@@ -922,27 +939,23 @@ class L1Router (BaseRouter):
         if what in ("status", "internals"):
             for k, c in sorted (self.circuits.items ()):
                 if isinstance (c, self.LanCircuit):
-                    h = c.html ("adjacencies", True)
-                    if h:
-                        ret.append ("""<h3>Adjacencies on {}:</h3>
-                        <table border=1 cellspacing=0 cellpadding=4>""".format (c.name))
-                        ret.append (h)
-            ret.append ("<h3>Level 1 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
-            first = True
+                    h, d = c.adj_tabledata ()
+                    if d:
+                        ret.append (html.tbsection ("Adjacencies on {}".format (c.name), h, d))
+            hdr = ( "Node", "Hops", "Cost", "Nexthop" )
+            data = list ()
             for i in range (self.firstnode, self.maxnodes + 1):
                 if self.oadj[i]:
                     if i:
                         name = str (self.node.nodeinfo (Nodeid (self.homearea, i)))
                     else:
                         name = "Nearest L2"
-                    if first:
-                        ret.append ("""<tr><th>Node</th><th>Hops</th>
-                        <th>Cost</th><th>Nexthop</th></tr>""")
-                        first = False
-                    hops, cost, adj = self.minhops[i], self.mincost[i], self.oadj[i]
-                    ret.append ("""<tr><td>{}</td><td>{}</td>
-                    <td>{}</td><td>{!s}</td></tr>""".format (name, hops, cost, adj))
-            ret.append ("</table>")
+                    adj = self.oadj[i]
+                    if adj == self.selfadj:
+                        adj = "Self"
+                    data.append ([ name, self.minhops[i],
+                                   self.mincost[i], adj ])
+            ret.append (html.tbsection ("Level 1 routing table", hdr, data))
         if what == "internals":
             ret.append (self.html_matrix (False))
         return ret
@@ -1083,18 +1096,13 @@ class L2Router (L1Router):
     def html (self, what):
         ret = super ().html (what)
         if what in ("status", "internals"):
-            ret.append ("<h3>Level 2 routing table</h3><table border=1 cellspacing=0 cellpadding=4>")
-            first = True
+            hdr = ( "Area", "Hops", "Cost", "Nexthop" )
+            data = list ()
             for i in range (1, self.maxarea + 1):
                 if self.aoadj[i]:
-                    if first:
-                        ret.append ("""<tr><th>Area</th><th>Hops</th>
-                        <th>Cost</th><th>Nexthop</th></tr>""")
-                        first = False
-                    hops, cost, adj = self.aminhops[i], self.amincost[i], self.aoadj[i]
-                    ret.append ("""<tr><td>{}</td><td>{}</td>
-                    <td>{}</td><td>{!s}</td></tr>""".format (i, hops, cost, adj))
-            ret.append ("</table>")
+                    data.append ([ i, self.aminhops[i],
+                                   self.amincost[i], self.aoadj[i] ])
+            ret.append (html.tbsection ("Level 2 routing table", hdr, data))
         if what == "internals":
             ret.append (self.html_matrix (True))
         return ret
