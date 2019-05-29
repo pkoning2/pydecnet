@@ -50,18 +50,16 @@ class Adjacency (Element, timers.Timer):
         # Return a Nodeinfo object for this adjacency's adjacent node
         return self.node.nodeinfo (self.nodeid)
     
-    def html (self, what, first):
-        if first:
-            hdr = """<tr><th>Neighbor</th><th>Type</th><th>Block size</th>
-            <th>Priority</th><th>Listen time</th><th>Version</th></tr>"""
-        else:
-            hdr = ""
+    @staticmethod
+    def html_header ():
+        return ( "Neighbor", "Type", "Block size",
+                 "Priority", "Listen time", "Version" )
+        
+    def html_row (self):
         neighbor = str (self.node.nodeinfo (self.nodeid))
         ntype = ntypestrings[self.ntype]
-        s = """<tr><td>{1}</td><td>{2}</td>
-        <td>{0.blksize}</td><td>{0.priority}</td><td>{0.t4}</td>
-        <td>{0.tiver}</td></tr>""".format (self, neighbor, ntype)
-        return hdr + s
+        return [ neighbor, ntype, self.blksize, self.priority, 
+                 self.t4, self.tiver ]
 
     def get_api (self):
         ret = { "neighbor" : self.nodeid,

@@ -214,7 +214,7 @@ class Bridge (Element):
         else:
             active = 1
         sb.contents[active].__class__ = html.sbbutton_active
-        ret = [ """<h2>Bridge {0}</h3>""".format (self.name, qs) ]
+        ret = [ """<h2>Bridge {0}</h2>""".format (self.name, qs) ]
         clist = list ()
         for cnam, c in sorted (self.circuits.items ()):
             p = list ()

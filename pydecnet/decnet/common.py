@@ -504,17 +504,9 @@ class BaseCounters (object):
     def makedict (self):
         """Return the current counters, in the form of a dictionary.
         """
-        return { k : getattr (self, k) for k in dir (self) if not k.startswith ("_")
+        return { k : getattr (self, k) for k in dir (self)
+                     if not k.startswith ("_")
                      and not callable (getattr (self, k)) }
 
     # We use the above to implement the API GET operation
     get_api = makedict
-
-    def html (self):
-        ret = [ "<td>{}</td>".format (self._owner.name) ]
-        for f in self.html_fields:
-            v = getattr (self, f, "")
-            ret.append ("<td>{}</td}".format (v))
-        return "".join (ret)
-    
-    

@@ -490,12 +490,15 @@ class Mop (Element):
         self.config = config
         self.circuits = EntityDict ()
         dlcirc = self.node.datalink.circuits
+        self.console_config = False
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
             if dl.use_mop:
                 try:
                     self.circuits[name] = MopCircuit (self, name, dl, c)
                     logging.debug ("Initialized MOP circuit {}", name)
+                    if c.console:
+                        self.console_config = True
                 except Exception:
                     logging.exception ("Error initializing MOP circuit {}", name)
 
@@ -533,15 +536,14 @@ class Mop (Element):
         sb.contents[active].__class__ = html.sbbutton_active
         ret = [ "<h3>MOP {0}</h3>".format (what) ]
         first = True
-        for c in self.circuits.values ():
-            s = c.html (what, first)
-            if s:
-                if first:
-                    first = False
-                    ret.append ("<h3>Circuits:</h3><table border=1 cellspacing=0 cellpadding=4>")
-                ret.append (s)
-        if not first:
-            ret.append ("</table>")
+        if self.console_config:
+            hdr = ( "Name", "MAC address", "HW address",
+                    "Console user", "Services" )
+        else:
+            hdr = ( "Name", "MAC address", "HW address", "Services" )
+        data = [ c.html (what, self.console_config)
+                 for c in self.circuits.values () ]
+        ret.append (html.tbsection ("Circuits", hdr, data))
         if what in ("status", "details"):
             for c in self.circuits.values ():
                 if c.sysid:
@@ -723,21 +725,15 @@ class MopCircuit (Element):
                 self.carrier_server.dispatch (parsed)
             self.sysid.dispatch (parsed)
             
-    def html (self, what, first):
+    def html (self, what, console):
         services = ", ".join (self.services)
-        if self.console_verification:  # Carrier server is enabled
-            hdradd = "<th>Console user</th>"
+        if console:
             cu = (self.carrier_server and self.carrier_server.remote) or ""
-            tdadd = "<td>{}</td>".format (cu)
+            return [ self.name, self.consport.macaddr, self.datalink.hwaddr,
+                     cu, services ]
         else:
-            hdradd = tdadd = ""
-        if first:
-            hdr = """<tr><th>Name</th><th>MAC address</th><th>HW address</th>{}<th>Services</th></tr>""".format (hdradd)
-        else:
-            hdr = ""
-        s = """<tr><td>{0.name}</td><td>{1}</td><td>{2}</td>{3}<td>{4}</td></tr>""" \
-          .format (self, self.consport.macaddr, self.datalink.hwaddr, tdadd, services)
-        return hdr + s
+            return [ self.name, self.consport.macaddr, self.datalink.hwaddr,
+                     services ]
 
     def get_api (self):
         return { "name" : self.name,

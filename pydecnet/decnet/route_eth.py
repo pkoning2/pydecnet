@@ -354,21 +354,14 @@ class RoutingLanCircuit (LanCircuit):
         self.sendhello (empty = True)
         time.sleep (0.1)
 
-    def html (self, what, first):
-        if what != "adjacencies":
-            return super ().html (what, first)
+    def adj_tabledata (self):
+        hdr = adjacency.Adjacency.html_header ()
         ret = list ()
         first = True
         for k, a in sorted (self.adjacencies.items ()):
             if a.state == UP:
-                s = a.html ("status", first)
-                if s:
-                    ret.append (s)
-                    first = False
-        if ret:
-            ret.insert (0, "<table border=1 cellspacing=0 cellpadding=4>")
-            ret.append ("</table>")
-        return '\n'.join (ret)
+                ret.append (a.html_row ())
+        return hdr, ret
 
     def get_api (self):
         ret = { "name" : self.name,

@@ -83,7 +83,7 @@ class Node (Entity):
             else:
                 # Not phase IV, so make sure node ID is an old style
                 # (8 bit) value
-                self.nodeid = NodeId (0, config.routing.id.tid)
+                self.nodeid = Nodeid (0, config.routing.id.tid)
             # Build node lookup dictionaries
             for n in config.node.values ():
                 n = Nodeinfo (n)
