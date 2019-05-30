@@ -14,6 +14,8 @@ import socket
 from .common import *
 from . import logging
 
+SvnFileRev = "$LastChangedRevision$"
+
 class HostAddress (object):
     """A class for handling host addresses, including periodic refreshing
     of name lookup information.  Thanks to Rob Jarratt for the idea, in

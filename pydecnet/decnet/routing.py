@@ -21,6 +21,8 @@ from . import route_ptp
 from . import route_eth
 from . import html
 
+SvnFileRev = "$LastChangedRevision$"
+
 internals = """
 Notes on circuits and adjacencies.
 

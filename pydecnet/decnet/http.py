@@ -8,6 +8,7 @@ import http.server
 import socketserver
 import json
 import traceback
+import sys
 import io
 import os.path
 from urllib.parse import urlparse, parse_qs
@@ -22,48 +23,23 @@ from .common import *
 from . import logging
 from . import html
 
-resourcedir = os.path.join (os.path.dirname (__file__), "resources")
+packagedir = os.path.dirname (__file__)
+resourcedir = os.path.join (packagedir, "resources")
 
-# We want to show the correct rev information for pydecnet in the HTTP
-# monitor page footer.  Unfortunately, these two keyword substitutions
-# are not adequate because they give the information for this file --
-# which may not be changed in the latest change overall.  So we use
-# that as the starting point, but get the real data from rev.txt in
-# the resource directory.  It is put there when you run the program in
-# a Subversion workspace.  From there it ends up in the source kit
-# tarball.
-DNREV = "$LastChangedRevision$".split ()[1]
-CYEAR = "$Date$".split ()[1].split ("-")[0]
-AUTHORS = "Paul Koning"
+SvnFileRev = "$LastChangedRevision$"
 
-# See if we have a resouces/rev.txt file.
-fn = os.path.join (resourcedir, "rev.txt")
-try:
-    with open (fn, "rt") as f:
-        DNREV = int (f.readline ())
-        CYEAR = int (f.readline ())
-except (OSError, ValueError):
-    pass
+def revno (s):
+    return int (s.split ()[1])
 
-# See if this is a Subversion workspace, if so update rev.txt from its
-# information.
-try:
-    cmd = "svn info -r HEAD --show-item last-changed-revision".split ()
-    cmd2 = "svn info -r HEAD --show-item last-changed-date".split ()
-    DNREV2 = int (subprocess.check_output (cmd, stderr = subprocess.DEVNULL,
-                                           universal_newlines = True))
-    revdate = subprocess.check_output (cmd2, stderr = subprocess.DEVNULL,
-                                       universal_newlines = True)
-    CYEAR2 = int (revdate.split ("-")[0])
-    if DNREV != DNREV2 or CYEAR != CYEAR2:
-        with open (fn, "wt") as f:
-            print (DNREV2, file = f)
-            print (CYEAR2, file = f)
-        DNREV = DNREV2
-        CYEAR = CYEAR2
-except Exception:
-    pass
-
+DNREV = 0
+for m in sys.modules.values ():
+    if getattr (m, "__file__", "").startswith (packagedir):
+        # It's a DECnet module, get its rev
+        r = getattr (m, "SvnFileRev", None)
+        if r:
+            r = revno (r)
+            DNREV = max (DNREV, r)
+            
 bottom = "{}-{} &copy; 2013-{} by {}<br>" \
          "Python {}.{}.{} ({}) on {}".format (DNVERSION, DNREV, CYEAR, AUTHORS,
                                               sys.version_info.major,

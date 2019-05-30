@@ -24,6 +24,8 @@ from . import event_logger
 from . import bridge
 from . import session
 
+SvnFileRev = "$LastChangedRevision$"
+
 class Nodeinfo (nsp.NSPNode, nice.NiceNode):
     """A container for node database entries.  This contains the attributes
     needed by the various layers for remote node items -- for example, the

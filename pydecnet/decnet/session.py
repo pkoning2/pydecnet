@@ -19,6 +19,8 @@ from . import nsp
 from . import application_process
 from . import html
 
+SvnFileRev = "$LastChangedRevision$"
+
 # General errors for this layer
 class SessException (DNAException): pass
 class UnexpectedPkt (SessException): "Unexpected NSP packet"

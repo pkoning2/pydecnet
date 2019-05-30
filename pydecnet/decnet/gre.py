@@ -11,6 +11,8 @@ from .common import *
 from . import logging
 from . import datalink
 
+SvnFileRev = "$LastChangedRevision$"
+
 greflags = bytes (2)
 
 class GREPort (datalink.BcPort):

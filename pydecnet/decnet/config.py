@@ -16,6 +16,8 @@ from . import datalinks    # All the datalinks we know
 from . import logging
 from .nsp import Seq
 
+SvnFileRev = "$LastChangedRevision$"
+
 class dnparser_message (Exception): pass
 class dnparser_error (Exception): pass
 

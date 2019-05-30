@@ -16,6 +16,8 @@ from . import adjacency
 from . import timers
 from . import html
 
+SvnFileRev = "$LastChangedRevision$"
+
 # Some well known Ethernet addresses
 ALL_ROUTERS    = Macaddr ("AB-00-00-03-00-00")
 ALL_ENDNODES   = Macaddr ("AB-00-00-04-00-00")

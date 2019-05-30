@@ -4,6 +4,8 @@ from .common import *
 from . import logging
 from .events import *
 
+SvnFileRev = "$LastChangedRevision$"
+
 # Filter classes
 
 class EventFilter (set):

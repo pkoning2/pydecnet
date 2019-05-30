@@ -30,6 +30,8 @@ from . import events
 from . import logging
 from . import http
 
+SvnFileRev = "$LastChangedRevision$"
+
 DEFPIDFILE = "/var/run/pydecnet.pid"
 
 dnparser = argparse.ArgumentParser ()

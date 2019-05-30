@@ -13,6 +13,8 @@ from .common import *
 from . import events
 from . import logging
 
+SvnFileRev = "$LastChangedRevision$"
+
 LE = "little"
 
 # Exceptions related to packet definitions

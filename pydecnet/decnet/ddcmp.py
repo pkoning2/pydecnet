@@ -19,6 +19,8 @@ from . import packet
 from . import statemachine
 from . import modulo
 
+SvnFileRev = "$LastChangedRevision$"
+
 # The CRC-16 polynomial; see section D.2 of the DDCMP spec.
 class CRC16 (crc.CRC, poly = (16, 15, 2, 0)): pass
 

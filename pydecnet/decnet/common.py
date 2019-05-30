@@ -15,6 +15,8 @@ import socket
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
 DNVERSION = "DECnet/Python V1.0"
+CYEAR = "2019"
+AUTHORS = "Paul Koning"
 
 # Defaults
 
@@ -35,6 +37,9 @@ ETHMTU = MTU + 21 - 6    # Ditto, adjusted for long vs. short header
 MSS = MTU - 13           # Max TSDU size
 
 JIFFY = 0.1              # Timer increment in seconds
+
+# For rev tracking
+SvnFileRev = "$LastChangedRevision$"
 
 # Exceptions
 class DNAException (Exception):

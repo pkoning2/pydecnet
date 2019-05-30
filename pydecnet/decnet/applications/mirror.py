@@ -18,6 +18,8 @@ same protocol but as an external process via the JSON API.
 from decnet.common import Element
 from decnet import session
 
+SvnFileRev = "$LastChangedRevision$"
+
 class Application (Element):
     def __init__ (self, parent, obj):
         super ().__init__ (parent)

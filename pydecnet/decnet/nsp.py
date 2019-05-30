@@ -16,6 +16,8 @@ from . import statemachine
 from . import modulo
 from . import html
 
+SvnFileRev = "$LastChangedRevision$"
+
 # API exceptions
 class NSPException (DNAException): pass
 class WrongState (NSPException): "Connection is in the wrong state"

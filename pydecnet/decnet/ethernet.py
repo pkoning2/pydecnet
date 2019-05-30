@@ -19,6 +19,8 @@ from . import logging
 from . import datalink
 from . import pcap
 
+SvnFileRev = "$LastChangedRevision$"
+
 FILL = b'\x42' * 60
 
 class EthPort (datalink.BcPort):
