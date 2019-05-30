@@ -31,24 +31,35 @@ SvnFileRev = "$LastChangedRevision$"
 def revno (s):
     return int (s.split ()[1])
 
-DNREV = 0
-for m in sys.modules.values ():
-    if getattr (m, "__file__", "").startswith (packagedir):
-        # It's a DECnet module, get its rev
-        r = getattr (m, "SvnFileRev", None)
-        if r:
-            r = revno (r)
-            DNREV = max (DNREV, r)
-            
-DNFULLVERSION = "{}-{} © 2013-{} by {}".format (DNVERSION, DNREV, CYEAR, AUTHORS)
+DNREV = None
+
+def setdnrev ():
+    # This has to be in a function called during program startup,
+    # rather than top level code.  Otherwise it runs whenever this
+    # module happens to be imported in the order in which the various
+    # sources are read.  By delaying until we start execution, all our
+    # modules have been imported.
+    global DNREV, DNFULLVERSION, bottom
+    if DNREV is None:
+        DNREV = 0
+        for m in sys.modules.values ():
+            if getattr (m, "__file__", "").startswith (packagedir):
+                # It's a DECnet module, get its rev
+                r = getattr (m, "SvnFileRev", None)
+                if r:
+                    r = revno (r)
+                    DNREV = max (DNREV, r)
+        DNFULLVERSION = "{}-{} © 2013-{} by {}".format (DNVERSION, DNREV,
+                                                        CYEAR, AUTHORS)
+        htmlversion = DNFULLVERSION.replace ("©", "&copy;")
+        bottom = html.footer ("{}<br>{}".format (htmlversion, PYTHONVERSION))
+        
 PYTHONVERSION = "Python {}.{}.{} ({}) on {}".format (sys.version_info.major,
                                                      sys.version_info.minor,
                                                      sys.version_info.micro,
                                                      sys.version_info.releaselevel,
                                                      sys.platform)
 
-htmlversion = DNFULLVERSION.replace ("©", "&copy;")
-bottom = html.footer ("{}<br>{}".format (htmlversion, PYTHONVERSION))
 
 class DNJsonDecoder (json.JSONDecoder):
     def __init__ (self):
@@ -85,6 +96,7 @@ class Monitor:
     def start (self, nodelist):
         global start_time
         start_time = time.time ()
+        setdnrev ()
         ports = list ()
         config = self.config.http
         if config.http_port:
