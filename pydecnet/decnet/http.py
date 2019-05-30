@@ -40,14 +40,15 @@ for m in sys.modules.values ():
             r = revno (r)
             DNREV = max (DNREV, r)
             
-bottom = "{}-{} &copy; 2013-{} by {}<br>" \
-         "Python {}.{}.{} ({}) on {}".format (DNVERSION, DNREV, CYEAR, AUTHORS,
-                                              sys.version_info.major,
-                                              sys.version_info.minor,
-                                              sys.version_info.micro,
-                                              sys.version_info.releaselevel,
-                                              sys.platform)
-bottom = html.footer (bottom)
+DNFULLVERSION = "{}-{} © 2013-{} by {}".format (DNVERSION, DNREV, CYEAR, AUTHORS)
+PYTHONVERSION = "Python {}.{}.{} ({}) on {}".format (sys.version_info.major,
+                                                     sys.version_info.minor,
+                                                     sys.version_info.micro,
+                                                     sys.version_info.releaselevel,
+                                                     sys.platform)
+
+htmlversion = DNFULLVERSION.replace ("©", "&copy;")
+bottom = html.footer ("{}<br>{}".format (htmlversion, PYTHONVERSION))
 
 class DNJsonDecoder (json.JSONDecoder):
     def __init__ (self):

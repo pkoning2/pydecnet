@@ -65,9 +65,10 @@ dnparser.add_argument ("--log-config", metavar = "LC",
                        help = "Logging configuration file")
 dnparser.add_argument ("-k", "--keep", type = int, default = 0,
                        help = """Number of log files to keep with nightly
-rotation.  Requires a log file name to be specified.""")
+                              rotation.  Requires a log file name
+                              to be specified.""")
 dnparser.add_argument ("-V", "--version", action = "version",
-                       version = common.DNVERSION)
+                       version = http.DNFULLVERSION)
 dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        nargs = "?", const = "",
                        help = "Show configuration file help (for CMD if given)")
