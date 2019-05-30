@@ -19,6 +19,8 @@ from .common import *
 from . import logging
 from .nice import *
 
+SvnFileRev = "$LastChangedRevision$"
+
 # Base time for time code in event message
 jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 

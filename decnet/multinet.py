@@ -18,6 +18,8 @@ from .common import *
 from . import datalink
 from . import logging
 
+SvnFileRev = "$LastChangedRevision$"
+
 # Multinet link states
 OFF = 0
 LISTEN = 1

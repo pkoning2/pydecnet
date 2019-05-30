@@ -17,6 +17,8 @@ from . import timers
 from . import statemachine
 from . import html
 
+SvnFileRev = "$LastChangedRevision$"
+
 class Start (Work):
     """A work item that says "start the circuit".
     """

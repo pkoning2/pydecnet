@@ -9,6 +9,8 @@ from collections import namedtuple
 
 from .common import *
 
+SvnFileRev = "$LastChangedRevision$"
+
 # NICE protocol function codes
 LOAD = 15          # Request down-line load
 DUMP = 16          # Request up-line dump

@@ -20,6 +20,8 @@ try:
 except ImportError:
     load = None
     
+SvnFileRev = "$LastChangedRevision$"
+
 # Additional level
 TRACE = 2
 
