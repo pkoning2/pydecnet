@@ -43,7 +43,8 @@ def setdnrev ():
     if DNREV is None:
         DNREV = 0
         for m in sys.modules.values ():
-            if getattr (m, "__file__", "").startswith (packagedir):
+            fn = getattr (m, "__file__", None)
+            if isinstance (fn, str) and fn.startswith (packagedir):
                 # It's a DECnet module, get its rev
                 r = getattr (m, "SvnFileRev", None)
                 if r:
