@@ -78,11 +78,6 @@ strtypes = (str, bytes, bytearray, memoryview)
 def byte (n):
     return bytes ((n,))
 
-# List of file descriptors to keep open if we run as daemon
-files_preserve = list ()
-def dont_close (f):
-    files_preserve.append (f)
-    
 class Entity (object):
     """Entity is the base class for most classes that define DECnet
     components.  This defines objects that can (potentially) be accessed

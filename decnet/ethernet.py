@@ -159,7 +159,6 @@ if fcntl:
     class _TapEth (_Ethernet):
         def open (self):
             fd = os.open (self.dev, os.O_RDWR)
-            dont_close (fd)
             oldflags = fcntl (fd, F_GETFL, 0)
             fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
             self.tap = fd
@@ -221,7 +220,6 @@ class _PcapEth (_Ethernet):
     def open (self):
         # Always set promiscuous mode
         self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
-        dont_close (self.pcap)
         super ().open ()
 
     def close (self):
@@ -264,7 +262,6 @@ class _BridgeEth (_Ethernet):
     def open (self):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
-        dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         for retry in range (3):
             # This ought to work reliably, but on Python 3.7 it

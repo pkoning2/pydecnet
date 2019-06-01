@@ -73,7 +73,6 @@ class SimhDMC (datalink.PtpDatalink):
         self.rthread = StopThread (name = self.tname, target = self.run)
         self.status = INIT
         self.socket = socket.socket (socket.AF_INET)
-        dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Refresh the name to address mapping.  This isn't needed for the
         # initial open but we want this for a subsequent one, because

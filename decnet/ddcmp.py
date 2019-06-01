@@ -259,7 +259,6 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         else:
             self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                          socket.IPPROTO_UDP)
-        dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # Refresh the name to address mapping.  This isn't needed for the
         # initial open but we want this for a subsequent one, because

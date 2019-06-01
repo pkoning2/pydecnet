@@ -172,9 +172,6 @@ def start (p):
     trace = functools.partial (decnetLogger.log, TRACE)
     exception = decnetLogger.exception
     info ("DECnet/Python started")
-    # If we run as daemon, we want to keep the handler's stream open
-    # TODO:
-    #common.dont_close (h.stream)
     return
 
 def stop ():

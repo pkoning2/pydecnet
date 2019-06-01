@@ -114,10 +114,23 @@ def main ():
     if not p.configfile:
         print ("At least one config file argument must be specified")
         sys.exit (1)
+    # Before we do anything that would open file descriptors, become
+    # daemon if that was requested.  That includes stuff like starting
+    # logging.  It's tempting to try to use the "keep these
+    # descriptors open" machinery but that gets very complicated if a
+    # logging configuration file is used with multiple logging
+    # handlers of various kinds.  So don't try.  The only drawback is
+    # that many error messages won't be seen because they happen after
+    # this point.  To deal with that, debug without --daemon and only
+    # use daemon mode on known-good configurations.
+    if p.daemon:
+        daemoncontext = DaemonContext (pidfile = pidfile (p.pid_file))
+        daemoncontext.open ()
     # First start up the logging machinery
     logging.start (p)
-    # Read all the configs
     logging.info ("Starting DECnet/Python")
+
+    # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
     
     # Initialize all the nodes
@@ -137,11 +150,6 @@ def main ():
     for n in nodes:
         n.start ()
     try:
-        if p.daemon:
-            daemoncontext = DaemonContext (files_preserve = common.files_preserve,
-                                           pidfile = pidfile (p.pid_file))
-            logging.info ("Becoming daemon just before starting main thread")
-            daemoncontext.open ()
         if httpserver:
             httpserver.start (nodes)
         else:
