@@ -80,7 +80,6 @@ class GRE (datalink.BcDatalink, StopThread):
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_RAW, GREPROTO)
         if self.source:
             self.socket.bind ((self.source, 0))
-        dont_close (self.socket)
         self.start ()
         
     def close (self):

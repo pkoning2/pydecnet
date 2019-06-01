@@ -130,7 +130,6 @@ class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
         self.api = config.api
         self.secure = secure or config.insecure_api
         super ().__init__ (addr, rclass)
-        dont_close (self.socket)
 
 #psplit_re = re.compile (r"/([^/\s]*)(?:/(\S*))?")
 class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):

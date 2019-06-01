@@ -114,7 +114,6 @@ class Multinet (datalink.PtpDatalink):
         else:
             self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                          socket.IPPROTO_UDP)
-        dont_close (self.socket)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.rthread.start ()
 
@@ -125,6 +124,13 @@ class Multinet (datalink.PtpDatalink):
             self.rthread = None
             self.status = OFF
             try:
+                # Note: on Linux it is important not to keep around
+                # any references to the socket after it is closed.
+                # The reason is that the Linux Python implementation
+                # keeps the closed socket around, occupying a file
+                # descriptor, so long as there are references.  Other
+                # platforms like the Mac OS version do not have this
+                # bug.
                 self.socket.close ()
                 logging.trace ("Multinet {} socket closed by request", self.name)
             except Exception:
