@@ -2,21 +2,25 @@ Prerequisites
 
 PyDECnet requires Python 3.3 or later.
 
-Apart from standard Python modules, it uses the python-daemon module
-to enable the --daemon command line option (If that module is missing,
-the option is not supported).  The sample programs apitest2 and rctest
-use the "requests" module.
+Apart from standard Python modules, pydecnet uses the following
+optional modules:
+
+1. python-daemon: if present, the --daemon command line option is
+   available.
+2. PyYAML: if present, the logging configuration file specified by the
+   --log-config command line option can be a YAML file.  If not, only
+   JSON configuration files are supported.
+3. python-pam: if present, username/password authentication for DECnet
+   objects is available.  (TODO: not yet implemented)
 
 Installation
 
 PyDECnet is a conventional pure Python module together with a top
-level script ("pydecnet").  To install it, extract the source tarball,
-and invoke setup.py:
+level script ("pydecnet").  To install it, use the "pip" tool:
 
-    python3.3 setup.py install
+pip3 install decnet-1.0.tar.gz
 
-Substitute another python if appropriate; Python 3.3 is the minimum
-supported version.
+(substitute the actual PyDECnet source tar archive in the command.)
 
 Unit test
 
