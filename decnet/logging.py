@@ -171,7 +171,6 @@ def start (p):
     # made, rather than a trace function here calling "log").
     trace = functools.partial (decnetLogger.log, TRACE)
     exception = decnetLogger.exception
-    info ("DECnet/Python started")
     return
 
 def stop ():

@@ -36,7 +36,7 @@ DEFPIDFILE = "/var/run/pydecnet.pid"
 
 dnparser = argparse.ArgumentParser ()
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
-                       metavar = "CFN", nargs = "*",
+                       metavar = "CFN", nargs = "+",
                        help = "Configuration file")
 if DaemonContext:
     dnparser.add_argument ("-d", "--daemon", action = "store_true",
@@ -114,18 +114,6 @@ def main ():
     if not p.configfile:
         print ("At least one config file argument must be specified")
         sys.exit (1)
-    # Before we do anything that would open file descriptors, become
-    # daemon if that was requested.  That includes stuff like starting
-    # logging.  It's tempting to try to use the "keep these
-    # descriptors open" machinery but that gets very complicated if a
-    # logging configuration file is used with multiple logging
-    # handlers of various kinds.  So don't try.  The only drawback is
-    # that many error messages won't be seen because they happen after
-    # this point.  To deal with that, debug without --daemon and only
-    # use daemon mode on known-good configurations.
-    if p.daemon:
-        daemoncontext = DaemonContext (pidfile = pidfile (p.pid_file))
-        daemoncontext.open ()
     # First start up the logging machinery
     logging.start (p)
     logging.info ("Starting DECnet/Python")
@@ -145,6 +133,27 @@ def main ():
                 sys.exit (1)
             if c.http.http_port:
                 httpserver = http.Monitor (c)
+
+    # Before starting the various layers and elements, become daemon
+    # if requested.  This means we don't have to worry about keeping
+    # all the file descriptors used by DECnet open.  But we do need to
+    # worry about the logging descriptors.  This is uncivilized (it
+    # involves digging in logging module internals).
+    #
+    # TODO: Need to set up a signal handler to implement clean
+    # stopping of the daemon.
+    if p.daemon:
+        preserve = list ()
+        for h in logging.logging._handlerList:
+            # The list contains weak references, resolve to what it refers
+            # to.
+            h = h ()
+            f = getattr (h, "socket", None) or getattr (h, "stream", None)
+            if f:
+                preserve.append (f)
+        daemoncontext = DaemonContext (pidfile = pidfile (p.pid_file),
+                                       files_preserve = preserve)
+        daemoncontext.open ()
 
     # Start all the nodes, each in a thread of its own.
     for n in nodes:
