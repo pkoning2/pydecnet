@@ -22,7 +22,8 @@ setup (author = "Paul Koning",
        py_modules = [ "crc" ],
        extras_require = {
            "daemon" : "python-daemon",
-           "yaml" : "PyYAML"
+           "yaml" : "PyYAML",
+           "pam" : "python-pam"
            },
        classifiers=[
            "Development Status :: 3 - Alpha",
@@ -31,5 +32,7 @@ setup (author = "Paul Koning",
            "Programming Language :: Python :: 3.3",
            "Programming Language :: Python :: 3.4",
            "Programming Language :: Python :: 3.5",
+           "Programming Language :: Python :: 3.6",
+           "Programming Language :: Python :: 3.7",
            ],       
        )

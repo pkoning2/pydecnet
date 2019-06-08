@@ -201,16 +201,14 @@ class Bridge (Element):
                         logging.trace ("Flooding packet to {}", c)
                         c.send_frame (packet, work.extra)
     
-    def http_get (self, parts, qs):
+    def http_get (self, mobile, parts, qs):
         if parts:
             what = parts[0]
         else:
             what = "summary"
         sb = html.sbelement (html.sblabel ("Information"),
-                             html.sbbutton ("bridge", "Summary", qs),
-                             #html.sbbutton ("bridge/status", "Status", qs),
-                             #html.sbbutton ("bridge/counters", "Counters", qs),
-                             html.sbbutton ("bridge/internals", "Internals", qs))
+                             html.sbbutton (mobile, "bridge", "Summary", qs),
+                             html.sbbutton (mobile, "bridge/internals", "Internals", qs))
         if what == "internals":
             active = 2
         else:
@@ -234,8 +232,8 @@ class Bridge (Element):
                                         addr, ent in self.addrdb.items () ]))))
         return sb, html.main (*ret)
 
-    def description (self):
-        return html.makelink ("bridge",
+    def description (self, mobile):
+        return html.makelink (mobile, "bridge",
                               "Bridge {0.name}".format (self),
                               "?system={0.name}".format (self))
 

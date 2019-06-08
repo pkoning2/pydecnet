@@ -27,8 +27,9 @@ def wrap (content, cls):
         return content
     return cls (*content)
 
-def makelink (path, title, qs = ""):
-    return '<a href="/{}{}">{}</a>'.format (path, qs, title)
+def makelink (mobile, path, title, qs = ""):
+    return '<a href="/{}{}{}">{}</a>'.format ("m/" if mobile else "",
+                                              path, qs, title)
 
 class cell (wraphtml):
     tag = "td"
@@ -124,11 +125,11 @@ class mopdetails (div):
 class sbbutton (div):
     open = '<div class="sidebar-link">'
 
-    def __init__ (self, path, title = None, qs = ""):
+    def __init__ (self, mobile, path, title = None, qs = ""):
         if title is None:
             super ().__init__ (path)
         else:
-            super ().__init__ (makelink (path, title, qs))
+            super ().__init__ (makelink (mobile, path, title, qs))
     
 class sbbutton_active (sbbutton): open = '<div class="sidebar-link-active">'
 
@@ -165,16 +166,24 @@ class footer (div):
     open = '<div class="footer">'
     
 class doc (object):
-    def __init__ (self, title, top, middle, bottom):
+    def __init__ (self, mobile, title, top, middle, bottom):
+        self.mobile = mobile
         self.title = title
         self.top = top
         self.middle = middle
         self.bottom = bottom
         
     def __str__ (self):
+        addmeta = ""
+        if self.mobile:
+            addmeta = \
+'''<link href="/resources/decnet_m.css" rel="stylesheet" type="text/css">
+<meta name="viewport" content="width=device-width, initial-scale=1">'''
+
         return """<html><head>
   <title>{0.title}</title>
   <link href="/resources/decnet.css" rel="stylesheet" type="text/css">
+  {1}
 </head>
 <body>
 <div class="flex-page">
@@ -182,5 +191,6 @@ class doc (object):
 {0.middle}
 {0.bottom}
 </body></html>
-""".format (self)
+""".format (self, addmeta)
 
+#   <meta http-equiv="refresh" content="15">

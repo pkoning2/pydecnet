@@ -589,7 +589,7 @@ class NSP (Element):
         i = (i + self.maxconns + 1) & 0xffff
         self.freeconns.append (i)
     
-    def http_get (self, parts, qs):
+    def http_get (self, mobile, parts, qs):
         infos = ( "summary", "status", "counters", "characteristics" )
         if not parts or parts == ['']:
             what = "summary"
@@ -599,10 +599,12 @@ class NSP (Element):
             return None, None
         active = infos.index (what) + 1
         sb = html.sbelement (html.sblabel ("Information"),
-                             html.sbbutton ("nsp", "Summary", qs),
-                             html.sbbutton ("nsp/status", "Status", qs),
-                             html.sbbutton ("nsp/counters", "Counters", qs),
-                             html.sbbutton ("nsp/characteristics", "Characteristics", qs))
+                             html.sbbutton (mobile, "nsp", "Summary", qs),
+                             html.sbbutton (mobile, "nsp/status", "Status", qs),
+                             html.sbbutton (mobile, "nsp/counters",
+                                            "Counters", qs),
+                             html.sbbutton (mobile, "nsp/characteristics",
+                                            "Characteristics", qs))
         sb.contents[active].__class__ = html.sbbutton_active
         ret = self.html (what)
         return sb, html.main (*ret)

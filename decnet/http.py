@@ -209,24 +209,32 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                     self.send_error (404, "File not found")
                     return
             else:
+                mobile = False
+                if parts[0] == "m":
+                    # Mobile format page requested
+                    mobile = True
+                    parts = parts[1:]
+                if not parts:
+                    parts = ['']
                 ctype = "text/html"
                 if not tnode:
                     if parts != ['']:
                         logging.trace ("Missing system parameter")
                         self.send_error (400, "Missing system parameter")
                         return
-                    ret = self.node_list ()
+                    ret = self.node_list (mobile)
                 else:
-                    ret = tnode.http_get (parts)
+                    ret = tnode.http_get (mobile, parts)
                     if not ret:
                         self.send_error (404, "File not found")
                         return
                     title, sb, body = ret
                     if len (self.server.nodelist) > 1:
-                        sb.insert (0, self.node_sidebar (nodeidx))
+                        sb.insert (0, self.node_sidebar (mobile, nodeidx))
                     sb = html.sidebar (*sb)
                     top = self.http_title (title)
-                    ret = html.doc (title, top, html.middle (sb, body), bottom)
+                    ret = html.doc (mobile, title, top,
+                                    html.middle (sb, body), bottom)
             ret = str (ret).encode ("utf-8", "ignore")
             self.send_response (200)
             self.send_header ("Content-type", ctype)
@@ -266,17 +274,18 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         except Exception:
             self.handle_exception ("POST")
 
-    def node_sidebar (self, idx = -1):
+    def node_sidebar (self, mobile, idx = -1):
         return html.sbelement (html.sblabel ("Systems"),
                                *[ (html.sbbutton_active if idx == i
-                                       else html.sbbutton) (n.description ())
+                                       else html.sbbutton) (mobile,
+                                                            n.description (mobile))
                                   for i, n in enumerate (self.server.nodelist) ])
 
-    def node_list (self):
+    def node_list (self, mobile):
         title = "DECnet/Python monitoring"
         top = self.http_title (title)
-        return html.doc (title, top,
-                         html.sidebar (self.node_sidebar ()), bottom)
+        return html.doc (mobile, title, top,
+                         html.sidebar (self.node_sidebar (mobile)), bottom)
     
     def getapientity (self, what, tnode):
         logging.trace ("getentity node {} path {}", tnode, what)
