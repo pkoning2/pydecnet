@@ -211,11 +211,11 @@ class Node (Entity):
             event = event (entity, source = self.nodeid, **kwds)
         self.event_logger.logevent (event)
         
-    def description (self):
+    def description (self, mobile):
         try:
-            return self.routing.description ()
+            return self.routing.description (mobile)
         except AttributeError:
-            return self.bridge.description ()
+            return self.bridge.description (mobile)
 
     def json_description (self):
         try:
@@ -223,41 +223,48 @@ class Node (Entity):
         except AttributeError:
             return self.bridge.json_description ()
 
-    def http_get (self, parts):
+    def http_get (self, mobile, parts):
         qs = "?system={}".format (self.nodename)
         br = self.bridge
+        if not parts:
+            parts = ['']
         if br:
             title = "DECnet/Python monitoring on bridge {0.nodename}".format (self)
             sb = html.sbelement (html.sblabel ("Entities"),
-                                 html.sbbutton ("", "Overall summary", qs),
-                                 html.sbbutton ("bridge", "Bridge layer", qs))
+                                 html.sbbutton (mobile, "",
+                                                "Overall summary", qs),
+                                 html.sbbutton (mobile, "bridge",
+                                                "Bridge layer", qs))
             if parts == ['']:
                 active = 1
-                sb2, body = br.http_get (parts, qs)
+                sb2, body = br.http_get (mobile, parts, qs)
             elif parts[0] == "bridge":
                 active = 2
-                sb2, body = br.http_get (parts[1:], qs)
+                sb2, body = br.http_get (mobile, parts[1:], qs)
             else:
                 return None
         else:
             title = "DECnet/Python monitoring on node {0.nodeid} ({0.nodename})".format (self)
             sb = html.sbelement (html.sblabel ("Entities"),
-                                 html.sbbutton ("", "Overall summary", qs),
-                                 html.sbbutton ("routing", "Routing layer", qs),
-                                 html.sbbutton ("nsp", "NSP and above", qs),
-                                 html.sbbutton ("mop", "MOP", qs))
+                                 html.sbbutton (mobile, "",
+                                                "Overall summary", qs),
+                                 html.sbbutton (mobile, "routing",
+                                                "Routing layer", qs),
+                                 html.sbbutton (mobile, "nsp",
+                                                "NSP and above", qs),
+                                 html.sbbutton (mobile, "mop", "MOP", qs))
             if parts == ['']:
                 active = 1
-                sb2, body = self.routing.http_get (parts, qs)
+                sb2, body = self.routing.http_get (mobile, parts, qs)
             elif parts[0] == "routing":
                 active = 2
-                sb2, body = self.routing.http_get (parts[1:], qs)
+                sb2, body = self.routing.http_get (mobile, parts[1:], qs)
             elif parts[0] == "nsp":
                 active = 3
-                sb2, body = self.nsp.http_get (parts[1:], qs)
+                sb2, body = self.nsp.http_get (mobile, parts[1:], qs)
             elif parts[0] == "mop":
                 active = 4
-                sb2, body = self.mop.http_get (parts[1:], qs)
+                sb2, body = self.mop.http_get (mobile, parts[1:], qs)
             else:
                 return None
         if not body:

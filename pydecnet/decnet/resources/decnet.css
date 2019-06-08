@@ -17,19 +17,19 @@ table, th, td {
 .top {
     background-image: url('pydecnet.svg');
     background-repeat: no-repeat;
-    background-position: left bottom;
-    background-size: auto 100%;
+    background-position: left top;
+    background-size: auto 75%;
 }
 
 .toptitle {
     text-align: center;
     margin-bottom: 12pt;
     font-weight: bold;
-    font-size: 2vw;
+    font-size: 20pt;
 }
 
 .timestamps {
-    text-align: right;
+    text-align: left;
     font-weight: normal;
     font-size: 10pt;
 }
@@ -53,7 +53,7 @@ table, th, td {
 h2, h3 {
     text-align: left;
     font-weight: bold;
-    font-size: 1.5vw;
+    font-size: 16pt;
     margin-top: 18pt;
     margin-bottom: 6pt;
 }

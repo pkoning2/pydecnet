@@ -522,7 +522,7 @@ class Mop (Element):
             except Exception:
                 logging.exception ("Error stopping MOP circuit {}", name)
     
-    def http_get (self, parts, qs):
+    def http_get (self, mobile, parts, qs):
         infos = ( "summary", "status", "details" )
         if not parts or parts == ['']:
             what = "summary"
@@ -532,9 +532,10 @@ class Mop (Element):
             return None, None
         active = infos.index (what) + 1
         sb = html.sbelement (html.sblabel ("Information"),
-                             html.sbbutton ("mop", "Summary", qs),
-                             html.sbbutton ("mop/status", "Status", qs),
-                             html.sbbutton ("mop/details", "Details", qs))
+                             html.sbbutton (mobile, "mop", "Summary", qs),
+                             html.sbbutton (mobile, "mop/status", "Status", qs),
+                             html.sbbutton (mobile, "mop/details",
+                                            "Details", qs))
         sb.contents[active].__class__ = html.sbbutton_active
         ret = [ "<h3>MOP {0}</h3>".format (what) ]
         first = True

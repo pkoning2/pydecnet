@@ -339,7 +339,7 @@ class BaseRouter (Element):
         except KeyError:
             pass
 
-    def http_get (self, parts, qs):
+    def http_get (self, mobile, parts, qs):
         if self.ntype == ENDNODE or self.ntype == PHASE2:
             infos = ( "summary", "counters" )
         else:
@@ -353,14 +353,20 @@ class BaseRouter (Element):
         active = infos.index (what) + 1
         if self.ntype == ENDNODE or self.ntype == PHASE2:
             sb = html.sbelement (html.sblabel ("Information"),
-                                 html.sbbutton ("routing", "Summary", qs),
-                                 html.sbbutton ("routing/counters", "Counters", qs))
+                                 html.sbbutton (mobile, "routing",
+                                                "Summary", qs),
+                                 html.sbbutton (mobile, "routing/counters",
+                                                "Counters", qs))
         else:
             sb = html.sbelement (html.sblabel ("Information"),
-                                 html.sbbutton ("routing", "Summary", qs),
-                                 html.sbbutton ("routing/status", "Status", qs),
-                                 html.sbbutton ("routing/counters", "Counters", qs),
-                                 html.sbbutton ("routing/internals", "Internals", qs))
+                                 html.sbbutton (mobile, "routing",
+                                                "Summary", qs),
+                                 html.sbbutton (mobile, "routing/status",
+                                                "Status", qs),
+                                 html.sbbutton (mobile, "routing/counters",
+                                                "Counters", qs),
+                                 html.sbbutton (mobile, "routing/internals",
+                                                "Internals", qs))
         sb.contents[active].__class__ = html.sbbutton_active
         ntype = ntypestrings[self.ntype]
         hdr = "Routing {1} for node {0.nodeid} ({0.name})".format (self, what)
@@ -370,9 +376,9 @@ class BaseRouter (Element):
         ret.extend (self.html (what))
         return sb, html.main (*ret)
 
-    def description (self):
+    def description (self, mobile):
         ntype = ntypestrings[self.ntype]
-        return html.makelink ("routing",
+        return html.makelink (mobile, "routing",
                               "{1} node {0.nodeid} ({0.name})".format (self, ntype),
                               "?system={0.name}".format (self))
 
