@@ -35,8 +35,11 @@ SvnFileRev = "$LastChangedRevision$"
 DEFPIDFILE = "/var/run/pydecnet.pid"
 
 dnparser = argparse.ArgumentParser ()
+# Note: at least one config file is required, but use "*" for nargs,
+# not "+".  The reason is that no config files are specified if -h or
+# -H are used.
 dnparser.add_argument ("configfile", type = argparse.FileType ("r"),
-                       metavar = "CFN", nargs = "+",
+                       metavar = "CFN", nargs = "*",
                        help = "Configuration file")
 if DaemonContext:
     dnparser.add_argument ("-d", "--daemon", action = "store_true",
