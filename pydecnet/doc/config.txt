@@ -370,9 +370,10 @@ identifier, for example "decnet.mirror".
 --argument: An optional argument to pass to the application when it is
 started.   PyDECnet does not interpret this.
 
---authentication: Either "on" (the default) or "off".  "on" means that
+--authentication: Either "off" (the default) or "on".  "on" means that
 PyDECnet will verify the supplied authentication information, "off"
-means that information is not needed and is ignored if present.
+means that information is not needed and is ignored if present.  Not
+supported if the python-pam library module is not installed.
 
 Component "bridge"
 

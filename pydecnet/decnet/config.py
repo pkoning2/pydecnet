@@ -9,7 +9,11 @@ import os
 import sys
 import argparse
 import shlex
-
+try:
+    import pam
+except ImportError:
+    pam = None
+    
 from .common import *
 from . import datalink
 from . import datalinks    # All the datalinks we know
@@ -234,9 +238,14 @@ ogroup.add_argument ("--disable", action = "store_true", default = False,
                      help = "Disable built-in object")
 cp.add_argument ("--argument", metavar = "A",
                  help = "Optional argument to pass to application when started")
-cp.add_argument ("--authentication", choices = ("on", "off"), default = "on",
-                 help = """'on' to have PyDECnet verify username/password,
-                        'off' to ignore username/password.  Default: on.""")
+if pam:
+    cp.add_argument ("--authentication", choices = ("on", "off"),
+                     default = "off",
+                     help = """'on' to have PyDECnet verify username/password,
+                            'off' to ignore username/password.  
+                            Default: off.""")
+else:
+    cp.set_defaults (authentication = "off")
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", type = str, help = "Bridge name")

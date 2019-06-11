@@ -226,8 +226,6 @@ class Node (Entity):
     def http_get (self, mobile, parts):
         qs = "?system={}".format (self.nodename)
         br = self.bridge
-        if not parts:
-            parts = ['']
         if br:
             title = "DECnet/Python monitoring on bridge {0.nodename}".format (self)
             sb = html.sbelement (html.sblabel ("Entities"),
