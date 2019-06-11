@@ -8,6 +8,11 @@ from collections import deque
 import random
 import importlib
 import shutil
+try:
+    import pam
+    pamobj = pam.pam ()
+except ImportError:
+    pam = None
 
 from .common import *
 from . import logging
@@ -71,7 +76,7 @@ class ConnectConfirm (ApplicationWork):
 class EndUser (object):
     """Class for the "End user" field in Connect Initiate data.
     """
-    def __init__ (self, num = 0, name = "", group = None, user = None):
+    def __init__ (self, num = 0, name = "", group = 0, user = 0):
         if num not in range (256) or len (name) > 16:
             raise ValueError ("Invalid num and/or name")
         self.num = num
@@ -192,13 +197,17 @@ class SessionConnInit (packet.Packet):
                 raise MissingData
             
 class SessionObject (Element):
-    def __init__ (self, parent, number, name = "", module = "", file = ""):
+    def __init__ (self, parent, number, name = "", module = "", file = "",
+                  auth = "off"):
         super ().__init__ (parent)
+        if auth and not pam:
+            raise ArgumentError ("authentication requested but python-pam is not installed")
         self.argument = ""
         self.number = number
         self.name = name
         self.module = module
         self.file = file
+        self.auth = auth.lower () != "off"
         if not self.number and not self.name:
             raise ArgumentError ("At least one of name and number must be specified")
         if len (self.name) > 16:
@@ -221,11 +230,12 @@ class SessionObject (Element):
             parent.obj_num[number] = self
 
 class DefObj (dict):
-    def __init__ (self, name, num, module):
+    def __init__ (self, name, num, module, auth = "off"):
         self.name = name.upper ()
         self.number = num
         self.module = module
         self.file = None
+        self.auth = auth
         
 defobj = ( DefObj ("MIRROR", 25, "decnet.applications.mirror"),
          )
@@ -271,7 +281,8 @@ class Session (Element):
         self.conns = dict ()
         for d in defobj:
             # Add default (built-in) objects
-            obj = SessionObject (self, d.number, d.name, d.module)
+            obj = SessionObject (self, d.number, d.name, d.module,
+                                 auth = d.auth)
         # Add objects from the config
         for obj in config.object:
             if obj.disable:
@@ -284,7 +295,7 @@ class Session (Element):
                                    obj.number)
             else:
                 obj = SessionObject (self, obj.number, obj.name,
-                                     obj.module, obj.file)
+                                     obj.module, obj.file, obj.authentication)
         for k, v in sorted (self.obj_num.items ()):
             if v.module:
                 logging.debug ("Session control object {0.number} ({0.name}) module {0.module}", v)
@@ -320,13 +331,14 @@ class Session (Element):
     def html_objects (self):
         # Return an HTML item for the object database
         title = "Session control object database"
-        hdr = ("Object", "Name", "Type", "Destination")
+        hdr = ("Object", "Name", "Type", "Destination", "Authentication")
         items = [ (0, o.name, o) for o in self.obj_name.values () if not o.number ]
         items.extend ([ (o.number, o.name, o) for o in self.obj_num.values () ])
         items.sort ()
         items = [ (n if n else "", m,
                    "Module" if o.module else "File",
-                   o.module if o.module else o.file) for n, m, o in items ]
+                   o.module if o.module else o.file,
+                   "On" if o.auth else "Off") for n, m, o in items ]
         return html.tbsection (title, hdr, items)
 
     def html_localuser (self, nspconn):
@@ -373,6 +385,30 @@ class Session (Element):
                                    spkt.dstname)
                     nspconn.reject (NO_OBJ)
                     return
+                if sesobj.auth:
+                    # Authentication required.  We don't look at
+                    # Account, but the other two fields must be
+                    # present and they must be the correct value to
+                    # pass PAM authentication on this host.
+                    if not spkt.rqstrid or not spkt.passwrd or \
+                       not pamobj.authenticate (spkt.rqstrid, spkt.passwrd):
+                        logging.debug ("Authentication reject for username {}",
+                                       spkt.rqstrid)
+                        pw = dict ()
+                        if spkt.passwrd:
+                            pw["password"] = 0
+                        if spkt.account:
+                            pw["account"] = spkt.account
+                        s = spkt.srcname
+                        d = spkt.dstname
+                        so = (s.num, s.group, s.user, s.name)
+                        do = (d.num, d.group, d.user, d.name)
+                        self.node.logevent (events.acc_rej, 
+                                            source_process = so,
+                                            destination_process = do,
+                                            user = spkt.rqstrid, **pw)
+                        nspconn.reject (BAD_AUTH)
+                        return
                 conn = SessionConnection (self, nspconn,
                                           spkt.dstname, spkt.srcname)
                 self.conns[nspconn] = conn
