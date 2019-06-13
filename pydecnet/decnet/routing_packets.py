@@ -33,7 +33,7 @@ class ChecksumError (RoutingDecodeError):
     """Routing packet checksum error."""
 
 # Mapping from router type code to strings:
-ntypestrings = ( "Phase 2", "Area router", "L1 router", "Endnode" )
+ntypestrings = ( "Phase 2 node", "Area router", "L1 router", "Endnode" )
 
 # Utility to turn packet into event data.
 def splithdr (b, lens):
@@ -142,6 +142,11 @@ class PtpInit (CtlHdr):
     type = 0
     blo = 0
 
+    # This defaults tiver but allows it to be overridden.
+    def __init__ (self, *args, **kwargs):
+        self.tiver = tiver_ph4
+        super ().__init__ (*args, **kwargs)
+        
     def check (self):
         # Check that the node number is valid
         if not self.srcnode:
@@ -161,6 +166,10 @@ class PtpInit3 (CtlHdr):
     # Defined in phase IV hello, supply dummy value for commonality
     timer = 0
 
+    def __init__ (self, *args, **kwargs):
+        self.tiver = tiver_ph3
+        super ().__init__ (*args, **kwargs)
+        
     def check (self):
         # Check that the node number is valid
         if not 1 <= self.srcnode <= 255:
@@ -250,7 +259,8 @@ class RoutingMessage (CtlHdr):
         s = (s & 0xffff) + (s >> 16)
         check = int.from_bytes (segs[-2:], packet.LE)
         if s != check:
-            logging.debug ("Routing packet checksum error ({:0>4x} not {:0>4x})",
+            logging.debug ("Routing packet checksum error "
+                           "(expected {:0>4x}, received {:0>4x})",
                            s, check)
             raise ChecksumError
 
@@ -440,6 +450,8 @@ testdata_re = re.compile (b"^\252*$")
 # Mappings from control packet type code to packet class
 ptpcontrolpackets = { c.type : c for c in
                       ( PtpInit, PtpVerify, PtpHello, L1Routing, L2Routing ) }
+ph3controlpackets = { c.type : c for c in
+                      ( PtpInit, PtpVerify, PtpHello, PhaseIIIRouting ) }
 bccontrolpackets = { c.type : c for c in
                      ( RouterHello, EndnodeHello, L1Routing, L2Routing) }
 
