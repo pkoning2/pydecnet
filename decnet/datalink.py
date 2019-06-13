@@ -268,6 +268,7 @@ class PtpDatalink (Datalink):
         port = super ().create_port (owner, proto, *args)
         if self.port:
             raise RuntimeError ("Creating second port on point to point datalink")
+        port.start_works = self.start_works
         self.port = port
         return port
 

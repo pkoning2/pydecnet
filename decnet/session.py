@@ -85,7 +85,7 @@ class EndUser (object):
         self.user = user
         if num:
             self.fmt = 0
-        elif self.group is not None:
+        elif self.group or self.user:
             self.fmt = 2
         else:
             self.fmt = 1
