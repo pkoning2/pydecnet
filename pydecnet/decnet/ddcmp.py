@@ -269,9 +269,10 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.socket.bind (("", self.lport))
             if self.tcp:
                 self.socket.listen (1)
-        except (OSError, socket.error):
+        except (AttributeError, OSError, socket.error):
             logging.trace ("DDCMP {} bind/listen failed", self.name)
-            self.socket.close ()
+            if self.socket:
+                self.socket.close ()
             return
         logging.trace ("DDCMP {} listen to {} active",
                        self.name, self.rport)
@@ -466,7 +467,10 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         self.state = self.reconnect
                     return
                 # Not error, so it's incoming data.  Get the first byte.
-                c = sock.recv (1)
+                try:
+                    c = sock.recv (1)
+                except Exception:
+                    c = None
                 if not c:
                     pstate = self.state
                     self.disconnected ()
