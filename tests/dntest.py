@@ -57,7 +57,7 @@ def stop_timer (item):
     item.next = item
     
 class t_node (node.Node):
-    nodeid = Nodeid (42, 1023)
+    nodeid = Nodeid (1, 5)
     nodename = "NEMO"
     
     def __init__ (self):
@@ -127,7 +127,10 @@ class DnTest (unittest.TestCase):
             w, dest, *extra = a
         else:
             w = a[0]
-            dest = None
+            # If there wasn't a second positional argument,
+            # destination address might be given as a keyword argument
+            # instead.
+            dest = k.get ("dest", None)
         self.assertIsInstance (w, ptype)
         return w, dest
 

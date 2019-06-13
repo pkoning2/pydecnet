@@ -266,6 +266,7 @@ class BaseRouter (Element):
     components and collections of circuits and adjacencies.
     """
     tiver = tiver_ph4
+    defmaxnode = 1023
     
     def __init__ (self, parent, config):
         super ().__init__ (parent)
@@ -368,28 +369,35 @@ class BaseRouter (Element):
                                  html.sbbutton (mobile, "routing/internals",
                                                 "Internals", qs))
         sb.contents[active].__class__ = html.sbbutton_active
-        ntype = ntypestrings[self.ntype]
         hdr = "Routing {1} for node {0.nodeid} ({0.name})".format (self, what)
-        body = [ "Node type: {}".format (ntype),
+        body = [ "Node type: {}".format (self.ntypestring),
                  "Routing version: {0.tiver}".format (self) ]
+        if self.ntype in { L1ROUTER, L2ROUTER }:
+            body.append ("Max nodes: {0.maxnodes}".format (self))
+            body.append ("Max hops: {0.maxhops}".format (self))
+            body.append ("Max cost: {0.maxcost}".format (self))
+            body.append ("Max visits: {0.maxvisits}".format (self))
+        if self.ntype == L2ROUTER:
+            body.append ("Max area: {0.maxarea}".format (self))
+            body.append ("Area max hops: {0.amaxhops}".format (self))
+            body.append ("Area max cost: {0.amaxcost}".format (self))
         ret = [ html.firsttextsection (hdr, body) ]
         ret.extend (self.html (what))
         return sb, html.main (*ret)
 
     def description (self, mobile):
-        ntype = ntypestrings[self.ntype]
         return html.makelink (mobile, "routing",
-                              "{1} node {0.nodeid} ({0.name})".format (self, ntype),
+                              "{0.ntypestring} {0.nodeid} ({0.name})".format (self),
                               "?system={0.name}".format (self))
 
     def json_description (self):
-        return { self.name : [ ntypestrings[self.ntype], self.nodeid ] }
+        return { self.name : [ self.ntypestring, self.nodeid ] }
 
     def get_api (self):
         return { "circuits" : self.circuits.get_api (),
                  "address" : self.nodeid,
                  "name" : self.name,
-                 "type" : ntypestrings[self.ntype],
+                 "type" : self.ntypestring,
                  "version" : self.tiver }
         
 class EndnodeRouting (BaseRouter):
@@ -398,6 +406,7 @@ class EndnodeRouting (BaseRouter):
     LanCircuit = LanEndnodeCircuit
     PtpCircuit = PtpEndnodeCircuit
     ntype = ENDNODE
+    ntypestring = "Phase 4 endnode"
     
     def __init__ (self, parent, config):
         super ().__init__ (parent, config)
@@ -457,7 +466,9 @@ class EndnodeRouting (BaseRouter):
 class Phase3EndnodeRouting (EndnodeRouting):
     """Routing entity for Phase III endnodes.
     """
+    tiver = tiver_ph3
     LanCircuit = None    # not supported
+    ntypestring = "Phase 3 endnode"
 
 class Phase2Routing (BaseRouter):
     """Routing entity for Phase II node.
@@ -465,6 +476,7 @@ class Phase2Routing (BaseRouter):
     LanCircuit = None    # not supported
     PtpCircuit = PtpEndnodeCircuit
     ntype = PHASE2
+    ntypestring = "Phase 2 node"
     
     def send (self, pkt, dest, rqr = False, tryhard = False):
         """Send NSP packet to the given destination. rqr and
@@ -549,13 +561,14 @@ class L1Router (BaseRouter):
     LanCircuit = LanL1Circuit
     PtpCircuit = PtpL1Circuit
     ntype = L1ROUTER
+    ntypestring = "L1 router"
     attached = False    # Defined for L2 routers, needed by check
     firstnode = 0       # For routing table display
     
     def __init__ (self, parent, config):
         # These are needed by various constructors so grab them first
         rconfig = config.routing
-        self.maxnodes = rconfig.maxnodes
+        self.maxnodes = min (rconfig.maxnodes, self.defmaxnode)
         self.maxhops = rconfig.maxhops
         self.maxcost = rconfig.maxcost
         self.maxvisits = rconfig.maxvisits
@@ -923,7 +936,9 @@ class L1Router (BaseRouter):
     def html (self, what):
         ret = [ ]
         for t in (self.LanCircuit, self.PtpCircuit):
-            if t == self.LanCircuit:
+            if not t:
+                continue
+            elif t == self.LanCircuit:
                 title = "LAN circuits"
             else:
                 title = "Point to point circuits"
@@ -946,7 +961,7 @@ class L1Router (BaseRouter):
                     ret.append (html.tbsection (title, header, rows))
         if what in ("status", "internals"):
             for k, c in sorted (self.circuits.items ()):
-                if isinstance (c, self.LanCircuit):
+                if self.LanCircuit and isinstance (c, self.LanCircuit):
                     h, d = c.adj_tabledata ()
                     if d:
                         ret.append (html.tbsection ("Adjacencies on {}".format (c.name), h, d))
@@ -972,14 +987,18 @@ class Phase3Router (L1Router):
     """Routing entity for Phase III routers.
     """
     LanCircuit = None
+    tiver = tiver_ph3
+    defmaxnode = 255
     firstnode = 1       # For routing table display
-    
+    ntypestring = "Phase 3 router"
+
 class L2Router (L1Router):
     """Routing entity for level 2 (area) routers
     """
     LanCircuit = LanL2Circuit
     PtpCircuit = PtpL2Circuit
     ntype = L2ROUTER
+    ntypestring = "Area router"
     
     def __init__ (self, parent, config):
         rconfig = config.routing
@@ -1152,12 +1171,29 @@ class Update (Element, timers.Timer):
             self.node.timers.start (self, delta)
 
     def dispatch (self, item):
-        if isinstance (item, timers.Timeout) and self.parent.ntype != ENDNODE \
-          and self.parent.ntype != PHASE2:
+        if isinstance (item, timers.Timeout):
+            # Time to send some updates.  See if the neighbor wants them.
+            if self.parent.ntype == ENDNODE or self.parent.ntype == PHASE2:
+                # Never
+                return
+            pkttype = self.pkttype
+            if isinstance (self.parent, route_ptp.PtpCircuit):
+                # Point to point, see if neighbor wants this update
+                if pkttype == L2Routing:
+                    if self.parent.ntype != L2ROUTER:
+                        return
+                else:
+                    if self.parent.ntype == L2ROUTER \
+                      and self.parent.id.area != self.routing.homearea:
+                        # Do not send L1 routing data out of area.
+                        return
+                    if self.node.phase == 3 or self.parent.rphase == 3:
+                        # Either we are phase 3 or neighbor is, use that format.
+                        pkttype = PhaseIIIRouting
             # If anysrm is set, that means setsrm was called to
             # request sending of specific updates.  If not, then this
             # is a periodic (all destinations) update
-            pkts = self.buildupdates (not self.anysrm)
+            pkts = self.buildupdates (pkttype, not self.anysrm)
             self.startpos += 1
             startpos = self.startpos % len (pkts)
             pkts = pkts[startpos:] + pkts[:startpos]
@@ -1177,7 +1213,7 @@ class Update (Element, timers.Timer):
             self.node.timers.start (self, delta)
             self.anysrm = False
             
-    def buildupdates (self, complete):
+    def buildupdates (self, pkttype, complete):
         """Build routing messages according to the SRM flags.  The highest
         entry is obtained from the length of the minhops vector; the starting
         entry number is given by pkttype.lowid.  If "complete" is False, send
@@ -1188,10 +1224,7 @@ class Update (Element, timers.Timer):
         srm = self.srm
         minhops = self.minhops
         mincost = self.mincost
-        pkt = self.pkttype
-        if pkt == L1Routing and self.node.phase == 3:
-            pkt = PhaseIIIRouting
-        seg = pkt.segtype
+        seg = pkttype.segtype
         if seg:
             # Phase 4 (segmented) format
             ret = list ()
@@ -1199,7 +1232,7 @@ class Update (Element, timers.Timer):
             previd = -999
             curlen = 0    # dummy value so it is defined
             mtu = self.parent.minrouterblk - 16
-            for i in range (pkt.lowid, len (minhops)):
+            for i in range (pkttype.lowid, len (minhops)):
                 if complete or srm[i]:
                     if curlen > mtu:
                         # If the packet is at the size limit, finish it up
@@ -1210,7 +1243,7 @@ class Update (Element, timers.Timer):
                         p = None
                     srm[i] = 0
                     if not p:
-                        p = pkt (srcnode = self.node.nodeid)
+                        p = pkttype (srcnode = self.node.nodeid)
                         p.segments = list ()
                         seg = None
                         curlen = 6   # Packet header plus checksum
@@ -1230,7 +1263,7 @@ class Update (Element, timers.Timer):
                                 seg.entries.append (ent)
                                 curlen += 2
                     if not seg:
-                        seg = pkt.segtype (startid = i)
+                        seg = pkttype.segtype (startid = i)
                         seg.entries = list ()
                         curlen += 4    # Segment header
                     ent = RouteSegEntry (cost = mincost[i], hops = minhops[i])
@@ -1243,7 +1276,7 @@ class Update (Element, timers.Timer):
                 ret.append (p)
         else:
             # Phase 3 (not segmented) format
-            p = pkt (srcnode = self.node.nodeid)
+            p = pkttype (srcnode = self.routing.tid)
             p.segments = list ()
             for i in range (1, len (minhops)):
                 srm[i] = 0

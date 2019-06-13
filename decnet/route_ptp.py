@@ -73,7 +73,6 @@ class PtpCircuit (statemachine.StateMachine):
             if self.node.phase == 3:
                 self.initmsg = PtpInit3 (srcnode = parent.tid,
                                         ntype = parent.ntype,
-                                        tiver = parent.tiver,
                                         verif = self.verif,
                                         blksize = MTU,
                                         reserved = b'')
@@ -81,7 +80,6 @@ class PtpCircuit (statemachine.StateMachine):
                 self.initmsg = PtpInit (srcnode = parent.nodeid,
                                         ntype = parent.ntype,
                                         timer = self.t3,
-                                        tiver = parent.tiver,
                                         verif = self.verif,
                                         blksize = MTU,
                                         reserved = b'')
@@ -250,7 +248,11 @@ class PtpCircuit (statemachine.StateMachine):
                 if code:
                     # Not init
                     try:
-                        work.packet = ptpcontrolpackets[code] (buf, src = None)
+                        if self.rphase == 3:
+                            table = ph3controlpackets
+                        else:
+                            table = ptpcontrolpackets
+                        work.packet = table[code] (buf, src = None)
                     except KeyError:
                         logging.debug ("Unknown routing control packet {} from {}",
                                        code, self.name)
@@ -616,7 +618,6 @@ class PtpCircuit (statemachine.StateMachine):
                             ntype = L1ROUTER
                         initmsg = PtpInit3 (srcnode = self.parent.tid,
                                             ntype = ntype,
-                                            tiver = tiver_ph3,
                                             verif = self.initmsg.verif,
                                             blksize = MTU)
                         self.datalink.send (initmsg)
@@ -802,7 +803,8 @@ class PtpCircuit (statemachine.StateMachine):
             self.adj.alive ()
             pkt = item.packet
             # Check source address
-            if isinstance (pkt, (PtpHello, L1Routing, L2Routing)) \
+            if isinstance (pkt, (PtpHello, L1Routing,
+                                 L2Routing, PhaseIIIRouting)) \
               and self.rphase > 2 and not self.checksrc (pkt.srcnode):
                 logging.debug ("{} packet from wrong node {}",
                                self.name, pkt.srcnode)
@@ -810,7 +812,8 @@ class PtpCircuit (statemachine.StateMachine):
                                      "adjacency down",
                                      adjacent_node = self.optnode (),
                                      reason = "address_out_of_range")
-            if isinstance (pkt, (ShortData, LongData, L1Routing, L2Routing)) \
+            if isinstance (pkt, (ShortData, LongData, L1Routing,
+                                 L2Routing, PhaseIIIRouting)) \
                and self.rphase > 2:
                 if logging.tracing:
                     logging.trace ("{} data packet to routing: {}",
@@ -822,13 +825,13 @@ class PtpCircuit (statemachine.StateMachine):
                     # our area number into source and destination addresses,
                     # but only if they are not already set (see DNA Routing
                     # spec for why).
-                    if pkt.srcnode.area == 0:
-                        pkt.srcnode = Nodeid (self.parent.homearea,
-                                              pkt.srcnode.tid)
-                    if isinstance (pkt, (ShortData, LongData)) and \
-                           pkt.dstnode.area == 0:
-                        pkt.dstnode = Nodeid (self.parent.homearea,
-                                              pkt.dstnode.tid)
+                    if isinstance (pkt, (ShortData, LongData)):
+                        if pkt.srcnode.area == 0:
+                            pkt.srcnode = Nodeid (self.parent.homearea,
+                                                  pkt.srcnode.tid)
+                        if pkt.dstnode.area == 0:
+                            pkt.dstnode = Nodeid (self.parent.homearea,
+                                                  pkt.dstnode.tid)
                 pkt.src = self.adj
                 self.parent.dispatch (pkt)
             elif isinstance (pkt, PtpHello) and self.node.phase > 2:
@@ -924,6 +927,11 @@ class PtpCircuit (statemachine.StateMachine):
         if self.state == self.ru:
             neighbor = str (self.optnode ())
             ntype = ntypestrings[self.ntype]
+            if self.rphase == 3:
+                if self.ntype == ENDNODE:
+                    ntype = "Phase 3 endnode"
+                else:
+                    ntype = "Phase 3 router"
         else:
             neighbor = ntype = "-"
         if self.adj:
@@ -940,8 +948,14 @@ class PtpCircuit (statemachine.StateMachine):
                 "hello_timer" : self.t3,
                 "cost" : self.config.cost }
         if self.state == self.ru:
+            ntype = ntypestrings[self.ntype]
+            if self.rphase == 3:
+                if self.ntype == ENDNODE:
+                    ntype = "Phase 3 endnode"
+                else:
+                    ntype = "Phase 3 router"
             ret.update ({ "neighbor" : self.id,
-                          "type" : ntypestrings[self.ntype],
+                          "type" : ntype,
                           "blocksize" : self.blksize,
                           "version" : self.tiver })
         if self.adj:

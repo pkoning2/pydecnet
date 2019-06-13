@@ -35,6 +35,7 @@ class lantest (DnTest):
         self.r.tiver = tiver_ph4
         self.r.name = b"TEST"
         self.r.minhops, self.r.mincost = routing.allocvecs (100)
+        self.r.aminhops, self.r.amincost = routing.allocvecs (10)
         self.c = self.ctype (self.r, "lan-0", self.dl, self.config)
         self.c.parent = self.r
         self.c.node = self.node
@@ -767,9 +768,16 @@ class test_routing (lantest):
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
         self.shortpackets (p1, Macaddr ("aa:00:04:00:02:04"))
         self.assertEqual (len (self.c.adjacencies), 0)
+
+    def test_upd1 (self):
+        DnTimeout (self.c.update)
+        p, dest = self.lastsent (self.cp, 2)
+        self.assertIsInstance (p, L1Routing)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         
 class test_l2routing (test_routing):
     ntype = L2ROUTER
+    ctype = routing.LanL2Circuit
     
     def test_l2hello (self):
         self.assertFalse (self.c.adjacencies)
@@ -840,5 +848,11 @@ class test_l2routing (test_routing):
         self.assertEqual (rsent.prio, 64)
         self.assertTrue (rsent.twoway)
 
+    def test_upd2 (self):
+        DnTimeout (self.c.aupdate)
+        p, dest = self.lastsent (self.cp, 2)
+        self.assertIsInstance (p, L2Routing)
+        self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        
 if __name__ == "__main__":
     unittest.main ()
