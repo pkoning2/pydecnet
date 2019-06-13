@@ -26,6 +26,7 @@ class stest (DnTest):
         self.config.object[0].name = "TESTER"
         self.config.object[0].module = "tests.module_app_exerciser"
         self.config.object[0].argument = "myargument"
+        self.config.object[0].authentication = "off"
         self.node.nsp = unittest.mock.Mock ()
         self.s = session.Session (self.node, self.config)
         #self.setloglevel (logging.TRACE)

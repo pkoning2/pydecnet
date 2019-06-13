@@ -14,15 +14,15 @@ class test_packets (DnTest):
         self.assertEqual (user25.fmt, 0)
         self.assertEqual (user25.num, 25)
         self.assertEqual (user25.name, "")
-        self.assertIsNone (user25.group)
-        self.assertIsNone (user25.user)
+        self.assertEqual (user25.group, 0)
+        self.assertEqual (user25.user, 0)
         # Type 1
         p = b"\x01\x00\x03FOO"
         userfoo = self.shortfield (p, session.EndUser)
         self.assertEqual (userfoo.fmt, 1)
         self.assertEqual (userfoo.num, 0)
-        self.assertIsNone (userfoo.group)
-        self.assertIsNone (userfoo.user)
+        self.assertEqual (userfoo.group, 0)
+        self.assertEqual (userfoo.user, 0)
         self.assertEqual (userfoo.name, "FOO")
         # Type 2
         p = b"\x02\x00\x11\x00\x22\x01\x03BAR"
