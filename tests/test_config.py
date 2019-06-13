@@ -317,7 +317,7 @@ class TestObject (Logchecker):
         self.assertFalse (cc.disable)
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
-        self.assertEqual (cc.authentication, "on")
+        self.assertEqual (cc.authentication, "off")
         self.assertIsNone (cc.argument)
         
     def test_name (self):
@@ -328,40 +328,40 @@ class TestObject (Logchecker):
         self.assertFalse (cc.disable)
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
-        self.assertEqual (cc.authentication, "on")
+        self.assertEqual (cc.authentication, "off")
         self.assertIsNone (cc.argument)
         
     def test_allargs1 (self):
-        c = self.ctest ("object --number 25 --name mirror --file mir.tec --argument hello --authentication off")
+        c = self.ctest ("object --number 25 --name mirror --file mir.tec --argument hello --authentication on")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
         self.assertFalse (cc.disable)
         self.assertEqual (cc.file, "mir.tec")
         self.assertIsNone (cc.module)
-        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.authentication, "on")
         self.assertEqual (cc.argument, "hello")
         
     def test_allargs2 (self):
-        c = self.ctest ("object --number 25 --name mirror --disable --argument hello --authentication off")
+        c = self.ctest ("object --number 25 --name mirror --disable --argument hello --authentication on")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
         self.assertTrue (cc.disable)
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
-        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.authentication, "on")
         self.assertEqual (cc.argument, "hello")
         
     def test_allargs1 (self):
-        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --authentication off")
+        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --authentication on")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
         self.assertFalse (cc.disable)
         self.assertIsNone (cc.file)
         self.assertEqual (cc.module, "decnet.mirror")
-        self.assertEqual (cc.authentication, "off")
+        self.assertEqual (cc.authentication, "on")
         self.assertEqual (cc.argument, "hello")
 
 class TestObject_err (Logchecker):
