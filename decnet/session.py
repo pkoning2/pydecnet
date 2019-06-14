@@ -200,7 +200,7 @@ class SessionObject (Element):
     def __init__ (self, parent, number, name = "", module = "", file = "",
                   auth = "off"):
         super ().__init__ (parent)
-        if auth and not pam:
+        if auth != "off" and not pam:
             raise ArgumentError ("authentication requested but python-pam is not installed")
         self.argument = ""
         self.number = number
