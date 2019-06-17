@@ -5,7 +5,6 @@
 """
 
 from collections.abc import Sequence
-from collections import namedtuple
 
 from .common import *
 
