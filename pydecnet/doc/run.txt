@@ -1,0 +1,124 @@
+Configuring, running, and monitoring PyDECnet
+
+A simple case
+
+PyDECnet can operate as one node or multiple nodes.  The single node
+case is the most common.  For this setup, you create a configuration
+file to describe the DECnet node configuration you want to run,
+including the node type, node address, and DECnet circuit
+information.  You will typically want to have the HECnet node name
+table available; a reasonably current copy can be found in
+samples/nodes.conf which you can include in your configuration file
+with a line of the form:
+
+   @nodes.conf
+
+A few sample node configuration files can be found in the samples
+subdirectory.
+
+HTTP monitoring is configured separately from the node configuration
+in a separate config file.  Currently there is very little to
+configure, so a typical http configuration file just takes a single
+line.  You can use samples/http.conf or samples/http2.conf as a
+starting point.
+
+To run the resulting setup, the simplest startup command looks like
+this:
+
+   pydecnet mynode.conf samples/http.conf
+
+This will start the node configuration in mynode.conf, with HTTP
+monitoring.  You will get the default logging (INFO level log
+messages) to your terminal.
+
+Monitoring
+
+If HTTP monitoring was enabled, PyDECnet configures a simple HTTP
+server.  It will listen to the port number specified in the HTTP
+configuration file (8000 by default).  The home page is an "overview"
+page that displays summary information; it has a navigation toolbar
+that will lead you to additional material.
+
+Mobile-friendly monitoring
+
+To use HTTP monitoring on devices with small displays, like
+smartphones or tablets, use the "m" URL, for example:
+http://localhost:8000/m
+
+The HTTP monitoring pages use CSS to define the appearance.  If you
+want to modify that, edit decnet.css (or decnet-m.css for the
+mobile-specific style overrides) in the "resouces" subdirectory
+installed as part of the PyDECnet installation.
+
+Running PyDECnet, in detail
+
+The full set of command line options is:
+
+usage: pydecnet [-h] [-d] [--pid-file FN] [-L FN] [-e LV] [-S] [--syslog S]
+                [--log-config LC] [-k KEEP] [-V] [-H [CMD]]
+                [CFN [CFN ...]]
+
+positional arguments:
+  CFN                   Configuration file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d, --daemon          Run as daemon. Requires a log file name to be
+                        specified.
+  --pid-file FN         PID file (default: /var/run/pydecnet.pid)
+  -L FN, --log-file FN  Log file (default: log to stderr)
+  -e LV, --log-level LV
+                        Log level (default: INFO)
+  -S                    Log to local syslog
+  --syslog S            Log to syslog at the indicated address, "local" means
+                        the appropriate local UDP or named socket
+  --log-config LC       Logging configuration file
+  -k KEEP, --keep KEEP  Number of log files to keep with nightly rotation.
+                        Requires a log file name to be specified.
+  -V, --version         show program's version number and exit
+  -H [CMD], --config-help [CMD]
+                        Show configuration file help (for CMD if given)
+
+At least one configuration file argument must be supplied.  Each
+configuration file corresponds to a PyDECnet node to be run, so a
+typical invocation will have a single configuration file.  Refer to
+the documentation in "config.txt" for a full explanation of the format
+of a configuration file.
+
+By default, PyDECnet runs in the foreground.  If --daemon is supplied,
+it runs as a daemon.  In that case, a log file name must be supplied
+because stderr is no longer open.  --daemon requires the optional
+library module python-daemon (see install.txt for more).
+
+Logging uses the standard Python "logging" module.  By default
+messages of level INFO and higher are logged to the console (stderr).
+Command line switches are available to specify a different log
+destination and/or different message levels.
+
+For detailed control of logging, including options such as logging via
+log handlers not available through the command line, or logging to
+several destinations possibly with different message levels for each,
+the --log-config argument is used to specify a log config file.  The
+information in this file is documented in the Python library manual:
+https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
+
+The file can be a YAML format file, if the PyYAML module is installed
+and the file name extension is .yaml, or a JSON format file (always
+available).  Samples of both are provided in the samples subdirectory.
+The sample files all configure the "root" logger.  The actual log
+calls made in pydecnet use a child logger named "decnet".  By default
+that is simply a passthrough logger that delegates everything to the
+root logger, so configuring what is wanted to be logged in the root
+logger is sufficient.  For complex cases it might be useful to set
+specific configurations on the logger named "decnet".  An example
+would be if pydecnet were treated as a library, a component of a
+larger application where other parts also make logging calls.
+
+DECnet architecture events can be logged via the logging module as
+well, with logging level INFO and text formatted as documented in the
+DNA Network Management specification.  This feature is off by default,
+but can be controlled by the "logging" configuration line in the
+individual configuration files (see config.txt for details).
+
+The -H switch can be used to get usage information for each type of
+entry defined for the configuration files.

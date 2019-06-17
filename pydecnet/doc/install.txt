@@ -11,23 +11,46 @@ optional modules:
    --log-config command line option can be a YAML file.  If not, only
    JSON configuration files are supported.
 3. python-pam: if present, username/password authentication for DECnet
-   objects is available.  (TODO: not yet implemented)
+   objects is available.
+
+You can check what optional libraries are installed using this
+command:
+
+   pip3 list
+   
 
 Installation
 
-PyDECnet is a conventional pure Python module together with a top
-level script ("pydecnet").  To install it, use the "pip" tool:
+Installation from the Subversion repository
 
-pip3 install decnet-1.0.tar.gz
+You can get the current code using the Subversion tool, from the
+PyDECnet repository:
 
-(substitute the actual PyDECnet source tar archive in the command.)
+   svn co svn://akdesign.dyndns.org/pydecnet/trunk/pydecnet
+
+You can then install from the resulting working directory:
+
+   cd pydecnet
+   python3 setup.py install
+
+Installation from the kit
+
+TODO: right now kits are not yet distributed.  
+
+Installation of pydecnet from the kit (source tar archive) is done
+using the standard "pip" tool:
+
+   pip3 install decnet-1.0.tar.gz
 
 Unit test
 
 PyDECnet comes with a unit test collection.  This is mostly for
-development use, but feel free to use it.  To invoke it, use this
-command: 
+development use, but feel free to use it.  To invoke it:
 
-    python3.3 -m unittest discover
+   cd pydecnet
+   python3 -m unittest discover
 
-Add "-v" to the end to see the name of each executed test as it runs.
+where "pydecnet" is the Subversion working directory or the top level
+directory of the unpacked source tar archive, according to which you
+used to get PyDECnet.  You can specify a particular Python 3.x to run
+the unit test collection against that particular Python release.

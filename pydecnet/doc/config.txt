@@ -79,7 +79,8 @@ has no need to limit those tables.
 
 Argument: node ID.  The "routing" entry requires the node address of
 this node as argument.  The node address has the usual form, either an
-integer, or a dotted pair.
+integer, or a dotted pair.  Note that it must be an integer for Phase
+III or Phase II nodes, since those don't have areas.
 
 --type: Routing layer type, one of "l2router", "l1router", "endnode",
 "phase3router", "phase3endnode", "phase2".  Default is "l2router".
@@ -104,8 +105,9 @@ default is 128.
 considered undeliverable.  Argument is an integer in the range 1..63,
 default is 32.
 
---maxnodes:  Maximum node number in the area.  Argument is an integer
-in the range 1..1023, default is 1023.  
+--maxnodes: Maximum node number in the area.  Argument is an integer
+in the range 1..1023, default and maximum is 1023 for Phase IV nodes,
+255 for Phase III nodes.
 
 --maxarea: Maximum area number.  Argument is an integer in the range
 1..63, default is 63.
@@ -121,13 +123,17 @@ Component "node":
 
 This config line defines an entry in the node database, i.e., a
 mapping between node ID and node name.  These are all optional (it is
-valid to have no names defined).
+valid to have no names defined) with one exception: there must be a
+name defined for the local node, the one whose address is the argument
+of the "routing" configuration line.
 
 Arguments: id name.  Node ID is a node address either as an integer or
-a dotted pair.  Name is the node name, which must conform to DECnet
-node name rules (1 to 6 characters, alphanumeric, at least one
-letter).  The name may be supplied in either case but is converted to
-upper case.
+a dotted pair.  Note that it must be an integer if the local node type
+(from the "routing" configuration statement) is Phase III or Phase II,
+since those don't have areas.  Name is the node name, which must
+conform to DECnet node name rules (1 to 6 characters, alphanumeric, at
+least one letter).  The name may be supplied in either case but is
+converted to upper case.
 
 --inbound-verification: Verification value required from this node, if
 it is the neighbor on a point to point circuit which has --verify
@@ -157,11 +163,13 @@ ETH-0.
 Argument: Circuit type.  One of "DDCMP", "Ethernet", "SimhDMC",
 "Multinet", "GRE".  Default is Ethernet.  Ethernet and GRE are "LAN"
 type circuits; DDCMP, SimhDMC and Multinet are point to point type
-circuits.  Note that Multinet does not work well (defective protocol
-design, there's nothing the implementation can do about that) and is
-not recommended.  SimhDMC implements the payload-only original DMC-11
-emulation that existed in some prerelease versions of SimH V3.9.  It
-is still part of PyDECnet but is deprecated.
+circuits.  Note that Multinet over UDP does not work well (defective
+protocol design, there's nothing the implementation can do about that)
+and is not recommended -- Multinet over TCP is ok.  SimhDMC implements
+the payload-only original DMC-11 emulation that existed in some
+prerelease versions of SimH V3.9.  It is still part of PyDECnet but is
+deprecated.  It no longer exist in SIMH, it was replaced with DDCMP
+emulation which PyDECnet support as the "DDCMP" circuit type.
 
 Argument: Device name or connection data.  The meaning of this string
 depends on the circuit type:
@@ -198,10 +206,10 @@ depends on the circuit type:
     case, omitting the host address or specifying 0.0.0.0 means
     connections are accepted from any address.  One of the two sides
     must be configured to connect, the other to listen.  Note: as
-    stated above, Multinet is not recommended because of its design
-    defects.  In addition, Multinet over UDP is much more strongly
-    discouraged; the design errors made by the Multinet "designers"
-    are far more obvious when you attempt to run it over UDP.
+    stated above, Multinet over UDP is discouraged because its
+    operation violates the requirements in the DECnet Routing
+    Architecture specification (and does so in a way that seriously
+    impairs reliability).
 
     GRE: host.  This specifies GRE encapsulation to the specified
     host.  The IP protocol type is always 47 (the assigned value for
@@ -240,8 +248,8 @@ interval is an executor parameter (it depends on circuit type but not
 on the specific circuit).  In PyDECnet, it may sometimes make sense to
 set a different value for a specific circuit.  For example, the
 routing parameter t1 defaults to 600 (10 minutes) which is a sensible
-default for conforming point to point circuits, but Multinet should
-use a much lower value.
+default for conforming point to point circuits, but Multinet over UDP
+should use a much lower value.
 
 --t3: Hello interval.  Argument is an integer, specifying a time in
 seconds.  Default is 10 for LAN circuits, 60 for point to point
@@ -274,7 +282,8 @@ original bridge.c program.
 this circuit.  The argument is the verification string, which must be
 supplied in console carrier client requests to access this console
 carrier.  The console carrier is somewhat like a rudimentary telnet
-client; you probably don't want to turn this on in most cases.
+client; you probably don't want to turn this on in most cases.  This
+feature is not available on Windows.
 
 Ethernet circuit addressing:
 
@@ -344,6 +353,7 @@ number.
 Some objects are built into PyDECnet, for example object 25
 ("MIRROR").  Those can still be overridden by definitions in the
 config file, or turned off by an entry that has the --disable switch.
+Note: currently MIRROR (25) is the only built-in object.
 
 --number: Object number, in the range 1 to 255.  Numbers 1 through 127
 are defined by Digital, higher values are "for customer use".
@@ -357,7 +367,8 @@ ask for the object by name.
 --file: Command to run.  This is a string that would be recognized by
 the shell as an executable command, either an explicit path spec
 pointing to an executable file, or a command that is mapped to a
-program via the PATH environment variable.
+program via the PATH environment variable.  TODO: this is not yet
+supported.
 
 --module: Python module specification.  Either --file, --module, or
 --disable must be specified.  If module is specified, the object is
