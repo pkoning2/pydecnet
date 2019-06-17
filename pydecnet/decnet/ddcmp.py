@@ -300,6 +300,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 logging.trace ("DDCMP {} connect to {} {} rejected",
                                self.name, self.host.addr, self.rport)
                 self.connsocket = None
+        except AttributeError:
+            self.connsocket = None
         # Wait a random time (60-120 seconds) for the outbound connection
         # to succeed.  If we get a timeout, give up on it and try again.
         self.node.timers.start (self, random.random () * UDPTMR + UDPTMR)
