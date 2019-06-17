@@ -164,7 +164,7 @@ class Multinet (datalink.PtpDatalink):
                 self.socket.connect ((self.host.addr, self.portnum))
                 logging.trace ("Multinet {} connect to {} {} in progress",
                                self.name, self.host.addr, self.portnum)
-            except socket.error:
+            except (AttributeError, OSError, socket.error):
                 logging.trace ("Multinet {} connect to {} {} rejected",
                                self.name, self.host.addr, self.portnum)
                 self.disconnected ()
@@ -187,7 +187,7 @@ class Multinet (datalink.PtpDatalink):
             try:
                 self.socket.bind ((self.source, self.lport))
                 logging.trace ("Multinet {} bind {} done", self.name, self.lport)
-            except (OSError, socket.error):
+            except (AttributeError, OSError, socket.error):
                 logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
                 self.disconnected ()
                 return
@@ -196,7 +196,7 @@ class Multinet (datalink.PtpDatalink):
                 self.status = LISTEN
                 try:
                     self.socket.listen (1)
-                except (OSError, socket.error):
+                except (AttributeError, OSError, socket.error):
                     logging.trace ("Multinet {} listen failed", self.name)
                     self.disconnected ()
                     return
@@ -223,7 +223,7 @@ class Multinet (datalink.PtpDatalink):
                                        "unexpected address {}",
                                        self.name, host)
                         sock.close ()
-                    except (OSError, socket.error):
+                    except (AttributeError, OSError, socket.error):
                         self.disconnected ()
                         return
                 logging.trace ("Multinet {} connected", self.name)
@@ -257,7 +257,7 @@ class Multinet (datalink.PtpDatalink):
                     while len (bc) < 4:
                         try:
                             m = sock.recv (4 - len (bc))
-                        except socket.error:
+                        except (AttributeError, OSError, socket.error):
                             m = None
                         if not m:
                             self.disconnected ()
@@ -269,7 +269,7 @@ class Multinet (datalink.PtpDatalink):
                     while len (msg) < bc:
                         try:
                             m = sock.recv (bc - len (msg))
-                        except socket.error:
+                        except (AttributeError, OSError, socket.error):
                             m = None
                         if not m:
                             self.disconnected ()
@@ -279,7 +279,7 @@ class Multinet (datalink.PtpDatalink):
                     # UDP mode, receive a packet
                     try:
                         msg, addr = sock.recvfrom (1500)
-                    except socket.error:
+                    except (AttributeError, OSError, socket.error):
                         msg = None
                     if not msg or len (msg) <= 4:
                         self.disconnected ()
@@ -315,7 +315,7 @@ class Multinet (datalink.PtpDatalink):
                 hdr = mlen.to_bytes (2, "little") + b"\000\000"
                 try:
                     self.socket.send (hdr + msg)
-                except (socket.error, AttributeError):
+                except (socket.error, AttributeError, OSError):
                     # AttributeError happens if socket has been
                     # changed to "None"
                     self.disconnected ()
@@ -325,7 +325,7 @@ class Multinet (datalink.PtpDatalink):
                 self.seq += 1
                 try:
                     sock.sendto (hdr + msg, (self.host.addr, self.portnum))
-                except (socket.error, AttributeError):
+                except (socket.error, AttributeError, OSError):
                     # AttributeError happens if socket has been
                     # changed to "None"
                     self.disconnected ()

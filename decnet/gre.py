@@ -97,7 +97,7 @@ class GRE (datalink.BcDatalink, StopThread):
         """
         try:
             self.socket.sendto (buf, (self.host.addr, GREPROTO))
-        except IOError:
+        except (AttributeError, IOError):
             pass
         
     def run (self):
@@ -119,7 +119,7 @@ class GRE (datalink.BcDatalink, StopThread):
             if r:
                 try:
                     msg, addr = sock.recvfrom (1504)
-                except socket.error:
+                except (AttributeError, OSError, socket.error):
                     msg = None
                 if not msg or len (msg) <= 4:
                     continue
