@@ -551,6 +551,7 @@ class EndnodesRouteInfo (RouteInfo):
     def __init__ (self, maxidx):
         super ().__init__ (None, maxidx, False)
         self.adjacencies = [ None ] * (maxidx + 1)
+        self.oadj = [ None ] * (maxidx + 1)
 
     def adjacency (self, id):
         return self.adjacencies[id]
@@ -604,7 +605,8 @@ class L1Router (BaseRouter):
             adj.routeinfo = None
             ri = self.l1info[ENDNODE]
             tid = adj.nodeid.tid
-            if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj:
+            if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj \
+              and ri.oadj[tid] is not None:
                 # We already have an endnode here.  Curious.
                 logging.debug ("Possible duplicate endnode {} on {} and {}",
                                adj.nodeid, adj.circuit,
