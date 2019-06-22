@@ -234,9 +234,10 @@ depends on the circuit type:
 UDP communication.  Defaults to letting the system choose the address
 (for outbound connections), or accepting any local address (for
 inbound connections).
-Currently this is partially implemented: Multinet and GRE support it,
-other IP based services do not yet do so.  The intent is that all will
-support it eventually.
+For Multinet TCP, the argument is address or address:port or :port.
+This allows the source port number to be specified, which is not
+usually done with TCP but may be needed with the RSX implementation of
+Multinet.
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
 default is 1.  

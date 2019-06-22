@@ -58,6 +58,7 @@ class Multinet (datalink.PtpDatalink):
     connections are accepted from any address.
     """
     port_class = MultinetPort
+    start_works = False
     
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
@@ -80,14 +81,14 @@ class Multinet (datalink.PtpDatalink):
         self.host = datalink.HostAddress (host, any = self.mode == ":listen")
         if self.mode:
             mode = "TCP " + self.mode[1:]
-            self.start_works = True
         else:
             mode = "UDP"
             # Tell the point to point datalink dependent sublayer to
             # work around the fact that Multinet in UDP mode violates
-            # most of the point to point datalink requirements.
+            # most of the point to point datalink requirements.  The
+            # same goes for TCP, but the consequences aren't quite so
+            # evil so there we don't warn.
             logging.warning ("Multinet UDP mode not recommended since it violates DECnet architecture")
-            self.start_works = False
             if lport:
                 self.lport = int (lport[1:])
         logging.trace ("Multinet datalink {} initialized to {}:{}, {}",
@@ -158,7 +159,11 @@ class Multinet (datalink.PtpDatalink):
         sellist = [ sock.fileno () ]
         if self.mode == ":connect":
             if self.source:
-                self.socket.bind ((self.source, 0))
+                s, *p = self.source.split (":")
+                if p:
+                    self.socket.bind ((s, int (p[0])))
+                else:
+                    self.socket.bind ((self.source, 0))
             # Connect to the remote host
             try:
                 self.socket.connect ((self.host.addr, self.portnum))

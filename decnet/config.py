@@ -106,8 +106,9 @@ else:
     cp.add_argument ("--console", const = bytes (8), metavar = "V",
                      nargs = "?", type = scan_ver,
                      help = "Enable MOP console (V = verification)")
-cp.add_argument ("--source", default = "", type = IpAddr,
-                 help = """Source IP address to use for IP based
+cp.add_argument ("--source", default = "", 
+                 help = """Source IP address (or address:port, if TCP)
+                 to use for IP based
                  device communication (default: auto-select)""")
 cp.add_argument ("--single-address", action = "store_true", default = False,
                  help = "Use a single MAC address for all Ethernet"
