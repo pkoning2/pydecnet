@@ -42,12 +42,6 @@ class ReceiptGen (object):
                 self.receipt = ret + 1
         return ret
 
-# A global lock to interlock API requests acquiring an exclusive
-# resource.  This could be finer grained but since the lock is only
-# held long enough to check and assign a value, there isn't much need
-# for that.
-moplock = threading.Lock ()
-
 # Some well known Ethernet addresses
 CONSMC = Macaddr ("AB-00-00-02-00-00")
 LOOPMC = Macaddr ("CF-00-00-00-00-00")

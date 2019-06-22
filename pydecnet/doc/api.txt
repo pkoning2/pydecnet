@@ -29,11 +29,16 @@ returned when the connection is created.  Transmit is a POST with
 handle and a data argument; the request completes as soon as the data
 has been buffered (it does not wait for transmission or delivery).
 Receive is a post with handle but no data argument; the request blocks
-until data arrives, or after 60 seconds.  API requests have to arrive
-at least once every 120 seconds or the connection will be deleted due
-to API timeout (this is to compensate for the fact that there is no
-client connection for the API to which PyDECnet connection liveness
-can be tied).
+until data arrives, or after 60 seconds.  If you are dealing with a
+connection that has a request/response or similar "half duplex" data
+flow, a single stream of API requests, receive or transmit as needed
+at that point, will work.  For applications where data can flow in
+both directions at the same time, such as a remote terminal
+application, you will probably need to use two separate API flows, one
+for the each direction.  API requests have to arrive at least once
+every 120 seconds or the connection will be deleted due to API timeout
+(this is to compensate for the fact that there is no client connection
+for the API to which PyDECnet connection liveness can be tied).
 
 Note that dictionary fields in the replies are not in any particular
 order (since that does not affect the meaning).  Similarly, unless
@@ -397,7 +402,9 @@ service from the session layer via the API.  Such programs may request
 outbound connections, or handle inbound ones, or both.  A simple
 example can be found in samples/mirror.py, which implements the
 standard Mirror protocol via the API.  Note that normally Mirror is a
-built-in object (its code is in decnet/mirror.py) but it is possible
-to override that by specifying a file to execute instead, using:
+built-in object (its code is in decnet/applications/mirror.py) but it
+is possible to override that by specifying a file to execute instead,
+using:
+
   object --number 25 --file samples/mirror.py
   
