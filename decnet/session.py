@@ -438,12 +438,17 @@ class Session (Element):
                     awork = Accept (self, message = pkt.data_ctl,
                                     connection = conn)
                 elif isinstance (pkt, (nsp.DiscInit, nsp.DiscConf)):
+                    payload = b""
+                    if isinstance (pkt, nsp.DiscInit):
+                        # Disconnect Init has a data field, but
+                        # Disconnect Confirm does not.
+                        payload = pkt.data_ctl
                     if item.reject:
-                        awork = Reject (self, message = pkt.data_ctl,
+                        awork = Reject (self, message = payload,
                                         connection = conn,
                                         reason = pkt.reason)
                     else:
-                        awork = Disconnect (self, message = pkt.data_ctl,
+                        awork = Disconnect (self, message = payload,
                                             connection = conn,
                                             reason = pkt.reason)
                     del self.conns[nspconn]
