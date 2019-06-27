@@ -723,7 +723,10 @@ class Packet (metaclass = packet_encoding_meta):
         """
         pass
     
-    def format (self, exclude = {}):
+    def format (self, exclude = { "decoded_from" }):
+        # By default we omit the "decoded_from" field because that
+        # rarely contains anything useful and can make the string
+        # absurdly large.
         ret = list ()
         for a in self.allslots ():
             if a in exclude:
