@@ -28,7 +28,20 @@ class CRC16 (crc.CRC, poly = (16, 15, 2, 0)): pass
 # DDCMP sequence numbers.  Note that these are mod 256 but not exactly
 # RFC 1982 compatible, because the number of pending messages is allowed
 # to go all the way to modulus - 1 rather than only up to modulus / 2.
-class Seq (modulo.Mod, mod = 256): pass
+class Seq (modulo.Mod, mod = 256):
+    @classmethod
+    def decode (cls, buf):
+        if buf:
+            return cls (buf[0]), buf[1:]
+        return None, buf
+
+    def __bytes__ (self):
+        return self.to_bytes (1, packet.LE)
+
+    def encode (self):
+        if self is None:
+            return b"\000"
+        return bytes (self)
     
 # DDCMP byte codes that have specific meanings
 SOH = 0o201        # SOH - start of data message
@@ -68,8 +81,8 @@ class DMMsg (packet.Packet):
                  ( "count", 0, 14 ),
                  ( "qsync", 14, 1 ),
                  ( "select", 15, 1 )),
-               ( "b", "resp", 1 ),
-               ( "b", "num", 1 ),
+               ( Seq, "resp" ),
+               ( Seq, "num" ),
                ( "b", "addr", 1 ))
     _layout = baselayout + (( "bv", "hcrc", 2 ),)
     addr = 1
@@ -87,8 +100,8 @@ class MaintMsg (DMMsg):
     soh = DLE
     qsync = 1
     select = 1
-    resp = 0
-    num = 0
+    resp = Seq (0)
+    num = Seq (0)
 
 # Control messages are similar but with type and subtype fields
 # instead of the count field, since there is no payload.
@@ -99,8 +112,8 @@ class CtlMsg (packet.Packet):
                  ( "subtype", 0, 6 ),
                  ( "qsync", 6, 1 ),
                  ( "select", 7, 1 )),
-               ( "b", "resp", 1 ),
-               ( "b", "num", 1 ),
+               ( Seq, "resp" ),
+               ( Seq, "num" ),
                ( "b", "addr", 1 ))
     _layout = baselayout + (( "bv", "hcrc", 2 ),)
     enq = ENQ
@@ -112,32 +125,32 @@ HDRLEN = len (CtlMsg ())
 class AckMsg (CtlMsg):
     type = ACK
     subtype = 0
-    num = 0
+    num = Seq (0)
 
 class NakMsg (CtlMsg):
     type = NAK
-    num = 0
+    num = Seq (0)
 
 class RepMsg (CtlMsg):
     type = REP
     subtype = 0
-    resp = 0
+    resp = Seq (0)
 
 class StartMsg (CtlMsg):
     type = STRT
     subtype = 0
     qsync = 1
     select = 1
-    resp = 0
-    num = 0
+    resp = Seq (0)
+    num = Seq (0)
 
 class StackMsg (CtlMsg):
     type = STACK
     subtype = 0
     qsync = 1
     select = 1
-    resp = 0
-    num = 0
+    resp = Seq (0)
+    num = Seq (0)
 
 class Err (Work):
     """A work item that indicates a bad received message.  The "code" attribute
@@ -537,11 +550,11 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         # that as a bad header.  If not, treat it as
                         # message not framed correctly, and silently
                         # keep looking
+                        msg = "bad header CRC on {}".format (self.name)
+                        pktlogging.tracepkt (msg, c)
                         if self.insync:
                             self.insync = False
                             self.node.addwork (Err (R_HCRC))
-                            msg = "bad header CRC on {}".format (self.name)
-                            pktlogging.tracepkt (msg, c)
                             logging.trace ("Lost sync on {}", self.name)
                         else:
                             logging.trace ("Out of sync, another HCRC error on {}", self.name)
@@ -670,7 +683,6 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         msg = bytes (msg)
         if logging.tracing:
             pktlogging.tracepkt ("Sending packet on {}".format (self.name), msg)
-            #logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
         try:
             if self.tcp:
                 self.socket.sendall (msg)
