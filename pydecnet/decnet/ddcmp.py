@@ -13,6 +13,7 @@ import crc
 
 from .common import *
 from . import logging
+from . import pktlogging
 from . import timers
 from . import datalink
 from . import packet
@@ -496,12 +497,16 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         self.insync = True
                         if h == ENQ:
                             # Control packet.
+                            msg = "Received control packet on {}".format (self.name)
+                            pktlogging.tracepkt (msg, c)
                             self.node.addwork (self.ctlmsg (c))
                             continue
                         if h == SOH:
                             c = DataMsg (c)
+                            tp = "data"
                         else:
                             c = MaintMsg (c)
+                            tp = "maint"
                         # At this point we have parsed the header, but
                         # not yet received or checked the payload.  Given
                         # the header, we now have the payload length.
@@ -512,6 +517,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         if crc.good:
                             # Good data CRC.
                             c.payload = data
+                            msg = "Received {} packet on {}".format (tp, self.name)
+                            pktlogging.tracepkt (msg, c)
                             self.node.addwork (Received (self, packet = c))
                         else:
                             # Fun complication: if the data CRC of a data
@@ -522,6 +529,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                             e = Err (R_CRC)
                             if h == SOH:
                                 e.resp = c.resp
+                            msg = "{} packet with bad data CRC on {}".format (tp, self.name)
+                            pktlogging.tracepkt (msg, c)
                             self.node.addwork (e)
                     else:
                         # Header CRC is bad.  If we're in sync, report
@@ -531,6 +540,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         if self.insync:
                             self.insync = False
                             self.node.addwork (Err (R_HCRC))
+                            msg = "bad header CRC on {}".format (self.name)
+                            pktlogging.tracepkt (msg, c)
                             logging.trace ("Lost sync on {}", self.name)
                         else:
                             logging.trace ("Out of sync, another HCRC error on {}", self.name)
@@ -655,10 +666,11 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         crc = CRC16 (hdr)
         # Set the Header CRC
         msg.hcrc = bytes (crc)
-        if logging.tracing:
-            logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
         # Now encode the whole message
         msg = bytes (msg)
+        if logging.tracing:
+            pktlogging.tracepkt ("Sending packet on {}".format (self.name), msg)
+            #logging.trace ("Sending DDCMP message on {}: {}", self.name, msg)
         try:
             if self.tcp:
                 self.socket.sendall (msg)

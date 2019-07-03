@@ -2189,11 +2189,10 @@ class test_connself_phase4 (ntest):
         self.assertConns (2)
         # Check connection state
         self.assertEqual (nc1.state, nc1.run)
-        if self.phase > 2:
-            self.assertEqual (nc2.state, nc2.cc)
-            # Expire the ack holdoff
-            DnTimeout (nc1.data)
-            # Check new state
+        # Note that CC state is not visible in this test because it
+        # exists only between the sending of the Conect Confirm and
+        # the receipt of the ACK, and those two are not separated in
+        # this local test machinery.
         self.assertEqual (nc2.state, nc2.run)
         # Send a data message
         nc2.send_data (b"data")

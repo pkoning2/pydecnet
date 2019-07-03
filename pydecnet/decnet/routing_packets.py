@@ -14,6 +14,7 @@ PHASE2 = 0
 L2ROUTER = 1
 L1ROUTER = 2
 ENDNODE = 3
+UNKNOWN = 4
 
 tiver_ph2 = Version (0, 0, 0)
 tiver_ph3 = Version (1, 3, 0)

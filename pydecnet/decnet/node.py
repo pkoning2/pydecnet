@@ -155,6 +155,9 @@ class Node (Entity):
         """
         threading.current_thread ().name = self.nodename
         logging.debug ("Starting node {}", self.nodename)
+        # First start the timer service in this node
+        self.timers.startup ()
+        # Now start all the elements
         for m in self.startlist:
             c = getattr (self, m)
             if c:

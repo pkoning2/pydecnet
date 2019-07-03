@@ -771,11 +771,13 @@ class test_upd1 (rtest):
         DnTimeout (self.c.update)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, L1Routing)
+        self.assertTrue (self.c.update.islinked ())
         if self.ntype == L2ROUTER:
             # Run L2 Update
             DnTimeout (self.c.aupdate)
             p, x = self.lastsent (self.cp, 3)
             self.assertIsInstance (p, L2Routing)
+            self.assertTrue (self.c.aupdate.islinked ())
 
 class test_upd2 (test_upd1):
     ntype = L2ROUTER
@@ -797,10 +799,13 @@ class test_upd2 (test_upd1):
         DnTimeout (self.c.update)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 1)
+        # Timer is not (re)started
+        self.assertFalse (self.c.update.islinked ())
         # Run L2 Update
         DnTimeout (self.c.aupdate)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, L2Routing)
+        self.assertTrue (self.c.aupdate.islinked ())
         
     def test_upd_endnode (self):
         p, x = self.lastsent (self.cp, 1)
@@ -819,10 +824,14 @@ class test_upd2 (test_upd1):
         DnTimeout (self.c.update)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 1)
+        # Update timer is not (re)started
+        self.assertFalse (self.c.update.islinked ())
         # Run L2 Update
         DnTimeout (self.c.aupdate)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 1)
+        # Update timer is not (re)started
+        self.assertFalse (self.c.aupdate.islinked ())
 
     def test_upd_l1router (self):
         p, x = self.lastsent (self.cp, 1)
@@ -841,10 +850,13 @@ class test_upd2 (test_upd1):
         DnTimeout (self.c.update)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, L1Routing)
+        self.assertTrue (self.c.update.islinked ())
         # Run L2 Update
         DnTimeout (self.c.aupdate)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 2)
+        # Update timer is not (re)started
+        self.assertFalse (self.c.aupdate.islinked ())
 
     def test_upd_phase3 (self):
         p, x = self.lastsent (self.cp, 1)
@@ -865,10 +877,13 @@ class test_upd2 (test_upd1):
         DnTimeout (self.c.update)
         p, x = self.lastsent (self.cp, 3)
         self.assertIsInstance (p, PhaseIIIRouting)
+        self.assertTrue (self.c.update.islinked ())
         # Run L2 Update
         DnTimeout (self.c.aupdate)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 3)
+        # Update timer is not (re)started
+        self.assertFalse (self.c.aupdate.islinked ())
 
     def test_upd_phase2 (self):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -888,10 +903,13 @@ class test_upd2 (test_upd1):
         DnTimeout (self.c.update)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 2)
+        self.assertFalse (self.c.update.islinked ())
         # Run L2 Update
         DnTimeout (self.c.aupdate)
         # Nothing should be sent
         p, x = self.lastsent (self.cp, 2)
+        # Update timer is not (re)started
+        self.assertFalse (self.c.aupdate.islinked ())
         
 class test_ph4verify (rtest):
     phase = 4

@@ -119,7 +119,7 @@ def main ():
         sys.exit (1)
     # First start up the logging machinery
     logging.start (p)
-    logging.info ("Starting DECnet/Python")
+    logging.info ("Starting DECnet/Python {}-{}", http.DNVERSION, http.DNREV)
 
     # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
@@ -143,6 +143,11 @@ def main ():
     # worry about the logging descriptors.  This is uncivilized (it
     # involves digging in logging module internals).
     #
+    # Apart from the file descriptors issue, daemon transition must be
+    # done before we start any threads (at least on Linux) because the
+    # fork() machinery used by daemon entry doesn't carry the threads
+    # along with it.
+    #
     # TODO: Need to set up a signal handler to implement clean
     # stopping of the daemon.
     if p.daemon:
@@ -154,9 +159,11 @@ def main ():
             f = getattr (h, "socket", None) or getattr (h, "stream", None)
             if f:
                 preserve.append (f)
+        logging.trace ("About to transition to daemon mode")
         daemoncontext = DaemonContext (pidfile = pidfile (p.pid_file),
                                        files_preserve = preserve)
         daemoncontext.open ()
+        logging.info ("Running as daemon")
 
     # Start all the nodes, each in a thread of its own.
     for n in nodes:

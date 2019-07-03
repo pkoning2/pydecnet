@@ -16,6 +16,7 @@ import sys
 
 from .common import *
 from . import logging
+from . import pktlogging
 from . import datalink
 from . import pcap
 
@@ -38,8 +39,8 @@ class EthPort (datalink.BcPort):
             raise ValueError ("Invalid destination address length")
         l = len (msg)
         if logging.tracing:
-            logging.trace ("Sending {} byte {} packet to {}",
-                           l, msg.__class__.__name__, dest)
+            pktlogging.tracepkt ("Sending packet on {}"
+                                     .format (self.parent.name), msg)
         f = self.frame
         f[0:6] = destb
         f[6:12] = self.macaddr
@@ -116,6 +117,9 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         if plen < 60:
             # Runt???
             return
+        if logging.tracing:
+            pktlogging.tracepkt ("Received packet on {}"
+                                     .format (self.name), packet)
         proto = packet[12:14]
         try:
             port = self.ports[proto]
@@ -326,9 +330,6 @@ class _BridgeEth (_Ethernet):
         """
         if not self.socket:
             return
-        if logging.tracing:
-            logging.trace ("Sending {} bytes to {}:{}", len (buf),
-                           self.host, self.rport)
         try:
             self.socket.sendto (buf, (self.host.addr, self.rport))
         except (IOError, socket.error) as e:

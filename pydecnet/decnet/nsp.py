@@ -1288,13 +1288,13 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         # phase 3 or later, but send it direct (no ack expected) for
         # phase 2.
         if self.cphase == 2:
-            self.sendmsg (cc)
             self.state = self.run
             # Stop the connect timer
             self.node.timers.stop (self)
+            self.sendmsg (cc)
         else:
-            self.data.send (cc)
             self.state = self.cc
+            self.data.send (cc)
         return True
         
     def reject (self, reason = 0, payload = b""):
