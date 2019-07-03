@@ -55,7 +55,9 @@ class PtpCircuit (statemachine.StateMachine):
         self.t3 = config.t3 or 60
         self.timer = 0
         self.tiver = self.adj = None
-        self.blksize = self.id = self.rphase = 0
+        # Use MTU as the blocksize until we learn otherwise
+        self.blksize = self.minrouterblk = MTU
+        self.id = self.rphase = 0
         self.verif = config.verify
         self.datalink = datalink.create_port (self)
         self.init_counters ()
@@ -113,7 +115,7 @@ class PtpCircuit (statemachine.StateMachine):
 
     def start (self):
         # Put in some dummy values until we hear from the neighbor
-        self.ntype = ENDNODE
+        self.ntype = UNKNOWN
         self.id = 0
         self.node.addwork (Start (self))
 

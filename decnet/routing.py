@@ -590,16 +590,24 @@ class L1Router (BaseRouter):
         super ().adj_up (adj)
         logging.trace ("adj up, {}, type {}", adj, adj.ntype)
         if adj.ntype in { L1ROUTER, L2ROUTER }:
-            adj.routeinfo = RouteInfo (adj, self.maxnodes, l2 = False)
-            self.l1info[adj] = adj.routeinfo
-            if adj is self.selfadj:
-                # The initial RouteInfo is all infinite, so set our
-                # own entries correctly.
-                tid = self.nodeid.tid
-                self.selfadj.routeinfo.hops[tid] = 0
-                self.selfadj.routeinfo.cost[tid] = 0
-            self.setsrm (0, self.maxnodes)
-            self.route (0, self.maxnodes)
+            if adj.nodeid.area != self.nodeid.area:
+                # Adjacency to out of area router, which means it's an
+                # L2 router and we're called from the L2 adj_up.  For
+                # that case, L2 related data is kept but no L1 related
+                # data, since we're not doing L1 routing to out of
+                # area nodes.
+                adj.routeinfo = None
+            else:
+                adj.routeinfo = RouteInfo (adj, self.maxnodes, l2 = False)
+                self.l1info[adj] = adj.routeinfo
+                if adj is self.selfadj:
+                    # The initial RouteInfo is all infinite, so set our
+                    # own entries correctly.
+                    tid = self.nodeid.tid
+                    self.selfadj.routeinfo.hops[tid] = 0
+                    self.selfadj.routeinfo.cost[tid] = 0
+                self.setsrm (0, self.maxnodes)
+                self.route (0, self.maxnodes)
         else:
             # End node and Phase II node
             adj.routeinfo = None
@@ -620,8 +628,9 @@ class L1Router (BaseRouter):
         """Take the appropriate actions for an adjacency that has
         just gone down. 
         """
+        ntype = adj.ntype
         super ().adj_down (adj)
-        if adj.ntype in { L1ROUTER, L2ROUTER }:
+        if ntype in { L1ROUTER, L2ROUTER }:
             try:
                 del self.l1info[adj]
             except KeyError:
@@ -1030,6 +1039,9 @@ class L2Router (L1Router):
                 self.aoadj[area] = self.selfadj
         else:
             adj.arouteinfo = None
+        # Call the base class method to do any L1 adjacency up actions
+        # that are appropriate.  If this is an out of area router, it
+        # will handle that (by not doing L1 routing work).
         super ().adj_up (adj)
         if adj.ntype == L2ROUTER:
             self.setasrm (1, self.maxarea)
@@ -1155,6 +1167,11 @@ class Update (Element, timers.Timer):
         self.node.timers.start (self, self.t1)
             
     def setsrm (self, tid, endtid = None):
+        # Set the requested SRM flags, and schedule transmission of a
+        # routing update momentarily, subject to holdoff by T2 (one
+        # second).  This will also restart the periodic (T1) routing
+        # message transmission after the current batch of updates has
+        # been sent.
         if self.parent.ntype != ENDNODE and self.parent.ntype != PHASE2:
             endtid = endtid or tid
             logging.trace ("Setsrm ({}): {} to {}", self.pkttype.__name__,
@@ -1174,6 +1191,8 @@ class Update (Element, timers.Timer):
 
     def dispatch (self, item):
         if isinstance (item, timers.Timeout):
+            # No holdoff in effect
+            self.holdoff = False
             # Time to send some updates.  See if the neighbor wants them.
             if self.parent.ntype == ENDNODE or self.parent.ntype == PHASE2:
                 # Never
@@ -1204,7 +1223,6 @@ class Update (Element, timers.Timer):
             for p in pkts:
                 self.parent.datalink.send (p, dest = route_eth.ALL_ROUTERS)
             self.lastupdate = time.time ()
-            self.holdoff = False
             if self.anysrm:
                 # Not periodic update; find the delta from the last
                 # periodic update as the new timeout.

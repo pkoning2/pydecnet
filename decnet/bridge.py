@@ -14,7 +14,6 @@ from . import ethernet
 from . import events
 from . import timers
 from . import datalink
-from . import pktlogging
 from . import html
 
 SvnFileRev = "$LastChangedRevision$"
@@ -59,8 +58,6 @@ class BridgeCircuit (Element):
         self.parent.dispatch (item)
 
     def send_frame (self, pdu, skip = None):
-        pktlogging.tracepkt ("Sending {} bytes to {}: ".format (len (pdu), self), pdu)
-        #logging.trace ("Sending {} bytes to {}: {}", len (pdu), self, pdu)
         self.datalink.parent.send_frame (pdu, skip)
 
 class AddrEnt (timers.Timer):

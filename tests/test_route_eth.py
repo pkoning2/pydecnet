@@ -774,6 +774,7 @@ class test_routing (lantest):
         p, dest = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, L1Routing)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        self.assertTrue (self.c.update.islinked ())
         
 class test_l2routing (test_routing):
     ntype = L2ROUTER
@@ -853,6 +854,7 @@ class test_l2routing (test_routing):
         p, dest = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, L2Routing)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
+        self.assertTrue (self.c.aupdate.islinked ())
         
 if __name__ == "__main__":
     unittest.main ()

@@ -138,6 +138,9 @@ class TimerWheel (Element, StopThread):
         self.maxtime = maxtime
         self.tick = tick
         self.lock = threading.Lock ()
+
+    def startup (self):
+        logging.debug ("Starting timer subsystem")
         self.__start ()
 
     def start (self, item, timeout):
@@ -191,6 +194,7 @@ class TimerWheel (Element, StopThread):
     
     def shutdown (self):
         self.__stop (True)
+        logging.debug ("Timer subsystem shut down")
 
     def stop (self, item):
         """Stop the timer for "item".

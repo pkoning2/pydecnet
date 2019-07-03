@@ -38,6 +38,7 @@ class TTimer (timers.Timer):
 class TestTimer (DnTest):
     def test_wheel1 (self):
         wheel = timers.TimerWheel (tnode, 0.1, 400)
+        wheel.startup ()
         t = TTimer ()
         self.assertIsNone (t.fired)
         now = time.time ()
@@ -53,6 +54,8 @@ class TestTimer (DnTest):
     def test_wheel2 (self):
         wheel1 = timers.TimerWheel (tnode, 0.1, 400)
         wheel2 = timers.TimerWheel (tnode, 2, 400)
+        wheel1.startup ()
+        wheel2.startup ()
         t1 = TTimer ("t1")
         t2 = TTimer ("t2")
         # Offset the timer start a bit from the wheel start
@@ -95,6 +98,7 @@ class TestTimer (DnTest):
         delivered prevents the delivery.
         """
         wheel = timers.TimerWheel (tnode, 0.1, 400)
+        wheel.startup ()
         t2 = TTimer ("t2")
         class T2Timer (TTimer):
             def dispatch (self, item):

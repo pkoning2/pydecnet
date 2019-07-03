@@ -9,6 +9,7 @@ import socket
 
 from .common import *
 from . import logging
+from . import pktlogging
 from . import datalink
 
 SvnFileRev = "$LastChangedRevision$"
@@ -34,8 +35,8 @@ class GREPort (datalink.BcPort):
         """
         l = len (msg)
         if logging.tracing:
-            logging.trace ("Sending {} byte {} packet",
-                           l, msg.__class__.__name__)
+            pktlogging.tracepkt ("Sending packet on {}"
+                                     .format (self.parent.name), msg)
         f = self.frame
         if self.pad:
             if l > 1498:
@@ -134,8 +135,8 @@ class GRE (datalink.BcDatalink, StopThread):
                     continue
                 pos = 4 * hlen
                 if logging.tracing:
-                    logging.trace ("Received GRE message len {}: {!r}",
-                                   len (msg), msg)
+                    pktlogging.tracepkt ("Received packet on {}"
+                                             .format (self.name), msg)
                 if msg[pos:pos + 2] != greflags:
                     # Unexpected flags or version in header, ignore
                     logging.debug ("On {}, unexpected header {}",

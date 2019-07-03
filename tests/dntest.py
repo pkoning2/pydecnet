@@ -262,6 +262,8 @@ def nextport ():
 
 # Wrapper to deliver a timeout to the specified Element
 def DnTimeout (dest):
+    assert (dest.islinked ())
+    stop_timer (dest)
     t = timers.Timeout (dest, dest.revcount)
     t.dispatch ()
     
