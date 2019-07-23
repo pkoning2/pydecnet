@@ -1141,8 +1141,11 @@ class L2Router (L1Router):
             data = list ()
             for i in range (1, self.maxarea + 1):
                 if self.aoadj[i]:
+                    adj = self.aoadj[i]
+                    if adj == self.selfadj:
+                        adj = "Self"
                     data.append ([ i, self.aminhops[i],
-                                   self.amincost[i], self.aoadj[i] ])
+                                   self.amincost[i], adj ])
             ret.append (html.tbsection ("Level 2 routing table", hdr, data))
         if what == "internals":
             ret.append (self.html_matrix (True))
