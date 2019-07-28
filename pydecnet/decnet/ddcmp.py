@@ -50,6 +50,10 @@ DLE = 0o220        # DLE - start of maintenance message
 SYN = 0o226        # SYN - synchronization code
 DEL = 0o377        # DEL - pad after message trailer
 
+SYN4 = bytes ([ SYN ] * 4)
+DEL1 = byte (DEL)
+DEL2 = DEL1 + DEL1
+
 # Control message subtypes
 ACK   = 1          # Acknowledgment
 NAK   = 2          # Negative acknowledgment
@@ -191,24 +195,27 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     TELNET is a variant of TCP; in this mode, all-ones bytes are escaped
     according to TELNET protocol rules.  This supports connections via
-    telnet servers to async ports running DDCMP.
+    telnet servers to async ports running DDCMP.  That includes SIMH
+    terminal connections accessed via TCP when in Telnet mode rather
+    than raw mode.
 
-    In TCP mode, message resynchronization is done by the "Header CRC" method: 
-    the byte stream is searched for a valid start of header byte, and if the
-    bytes starting at that point constitute a header with a valid Header CRC,
-    it is assumed that we have framed the message correctly.  The transmitted
-    byte stream contains four SYN bytes before each message and one DEL
-    byte after it, in conformance with the DDCMP spec recommendations.
-    Resynchronization is only needed after an error; once sync has been
-    established, it is presumed to remain in effect until an error occurs.
-    For example, a Header CRC error will be detected and counted as such
-    if the link is in sync (but a second Header CRC error immediately following
-    will not be, since at that point sync is not established).
+    In TCP mode, message resynchronization is done by the "Header CRC"
+    method: the byte stream is searched for a valid start of header
+    byte, and if the bytes starting at that point constitute a header
+    with a valid Header CRC, it is assumed that we have framed the
+    message correctly.  The transmitted byte stream contains four SYN
+    bytes before each message and one DEL byte after it, in conformance
+    with the DDCMP spec recommendations.  Resynchronization is only
+    needed after an error; once sync has been established, it is
+    presumed to remain in effect until an error occurs.  For example, a
+    Header CRC error will be detected and counted as such if the link is
+    in sync (but a second Header CRC error immediately following will
+    not be, since at that point sync is not established).
 
     In UDP mode, framing is implicit: each UDP packet contains a DDCMP
     message.  The message may be preceded and/or followed by fill bytes
     (DEL or SYN); these are ignored.  Transmitted UDP packets contain no
-    leading or trailing fillers.  
+    leading or trailing fillers.
     """
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
@@ -355,6 +362,17 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             b = self.socket.recv (sz - len (p))
             if not b:
                 raise OSError
+            if self.telnet:
+                # Handle escapes.  Note that we only handles escaped
+                # 377, not any other Telnet control codes.
+                e = b.count (DEL1)
+                if e & 1:
+                    b2 = self.socket.recv (1)
+                    if not b2:
+                        raise OSError
+                    b += b2
+                if e:
+                    b = b.replace (DEL2, DEL1)
             p += b
         if not self.socket:
             raise OSError
@@ -685,6 +703,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             pktlogging.tracepkt ("Sending packet on {}".format (self.name), msg)
         try:
             if self.tcp:
+                msg = SYN4 + msg + DEL1
+                if self.telnet:
+                    msg = msg.replace (DEL1, DEL2)
                 self.socket.sendall (msg)
             else:
                 self.socket.sendto (msg, (self.host.addr, self.rport))

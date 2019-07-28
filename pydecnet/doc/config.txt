@@ -228,7 +228,6 @@ depends on the circuit type:
     mode, correct Telnet character escape processing is done.  In
     regular TCP mode, the connection is treated as a transparent raw
     connection.  (For use with SimH, "tcp" mode should be used.)
-    [ Note: Telnet mode is not yet implemented ]
 
 --source: source IP address to use, for devices that use IP, TCP, or
 UDP communication.  Defaults to letting the system choose the address
