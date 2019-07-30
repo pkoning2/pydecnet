@@ -297,7 +297,7 @@ class Multinet (datalink.PtpDatalink):
                     # Check header?  For now just skip it.
                     msg = msg[4:]
                 if logging.tracing:
-                    pktlogging.tracepkt ("Received Multilink message on {}"
+                    pktlogging.tracepkt ("Received Multinet message on {}"
                                              .format (self.name), msg)
                 if self.port:
                     self.counters.bytes_recv += len (msg)
