@@ -668,7 +668,8 @@ class L1Router (BaseRouter):
                 info.hops[k], info.cost[k] = v
                 route (k, k)
         if maxreach:
-            self.node.logevent (events.rout_upd_loss, adj.circuit,
+            self.node.logevent (events.rout_upd_loss,
+                                events.CircuitAdj (adj.circuit),
                                 highest_address = maxreach,
                                 adjacent_node = self.node.nodeinfo (adj.nodeid),
                                 **evtpackethdr (item))
@@ -734,20 +735,24 @@ class L1Router (BaseRouter):
                     # startup.
                     if l2:
                         if not besta:
-                            self.node.logevent (events.area_chg, i,
+                            self.node.logevent (events.area_chg,
+                                                events.AreaEntity (i),
                                                 status = "unreachable")
                         else:
-                            self.node.logevent (events.area_chg, i,
+                            self.node.logevent (events.area_chg, 
+                                                events.AreaEntity (i),
                                                 status = "reachable")
                     elif i:
                         # That check for 0 is there so reachability changes
                         # of "nearest L2 router" aren't logged.
                         nod = self.node.nodeinfo (Nodeid (self.homearea, i))
                         if not besta:
-                            self.node.logevent (events.reach_chg, nod,
+                            self.node.logevent (events.reach_chg,
+                                                events.NodeEntity (nod),
                                                 status = "unreachable")
                         else:
-                            self.node.logevent (events.reach_chg, nod,
+                            self.node.logevent (events.reach_chg, 
+                                                events.NodeEntity (nod),
                                                 status = "reachable")
 
     def usecol (self, adj, l2):
@@ -929,7 +934,8 @@ class L1Router (BaseRouter):
             self.nodeinfo.counters.aged_loss += 1
             # The architecture spec doesn't mention the source adjacency
             # argument, but that seems like a mistake so put it in.
-            self.node.logevent (events.aged_drop, srcadj.circuit,
+            self.node.logevent (events.aged_drop,
+                                events.CircuitEntity (srcadj.circuit),
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
         else:
@@ -939,7 +945,7 @@ class L1Router (BaseRouter):
             else:
                 c = events.unreach_drop
                 self.nodeinfo.counters.unreach_loss += 1
-            self.node.logevent (c, srcadj.circuit,
+            self.node.logevent (c, events.CircuitEntity (srcadj.circuit),
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
         return True

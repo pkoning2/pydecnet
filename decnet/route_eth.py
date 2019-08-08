@@ -129,7 +129,8 @@ class LanCircuit (timers.Timer):
                 except packet.DecodeError:
                     # If parsing the packet raises a DecodeError
                     # exception, log that event
-                    self.node.logevent (events.fmt_err, entity = self,
+                    self.node.logevent (events.fmt_err,
+                                        entity = events.CircuitEntity (self),
                                         packet_beginning = buf[:6])
                     return
             else:
@@ -148,7 +149,8 @@ class LanCircuit (timers.Timer):
                 except packet.DecodeError:
                     # If parsing the packet raises a DecodeError
                     # exception, log that event
-                    self.node.logevent (events.fmt_err, entity = self,
+                    self.node.logevent (events.fmt_err,
+                                        entity = events.CircuitEntity (self),
                                         packet_beginning = buf[:6])
                     return
         return work
@@ -227,7 +229,8 @@ class EndnodeLanCircuit (LanCircuit):
         # Called from the common routing code when an adjacency down
         # occurs (e.g., adjacency listen timeout).
         assert adj == self.dr
-        self.node.logevent (events.adj_down, self,
+        self.node.logevent (events.adj_down,
+                            entity = events.CircuitEntity (self),
                             reason = "listener_timeout",
                             adjacent_node = self.dr.adjnode ())
         self.dr.down ()
@@ -260,19 +263,22 @@ class EndnodeLanCircuit (LanCircuit):
                 # Router hello when we already know a router.  Same?
                 if self.dr.nodeid != item.id:
                     # Different.  Make the old one go away
-                    self.node.logevent (events.adj_down, self,
+                    self.node.logevent (events.adj_down,
+                                        entity = events.CircuitEntity (self),
                                         reason = "address_change",
                                         adjacent_node = self.dr.adjnode ())
                     self.dr.down ()
                     self.dr = adjacency.Adjacency (self, item)
-                    self.node.logevent (events.adj_up, self,
+                    self.node.logevent (events.adj_up,
+                                        entity = events.CircuitEntity (self),
                                         adjacent_node = self.dr.adjnode ())
                     self.dr.up ()
                 else:
                     self.dr.alive ()
             else:
                 self.dr = adjacency.Adjacency (self, item)
-                self.node.logevent (events.adj_up, self,
+                self.node.logevent (events.adj_up,
+                                    entity = events.CircuitEntity (self),
                                     adjacent_node = self.dr.adjnode ())
                 self.dr.up ()
         elif isinstance (item, EndnodeHello):
@@ -430,7 +436,8 @@ class RoutingLanCircuit (LanCircuit):
                 if a is None:
                     a = self.adjacencies[id] = adjacency.Adjacency (self, item)
                     a.state = UP
-                    self.node.logevent (events.adj_up, self,
+                    self.node.logevent (events.adj_up,
+                                        entity = events.CircuitEntity (self),
                                         adjacent_node = a.adjnode ())
                     a.up ()
                 elif a.ntype == ENDNODE:
@@ -461,7 +468,8 @@ class RoutingLanCircuit (LanCircuit):
                             # Log the adjacency reject here,
                             # since deladj will not have done it (it only
                             # does so for UP adjacencies).
-                            self.node.logevent (events.adj_rej, self,
+                            self.node.logevent (events.adj_rej,
+                                                entity = events.CircuitEntity (self),
                                                 adjacent_node = a2.adjnode ())
                         self.deladj (a2, event = events.adj_rej)
                         if a == a2:
@@ -502,7 +510,8 @@ class RoutingLanCircuit (LanCircuit):
                                        selfent)
                     if a.state == INIT:
                         a.state = UP
-                        self.node.logevent (events.adj_up, self,
+                        self.node.logevent (events.adj_up,
+                                            entity = events.CircuitEntity (self),
                                             adjacent_node = a.adjnode ())
                         a.up ()
                         hellochange = True
@@ -510,7 +519,8 @@ class RoutingLanCircuit (LanCircuit):
                     # We're either not listed, or not two way.
                     logging.trace ("self not listed in received hello")
                     if a.state == UP:
-                        self.node.logevent (events.adj_down, self,
+                        self.node.logevent (events.adj_down,
+                                            entity = events.CircuitEntity (self),
                                             reason = "dropped",
                                             adjacent_node = a.adjnode ())
                         a.down ()
@@ -624,7 +634,8 @@ class RoutingLanCircuit (LanCircuit):
     def deladj (self, a, event = events.adj_down, **kwargs):
         if a.state == UP:
             a.state = INIT
-            self.node.logevent (event, self, adjacent_node = a.adjnode (),
+            self.node.logevent (event, events.CircuitEntity (self),
+                                adjacent_node = a.adjnode (),
                                 **kwargs)
             a.down ()
         # Remove this entry from the adjacencies

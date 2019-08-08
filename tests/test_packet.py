@@ -214,7 +214,8 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "extended"))
         self.assertFalse (hasattr (a, "sint"))
         self.assertFalse (hasattr (a, "byte5"))
-
+        self.assertEqual (a.xfields (), [ ])
+        
     def test_truncated_tlv (self):
         for l in range (1, len (tlvdata) - 1):
             try:
@@ -248,6 +249,14 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "byte5"))
         self.assertEqual (a.field4, b"abc")
         self.assertEqual (a.field254, b"Test")
-        
+        self.assertEqual (a.xfields (), ["field4", "field254"])
+
+    def test_desc (self):
+        # Check the "fieldlabel" method
+        a = alltlv ()
+        self.assertEqual (a.fieldlabel ("fn", "Description"), "Description")
+        self.assertEqual (a.fieldlabel ("fn"), "Fn")
+        self.assertEqual (a.fieldlabel ("field123"), "Parameter #123")
+
 if __name__ == "__main__":
     unittest.main ()

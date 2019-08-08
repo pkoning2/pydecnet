@@ -288,7 +288,7 @@ class SysId (MopHdr):
         if isinstance (val, int):
             if val not in (0, -1, -2):
                 logging.debug ("MOP C-n field integer not in -2..0")
-                raise events.fmt_err
+                raise DecodeError
             val = byte (val)
         else:
             if isinstance (val, str):
@@ -296,7 +296,7 @@ class SysId (MopHdr):
             vl = len (val)
             if vl > maxlen:
                 logging.debug ("Value too long for {} byte field", maxlen)
-                raise events.fmt_err
+                raise DecodeError
             val = byte (vl) + val
         return val
 
@@ -320,7 +320,7 @@ class SysId (MopHdr):
             flen -= 256
         if flen < -2:
             logging.debug ("C field with negative length {}", flen)
-            raise events.fmt_err
+            raise DecodeError
         elif flen <= 0:
             v = flen
             flen = 1
@@ -332,7 +332,7 @@ class SysId (MopHdr):
                 else:
                     logging.debug ("C field length {} longer than max length {}",
                                    flen, maxlen)
-                    raise events.fmt_err
+                    raise DecodeError
             else:
                 v = buf[1:flen + 1]
             v = bytes (v).decode ()

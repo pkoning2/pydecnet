@@ -654,7 +654,8 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.eventcount (events.reach_chg), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEvent (events.reach_chg, back = 1,
-                          entity = Nodeid (1, 2), status = "reachable")
+                          entity = events.NodeEntity (Nodeid (1, 2)),
+                          status = "reachable")
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         pkt = b"\x01\x03\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
@@ -665,7 +666,8 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
         self.assertEvent (events.reach_chg, back = 1,
-                          entity = Nodeid (1, 3), status = "reachable")
+                          entity = events.NodeEntity (Nodeid (1, 3)),
+                          status = "reachable")
         self.assertEqual (self.c2.rphase, 4)
         self.assertEqual (self.c2.id, Nodeid (1, 3))
         # Try some forwarded traffic
@@ -682,21 +684,21 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
         self.assertEqual (self.r.nodeinfo.counters.unreach_loss, 1)
         self.assertEvent (events.unreach_drop, adjacent_node = Nodeid (1, 2),
-                          packet_header = (2, 1090, 1026, 17))
+                          packet_header = [2, 1090, 1026, 17])
         # Node number out of range
         pkt = b"\x02\xfe\x04\x02\x04\x11Other payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
         self.assertEqual (self.r.nodeinfo.counters.node_oor_loss, 1)
         self.assertEvent (events.oor_drop, adjacent_node = Nodeid (1, 2),
-                          packet_header = (2, 1278, 1026, 17))
+                          packet_header = [2, 1278, 1026, 17])
         # Too many visits
         pkt = b"\x02\x03\x04\x02\x04\x1eOther payload"
         self.c1.dispatch (Received (owner = self.c1, packet = pkt))
         self.assertEqual (self.c1.datalink.counters.trans_recv, 1)
         self.assertEqual (self.r.nodeinfo.counters.aged_loss, 1)
         self.assertEvent (events.aged_drop, adjacent_node = Nodeid (1, 2),
-                          packet_header = (2, 1027, 1026, 30))
+                          packet_header = [2, 1027, 1026, 30])
         # Similar but rqr set.  The packet will bounce back, and the
         # error counters and count of error events is unchanged from above
         # (i.e., still one).
@@ -780,8 +782,9 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.eventcount (events.circ_up), 2)
         #self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
-        #self.assertEvent (events.reach_chg, back = 1,
-        #                  entity = Nodeid (1, 3), status = "reachable")
+        self.assertEvent (events.reach_chg, back = 1,
+                          entity = events.NodeEntity (Nodeid (1, 3)),
+                          status = "reachable")
         self.assertEqual (self.c2.rphase, 4)
         self.assertEqual (self.c2.id, Nodeid (1, 3))
         # Try some forwarded traffic

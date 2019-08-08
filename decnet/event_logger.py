@@ -29,8 +29,6 @@ class EventFilter (set):
         unqualified match.
         """
         for e in events:
-            if not isinstance (e, int):
-                e = Event.eventcode (e)
             if enable:
                 self.add ((entity, e))
             else:
@@ -85,8 +83,8 @@ class EventFilter (set):
 
     def __contains__ (self, e):
         if isinstance (e, Event):
-            ent = e._entity
-            code = e.eventcode ()
+            ent = e.entity_type
+            code = e.classindexkey ()
             return (ent, code) in self or (NoEntity, code) in self
         return super ().__contains__ (e)
     
@@ -105,10 +103,10 @@ class EventSink (object):
 class LocalConsole (EventSink):
     def __init__ (self):
         super ().__init__ ()
-        self.filter.setfilter (Event.known_events ())
+        self.filter.setfilter (set (Event.classindex))
         
     def writeevent (self, evt, m):
-        logging.info (evt)
+        logging.log (evt.loglevel, evt)
 
 class LocalFile (EventSink):
     def __init__ (self, config):

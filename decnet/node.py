@@ -9,7 +9,6 @@ import queue
 import threading
 
 from .common import *
-from . import nice
 from . import events
 from . import timers
 from . import logging
@@ -26,16 +25,16 @@ from . import session
 
 SvnFileRev = "$LastChangedRevision$"
 
-class Nodeinfo (nsp.NSPNode, nice.NiceNode):
+class Nodeinfo (nsp.NSPNode, NiceNode):
     """A container for node database entries.  This contains the attributes
     needed by the various layers for remote node items -- for example, the
     state and counters needed by NSP.  The argument is the node config entry.
     """
     def __new__ (cls, c, nodeid = None):
         if c:
-            return nice.NiceNode.__new__ (cls, c.id, c.name)
+            return NiceNode.__new__ (cls, c.id, c.name)
         assert (nodeid is not None)
-        return nice.NiceNode.__new__ (cls, nodeid)
+        return NiceNode.__new__ (cls, nodeid)
 
     def __init__ (self, c, nodeid = None):
         nsp.NSPNode.__init__ (self)
@@ -47,7 +46,7 @@ class Nodeinfo (nsp.NSPNode, nice.NiceNode):
             self.iverif = None
 
     def get_api (self):
-        ret = nice.NiceNode.get_api (self)
+        ret = NiceNode.get_api (self)
         ret.update (nsp.NSPNode.get_api (self))
         if self.overif:
             ret["outbound_verification"] = self.overif
@@ -91,6 +90,7 @@ class Node (Entity):
                 n = Nodeinfo (n)
                 self.addnodeinfo (n)
             self.nodename = self.nodeinfo (self.nodeid).nodename
+            self.nicenode = NiceNode (self.nodeid, self.nodename)
         else:
             # bridge, dummy up some attributes
             self.mop = self.routing = self.nsp = self.session = None
@@ -184,13 +184,7 @@ class Node (Entity):
                     break
                 if isinstance (work, Shutdown):
                     break
-                try:
-                    work.dispatch ()
-                except events.Event as e:
-                    # If processing of the work item raises an Event
-                    # exception, log that event and keep going.
-                    # Any other exception terminates things.
-                    self.logevent (e)
+                work.dispatch ()
         except Exception:
             logging.exception ("Exception caught in mainloop")
         finally:
@@ -208,10 +202,10 @@ class Node (Entity):
         
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
-            event.setsource (self.nodeid)
+            event.source = self.nicenode
             event.setparams (**kwds)
         else:
-            event = event (entity, source = self.nodeid, **kwds)
+            event = event (entity, source = self.nicenode, **kwds)
         self.event_logger.logevent (event)
         
     def description (self, mobile):
