@@ -445,7 +445,8 @@ class NSP (Element):
                                item.src, item.packet)
                 logging.trace ("Unrecognized msgflg value {}, ignored", msgflg)
                 # FIXME: this needs to log the message in the right format
-                self.node.logevent (events.inv_msg, message = buf, source_node = item.src)
+                self.node.logevent (events.inv_msg, message = buf,
+                                    source_node = item.src)
                 return
             if not t:
                 # NOP message to be ignored, do so.
@@ -1176,6 +1177,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         # Parameters
         self.inact_time = 300
         self.conn_timeout = 30
+        # Flags
+        self.rstssegbug = False
         # Initialize the data segment reassembly list
         self.asmlist = list ()
         self.data = Data_Subchannel (self)
@@ -1273,6 +1276,12 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         logging.trace ("Deleted connection {} to {}", self.srcaddr, self.dest)
         return self.closed
 
+    def setsockopt (self, rstssegbug = False, **kwds):
+        """Set connection options or flags not directly related to any
+        standard connection API call.
+        """
+        self.rstssegbug = rstssegbug
+        
     def accept (self, payload = b""):
         """Accept an incoming connection, using the supplied payload
         as session control accept data.
@@ -1425,7 +1434,15 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 item.packet = pkt
             else:
                 if not pkt.bom:
-                    logging.debug ("first segment but no BOM flag: {}", pkt)
+                    if self.rstssegbug:
+                        # Workaround requested for this issue.  Some
+                        # RSTS (DECnet/E) senders mishandle the flags;
+                        # in RSTS this is done in the application, not
+                        # in the DECnet core.  Specifically, the event
+                        # sender is known to get it wrong.
+                        pkt.bom = pkt.eom = 1
+                    else:
+                        logging.debug ("first segment but no BOM flag: {}", pkt)
                 if not pkt.eom:
                     # First of several segments, save it
                     self.asmlist.append (pkt.payload)

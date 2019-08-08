@@ -8,9 +8,9 @@ Classes for packet layouts.
 import sys
 import struct
 import time
+from collections import OrderedDict
 
 from .common import *
-from . import events
 from . import logging
 
 SvnFileRev = "$LastChangedRevision$"
@@ -43,10 +43,27 @@ def proc_layoutelem (cls, e):
 
     if code == "tlv":
         tlen, llen, wild, layoutdict = args
-        codedict = { k : proc_layoutelem (cls, v)
-                     for k, v in layoutdict.items () }
+        codedict = OrderedDict ((k, proc_layoutelem (cls, v))
+                                for k, v in sorted (layoutdict.items ()))
         return [ cls.encode_tlv, cls.decode_tlv,
                  ( tlen, llen, wild, codedict ) ]
+    elif code == "nice":
+        # NICE data payload.  Similar to TLV but with explicit encoding
+        # of the data type (for formatting).  The argument is a
+        # sequence, not a dict as is used in TLV.
+        layouts = args[0]
+        cdict = dict ()
+        ncdict = dict ()
+        flist = list ()
+        for v in layouts:
+            ctr, k, v, f = proc_nice_elem (v)
+            if ctr:
+                cdict[k] = v
+            else:
+                ncdict[k] = v
+            flist.append (f)
+        return [ cls.encode_nice, cls.decode_nice,
+                 [ ncdict, cdict, flist ] ]
     else:
         if isinstance (code, str):
             try:
@@ -75,9 +92,78 @@ def proc_layoutelem (cls, e):
             args = ( flen, [ ( name, start, bits, ftype[0] if ftype else None)
                              for name, start, bits, *ftype in fields if name ] )
         return [ enc, dec, args ]
-        
+
+def proc_nice_elem (item):
+    """Process a single item in a layout.  This one is for NICE encoded
+    data, similar to TLV but different in detail.
+    """
+    # The NICE layout is given by a sequence of parameter descriptions.
+    # Each entry ("v" in this call) is a tuple:
+    #   Parameter number
+    #   Data type (NICE parameter data class)
+    #   Field description
+    #   Optional field name to use in the class
+    #   Optional value label sequence or dictionary, or typelist
+    #
+    # Note that counters and non-counters have separate number spaces,
+    # so a parameter number may occur twice, once for a counter, once
+    # for a non-counter.  In addition, there may be multiple variable
+    # names mapped to the same parameter number.  This is useful if
+    # there are several encodings; an example is the "packet header"
+    # argument in the routing events.  If this is done, the last
+    # occurrence of the parameter number is the one used to decode
+    # incoming packets (i.e., the one whose layout is used as the
+    # template).
+    #
+    # If the field name is omitted or None, the name is generated from
+    # the description by converting to lower case and changing all
+    # spaces to underscore.
+    #
+    # The value label argument may be used for C (coded) and CTM
+    # (masked counter) data; the values are strings which are the
+    # string to display for that value (C) or the name of that bit in
+    # the bitmap (CTM).  If omitted the result is defined by a class
+    # attribute (if subclassed) or as if an empty list was given,
+    # which causes all strings to be the fallback (#number) instead.
+    #
+    # The fourth argument is also used for CM (coded multiple) data.  In
+    # that case, it is a sequence whose values are data classes that
+    # will be used for the corresponding element in the data.
+    #
+    # When decoding incoming data, the data type is indicated explicitly
+    # in the binary data.  For that case, the data type (NICE data
+    # class) is used only if it has the same data type code as is given
+    # in the decoded data.  Otherwise, the type code is looked up in the
+    # classindex to find the class matching that code.  This means that
+    # a subclass with custom handling (for example alternate formatting,
+    # see DUNode for an example) can be used for a DU-2 field, but if
+    # the decoded data has some other type code, the DUNode class is
+    # disregarded.
+    #
+    # The output is a tuple consisting of:
+    #   a boolean: true if this item is a counter
+    #   parameter number
+    #   a tuple to insert into the decode dictionary, consisting of
+    #     data class, variable name, and value-label data
+    #   a tuple to append to the encode and formatting list, consisting
+    #     of the parameter number, data class, variable name, description,
+    #     and value-label data.
+    param, pcls, desc, *rest = item
+    try:
+        fn = rest[0]
+    except IndexError:
+        fn = None
+    if not fn:
+        fn = desc.lower ().replace (" ", "_")
+    try:
+        vals = rest[1]
+    except IndexError:
+        vals = ()
+    return pcls.counter, param, (pcls, fn, vals), (param, pcls, fn, desc, vals)
+
 def process_layout (cls, layout):
     """Process a layout definition and return the resulting
+
     encode/decode table.
 
     The layout is a sequence of tuples.  Each starts with a field code
@@ -116,9 +202,11 @@ def process_layout (cls, layout):
     type fields are an error.  Note that in encode, only known fields
     (those listed as keys of the fields dictionary) are encoded.
 
-    The field code can also be the name of a class.  In that case, the
-    class must have a _len attribute which gives the length of an
-    encoded item of that type (this must be a constant).
+    The field code can also be the name of a class.  In that case,
+    encoding and decoding for that field is done by the "encode" and
+    "decode" methods of the class.  The "decode" method must be a
+    classmethod, which returns an instance of the class with the decoded
+    value along with the unused part of the buffer.
     
     The code table is used by the "encode" and "decode" methods
     of the class being defined.  This generally means those methods
@@ -133,6 +221,8 @@ def process_layout (cls, layout):
             raise InvalidField ("{} field must be last in layout".format (nomore))
         if isinstance (code, str) and code.lower () == "tlv":
             nomore = "TLV"
+        elif isinstance (code, str) and code.lower () == "nice":
+            nomore = "NICE"
         codetable.append (proc_layoutelem (cls, e))
     return codetable
 
@@ -148,6 +238,19 @@ def proc_slotelem (e):
             s, w = proc_slotelem (v)
             ret |= s
         return ret, wild
+    elif code == "nice":
+        # Similar to TLV but the details are different
+        ret = set ()
+        for v in args[0]:
+            counter, k, v, f = proc_nice_elem (v)
+            fn = f[2]
+            if fn in ret:
+                raise InvalidField ("Duplicate field {} ({}) in NICE layout"
+                                    .format (fn, desc))
+                
+            ret.add (fn)
+        return ret, False
+        
     else:
         if code == "bm":
             return { name for name, *rest in args if name }, False
@@ -170,7 +273,62 @@ def process_slots (layout):
             slots.add ("__dict__")
     return slots
 
-class packet_encoding_meta (type):
+class indexer (type):
+    """Metaclass that builds an index of the classes it creates, for use
+    by packet code dependent class lookup.
+
+    The class, or a base class, must have attribute "classindexkey".  It
+    may be None, a class method, or a string.  If a class method, it is
+    called with the new class as its argument to get the class index.
+    If a string, it will be used as the name of an attribute of the new
+    class (but not its base classes) in which to find the index.  If
+    successful and the result is not None, the class is then entered
+    into the dictionary given by class attribute "classindex".
+    """
+    def __new__ (cls, name, bases, classdict):
+        result = type.__new__ (cls, name, bases, classdict)
+        key = result.classindexkey
+        if key:
+            if callable (key):
+                idx = key ()
+            else:
+                idx = classdict.get (key, None)
+            if idx is not None:
+                result.classindex[idx] = result
+        return result
+
+class Indexed (metaclass = indexer):
+    __slots__ = ()
+    classindexkey = None
+
+    @classmethod
+    def defaultclass (cls, idx):
+        """Return a default class if the class index doesn't list the
+        supplied index value.  This method may return a particular
+        default class, or it may generate a new class, or (as this
+        method does) return None to indicate there isn't a class.
+        """
+        return None
+
+    @classmethod
+    def findclass (cls, idx):
+        """Return the class whose index value matches the supplied one.
+
+        If the supplied class has an index value and that matches what's
+        requested, return this class as the preferred answer.  Otherwise
+        return the class with matching index, if there is one.  If not,
+        return what the defaultclass method returns for this index.
+        """
+        key = cls.classindexkey
+        if callable (key):
+            clsidx = key ()
+        else:
+            clsidx = getattr (cls, key, None)
+        if clsidx == idx:
+            return cls
+        return cls.classindex.get (idx, None) or cls.defaultclass (idx)
+
+class packet_encoding_meta (indexer):
     """Metaclass for "Packet" that will process the "_layout"
     for the packet into the necessary encoding and decoding
     tables.
@@ -214,7 +372,7 @@ class packet_encoding_meta (type):
             addslots = set (addslots)
             slots |= addslots
         classdict["__slots__"] = slots
-        result = type.__new__ (cls, name, bases, classdict)
+        result = indexer.__new__ (cls, name, bases, classdict)
         # Remember the set of all slots (of the inheritance hierarchy)
         # because sometimes we need to know whether a particular attribute
         # can be set in instances of this class, and a particular field
@@ -226,7 +384,7 @@ class packet_encoding_meta (type):
         # its own additional layout) or we will treat that base layout
         # as the header for any additional layout given here.
         baselayout = getattr (result, "_codetable", None)
-        if layout:
+        if layout is not None:
             # This class defines a layout.  It's either the packet layout
             # (if there is no layout in its base classes) or additional
             # layout after the header defined by the base classes.
@@ -244,7 +402,7 @@ class packet_encoding_meta (type):
                 if addslots and "payload" in addslots:
                     raise InvalidField ("Packet with TLV fields can't have"
                                         " payload")
-        elif bases and not baselayout:
+        elif bases != ( Indexed, ) and not baselayout:
             # No layout -- ok if this is the Packet abstract base class
             raise InvalidField ("Required attribute '_layout' "\
                                 " not defined in class '{}'".format (name))
@@ -280,7 +438,7 @@ def decode_a_value (buf, maxlen):
     flen, v = decode_i_value (buf, maxlen)
     return flen, str (v, encoding = "latin1")
 
-class Packet (metaclass = packet_encoding_meta):
+class Packet (Indexed, metaclass = packet_encoding_meta):
     """Base class for DECnet packets.
 
     The packet layout is given by class variable "layout",
@@ -288,7 +446,8 @@ class Packet (metaclass = packet_encoding_meta):
     See the documentation for "process_layout" for details.
     """
     _addslots = { "src", "decoded_from" }
-
+    _xfields = False
+    
     # A subclass can override this to be True, in which case some
     # format errors are suppressed.  This is useful to accommodate
     # non-conforming packets seen in the wild.
@@ -405,7 +564,10 @@ class Packet (metaclass = packet_encoding_meta):
         setattr (self, field, v)
         return buf[flen + 1:]
 
-    encode_a = encode_i
+    def encode_a (self, field, maxlen):
+        val = str (getattr (self, field, ""))
+        return encode_i_value (val, maxlen)
+    
     def decode_a (self, buf, field, maxlen):
         """Decode "field" from an image field with max length "maxlen".
         If the field is too large, packet format error is signalled.
@@ -611,6 +773,7 @@ class Packet (metaclass = packet_encoding_meta):
                 if wild:
                     e, d, fieldargs = ( Packet.encode_bs, Packet.decode_bs,
                                         ( "field{}".format (tag), vlen ) )
+                    self._xfields = True
                 else:
                     logging.debug ("Unknown TLV tag {}", tag)
                     raise InvalidTag from None
@@ -751,17 +914,22 @@ class Packet (metaclass = packet_encoding_meta):
         """Return a list of the "fieldnnn" attributes of this object,
         sorted in numerical order if requested.
         """
-        if "__dict__" not in self.__slots__:
+        if not self._xfields:
             return [ ]
-        ret = [ n for n in self.__dict__ if n.startswith ("field") ]
+        try:
+            ret = [ n for n in self.__dict__ if n.startswith ("field") ]
+        except AttributeError:
+            return [ ]
         if sortlist and ret:
             ret.sort (key = fieldnum)
         return ret
 
     @staticmethod
-    def fieldlabel (fn):
+    def fieldlabel (fn, desc = None):
         """Convert a field name to a user-friendly label string.
         """
+        if desc:
+            return desc
         if fn.startswith ("field"):
             return "Parameter #{}".format (fn[5:])
         fn = fn.replace ("_", " ")

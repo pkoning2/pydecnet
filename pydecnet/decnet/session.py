@@ -238,6 +238,7 @@ class DefObj (dict):
         self.auth = auth
         
 defobj = ( DefObj ("MIRROR", 25, "decnet.applications.mirror"),
+           DefObj ("EVTLOG", 26, "decnet.applications.evl"),
          )
 
 class SessionConnection (Element):
@@ -267,6 +268,9 @@ class SessionConnection (Element):
 
     def send_data (self, data):
         return self.nspconn.send_data (data)
+
+    def setsockopt (self, **kwds):
+        return self.nspconn.setsockopt (**kwds)
     
 class Session (Element):
     """The session control layer.  This owns all session control

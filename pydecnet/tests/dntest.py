@@ -72,6 +72,7 @@ class t_node (node.Node):
         self.ecounts = collections.Counter ()
         self.event_logger = event_logger.EventLogger (self, None)
         self.elist = list ()
+        self.nicenode = NiceNode (self.nodeid, self.nodename)
         
     def start (self, mainthread = False): pass
     def mainloop (self): raise Exception
@@ -87,7 +88,7 @@ class t_node (node.Node):
         super ().logevent (event, entity, **kwds)
         
 class DnTest (unittest.TestCase):
-    loglevel = logging.WARNING
+    loglevel = logging.CRITICAL
 
     def setUp (self):
         """Common setup for DECnet/Python test cases.
@@ -152,21 +153,21 @@ class DnTest (unittest.TestCase):
     def assertEvent (self, evt = None, back = 0, entity = None, **kwds):
         self.assertTrue (self.node.elist)
         e = self.node.elist[-1 - back]
+        # Encode it to force all the NiceType classes to be set
+        e.encode ()
         if evt:
             self.assertEqual (type (e), evt)
         if entity:
-            self.assertEqual (e._entity, entity)
+            self.assertEqual (e.entity_type, entity)
         for k, v in kwds.items ():
             p = getattr (e, k)
             try:
-                v = p.values[v]
-            except (AttributeError, KeyError, TypeError):
+                vdict = e._values[k]
+                v = vdict[v]
+            except (AttributeError, KeyError):
                 pass
-            fmt = p.fmt
-            if isinstance (fmt, Sequence):
-                if not (isinstance (v, Sequence) and 
-                        not isinstance (v, strtypes)):
-                    v = (v,)
+            except AttributeError:
+                pass
             self.assertEqual (p, v)
         eparams = [ k for k, v in e.__dict__.items () if
                     isinstance (v, events.Param) and k not in kwds ]

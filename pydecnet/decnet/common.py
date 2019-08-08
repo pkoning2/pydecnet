@@ -223,6 +223,9 @@ class Nodeid (int):
             raise MissingData
         return cls (buf[:2]), buf[2:]
 
+    def encode (self):
+        return self.to_bytes (2, "little")
+    
     @property
     def area (self):
         return int (self) >> 10
@@ -249,6 +252,54 @@ class Nodeid (int):
     def __bytes__ (self):
         return self.to_bytes (2, "little")
     
+    def __iter__ (self):
+        yield int (self)
+
+class NiceNode (Nodeid):
+    """A node address with optional node name. """
+    def __new__ (cls, nodeid, name = ""):
+        n = Nodeid.__new__ (cls, nodeid)
+        if not name:
+            name = getattr (nodeid, "nodename", None)
+        n.nodename = name
+        n.executor = False
+        return n
+
+    def get_api (self):
+        ret = { "address" : int (self) }
+        if self.nodename:
+            ret["name"] = self.nodename
+        return ret
+        
+    def encode (self):
+        ebit = 0x80 if self.executor else 0
+        name = self.nodename or ""
+        return super ().encode () + \
+               byte (len (name) + ebit) + \
+               bytes (name, "latin1")
+
+    @classmethod
+    def decode (cls, b, *x):
+        n = int.from_bytes (b[:2], "little")
+        ln = b[2]
+        ebit = (ln & 0x80) != 0
+        ln &= 0x7f
+        name = str (b[3:3 + ln], "latin1")
+        v = cls (n, name)
+        v.executor = ebit
+        return v, b[3 + ln:]
+
+    def __str__ (self):
+        if self.nodename:
+            return "{} ({})".format (super ().__str__ (),
+                                     self.nodename)
+        return super ().__str__ ()
+
+    def __iter__ (self):
+        yield int (self)
+        if self.nodename:
+            yield self.nodename
+
 _mac_re = re.compile ("[-:]")
 class Macaddr (bytes):
     """MAC address for Ethernet (or similar LAN).
@@ -284,6 +335,9 @@ class Macaddr (bytes):
             raise MissingData
         return cls (buf[:6]), buf[6:]
 
+    def encode (self):
+        return self
+    
     def __str__ (self):
         return "{0[0]:02x}-{0[1]:02x}-{0[2]:02x}-{0[3]:02x}-{0[4]:02x}-{0[5]:02x}".format (self)
 
@@ -329,6 +383,9 @@ class Ethertype (bytes):
             raise MissingData
         return cls (buf[:2]), buf[2:]
 
+    def encode (self):
+        return self
+    
     def __str__ (self):
         return "{0[0]:02x}-{0[1]:02x}".format (self)
 
@@ -365,6 +422,9 @@ class Version (bytes):
             raise MissingData
         return cls (buf[:3]), buf[3:]
 
+    def encode (self):
+        return self
+    
     def __str__ (self):
         v1, v2, v3 = _version.unpack (self)
         return "{}.{}.{}".format (v1, v2, v3)

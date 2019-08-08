@@ -43,7 +43,10 @@ def splithdr (b, lens):
     st = 0
     ret = list ()
     for l in lens:
-        ret.append (b[st:st + l])
+        f = b[st:st + l]
+        if l <= 4:
+            f = int.from_bytes (f, "little")
+        ret.append (f)
         st += l
     return ret
 
@@ -80,7 +83,7 @@ def evtpackethdr (pkt, exc = None):
             fields = splithdr (buf, (1, 1))
             return { "nv_packet_header" : fields }
     return { "packet_beginning" : buf[:6] }
-
+    
 class ShortData (packet.Packet):
     _addslots = { "payload" }
     _layout = (( "bm",

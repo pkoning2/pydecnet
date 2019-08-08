@@ -353,7 +353,7 @@ number.
 Some objects are built into PyDECnet, for example object 25
 ("MIRROR").  Those can still be overridden by definitions in the
 config file, or turned off by an entry that has the --disable switch.
-Note: currently MIRROR (25) is the only built-in object.
+Currently MIRROR (25) and EVL (26) are built-in objects.
 
 --number: Object number, in the range 1 to 255.  Numbers 1 through 127
 are defined by Digital, higher values are "for customer use".
