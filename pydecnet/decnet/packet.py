@@ -245,8 +245,8 @@ def proc_slotelem (e):
             counter, k, v, f = proc_nice_elem (v)
             fn = f[2]
             if fn in ret:
-                raise InvalidField ("Duplicate field {} ({}) in NICE layout"
-                                    .format (fn, desc))
+                raise InvalidField ("Duplicate field {} in NICE layout"
+                                    .format (fn))
                 
             ret.add (fn)
         return ret, False
@@ -512,7 +512,7 @@ class Packet (Indexed, metaclass = packet_encoding_meta):
                                       .format (field, prev, val)) from None
             else:
                 raise
-            
+
     def encode_res (self, flen):
         """Encode a reserved field.
         """

@@ -3,7 +3,7 @@ from .routing_packets import *
 from . import logging
 from . import nsp
 
-def tracepkt (msg, pkt):
+def tracepkt (msg, pkt, level = logging.TRACE):
     """Create a TRACE level log entry with given message and the supplied
     packet. 
     """
@@ -29,5 +29,5 @@ def tracepkt (msg, pkt):
             parse.append ("{:04x}/ {} {}".format (ln,
                                                   " ".join (n),
                                                   "".join (c)))
-    logging.trace ("{}:\n  {}", msg, "\n  ".join (parse))
+    logging.log (level, "{}:\n  {}", msg, "\n  ".join (parse))
     

@@ -15,6 +15,7 @@ from . import timers
 from . import statemachine
 from . import modulo
 from . import html
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -263,6 +264,7 @@ class ConnMsg (NspHdr):
     VER_41 = 3          # Phase 4+ (NSP 4.1)
 
 nspverstrings = ( "3.2", "3.1", "4.0", "4.1" )
+nspver3 = ( (3, 2, 0), (3, 1, 0), (4, 0, 0), (4, 1, 0))
 nspphase = { ConnMsg.VER_PH2 : 2, ConnMsg.VER_PH3 : 3,
              ConnMsg.VER_PH4 : 4, ConnMsg.VER_41 : 4  }
 
@@ -336,14 +338,18 @@ dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
 
 class NspCounters (BaseCounters):
     nodecounters = [
-        ( "byt_rcv", "Bytes received" ),
-        ( "byt_xmt", "Bytes sent" ),
-        ( "msg_rcv", "Messages received" ),
-        ( "msg_xmt", "Messages sent" ),
+        ( "byt_rcv", "User bytes received" ),
+        ( "byt_xmt", "User bytes sent" ),
+        ( "msg_rcv", "User messages received" ),
+        ( "msg_xmt", "User messages sent" ),
+        ( "t_byt_rcv", "Total bytes received" ),
+        ( "t_byt_xmt", "Total bytes sent" ),
+        ( "t_msg_rcv", "Total messages received" ),
+        ( "t_msg_xmt", "Total messages sent" ),
         ( "con_rcv", "Connects received" ),
         ( "con_xmt", "Connects sent" ),
         ( "timeout", "Response timeouts" ),
-        ( "no_res_rcv", "Received resource errors" )
+        ( "no_res_rcv", "Received connect resource errors" )
     ]
 
     def __init__ (self, owner):
@@ -352,6 +358,10 @@ class NspCounters (BaseCounters):
         self.byt_xmt = 0
         self.msg_rcv = 0
         self.msg_xmt = 0
+        self.t_byt_rcv = 0
+        self.t_byt_xmt = 0
+        self.t_msg_rcv = 0
+        self.t_msg_xmt = 0
         self.con_rcv = 0
         self.con_xmt = 0
         self.timeout = 0
@@ -359,7 +369,7 @@ class NspCounters (BaseCounters):
 
 class NSPNode (object):
     """The remote node state needed by NSP.  This is a base class of
-    the Nodeinfo object, which is what node.nodeinfo() returns.
+    the Nodeinfo object, which is what node.nodeinfo () returns.
     """
     # Allow a subclass to change what counters this node has.
     counterclass = NspCounters
@@ -371,7 +381,7 @@ class NSPNode (object):
 
     def used (self):
         # Returns True if this node has been used. 
-        return self.counters.byt_rcv or self.counters.byt_xmt or \
+        return self.counters.t_byt_rcv or self.counters.t_byt_xmt or \
           self.counters.con_rcv or self.counters.con_xmt
 
     def get_api (self):
@@ -402,6 +412,10 @@ class NSP (Element):
         self.rconnections = EntityDict ()
         self.config = config = config.nsp
         self.maxconns = config.max_connections
+        # Fixed for now
+        self.inact_time = 300
+        self.conn_timeout = 30
+        #
         self.ectr = parent.routing.nodeinfo.counters
         self.init_id ()
         # Create the "reserved port"
@@ -556,6 +570,11 @@ class NSP (Element):
             # Packet is mapped to a port, so process it there.  Change
             # the packet attribute in the work item to be the parsed
             # packet from the logic above.
+            # Adjust the total counters
+            if conn is not self.resport:
+                nc = conn.destnode.counters
+                nc.t_byt_rcv += len (pkt.decoded_from)
+                nc.t_msg_rcv += 1
             item.packet = pkt
             conn.dispatch (item)
             
@@ -723,7 +742,87 @@ class NSP (Element):
             return html.tbsection (title, hdr, ret)
         else:
             return html.textsection (title, [ "<em>No connections</em>" ])
-    
+
+    def read_node (self, req, nodeinfo, resp, links = None):
+        # Fill in a NICE read node response record with information
+        # from nodeinfo, inserting it into resp or updating any record
+        # already there (the latter case does not occur right now but
+        # allow for it).
+        try:
+            r = resp[nodeinfo]
+        except KeyError:
+            resp[nodeinfo] = r = nicepackets.NodeReply ()
+            r.entity = nicepackets.NodeEntity (nodeinfo)
+        # We have a node for which we have some information.  Check
+        # the information type request to see what is wanted.
+        if req.info < 2:
+            # summary or status
+            # Count the connections to this node.  TODO: should this
+            # be tracked as state in the NSPNode object?
+            if links is None:
+                links = 0
+                for c in self.connections.values ():
+                    if c.destnode == nodeinfo:
+                        links += 1
+            if links:
+                r.active_links = links
+            if nodeinfo.delay != 0:
+                r.delay = int (nodeinfo.delay) or 1
+        elif req.info == 2:
+            # characteristics.  Nothing exept for executor
+            if nodeinfo == self.node.routing.nodeinfo:
+                # It's the executor
+                r.ecl_version = nspver3[self.nspver]
+                r.maximum_links = self.maxconns
+                r.delay_factor = int (self.config.nsp_delay * 16)
+                r.delay_weight = self.config.nsp_weight
+                r.inactivity_timer = self.inact_time
+                r.retransmit_factor = self.config.retransmits
+                r.incoming_timer = self.conn_timeout
+                r.outgoing_timer = self.conn_timeout
+        else:
+            # counters
+            nodeinfo.counters.copy (r)
+            
+    def nice_read (self, req, resp):
+        # We only know about nodes
+        if not isinstance (req, nicepackets.NiceReadNode):
+            return
+        # We know nothing about adjacent nodes
+        if req.entity.code == -4:
+            return
+        if req.mult ():
+            # Multiple nodes: walk the node table
+            for n in self.node.nodeinfo_byid.keys ():
+                # Add it to the response either if we're doing
+                # "known", or the executor, or "active" and there is a
+                # link, or "significant" and we have any information.
+                if req.known () or n == self.node.routing.nodeinfo:
+                    self.read_node (req, n, resp)
+                else:
+                    # significant or active.  See if we want to
+                    # include this.
+                    if req.sig () and \
+                       ((req.info == 3 and n.used ()) or \
+                        (req.info < 2 and n.delay != 0)):
+                        self.read_node (req, n, resp)
+                    else:
+                        # Active, get the link count
+                        l = 0
+                        for c in self.connections.values ():
+                            if c.destnode == n:
+                                l += 1
+                        if l:
+                            self.read_node (req, n, resp, l)
+        else:
+            # Specific node by name or ID.  Actually, name was
+            # converted to ID in node.py
+            try:
+                n = self.node.nodeinfo_byid[req.entity.value]
+            except KeyError:
+                return
+            self.read_node (req, n, resp)
+
 class txqentry (timers.Timer):
     """An entry in the retransmit queue for a subchannel.
 
@@ -790,7 +889,7 @@ class txqentry (timers.Timer):
                 self.channel.node.timers.stop (self)
             else:
                 # Not CI, so close due to "destination unreachable"
-                disc = DiscInit (reason = UNREACH)
+                disc = DiscInit (reason = UNREACH, data_ctl = b"")
                 c.to_sc (Received (self, packet = disc), True)
                 c.close ()
                 # Mark connection as closed
@@ -1175,8 +1274,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
         self.dstaddr = 0
         self.shutdown = False
         # Parameters
-        self.inact_time = 300
-        self.conn_timeout = 30
+        self.inact_time = parent.inact_time
+        self.conn_timeout = parent.conn_timeout
         # Flags
         self.rstssegbug = False
         # Initialize the data segment reassembly list
@@ -1492,6 +1591,8 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
     def sendmsg (self, pkt):
         if logging.tracing:
             logging.trace ("NSP sending packet {}", pkt)
+        self.destnode.counters.t_byt_xmt += len (pkt)
+        self.destnode.counters.t_msg_xmt += 1        
         self.parent.routing.send (pkt, self.dest)
 
     def validate (self, item):
@@ -1515,7 +1616,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # Reject it with reason 38, and also deliver a disconnect up
             # to session control.
             self.reject (OBJ_FAIL)
-            disc = DiscInit (reason = OBJ_FAIL)
+            disc = DiscInit (reason = OBJ_FAIL, data_ctl = b"")
             self.to_sc (Received (self, packet = disc))
 
     def ci (self, item):
@@ -1535,7 +1636,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
                 #
                 # Note that inbound CI doesn't come here, it comes in via the
                 # constructor, or if retransmitted to the CR state handler.
-                item.packet = DiscInit (reason = UNREACH)
+                item.packet = DiscInit (reason = UNREACH, data_ctl = b"")
                 self.to_sc (item, True)
                 return self.close ()
         return self.cd (item)
@@ -1587,7 +1688,7 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             # anything to the other end because the protocol makes no
             # provision for disconnect in CR state.  So just deliver
             # failure locally and make the connection go away.
-            disc = DiscInit (reason = OBJ_FAIL)
+            disc = DiscInit (reason = OBJ_FAIL, data_ctl = b"")
             self.to_sc (Received (self, packet = disc), True)
             return self.close ()
 

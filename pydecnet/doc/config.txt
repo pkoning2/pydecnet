@@ -340,9 +340,15 @@ is multipled by this value to derive the ack timeout.  Default is 2,
 range is 1 to 15.94.
 
 --qmax: Maximum number of unacknowledged data segments in the queue
-for any given connection.  Default is 2047, range is 1 to 2047.  This
-is primarily a test tool; the default should normally work fine.  Very
-small values will impair performance.
+for any given connection.  Default is 20, range is 1 to 2047.  This is
+primarily a test tool; the default should normally work fine.  Very
+small values will impair performance.  Large values may cause
+congestion problems for DECnet implementations that do not use
+explicit flow control, such as DECnet/E.  A modern Python system can
+send much faster than those nodes can handle, and can queue up much
+more traffic than these nodes expect. While nothing should break,
+setting the queue limit much higher than the default is likely to make
+things run very slowly.
 
 Component "object"
 
@@ -353,7 +359,7 @@ number.
 Some objects are built into PyDECnet, for example object 25
 ("MIRROR").  Those can still be overridden by definitions in the
 config file, or turned off by an entry that has the --disable switch.
-Currently MIRROR (25) and EVL (26) are built-in objects.
+Currently NML (19), MIRROR (25), and EVL (26) are built-in objects.
 
 --number: Object number, in the range 1 to 255.  Numbers 1 through 127
 are defined by Digital, higher values are "for customer use".
@@ -385,6 +391,20 @@ started.   PyDECnet does not interpret this.
 PyDECnet will verify the supplied authentication information, "off"
 means that information is not needed and is ignored if present.  Not
 supported if the python-pam library module is not installed.
+
+Component "system"
+
+This is used to specify some general parameters that don't belong to a
+particular layer.  Or they can be viewed as belonging to network
+management, which in this implementation isn't modeled as a layer.
+This is an optional component of DECnet nodes; it is not applicable to
+bridges. 
+
+--identification "string"
+
+Set the identification string shown as the NICE protocol executor
+parameter "Identification".  The default is "DECnet/Python" plus
+version numbers.
 
 Component "bridge"
 

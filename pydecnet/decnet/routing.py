@@ -20,6 +20,7 @@ from . import statemachine
 from . import route_ptp
 from . import route_eth
 from . import html
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -142,7 +143,7 @@ class Circuit (Element):
         if name == "counters":
             return self.datalink.counters
         return super ().getentity (name)
-    
+
 class L1Circuit (Circuit):
     """The routing layer circuit behavior for a circuit in a level 1
     router (or the level 1 functionality of an area router).
@@ -239,10 +240,10 @@ class ExecCounters (NspCounters):
     additional counters maintained by the routing layer.
     """
     nodecounters = NspCounters.nodecounters + [
-        ( "peak_conns", "Peak logical links" ),
+        ( "peak_conns", "Maximum logical links active" ),
         ( "aged_loss", "Aged packet loss" ),
         ( "unreach_loss", "Node unreachable packet loss" ),
-        ( "node_oor_loss", "Node address out of range loss" ),
+        ( "node_oor_loss", "Node out-of-range loss" ),
         ( "oversized_loss", "Oversized packet loss" ),
         ( "fmt_errors", "Packet format error" ),
         ( "partial_update_loss", "Partial routing update loss" ),
@@ -399,7 +400,78 @@ class BaseRouter (Element):
                  "name" : self.name,
                  "type" : self.ntypestring,
                  "version" : self.tiver }
+
+    def read_node (self, req, nodeid, resp):
+        r = resp[nodeid]
+        # Supply the requested information for the indicated node.
+        if req.info == 2:
+            # Characteristics.  This applies only to executor, which
+            # the caller has already checked.
+            r.routing_version = self.tiver
+            # Generate NICE style node type
+            if self.tiver == tiver_ph4:
+                r.type = self.ntype + 2
+            elif self.tiver == tiver_ph3:
+                r.type = 1 if self.ntype == ENDNODE else 0
+            else:
+                r.type = 2
+            r.segment_buffer_size = MTU
+            # Have the subclass supply anything else it wants to
+            self.node_char (r)
+
+    def node_char (self, r):
+        pass
+    
+    def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.NiceReadNode):
+            # Read node
+            if req.info == 3:
+                # counters, nothing to do since NSP took care of that.
+                return
+            if req.info == 2:
+                # characteristics -- only executor has those
+                if (req.one () and req.entity.value == self.nodeid) \
+                   or req.mult () and not req.adj ():
+                    # Supply executor characteristics.  Note that
+                    # "adjacent" does not do this since the executor
+                    # isn't an adjacent node.
+                    self.read_node (req, self.nodeid, resp)
+            else:
+                # status or summary.
+                if req.one ():
+                    self.read_node (req, req.entity.value, resp)
+                else:
+                    # multiple nodes.  start with adjacencies.
+                    for c in self.circuits.values ():
+                        c.nice_read (req, resp)
+                    if not req.adj ():
+                        # known or significant or active, thrown in
+                        # reachability information
+                        self.reach (req, resp)
+                # Make sure nexthop is set if known.
+                self.nexthop (req, resp)
+        elif isinstance (req, nicepackets.NiceReadCircuit):
+            if req.entity.code > 0:
+                # read one circuit
+                cn = req.entity.value.upper ()
+                try:
+                    c = self.circuits[cn]
+                except KeyError:
+                    return
+                c.nice_read (req, resp)
+            else:
+                # Read active or known circuits.  We handle those the
+                # same because all our circuits are always on.
+                for c in self.circuits.values ():
+                    c.nice_read (req, resp)
+            return resp
         
+    def reach (self, req, resp):
+        pass
+
+    def nexthop (self, req, resp):
+        pass
+
 class EndnodeRouting (BaseRouter):
     """Routing entity for endnodes.
     """
@@ -1000,6 +1072,45 @@ class L1Router (BaseRouter):
             ret.append (self.html_matrix (False))
         return ret
 
+    def reach (self, req, resp):
+        for i in range (1, self.maxnodes + 1):
+            a = self.oadj[i]
+            if a is self.selfadj:
+                continue
+            ni = Nodeid (self.homearea, i)
+            if a:
+                r = resp[ni]
+                r.state = 4    # reachable
+                r.adj_circuit = a.circuit
+                if self.minhops[i] > 1 or req.info == 0:
+                    # If status, set next hop only if it's not this
+                    # node
+                    nxt = self.node.nodeinfo (a.nodeid)
+                    r.next_node = nxt
+                if req.info == 1:
+                    r.hops = self.minhops[i]
+                    r.cost = self.mincost[i]
+            elif req.info == -1 or ni in resp:
+                r = resp[ni]
+                r.state = 5    # unreachable
+
+    def nexthop (self, req, resp):
+        for k, v in resp.items ():
+            oa = self.findoadj (k)
+            if oa and oa is not self.selfadj:
+                v.adj_circuit = oa.circuit
+                if oa.nodeid != k:
+                    v.next_node = self.node.nodeinfo (oa.nodeid)
+                        
+    def node_char (self, rec):
+        # Add router characteristics to "rec"
+        rec.maximum_address = self.maxnodes
+        rec.maximum_cost = self.maxcost
+        rec.maximum_hops = self.maxhops
+        rec.maximum_visits = self.maxvisits
+        rec.routing_timer = self.config.t1
+        rec.broadcast_routing_timer = self.config.bct1
+    
 class Phase3Router (L1Router):
     """Routing entity for Phase III routers.
     """
@@ -1157,6 +1268,58 @@ class L2Router (L1Router):
             ret.append (self.html_matrix (True))
         return ret
 
+    def node_char (self, rec):
+        # Add router characteristics to "rec"
+        rec.maximum_area = self.maxarea
+        rec.area_maximum_cost = self.amaxcost
+        rec.area_maximum_hops = self.amaxhops
+
+    def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.NiceReadArea):
+            # Read area
+            if req.info > 1:
+                # characteristics or counters, no such thing
+                return
+            if req.mult ():
+                # active or known entities, return the reachable ones.
+                for i in range (1, self.maxarea):
+                    a = self.aoadj[i]
+                    if a:
+                        resp[i] = r = nicepackets.AreaReply ()
+                        r.entity = nicepackets.AreaEntity (i)
+                        r.state = 4    # Reachable
+                        if a is self.selfadj:
+                            r.next_node = self.nodeinfo
+                        else:
+                            r.circuit = a.circuit
+                            r.next_node = self.node.nodeinfo (a.nodeid)
+                        if req.info == 1:
+                            # status
+                            r.hops = self.aminhops[i]
+                            r.cost = self.amincost[i]
+            else:
+                i = req.entity.value
+                if not 0 < i <= self.maxarea:
+                    return
+                resp[i] = r = nicepackets.AreaReply ()
+                r.entity = nicepackets.AreaEntity (i)
+                a = self.aoadj[i]
+                if a:
+                    r.state = 4    # Reachable
+                    if a is self.selfadj:
+                        r.next_node = self.nodeinfo
+                    else:
+                        r.circuit = a.circuit
+                        r.next_node = self.node.nodinfo (a.nodeid)
+                    if req.info == 1:
+                        # statuss
+                        r.hops = self.aminhops[i]
+                        r.cost = self.amincost[i]
+                else:
+                    r.state = 5    # Unreachable
+        else:
+            super ().nice_read (req, resp)
+                        
 class Update (Element, timers.Timer):
     """Update process for a circuit
     """
