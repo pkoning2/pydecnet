@@ -8,6 +8,7 @@ import struct
 
 from .common import *
 from . import packet
+from . import logging
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -15,7 +16,7 @@ SvnFileRev = "$LastChangedRevision$"
 jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 
 class EntityBase (packet.Packet):
-    _layout = (( "signed", "enum", 1 ),)
+    _layout = (( "signed", "ent_enum", 1 ),)
     classindex = { }
     classindexkey = "enum"
 
@@ -38,9 +39,10 @@ class EntityBase (packet.Packet):
     
     def __str__ (self):
         cname = self.__class__.__name__
+        enum = getattr (self, "ent_enum", self.enum)
         if cname.endswith ("Entity"):
             return "{} = {}".format (cname[:-6], self.ename)
-        return "Entity #{} = {}".format (self.enum, self.ename)
+        return "Entity #{} = {}".format (enum, self.ename)
 
     def __format__ (self, arg):
         return str (self)
@@ -92,7 +94,8 @@ class CircuitEntity (StringEntityBase): enum = 3
 class ModuleEntity (StringEntityBase): enum = 4
 class AreaEntity (EntityBase):
     enum = 5
-    _layout = (( "b", "ename", 1 ),)
+    _layout = (( "res", 1 ),
+               ( "b", "ename", 1 ))
 
 class NiceType (packet.Indexed):
     # Base type for all the NICE data type codes
@@ -272,6 +275,7 @@ class CM1 (NiceType, list):
                 tlist = ()
         vl = [ ]
         for i, cls2 in zpr (range (cls.bytecnt), tlist or cls.vlist):
+            require (buf, 1)
             cls2 = cls2.findclass (buf[0])
             v, buf = cls2.decode (buf[1:])
             vl.append (v)
@@ -511,28 +515,137 @@ class CMProc (CM4):
 # NICE parameter definition lists for the various kinds of counters.
 # These are broken out because they get used in several places -- not
 # just the read information response, but also in events.
+#
+# The variable names need to match those used for the internal
+# counters object defined in nsp.py and routing.py -- this makes the
+# "copy" method work for transferring those internal counters into
+# this NICE reply object.
 node_counters = [
-    ( 0, CTR2, "Seconds Since Last Zeroed" ),
-    ( 600, CTR4, "User Bytes Received" ),
-    ( 601, CTR4, "User Bytes Sent" ),
-    ( 602, CTR4, "User Messages Received" ),
-    ( 603, CTR4, "User Messages Sent" ),
-    ( 608, CTR4, "Total Bytes Received" ),
-    ( 609, CTR4, "Total Bytes Sent" ),
-    ( 610, CTR4, "Total Messages Received" ),
-    ( 611, CTR4, "Total Messages Sent" ),
-    ( 620, CTR2, "Connects Received" ),
-    ( 621, CTR2, "Connects Sent" ),
-    ( 630, CTR2, "Response Timeouts" ),
-    ( 640, CTR2, "Received Connect Resource Errors" ),
-    ( 700, CTR2, "Maximum Logical Links Active" ),
-    ( 900, CTR1, "Aged Packet Loss" ),
-    ( 901, CTR2, "Node Unreachable Packet Loss" ),
-    ( 902, CTR1, "Node Out-of-range Packet Loss", "oor_loss" ),
-    ( 903, CTR1, "Oversized Packet Loss" ),
-    ( 910, CTR1, "Packet Format Error" ),
-    ( 920, CTR1, "Partial Routing Update Loss" ),
-    ( 930, CTR1, "Verification Reject" ),
-    ( 2200, CTR2, "Current Reachable Nodes" ),
-    ( 2201, CTR2, "Maximum Reachable Nodes" )
+    ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
+    ( 600, CTR4, "User bytes received", "byt_rcv" ),
+    ( 601, CTR4, "User bytes sent", "byt_xmt" ),
+    ( 602, CTR4, "User messages received", "msg_rcv" ),
+    ( 603, CTR4, "User messages sent", "msg_xmt" ),
+    ( 608, CTR4, "Total bytes received", "t_byt_rcv" ),
+    ( 609, CTR4, "Total bytes sent", "t_byt_xmt" ),
+    ( 610, CTR4, "Total messages received", "t_msg_rcv" ),
+    ( 611, CTR4, "Total messages sent", "t_msg_xmt" ),
+    ( 620, CTR2, "Connects received", "con_rcv" ),
+    ( 621, CTR2, "Connects sent", "con_xmt" ),
+    ( 630, CTR2, "Response timeouts", "timeout" ),
+    ( 640, CTR2, "Received connect resource errors", "no_res_rcv" ),
+    ( 700, CTR2, "Maximum logical links active", "peak_conns" ),
+    ( 900, CTR1, "Aged packet loss", "aged_loss" ),
+    ( 901, CTR2, "Node unreachable packet loss", "unreach_loss" ),
+    ( 902, CTR1, "Node out-of-range packet loss", "node_oor_loss" ),
+    ( 903, CTR1, "Oversized packet loss", "oversized_loss" ),
+    ( 910, CTR1, "Packet format error", "fmt_errors" ),
+    ( 920, CTR1, "Partial routing update loss", "partial_update_loss" ),
+    ( 930, CTR1, "Verification reject", "ver_rejects" ),
+    # RSTS/E specific codes
+    ( 2200, CTR2, "Current reachable nodes" ),
+    ( 2201, CTR2, "Maximum reachable nodes" )
 ]   
+
+circuit_counters = [
+    ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
+    ( 800, CTR4, "Terminating packets received", "term_recv" ),
+    ( 801, CTR4, "Originating packets sent", "orig_sent" ),
+    ( 802, CTR2, "Terminating congestion loss" ),
+    ( 805, CTR1, "Corruption loss" ),
+    ( 810, CTR4, "Transit packets received", "trans_recv" ),
+    ( 811, CTR4, "Transit packets sent", "trans_sent" ),
+    ( 812, CTR2, "Transit congestion loss", "trans_cong" ),
+    ( 820, CTR1, "Circuit down", "cir_down" ),
+    ( 821, CTR1, "Initialization failure", "init_fail" ),
+    ( 1000, CTR4, "Bytes received", "bytes_recv" ),
+    ( 1001, CTR4, "Bytes sent" ),
+    ( 1010, CTR4, "Data blocks received", "pkts_recv" ),
+    ( 1011, CTR4, "Data blocks sent", "pkts_sent" ),
+    ( 1020, CTM1, "Data errors inbound", None, 
+            ( "NAKs sent, data field block check error",
+              "NAKs sent, REP response" )),
+    ( 1021, CTM1, "Data errors outbound", None,
+            ( "NAKs received, header block check error",
+              "NAKs received, data field block check error",
+              "NAKs received, REP response" )),
+    ( 1030, CTR1, "Remote reply timeouts" ),
+    ( 1031, CTR1, "Local reply timeouts" ),
+    ( 1040, CTM1, "Remote buffer errors", None,
+            ( "NAKs received buffer unavailable",
+              "NAKs received buffer too small" )),
+    ( 1041, CTM1, "Local buffer errors", None,
+            ( "NAKs sent buffer unavailable",
+              "NAKs sent buffer too small" )),
+    ( 1050, CTR2, "Selection intervals elapsed" ),
+    ( 1051, CTM1, "Selection timeouts", None,
+            ( "No reply to select",
+              "Incomplete reply to select" )),
+    ( 1065, CTR2, "User buffer unavailable" ),
+    ( 1240, CTR1, "Locally initiated resets" ),
+    ( 1241, CTR1, "Remotely initiated resets" ),
+    ( 1242, CTR1, "Network initiated resets" )
+]
+    
+line_counters = [
+    ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
+    ( 1000, CTR4, "Bytes received", "bytes_recv" ),
+    ( 1001, CTR4, "Bytes sent" ),
+    ( 1010, CTR4, "Data blocks received", "pkts_recv" ),
+    ( 1011, CTR4, "Data blocks sent", "pkts_sent" ),
+    ( 1012, CTR4, "Multicast blocks received" ),
+    ( 1013, CTR4, "Blocks sent, initially deferred", "sent_def" ),
+    ( 1014, CTR4, "Blocks sent, single collision", "sent_1col" ),
+    ( 1015, CTR4, "Blocks sent, multiple collisions", "sent_mcol" ),
+    ( 1020, CTM1, "Data errors inbound", None, 
+            ( "NAKs sent, header block check error",
+              "NAKs sent, REP response",
+              "Block too long",
+              "Block check error",
+              "REJ sent" )),
+    ( 1021, CTM1, "Data errors outbound", None,
+            ( "NAKs received, header block check error",
+              "NAKs received, data field block check error",
+              "NAKs received, REP response",
+              "REJ received" )),
+    ( 1030, CTR1, "Remote reply timeouts" ),
+    ( 1031, CTR1, "Local reply timeouts" ),
+    ( 1040, CTM1, "Remote buffer errors", None,
+            ( "NAKs received buffer unavailable",
+              "NAKs received buffer too small",
+              "RNR received, buffer unavailable" )),
+    ( 1041, CTM1, "Local buffer errors", None,
+            ( "NAKs sent buffer unavailable",
+              "NAKs sent buffer too small",
+              "RNR sent, buffer unavailable" )),
+    ( 1060, CTM2, "Send failure", None,
+            ( "Excessive collisions",
+              "Carrier check failed",
+              "Short circuit",
+              "Open circuit",
+              "Frame too long",
+              "Remote failure to defer" )),
+    ( 1061, CTR2, "Collision detect check failure" ),
+    ( 1062, CTM2, "Receive failure", None,
+            ( "Block check error",
+              "Framing error",
+              "Frame too long" )),
+    ( 1063, CTR2, "Unrecognized frame destination" ),
+    ( 1064, CTR2, "Data overrun" ),
+    ( 1065, CTR2, "System buffer unavailable" ),
+    ( 1066, CTR2, "User buffer unavailable" ),
+    ( 1100, CTM1, "Remote station errors", None,
+            ( "NAKs received, receive overrun",
+              "NAKs sent, header format error",
+              "Selection address errors",
+              "Streaming tributaries",
+              "Invalid N(R) received",
+              "FRMR sent, header format error" )),
+    ( 1101, CTM1, "Local station errors", None,
+            ( "NAKs sent, receive overrun",
+              "Receive overruns, NAK not sent",
+              "Transmit underruns",
+              "NAKs received, header format error",
+              "Receive overrun",
+              "FRMR received, head format error" ))
+]            

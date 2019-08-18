@@ -15,6 +15,7 @@ from . import datalink
 from . import adjacency
 from . import timers
 from . import html
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -177,6 +178,68 @@ class LanCircuit (timers.Timer):
         return [ self.name, self.datalink.macaddr, self.config.cost,
                  self.config.priority, self.t3, dr ]
     
+    def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.NiceReadNode) and req.sumstat ():
+            return  # TODO
+            r = resp[neighbor]
+            r.adj_circuit = str (self)
+            if req.sum ():
+                # Set next hop if summary.
+                r.next_node = neighbor
+            else:
+                # status
+                if self.rphase == 4:
+                    r.adj_type = self.ntype + 2
+                elif self.rphase == 3:
+                    r.adj_type = 1 if self.ntype == ENDNODE else 0
+                else:
+                    r.adj_type = 2
+        elif isinstance (req, nicepackets.NiceReadCircuit):
+            cn = str (self)
+            if req.counters ():
+                r = resp[cn]
+                self.datalink.nice_read_port (req, r)
+                return
+            # Pick up all adjacencies if status or characteristics or
+            # there is only one.  That last point is non-standard but
+            # it seems like a good idea.
+            all = req.stat () or req.char () or len (self.adjacencies) == 1
+            ret = [ ]
+            for a in self.adjacencies.values ():
+                if all or a.ntype != ENDNODE:
+                    r = nicepackets.CircuitReply ()
+                    r.entity = nicepackets.CircuitEntity (cn)
+                    r.adjacent_node = a.adjnode ()
+                    if req.stat ():
+                        r.block_size = a.blksize
+                    elif req.char ():
+                        r.listen_timer = a.t4
+                    ret.append (r)
+            if ret:
+                r = ret[0]
+            else:
+                ret = r = nicepackets.CircuitReply ()
+                r.entity = nicepackets.CircuitEntity (cn)
+            if req.sumstat ():
+                # summary or status
+                r.state = 0   # on
+            elif req.char ():
+                r.hello_timer = self.t3
+                r.cost = self.config.cost
+                r.router_priority = self.prio
+                r.maximum_routers = self.nr
+                # The spec says DR is a status, but RSX and VMS
+                # implement it as characteristic.  Doing it as status
+                # makes the status display come out strange.
+                if self.dr:
+                    if self.isdr:
+                        dr = self.node.nodeinfo (self.parent.nodeid)
+                    elif self.dr:
+                        dr = self.dr.adjnode ()
+                    r.designated_router = dr
+            self.datalink.nice_read_port (req, r)
+            resp[cn] = ret
+
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop
     cache, which is in Phase IV plus.  The difference is that it doesn't

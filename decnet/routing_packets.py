@@ -9,7 +9,8 @@ from . import logging
 from . import events
 from . import packet
 
-# Router type codes (basically those used in NICE):
+# Router type codes (basically those used in the routing packets --
+# NOT the encoding in NICE):
 PHASE2 = 0
 L2ROUTER = 1
 L1ROUTER = 2

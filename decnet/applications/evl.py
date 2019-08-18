@@ -24,6 +24,8 @@ from decnet import events
 
 SvnFileRev = "$LastChangedRevision$"
 
+MYVERSION = ( 4, 0, 0 )
+
 class Application (Element):
     def __init__ (self, parent, obj):
         super ().__init__ (parent)
@@ -47,10 +49,16 @@ class Application (Element):
             # needed but take no action on it; it doesn't seem that
             # there are any version dependent algorithms in this
             # protocol.
-            self.rversion = msg
+            self.rversion = msg[:3]
+            logging.debug ("Event listener connection from {}, version {}",
+                           conn.remotenode,
+                           ".".join (str (i) for i in self.rversion))
             # Set the RSTS segmentation workaround bug, because the
             # DECnet/E event sender does not manage the BOM/EOM flags
             # correctly.
             conn.setsockopt (rstssegbug = True)
             # Accept the connection; our version number is 4.0.0.
-            conn.accept (bytes ([4, 0, 0]))
+            conn.accept (MYVERSION)
+        elif isinstance (item, session.Disconnect):
+            logging.debug ("Event listener disconnect from {}",
+                           conn.remotenode)

@@ -237,7 +237,8 @@ class DefObj (dict):
         self.file = None
         self.auth = auth
         
-defobj = ( DefObj ("MIRROR", 25, "decnet.applications.mirror"),
+defobj = ( DefObj ("NML", 19, "decnet.applications.nml"),
+           DefObj ("MIRROR", 25, "decnet.applications.mirror"),
            DefObj ("EVTLOG", 26, "decnet.applications.evl"),
          )
 
@@ -247,11 +248,16 @@ class SessionConnection (Element):
         self.nspconn = nspconn
         self.localuser = localuser
         self.remuser = remuser
-
+        self.remotenode = nspconn.destnode
+        
     def accept (self, data = b""):
+        if not isinstance (data, (bytes, bytearray, memoryview)):
+            data = bytes (data)
         return self.nspconn.accept (data)
 
     def reject (self, data = b""):
+        if not isinstance (data, (bytes, bytearray, memoryview)):
+            data = bytes (data)
         self.nspconn.reject (APPLICATION, data)
         del self.parent.conns[self.nspconn]
     
@@ -264,9 +270,13 @@ class SessionConnection (Element):
         del self.parent.conns[self.nspconn]
 
     def interrupt (self, data):
+        if not isinstance (data, (bytes, bytearray, memoryview)):
+            data = bytes (data)
         return self.nspconn.interrupt (data)
 
     def send_data (self, data):
+        if not isinstance (data, (bytes, bytearray, memoryview)):
+            data = bytes (data)
         return self.nspconn.send_data (data)
 
     def setsockopt (self, **kwds):
@@ -474,3 +484,7 @@ class Session (Element):
                         # Connection might have been deleted already
                         pass
                     return
+
+    def nice_read (self, req, resp):
+        pass
+    

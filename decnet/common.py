@@ -78,6 +78,11 @@ strtypes = (str, bytes, bytearray, memoryview)
 def byte (n):
     return bytes ((n,))
 
+def require (buf, minlen):
+    if len (buf) < minlen:
+        logging.debug ("Not {} bytes left in packet buffer", minlen)
+        raise MissingData
+
 class Entity (object):
     """Entity is the base class for most classes that define DECnet
     components.  This defines objects that can (potentially) be accessed
@@ -175,7 +180,7 @@ _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (int):
     """A DECnet Node ID.
     """
-    def __new__ (cls, s, id2 = None):
+    def __new__ (cls, s, id2 = None, wild = False):
         """Create a Nodeid from a string, an integer, a pair of integers,
         a Mac address, or anything that can be converted to a byte string
         of length 2.
@@ -183,6 +188,9 @@ class Nodeid (int):
         Node 0 is accepted for string or integer inputs; that is
         intended to represent the local node but that conversion has to
         be handled by the caller.
+
+        For non-zero addresses, the node-in-area part must be non-zero 
+        unless "wild" is True.
         """
         if isinstance (s, str):
             m = _nodeid_re.match (s)
@@ -211,9 +219,9 @@ class Nodeid (int):
             if len (s) != 2:
                 raise DecodeError ("Invalid node ID {}".format (s))
             a, n = divmod (int.from_bytes (s, "little"), 1024)
-            if n == 0:
+            if n == 0 and not wild:
                 raise ValueError ("Invalid node ID {}".format (s))
-        if a > 63 or n > 1023 or (n == 0 and a != 0):
+        if a > 63 or n > 1023 or (n == 0 and a != 0 and not wild):
             raise ValueError ("Invalid node ID {}".format (s))
         return int.__new__ (cls, (a << 10) + n)
 
@@ -556,10 +564,10 @@ class BaseCounters (object):
         """
         onames = set (dir (other))
         for k, v in self.makedict ().items ():
+            if k == "nodecounters":
+                continue
             if k in onames:
                 setattr (other, k, v)
-            else:
-                print ("unknown counters field", k)
         
     def makedict (self):
         """Return the current counters, in the form of a dictionary.
@@ -570,3 +578,13 @@ class BaseCounters (object):
 
     # We use the above to implement the API GET operation
     get_api = makedict
+
+# Decorator to set nice_code attribute on functions/methods.  This is
+# typically used with methods in a state machine.  Decorators with
+# arguments are rather weird magic; refer to the Python reference
+# manual for details.
+def setcode (code):
+    def sc (f):
+        f.nice_code = code
+        return f
+    return sc

@@ -550,6 +550,9 @@ class Mop (Element):
     def get_api (self):
         return { "circuits" : self.circuits.get_api () }
 
+    def nice_read (self, req, resp):
+        pass
+
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
     and services enabled on a particular circuit (datalink instance).

@@ -13,6 +13,7 @@ import socket
 
 from .common import *
 from . import logging
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -141,13 +142,30 @@ class DatalinkLayer (Element):
                 logging.debug ("Stopped datalink {}", name)
             except Exception:
                 logging.exception ("Error stopping datalink {}", name)
-    
-    
+
+    def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.NiceReadLine):
+            if req.entity.code > 0:
+                # read one line
+                cn = req.entity.value.upper ()
+                try:
+                    c = self.circuits[cn]
+                except KeyError:
+                    return
+                c.nice_read_line (req, resp)
+            else:
+                # Read active or known circuits.  We handle those the
+                # same because all our circuits are always on.
+                for c in self.circuits.values ():
+                    c.nice_read_line (req, resp)
+            return resp
+
 class Datalink (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink.
     """
     use_mop = False    # True if we want MOP to run on this type of datalink
-
+    port_type = None   # NICE type of ports for this datalink
+    
     def __init__ (self, owner, name, config):
         """Initialize a Datalink instance.  "name" is the name of
         the instance; "owner" is its owner; "config" is the configuration
@@ -195,6 +213,18 @@ class Datalink (Element, metaclass = ABCMeta):
         """
         pass
 
+    def nice_read_line (self, req, resp):
+        r = resp[str (self.name)]
+        if req.info < 2:
+            # summary or status
+            r.state = 0    # on
+        elif req.info == 2:
+            r.duplex = 0    # full
+            r.protocol = self.nice_protocol
+        elif req.info == 3:
+            # counters
+            self.counters.copy (r)
+            
 class Port (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink port
     """
@@ -208,6 +238,14 @@ class Port (Element, metaclass = ABCMeta):
         """
         pass
 
+    def nice_read_port (self, req, r):
+        if req.info == 2:
+            # Characteristics
+            r.type = self.parent.port_type
+        elif req.info == 3:
+            # Counters
+            self.counters.copy (r)
+            
 class DlStatus (Work):
     """Notification of some sort of datalink event.  Attribute is
     "status".  The status attribute is True for up, False for down.
@@ -254,6 +292,8 @@ class PtpDatalink (Datalink):
     """
     port_class = PtpPort
     counter_class = PtpCounters
+    nice_protocol = 0    # DDCMP point
+
     # This attribute is True if datalink start obeys the required
     # semantics, i.e., data link requirement #2 "Detection of remote startup"
     # is implemented.
@@ -312,6 +352,7 @@ class BcDatalink (Datalink):
     """
     use_mop = True     # True since we want MOP to run on this type of datalink
     counter_class = BcCounters
+    nice_protocol = 6    # Ethernet
     
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)

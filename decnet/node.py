@@ -22,6 +22,7 @@ from . import html
 from . import event_logger
 from . import bridge
 from . import session
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -75,6 +76,9 @@ class Node (Entity):
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
         self.decnet = hasattr (config, "routing")
+        self.ident = "{}-{}".format (http.DNVERSION, http.DNREV)
+        if config.system.identification:
+            self.ident = config.system.identification
         if self.decnet:
             # This is a DECnet node.
             self.bridge = None
@@ -206,6 +210,10 @@ class Node (Entity):
             event.setparams (**kwds)
         else:
             event = event (entity, source = self.nicenode, **kwds)
+        # NML to NCP leaves the entity code number zero for some
+        # reason, but in events it has to be set so the receiver can
+        # identify the entity.
+        event.entity_type.ent_enum = event.entity_type.enum
         self.event_logger.logevent (event)
         
     def description (self, mobile):
@@ -266,3 +274,53 @@ class Node (Entity):
             return None
         sb.contents[active].__class__ = html.sbbutton_active
         return title, [ sb, sb2 ], body
+
+    def nice_read (self, req):
+        if isinstance (req, nicepackets.NiceReadNode) and \
+           req.entity.value == 0:
+            # Read of Executor is coded as node address zero, change
+            # that to the explicit node address of this node.
+            req.entity.value = self.routing.nodeid
+        if isinstance (req, nicepackets.NiceReadNode) and \
+           req.entity.code > 0:
+            # Read node by name.  Look it up and substitute the
+            # address so the layer functions don't need to look for
+            # names.
+            try:
+                inf = self.nodeinfo_byname[req.entity.value]
+                req.entity.code = 0
+                req.entity.value = inf
+            except KeyError:
+                return -8    # Unknown entity
+        resp = req.makereplydict (self)
+        if isinstance (req, nicepackets.NiceReadLogging):
+            self.event_logger.nice_read (req, resp)
+            return resp
+        if req.events ():
+            # Asking for events
+            return -1    # Unknown function or option
+        if isinstance (req, nicepackets.NiceReadNode) and req.loop ():
+            return       # Nothing matches (we don't do loop nodes)
+        # Hand the request to various layers.  NSP first because it
+        # knows best what all the nodes are.
+        self.nsp.nice_read (req, resp)
+        self.session.nice_read (req, resp)
+        self.routing.nice_read (req, resp)
+        self.datalink.nice_read (req, resp)
+        self.mop.nice_read (req, resp)
+        if isinstance (req, nicepackets.NiceReadNode) and \
+           self.routing.nodeid in resp:
+            exe = resp[self.routing.nodeid]
+            # Set the "this is the executor" flag in the entity
+            exe.entity.ename.executor = True
+            if req.sum () or req.char ():
+                # summary or characteristics (!)
+                exe.identification = self.ident
+            elif req.stat ():
+                exe.physical_address = Macaddr (self.nodeid)
+            if req.sumstat ():   # summary or status
+                exe.state = 0  # on
+            if req.char ():  # characteristics
+                # Set the network management version
+                exe.management_version = [ 4, 0, 0 ]
+        return resp

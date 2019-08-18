@@ -16,6 +16,7 @@ from . import datalink
 from . import timers
 from . import statemachine
 from . import html
+from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -413,7 +414,8 @@ class PtpCircuit (statemachine.StateMachine):
                                         **evtpackethdr (buf))
                     return CircuitDown (self)
         return True
-                
+
+    @setcode (10)  # Synchronizing
     def ha (self, item):
         """Initial state: "Halted".
         """
@@ -427,6 +429,7 @@ class PtpCircuit (statemachine.StateMachine):
 
     s0 = ha    # "halted" is the initial state
     
+    @setcode (10)  # Synchronizing
     def ds (self, item):
         """Datalink start state.  Wait for a point to point datalink
         startup complete notification.
@@ -476,6 +479,7 @@ class PtpCircuit (statemachine.StateMachine):
             expected = self.id.tid
         return src == expected
     
+    @setcode (0)  # Starting
     def ri (self, item):
         """Routing layer initialize state.  Wait for a point to point
         init message.
@@ -703,6 +707,7 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.close ()
             return self.ha
     
+    @setcode (0)  # Starting
     def rv (self, item):
         """Waiting for Verification message.
         """
@@ -790,6 +795,7 @@ class PtpCircuit (statemachine.StateMachine):
             self.datalink.close ()
             return self.ha
 
+    @setcode (None)    # Running (no substate)
     def ru (self, item):
         """Running state.  The circuit is up at the routing control layer.
         """
@@ -983,7 +989,50 @@ class PtpCircuit (statemachine.StateMachine):
         return [ self.name, self.config.cost, neighbor, ntype,
                  self.t3, self.blksize, t4, self.tiver,
                  self.state.__name__ ]
-    
+
+    def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.NiceReadNode) and req.info < 2:
+            if self.state == self.ru:
+                neighbor = self.optnode ()
+                if req.one () and neighbor != req.entity.value:
+                    # Specific node that's not on this circuit
+                    return
+                r = resp[neighbor]
+                r.adj_circuit = str (self)
+                if req.info == 0:
+                    # Set next hop if summary.
+                    r.next_node = neighbor
+                else:
+                    # status
+                    if self.rphase == 4:
+                        r.adj_type = self.ntype + 2
+                    elif self.rphase == 3:
+                        r.adj_type = 1 if self.ntype == ENDNODE else 0
+                    else:
+                        r.adj_type = 2
+        elif isinstance (req, nicepackets.NiceReadCircuit):
+            r = resp[str (self)]
+            if req.info < 2:
+                # summary or status
+                r.state = 0   # on
+                r.substate = self.state.nice_code
+                if r.substate is None:
+                    # Running, we have more info
+                    r.adjacent_node = self.optnode ()
+                    if req.info == 1:
+                        # status
+                        r.block_size = self.blksize
+            elif req.info == 2:
+                r.cost = self.config.cost
+                r.hello_timer = self.t3
+                if self.state.nice_code == None:
+                    # Running, fill in listen timer.  Yes, that's a
+                    # characteristic even though it's state learned
+                    # from the neighbor.  In Phase 3 it was a local
+                    # setting, that's probably why.
+                    r.listen_timer = self.adj.t4
+            self.datalink.nice_read_port (req, r)
+            
     def get_api (self):
         ret = { "name" : self.name,
                 "state" : self.state.__name__,

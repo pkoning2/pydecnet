@@ -184,3 +184,5 @@ class EventLogger (Element):
         for s in self.sinks.values ():
             s.logevent (evt)
             
+    def nice_read (self, req):
+        return   # TODO

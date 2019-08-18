@@ -158,6 +158,12 @@ class _Ethernet (datalink.BcDatalink, StopThread):
                                          src = src, packet = payload,
                                          pdu = packet, extra = ts))
 
+    def nice_read_line (self, req, resp):
+        super ().nice_read_line (req, resp)
+        r = resp[str (self.name)]
+        if req.info == 2:
+            r.hardware_address = self.hwaddr
+
 # API specific classes
 if fcntl:
     class _TapEth (_Ethernet):

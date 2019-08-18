@@ -217,6 +217,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     (DEL or SYN); these are ignored.  Transmitted UDP packets contain no
     leading or trailing fillers.
     """
+    port_type = 0    # DDCMP point
+    
     def __init__ (self, owner, name, config):
         self.tname = "{}.{}".format (owner.node.nodename, name)
         self.rthread = None
@@ -904,8 +906,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # Process the ACK field (resp field) in the supplied message.
         # Returns True if it is valid (within the range of currently
         # outstanding messages), False if not.
-        count = msg.resp - self.a
-        pend = self.n - self.a
+        count = int (msg.resp - self.a)
+        pend = int (self.n - self.a)
         if logging.tracing:
             logging.trace ("Processing DDCMP Ack on {}, count {}, pending count {}, "
                            "a={}, n={}", self.name, count, pend, self.a, self.n)

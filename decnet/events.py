@@ -383,7 +383,6 @@ class init_oper (RoutingEvent):
 class reach_chg (RoutingEvent):
     "Node reachability change"
     event_code = 14
-    _entity_type = NodeEntity
 
 class adj_up (RoutingEvent):
     "Adjacency up"
