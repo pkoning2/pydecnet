@@ -991,7 +991,7 @@ class PtpCircuit (statemachine.StateMachine):
                  self.state.__name__ ]
 
     def nice_read (self, req, resp):
-        if isinstance (req, nicepackets.NiceReadNode) and req.info < 2:
+        if isinstance (req, nicepackets.NiceReadNode) and req.sumstat ():
             if self.state == self.ru:
                 neighbor = self.optnode ()
                 if req.one () and neighbor != req.entity.value:
@@ -999,7 +999,7 @@ class PtpCircuit (statemachine.StateMachine):
                     return
                 r = resp[neighbor]
                 r.adj_circuit = str (self)
-                if req.info == 0:
+                if req.sum ():
                     # Set next hop if summary.
                     r.next_node = neighbor
                 else:
@@ -1012,7 +1012,7 @@ class PtpCircuit (statemachine.StateMachine):
                         r.adj_type = 2
         elif isinstance (req, nicepackets.NiceReadCircuit):
             r = resp[str (self)]
-            if req.info < 2:
+            if req.sumstat ():
                 # summary or status
                 r.state = 0   # on
                 r.substate = self.state.nice_code
@@ -1022,7 +1022,7 @@ class PtpCircuit (statemachine.StateMachine):
                     if req.info == 1:
                         # status
                         r.block_size = self.blksize
-            elif req.info == 2:
+            elif req.char ():
                 r.cost = self.config.cost
                 r.hello_timer = self.t3
                 if self.state.nice_code == None:

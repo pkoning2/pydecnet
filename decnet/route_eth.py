@@ -207,8 +207,7 @@ class LanCircuit (timers.Timer):
             ret = [ ]
             for a in self.adjacencies.values ():
                 if all or a.ntype != ENDNODE:
-                    r = nicepackets.CircuitReply ()
-                    r.entity = nicepackets.CircuitEntity (cn)
+                    r = resp.makeitem (cn)
                     r.adjacent_node = a.adjnode ()
                     if req.stat ():
                         r.block_size = a.blksize
@@ -218,8 +217,7 @@ class LanCircuit (timers.Timer):
             if ret:
                 r = ret[0]
             else:
-                ret = r = nicepackets.CircuitReply ()
-                r.entity = nicepackets.CircuitEntity (cn)
+                ret = r = resp.makeitem (cn)
             if req.sumstat ():
                 # summary or status
                 r.state = 0   # on
