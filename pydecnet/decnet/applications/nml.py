@@ -78,6 +78,8 @@ class Application (Element):
                     resp0.retcode = 2   # multiple items
                     conn.send_data (resp0)
                     for r in resp:
+                        if not r:
+                            continue
                         if isinstance (r, list):
                             for r2 in r[:-1]:
                                 r2.retcode = 3  # more for this entity

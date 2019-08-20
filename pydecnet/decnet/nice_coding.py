@@ -303,6 +303,8 @@ C2 = C1.findclass (0x82)
 CM2 = CM1.findclass (0xc2)
 CM3 = CM1.findclass (0xc3)
 CM4 = CM1.findclass (0xc4)
+CM5 = CM1.findclass (0xc5)
+CM10 = CM1.findclass (0xca)
 
 # One byte counter; also the base class for all other counters.
 class CTR1 (DU1):
