@@ -738,7 +738,8 @@ class SysIdHandler (Element, timers.Timer):
         if not self.heard:
             return html.textsection (title, [ "<em>Nothing heard yet</em>" ])
         else:
-            header = [ "Source addr", "Services", "HW Address", "Device" ]
+            header = [ "Source addr", "Services", "HW Address",
+                       "Device", "Last heard" ]
             rows = list ()
             for k, v in sorted (self.heard.items ()):
                 srcaddr = getattr (v, "src", "") or k
@@ -746,7 +747,9 @@ class SysIdHandler (Element, timers.Timer):
                 hwaddr = getattr (v, "hwaddr", "")
                 device = getattr (v, "device", "")
                 device = nicepackets.MOPdevices.get (device, device)
-                row = [ srcaddr, services, hwaddr, device ]
+                ts = time.localtime (v.last_ts)
+                last = time.strftime ("%d-%b-%Y %H:%M:%S", ts)
+                row = [ srcaddr, services, hwaddr, device, last ]
                 if what == "details":
                     details = list ()
                     for fn in [ "console_user", "reservation_timer",
