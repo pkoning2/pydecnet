@@ -407,6 +407,8 @@ class NodeReply (NiceReadReply):
                            ( "Transmit",
                              "Receive",
                              "Full" ) ),
+                   ( 155, CMNode, "Loop node" ),
+                   ( 156, CMNode, "Loop assistant node" ),
                    ( 160, DU2, "Counter Timer" ),
                    ( 501, AI, "Circuit" ),
                    ( 502, DU2, "Address" ),
@@ -776,7 +778,51 @@ class AreaReqEntity (ReqEntityBase):
         elif self.code > 0:
             raise ValueError ("Area number must be integer, not string")
         return super ().encode ()
+
+# Loop node parameters
+loop_params = [ ( "nice_req",
+                  (( 10, HI, "Physical Address" ),
+                   ( 150, DU2, "Loop Count" ),
+                   ( 151, DU2, "Loop Length" ),
+                   ( 152, C1, "Loop With", None,
+                           ( "Zeroes",
+                             "Ones",
+                             "Mixed" ) ),
+                   ( 153, HI, "Loop Assistant Physical Address" ),
+                   ( 154, C1, "Loop Help", None,
+                           ( "Transmit",
+                             "Receive",
+                             "Full" ) ),
+                   ( 155, CMNode, "Loop node" ),
+                   ( 156, CMNode, "Loop assistant node" )
+                   )) ]
+
+# Base class for NICE Test packets
+class NiceTestHeader (NicePacket):
+    function = 18
+
+    _layout = (( "b", "function", 1 ),
+               ( "bm",
+                 ( "test_type", 0, 3 ),
+                 ( "access_ctl", 7, 1 )),)
+
+class NiceLoopNodeBase (NiceTestHeader):
+    test_type = 0
     
+    _layout = (( NodeReqEntity, "node" ),)
+
+class NiceLoopNode (NiceLoopNodeBase):
+    username = password = account = b""
+
+    _layout = loop_params
+    
+class NiceLoopNodeAcc (NiceLoopNodeBase):
+    access_ctl = 1
+
+    _layout = [ ( "a", "username", 39 ),
+                ( "a", "password", 39 ),
+                ( "a", "account", 39 ) ] + loop_params
+        
 # Base class for NICE Read Information request packets
 class NiceReadInfoHdr (NicePacket):
     function = 20

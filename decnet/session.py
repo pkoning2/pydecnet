@@ -281,6 +281,14 @@ class SessionConnection (Element):
 
     def setsockopt (self, **kwds):
         return self.nspconn.setsockopt (**kwds)
+
+    def connect (self, client, dest, remuser, conndata = b"",
+                 username = b"", password = b"", account = b""):
+        """Convenience function to let an application open a new
+        connection witout having to look for the Session object.
+        """
+        return self.parent.connect (client, dest, remuser, conndata,
+                                    username, password, account)
     
 class Session (Element):
     """The session control layer.  This owns all session control
@@ -330,16 +338,19 @@ class Session (Element):
     def get_api (self):
         return { "version" : "2.0.0" }    # ?
 
-    def connect (self, dest, payload):
-        # FIXME: this needs to be given meaningful SC type arguments,
-        # like destination object description, then the NSP payload is
-        # constructed from that.  The generated dest user field then
-        # goes into the fourth argument of SessionConnection.
-        # FIXME: this also needs a session control client object, set
-        # as the connection "client" attribute.
-        nspconn = self.node.nsp.connect (dest, payload)
+    def connect (self, client, dest, remuser, conndata = b"",
+                 username = b"", password = b"", account = b""):
+        if isinstance (remuser, int):
+            remuser = EndUser (num = remuser)
+        else:
+            remuser = EndUser (name = remuser)
+        sc = SessionConnInit (srcname = LocalUser, dstname = remuser,
+                              connectdata = conndata, rqstrid = username,
+                              passwrd = password, account = account)
+        nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
-                                                       LocalUser, None)
+                                                       LocalUser, remuser)
+        ret.client = client
         return ret
 
     def html_objects (self):
