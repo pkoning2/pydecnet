@@ -126,12 +126,12 @@ class Node (Entity):
         self.nodeinfo_byid[n] = n
         
     def nodeinfo (self, n):
-        """Look up a node in the node database.  The argument can be either
-        a name (a string) or an id (a number or Nodeid).
+        """Look up a node in the node database.  The argument can be
+        either a name (a string) or an id (a number or Nodeid).
 
-        If the entry is not found and the lookup is by number, add a Nodeinfo
-        object to the dictionary for that number, with no name.  This implements
-        what we need for the NSP node database.
+        If the entry is not found and the lookup is by number, add a
+        Nodeinfo object to the dictionary for that number, with no name.
+        This implements what we need for the NSP node database.
         """
         if isinstance (n, str):
             return self.nodeinfo_byname[n.upper ()]
