@@ -493,12 +493,6 @@ class EndnodeRouting (BaseRouter):
         request return to sender (done for CI messages).  tryhard is
         True to request ignoring endnode cache entries; this is done
         for retransmits.  For routers it has no effect and is ignored.
-
-        Returns False if the destination is known to be unreachable,
-        True otherwise.  If False was returned, the packet is not sent,
-        i.e., if rqr was True, you won't get the returned message.  If
-        True is returned, then if the packet ends up unreachable after
-        all,  you should get the return packet if one was requested.
         """
         pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
@@ -507,7 +501,7 @@ class EndnodeRouting (BaseRouter):
             logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.datalink.counters.orig_sent += 1
         if dest != self.nodeid:
-            return self.circuit.send (pkt, None, tryhard)
+            self.circuit.send (pkt, None, tryhard)
         else:
             # Addressed to self, send it back up to NSP.
             self.dispatch (pkt)
@@ -554,12 +548,6 @@ class Phase2Routing (BaseRouter):
         """Send NSP packet to the given destination. rqr and
         tryhard are ignored in Phase II.
         TODO: Intercept support.
-
-        Returns False if the destination is known to be unreachable,
-        True otherwise.  If False was returned, the packet is not sent,
-        i.e., if rqr was True, you won't get the returned message.  If
-        True is returned, then if the packet ends up unreachable after
-        all,  you should get the return packet if one was requested.
         """
         try:
             a = self.adjacencies[dest]
@@ -572,10 +560,9 @@ class Phase2Routing (BaseRouter):
             a.circuit.datalink.counters.orig_sent += 1
             # For now, destination is also nexthop.  If we do intercept,
             # that will no longer be true.
-            return a.circuit.send (pkt, dest)
+            a.circuit.send (pkt, dest)
         except KeyError:
             logging.trace ("{} unreachable: {}", dest, pkt)
-            return False
 
     def dispatch (self, item):
         """A received packet is sent up to NSP if it is for this node,
@@ -933,17 +920,11 @@ class L1Router (BaseRouter):
         request return to sender (done for CI messages).  tryhard is
         True to request ignoring endnode cache entries; this is done
         for retransmits.  For routers it has no effect and is ignored.
-
-        Returns False if the destination is known to be unreachable,
-        True otherwise.  If False was returned, the packet is not sent,
-        i.e., if rqr was True, you won't get the returned message.  If
-        True is returned, then if the packet ends up unreachable after
-        all,  you should get the return packet if one was requested.
         """
         pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
-        return self.forward (pkt, orig = True)
+        self.forward (pkt, orig = True)
         
     def forward (self, pkt, orig = False):
         """Send a data packet to where it should go next.  "pkt" is the
@@ -979,19 +960,19 @@ class L1Router (BaseRouter):
                     if logging.tracing:
                         logging.trace ("Sending {} byte packet to {}: {}",
                                        len (pkt), a, pkt)
-                    a.send (pkt)
-                    return True
-            else:
-                # Terminating, don't count anything here.
-                a.send (pkt)
-                return True
+            # In any case, send the packet on the chosen adjacency
+            a.send (pkt)
+            return
         # If we get to this point, we could not forward the packet,
         # for one of three reasons: not reachable, too many visits,
         # or address out of range.
-        # Return to sender if requested and not already underway,
-        # else drop the packet.
-        if orig:
-            return False
+        #
+        # Return to sender if requested and not already underway, else
+        # drop the packet.  We do this even for originating packets,
+        # so that CI message unreachable destination handling in NSP
+        # is common whether the issue is detected at the sending node
+        # or later.  But for originating packets to unreachable
+        # destinations we do not log any event.
         if pkt.rqr and not pkt.rts:
             pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
             pkt.rts = 1
@@ -999,7 +980,8 @@ class L1Router (BaseRouter):
             # On Ethernet does not apply to this case
             pkt.ie = 0
             self.forward (pkt)
-            return True    # Note that we did "send" it
+        if orig:
+            return
         kwargs = evtpackethdr (pkt)
         if a:
             # Reachable, so the problem was max visits
@@ -1020,7 +1002,6 @@ class L1Router (BaseRouter):
             self.node.logevent (c, events.CircuitEntity (srcadj.circuit),
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
-        return True
     
     def html (self, what):
         ret = [ ]

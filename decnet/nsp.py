@@ -26,6 +26,7 @@ class RangeError (NSPException): "Parameter is out of range"
 class ConnectionLimit (NSPException): "Connection limit reached"
 class CantSend (NSPException): "Can't send interrupt at this time"
 class IntLength (NSPException): "Interrupt message too long"
+class UnknownNode (NSPException): "Unknown node name"
     
 # Packet parsing exceptions
 class NSPDecodeError (packet.DecodeError): pass
@@ -450,6 +451,12 @@ class NSP (Element):
             # to a port (Connection object), see NSP 4.0.1 spec
             # section 6.2 (receive dispatcher)
             buf = item.packet
+            # If this packet was looped back from one sent by this
+            # NSP, it will be in the form of a Packet object, not a
+            # buffer, so trying to parse it will bring pain.  If so,
+            # just turn it into bytes so the common code works.
+            if not isinstance (buf, (bytes, bytearray, memoryview)):
+                buf = bytes (buf)
             msgflg = buf[0]
             try:
                 t = msgmap[msgflg]
@@ -1067,20 +1074,21 @@ class Data_Subchannel (Subchannel):
         if not, according to the current flow control state.
 
         The rule is: this packet can be sent if:
-        1. In flight packet count is <= maxq parameter (2047 by default), and
+        1. In flight packet count is <= maxq parameter (20 by default), and
         2. Flow is on (xon/xoff state is "xon"), and
         3. One of:
         a. No flow control, or
         b. segment flow ctl, and this segment <= max allowed segment, or
         c. message flow ctl, and this message <= max allowed message
+
+        TODO: add congestion control per DEC-TR-353 (Raj Jain)
         """
         if self.pending_ack:
-            maxq = self.pending_ack[0].segnum + \
-              self.parent.parent.config.qmax - 1
+            maxq = self.pending_ack[0].segnum + self.qmax - 1
             if qe.segnum > maxq:
                 return False
         else:
-            maxq = self.parent.parent.config.qmax - 1
+            maxq = self.qmax - 1
         return self.xon and qe.segnum <= maxq and \
                (self.flow == ConnMsg.SVC_NONE or
                 (self.flow == ConnMsg.SVC_SEG and qe.segnum <= self.maxseg) or
@@ -1321,7 +1329,11 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             if dest == Nodeid (0):
                 dest = self.parent.node.nodeid
             self.dest = dest
-            self.destnode = self.parent.node.nodeinfo (dest)
+            try:
+                self.destnode = self.parent.node.nodeinfo (dest)
+            except KeyError:
+                raise UnknownNode from None
+            dest = self.dest = Nodeid (self.destnode) # TEMP is this ok?
             self.destnode.counters.con_xmt += 1
             ci = self.makepacket (ConnInit, payload = payload,
                                   fcopt = ConnMsg.SVC_NONE,
@@ -1590,10 +1602,11 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
     
     def sendmsg (self, pkt):
         if logging.tracing:
-            logging.trace ("NSP sending packet {}", pkt)
+            logging.trace ("NSP sending packet {} to {}", pkt, self.dest)
         self.destnode.counters.t_byt_xmt += len (pkt)
-        self.destnode.counters.t_msg_xmt += 1        
-        self.parent.routing.send (pkt, self.dest)
+        self.destnode.counters.t_msg_xmt += 1
+        self.parent.routing.send (pkt, self.dest,
+                                  rqr = isinstance (pkt, ConnInit))
 
     def validate (self, item):
         if logging.tracing:
