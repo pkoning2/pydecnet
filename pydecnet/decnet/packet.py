@@ -47,7 +47,7 @@ def proc_layoutelem (cls, e):
                                 for k, v in sorted (layoutdict.items ()))
         return [ cls.encode_tlv, cls.decode_tlv,
                  ( tlen, llen, wild, codedict ) ]
-    elif code == "nice":
+    elif code == "nice" or code == "nice_req":
         # NICE data payload.  Similar to TLV but with explicit encoding
         # of the data type (for formatting).  The argument is a
         # sequence, not a dict as is used in TLV.
@@ -62,8 +62,9 @@ def proc_layoutelem (cls, e):
             else:
                 ncdict[k] = v
             flist.append (f)
-        return [ cls.encode_nice, cls.decode_nice,
-                 [ ncdict, cdict, flist ] ]
+        enc = getattr (cls, "encode_{}".format (code))
+        dec = getattr (cls, "decode_{}".format (code))
+        return [ enc, dec, [ ncdict, cdict, flist ] ]
     else:
         if isinstance (code, str):
             try:
@@ -221,7 +222,7 @@ def process_layout (cls, layout):
             raise InvalidField ("{} field must be last in layout".format (nomore))
         if isinstance (code, str) and code.lower () == "tlv":
             nomore = "TLV"
-        elif isinstance (code, str) and code.lower () == "nice":
+        elif isinstance (code, str) and code.lower ()[:4] == "nice":
             nomore = "NICE"
         codetable.append (proc_layoutelem (cls, e))
     return codetable
@@ -238,7 +239,7 @@ def proc_slotelem (e):
             s, w = proc_slotelem (v)
             ret |= s
         return ret, wild
-    elif code == "nice":
+    elif code == "nice" or code == "nice_req":
         # Similar to TLV but the details are different
         ret = set ()
         for v in args[0]:

@@ -423,7 +423,7 @@ class NicePacket (packet.Packet):
                 ret.append (s)
         return "    " + "\n    ".join (ret)
 
-    def encode_nice (self, ncdict, cdict, flist):
+    def encode_nice_common (self, ncdict, cdict, flist, resp):
         ret = [ ]
         for param, pcls, fn, desc, vals in flist:
             v = getattr (self, fn, None)
@@ -433,14 +433,24 @@ class NicePacket (packet.Packet):
                     ret.append (v.encode (param))
                 else:
                     ret.append (param.to_bytes (2, "little"))
-                    ret.append (v.encode ())
+                    e = v.encode ()
+                    if resp:
+                        ret.append (e)
+                    else:
+                        # request, omit the code field
+                        ret.append (e[1:])
         return b''.join (ret)
 
-    def decode_nice (self, buf, ncdict, cdict, flist):
+    def decode_nice_common (self, buf, ncdict, cdict, flist, resp):
         """Decode the remainder of the buffer as a sequence of NICE
         fields.  Each value field is decoded according to the format
         code of the item, which is used to turn the data into an
         instance of a NiceData subclass.
+
+        If "resp" is True, we're decoding a response (NML to NCP), in
+        which all data items have code fields.  If False, we're decoding
+        a request (NCP to NML), in that case non-image data is just
+        parameter number and value, but no code.
         """
         pos = 0
         while buf:
@@ -455,10 +465,15 @@ class NicePacket (packet.Packet):
                 code = param & 0xf000
                 buf = buf[2:]
                 d = cdict
-            else:
-                # Non-counter, type code is next byte
+            elif resp:
+                # Non-counter in a response, type code is next byte
                 code = buf[2]
                 buf = buf[3:]
+                d = ncdict
+            else:
+                # Non-counter in a request, data only
+                code = None
+                buf = buf[2:]
                 d = ncdict
             param &= 0xfff    # Clear out reserved bits if non-counter
             try:
@@ -468,11 +483,23 @@ class NicePacket (packet.Packet):
                 # is a valid type with a code attribute.  The actual
                 # class used to decode will be governed by the decoded
                 # data since we always check the buffer's code field.
+                #
+                # All this applies only to responses.  For requests,
+                # only known parameters are accepted, partly because the
+                # spec says so and partly because we have no way to know
+                # how to parse unknown parameters (there is nothing to
+                # tell us the data length).
+                if not resp:
+                    raise DecodeError ("Unknown parameter {} in request".format (param))
                 pcls = DU1
                 fn = "field{}".format (param)
                 vals = ()
                 self._xfields = True
-            if pcls ().code != code:
+            if code is None:
+                # If decoding a request, the parameter number tells us
+                # the expected code.
+                code = pcls ().code
+            elif pcls ().code != code:
                 # The packet has a different data code than the expected
                 # code given in the decode tables.  Use the standard
                 # class for the sender's code.
@@ -480,6 +507,22 @@ class NicePacket (packet.Packet):
             v, buf = pcls.decode (buf, vals)
             # Done with this data item; store it.
             setattr (self, fn, v)
+
+    def encode_nice (self, ncdict, cdict, flist):
+        "Encode case for encoding a response (with code fields)"
+        return self.encode_nice_common (ncdict, cdict, flist, True)
+
+    def encode_nice_req (self, ncdict, cdict, flist):
+        "Encode case for encoding a request (no code fields)"
+        return self.encode_nice_common (ncdict, cdict, flist, False)
+
+    def decode_nice (self, buf, ncdict, cdict, flist):
+        "Decode case for decoding a response (with code fields)"
+        return self.decode_nice_common (buf, ncdict, cdict, flist, True)
+
+    def decode_nice_req (self, buf, ncdict, cdict, flist):
+        "Decode case for decoding a request (no code fields)"
+        return self.decode_nice_common (buf, ncdict, cdict, flist, False)
 
 # Subclasses of standard NICE type codes may be defined, which are used
 # to specify alternate format methods.
