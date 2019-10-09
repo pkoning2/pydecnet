@@ -39,8 +39,8 @@ class EthPort (datalink.BcPort):
             raise ValueError ("Invalid destination address length")
         l = len (msg)
         if logging.tracing:
-            pktlogging.tracepkt ("Sending packet on {}"
-                                     .format (self.parent.name), msg)
+            pktlogging.tracepkt ("Sending packet on {} to {}"
+                                 .format (self.parent.name, dest), msg)
         f = self.frame
         f[0:6] = destb
         f[6:12] = self.macaddr
@@ -119,7 +119,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             return
         if logging.tracing:
             pktlogging.tracepkt ("Received packet on {}"
-                                     .format (self.name), packet)
+                                 .format (self.name), packet)
         proto = packet[12:14]
         try:
             port = self.ports[proto]
