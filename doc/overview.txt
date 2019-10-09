@@ -46,7 +46,8 @@ PyDECnet contains the following major components:
   - Network Management   (planned, not yet implemented)
   - Applications
     - File transfer      (planned, not yet implemented)
-    - NML                (planned, not yet implemented)
+    - NML
+    - EVL
     - Mirror
 - API for MOP and Session Control, using JSON over HTTPS
 - HTTP(S) based monitoring interface
@@ -56,6 +57,56 @@ PyDECnet, via JSON carried over HTTPS (the same HTTPS port also used
 for monitoring).  Several sample API clients are provided in the
 "samples" directory.  A library to use this API to implement a socket
 style interface is planned.
+
+Application features
+
+PyDECnet includes several standard DECnet application layer
+components, currently just those implementing network management
+services.  These are all implemented as Python modules that run as
+part of the PyDECnet process (rather than as external application
+processes).  Below are more details on what is currently available.
+
+Mirror object (object 25, "node loopback")
+
+This implements the mirror protocol defined in the Network Management
+specification, in full.  This mirror supports messages up to 65535
+bytes (the maximum possible given the way the protocol is defined).
+
+Event listener object (EVL, object 26)
+
+This is the receiving end of a "logging sink" specification, allowing
+other nodes to send their DECnet events to a PyDECnet node for
+logging.  The incoming messages are formatted into text according to
+the Network Management specification and then logged using the Python
+logging facility (see config.txt for more details on how to configure
+this).  Most events are treated as INFO log items, but a few have
+other levels (DEBUG, WARNING).  All standard events are recognized as
+well as OS-specific events from RSTS, RSX, and VMS.  For RSX and VMS,
+the event codes (messages) are handled but not OS-specific parameters
+due to the absence of documentation.
+
+To be done: details on which are exception cases.  Possible
+enhancement: configurable levels for particular events.
+
+Network management listener (NML, object 19)
+
+This implements the server end of the remote network management
+protocol described in the Network Management specification.  Only a
+subset is supported:
+
+- Read information -- only volatile parameters since PyDECnet does not
+  have the concept of a "permanent database".  No "loop nodes" (not
+  implemented in the routing layer); apart from that all standard
+  entities are supported as well as the "CONFIGURATOR" module.  Note
+  that the configurator module is not understood by many NCP
+  implementations, so you may need to find the right OS to be able to
+  query this.
+
+- Loop command -- only Loop Node and Loop Circuit.  Loop Node does an
+  application layer loop test using the Mirror object.  Loop Circuit
+  is supported only on Ethernet circuits; it uses the Ethernet
+  standard loop protocol.  All documented command keywords are
+  supported. 
 
 Multiple node support
 
