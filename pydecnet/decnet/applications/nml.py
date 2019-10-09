@@ -16,7 +16,7 @@ from decnet.common import *
 from decnet import session
 from decnet import pktlogging
 from decnet import nicepackets
-from decnet.nsp import UnknownNode
+from decnet.nsp import UnknownNode, WrongState
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -35,6 +35,10 @@ ses2mirror = {
     session.AUTH_LONG: 8
 }
 
+class LoopWork (Work):
+    name = "Loop circuit work thread response"
+    connection = message = False
+    
 class Application (Element):
     def __init__ (self, parent, obj):
         self.loop_conn = None
@@ -43,7 +47,7 @@ class Application (Element):
     def dispatch (self, item):
         # Process work sent up from the Session Control layer. 
         conn = item.connection
-        if conn == self.loop_conn:
+        if conn is self.loop_conn:
             return self.loop_work (item)
         msg = item.message
         pktlogging.tracepkt ("NICE {} message".format (item.name), msg)
@@ -54,7 +58,7 @@ class Application (Element):
                     return self.loop_request (conn, msg)
                 elif fun != nicepackets.NiceReadInfoHdr.function:
                     logging.trace ("Unsupported NICE request")
-                    resp = nicepackets.NiceReply ()
+                    resp = nicepackets.NiceErrorReply ()
                     resp.retcode = -1   # Unrecognized function
                     conn.send_data (resp)
                     return
@@ -80,7 +84,7 @@ class Application (Element):
                 if isinstance (resp, int):
                     # Error code returned
                     logging.trace ("Read data error code {}", resp)
-                    resp2 = nicepackets.NiceReply ()
+                    resp2 = nicepackets.NiceErrorReply ()
                     resp2.retcode = resp
                     resp2.detail = detail
                     conn.send_data (resp2)
@@ -125,21 +129,26 @@ class Application (Element):
                            ".".join (str (i) for i in self.rversion))
             # Accept the connection; our version number is 4.0.0.
             conn.accept (MYVERSION)
+            # Remember the connection
+            self.niceconnection = conn
         elif isinstance (item, session.Disconnect):
             logging.trace ("Network management listener disconnect from {}",
                            conn.remotenode)
+        elif isinstance (item, LoopWork):
+            return self.loop_circuit_work (item)
 
     def loop_request (self, conn, msg):
-        """Process a NICE "loop node" request.
+        """Process a NICE "loop" request.
         """
         req = nicepackets.NiceTestHeader (msg)
         logging.trace ("Loop request: {}", req)
-        # TODO: should also support LOOP CIRCUIT at some point, for
-        # Ethernet.
-        if req.test_type != nicepackets.NiceLoopNode.test_type:
+        if req.test_type == nicepackets.NiceLoopCircuit.test_type:
+            return self.loop_circuit (conn, msg)
+        elif req.test_type != nicepackets.NiceLoopNode.test_type:
             logging.trace ("Unsupported NICE loop request")
-            resp = nicepackets.NiceReply ()
+            resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -1
+            resp.notlooped = 0
             conn.send_data (resp)
             return
         if req.access_ctl:
@@ -151,12 +160,29 @@ class Application (Element):
         w = getattr (req, "loop_with", 2)       # default type MIXED
         l = getattr (req, "loop_length", 128)   # default length 128
         self.loop_count = getattr (req, "loop_count", 1)  # default 1 msg
+        # Argument validation
+        badarg = None
         if w == 0:
             payload = b'\x00'
         elif w == 1:
             payload = b'\xff'
-        else:
+        elif w == 2:
             payload = b'\x55'
+        else:
+            badarg = 152
+        if l < 1 or l > 65535:
+            badarg = 151
+        if self.loop_count < 1:
+            badarg = 150
+        if badarg:
+            logging.trace ("Invalid argument in NICE loop request")
+            resp = nicepackets.NiceLoopErrorReply ()
+            resp.retcode = -16
+            resp.detail = badarg
+            resp.notlooped = self.loop_count
+            conn.send_data (resp)
+            return
+
         self.loop_data = payload * l
         self.loop_req_conn = conn
         # Send off a connect request to the specified node.  When the
@@ -166,12 +192,15 @@ class Application (Element):
                                            req.username, req.password,
                                            req.account)
         except UnknownNode:
-            resp = nicepackets.NiceReply ()
+            resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -21   # Mirror connect request failed
             resp.detail = 2      # Unknown node name
+            resp.notlooped = self.loop_count
             conn.send_data (resp)
             
     def loop_work (self, item):
+        # Work item handler for LOOP NODE (for the traffic relating to
+        # the connection to the mirror object).
         msg = item.message
         pktlogging.tracepkt ("LOOP {} message".format (item.name), msg)
         if isinstance (item, session.Data):
@@ -185,7 +214,7 @@ class Application (Element):
                     if self.loop_count < 1:
                         self.loop_conn.disconnect ()
                         self.loop_conn = None
-                        resp = nicepackets.NiceReply ()
+                        resp = nicepackets.NiceLoopReply ()
                         resp.retcode = 1
                         self.loop_req_conn.send_data (resp)
                         return
@@ -193,8 +222,9 @@ class Application (Element):
                     return
             self.loop_conn.abort()
             self.loop_conn = None
-            resp = nicepackets.NiceReply ()
+            resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -28
+            resp.notlooped = self.loop_count
             self.loop_req_conn.send_data (resp)
         elif isinstance (item, session.Accept):
             maxlen = int.from_bytes (msg[:2], "little")
@@ -202,22 +232,24 @@ class Application (Element):
             if maxlen < len (self.loop_data) + 1:
                 self.loop_conn.abort()
                 self.loop_conn = None
-                resp = nicepackets.NiceReply ()
+                resp = nicepackets.NiceLoopErrorReply ()
                 resp.retcode = -16   # Invalid parameter value
                 resp.detail = 151    # Loop length
+                resp.notlooped = self.loop_count
                 self.loop_req_conn.send_data (resp)
                 return
             # We're happy, send the first loop data message.
             self.loop_conn.send_data (b'\x00' + self.loop_data)
         elif isinstance (item, session.Reject):
             self.loop_conn = None
-            resp = nicepackets.NiceReply ()
+            resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -21   # Mirror connect request failed
             try:
                 reason = ses2mirror[item.reason]
             except KeyError:
                 reason = 0
             resp.detail = reason
+            resp.notlooped = self.loop_count            
             self.loop_req_conn.send_data (resp)
         else:
             # Something else went wrong, call it a disconnect
@@ -226,4 +258,133 @@ class Application (Element):
             resp = nicepackets.NiceReply ()
             resp.retcode = -19   # Mirror connection failed
             resp.detail = 0      # TODO
+            resp.notlooped = self.loop_count
             self.loop_req_conn.send_data (resp)
+
+    def loop_circuit (self, conn, msg):
+        """Process a NICE "loop circuit" request.
+        """
+        req = nicepackets.NiceLoopCircuit (msg)
+        logging.trace ("Loop circuit request: {}", req)
+        circname = req.circuit.value
+        try:
+            looper = self.node.mop.circuits[circname.upper ()].loop
+        except Exception:
+            resp = nicepackets.NiceLoopErrorReply ()
+            resp.retcode = -8
+            resp.detail = nicepackets.CircuitReqEntity.e_type
+            resp.not_looped = 0
+            conn.send_data (resp)
+            return
+        # Set up state for the loop operation to be done
+        badarg = None
+        msg = None
+        w = getattr (req, "loop_with", 2)       # default type MIXED
+        l = getattr (req, "loop_length", 128)   # default length 128
+        self.loop_count = getattr (req, "loop_count", 1)  # default 1 msg
+        to = getattr (req, "physical_address", None)
+        if to:
+            to = Macaddr (to)
+        else:
+            to = getattr (req, "loop_node", None)
+            if to:
+                to = Macaddr (self.node.nodeinfo (to))
+        assist = getattr (req, "loop_help", -1)
+        if assist != -1:
+            if not to:
+                badarg = 10
+                msg = "Either Physical Address or Node must be specified"
+            helper = getattr (req, "loop_assistant_physical_address", None)
+            if helper:
+                helper = Macaddr (helper)
+                if helper.ismulti ():
+                    badarg = 153
+                    msg = "Assistant address must not be multicast"
+            else:
+                helper = getattr (req, "loop_assistant_node", None)
+                if not helper:
+                    badarg = 153
+                    msg = "Either Loop Assistant Physical Address or "\
+                          "Loop Node must be specified"
+                else:
+                    helper = Macaddr (self.node.nodeinfo (helper))
+            if assist > 2:
+                badarg = 154
+        if w == 0:
+            payload = b'\x00'
+        elif w == 1:
+            payload = b'\xff'
+        elif w == 2:
+            payload = b'\x55'
+        else:
+            badarg = 152
+        if l < 1 or l > 1490:
+            badarg = 151
+        if self.loop_count < 1:
+            badarg = 150
+        if badarg:
+            logging.trace ("Invalid argument in NICE loop request")
+            resp = nicepackets.NiceLoopErrorReply ()
+            resp.retcode = -16
+            resp.detail = badarg
+            if msg:
+                resp.message = msg
+            resp.notlooped = self.loop_count
+            conn.send_data (resp)
+            return
+        dest = [ ]
+        payload *= l
+        if assist == 0 or assist == 2:
+            dest = [ helper ]
+        if to:
+            dest.append (to)
+        if assist == 1 or assist == 2:
+            dest.append (helper)
+        self.mopreq = dict (dest = dest,
+                            packets = self.loop_count,
+                            payload = payload)
+        t = StopThread (target = self.loopthread, name = "loop circuit",
+                        args = (self, looper))
+        t.start ()
+
+    def loopthread (self, owner, looper):
+        # The actual I/O for loop circuit is done in this thread,
+        # which calls MOP just as if it were processing a REST API
+        # request.
+        logging.trace ("Loop thread, issuing request {}",
+                       repr (owner.mopreq))
+        ret = looper.post_api (owner.mopreq, True)
+        logging.trace ("Reply from API: {}", repr (ret))
+        w = LoopWork (owner = owner, result = ret)
+        owner.node.addwork (w)
+        
+    def loop_circuit_work (self, w):
+        ret = w.result
+        if isinstance (ret, dict):
+            # Some error response.  Payload too long can happen
+            # because we don't do detailed validation of the length
+            # (MOP owns those rules, we don't).  Others should not.
+            resp = nicepackets.NiceLoopErrorReply ()
+            resp.notlooped = self.loop_count
+            msg = ret["status"]
+            if msg == "payload too long":
+                resp.retcode = -16   # Invalid parameter value
+                resp.detail = 151    # loop length
+            else:
+                resp.retcode = -25   # operation failure
+                resp.message = msg
+        elif isinstance (ret, int):
+            # No reply, ret is the number of messages not looped
+            resp = nicepackets.NiceLoopErrorReply ()
+            resp.notlooped = ret
+            resp.retcode = -25       # operation failure
+        else:
+            # Success
+            assert isinstance (ret, Macaddr)
+            resp = nicepackets.NiceLoopReply ()
+            resp.physical_address = ret
+        try:
+            self.niceconnection.send_data (resp)
+        except WrongState:
+            pass
+        

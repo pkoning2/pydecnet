@@ -340,12 +340,15 @@ class NodeReplyDict (ReplyDict):
 # each entity code in the reply header.
 class NiceReply (NicePacket):
     _layout = (( "signed", "retcode", 1 ),
-               ( "b", "detail", 2))
+               ( "b", "detail", 2 ))
 
     def __init__ (self, *args):
         self.detail = 0xffff
         super ().__init__ (*args)
 
+class NiceErrorReply (NiceReply):
+    _layout = (( "a", "message", 255 ),)
+        
 class NiceReadReply (NiceReply):
     replydict = ReplyDict
     _layout = (( EntityBase, "entity" ),)
@@ -355,6 +358,13 @@ rvalues = ( "Routing III", "Non-Routing III", "Phase II", "Area",
 
 ed_values = ( "Enabled", "Disabled" )
 
+class NiceLoopReply (NiceReply):
+    _layout = (( "nice",
+                 (( 10, HI, "Physical Address" ), )),)
+
+class NiceLoopErrorReply (NiceErrorReply):
+    _layout = (( "b", "notlooped", 2 ),)
+    
 class NodeReply (NiceReadReply):
     entity_class = NodeEntity
     replydict = NodeReplyDict
@@ -793,8 +803,11 @@ loop_params = [ ( "nice_req",
                            ( "Transmit",
                              "Receive",
                              "Full" ) ),
-                   ( 155, CMNode, "Loop node" ),
-                   ( 156, CMNode, "Loop assistant node" )
+                   # TODO: the next two should be NodeReqEntity, but
+                   # that doesn't work at the moment, the NICE packet
+                   # format machinery isn't flexible enough.
+                   ( 155, AI, "Loop node" ),
+                   ( 156, AI, "Loop assistant node" )
                    )) ]
 
 # Base class for NICE Test packets
@@ -822,7 +835,12 @@ class NiceLoopNodeAcc (NiceLoopNodeBase):
     _layout = [ ( "a", "username", 39 ),
                 ( "a", "password", 39 ),
                 ( "a", "account", 39 ) ] + loop_params
-        
+
+class NiceLoopCircuit (NiceTestHeader):
+    test_type = 3
+
+    _layout = [ ( CircuitReqEntity, "circuit" ) ] + loop_params
+                   
 # Base class for NICE Read Information request packets
 class NiceReadInfoHdr (NicePacket):
     function = 20

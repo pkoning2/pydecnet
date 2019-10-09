@@ -1184,19 +1184,32 @@ class LoopHandler (Element, timers.Timer):
                 f.src = item.src
                 self.parent.deliver (f)
                 
-    def post_api (self, data):
+    def post_api (self, data, nml = False):
         """Perform a loop operation.
         Input: dest (MAC addresses), optional "timeout" in seconds (default: 3),
                optional "packets" -- count of packets (default: 1).
                By default there is a 1 second delay after a successful loop;
-               optional "fast":true suppresses that delay.
-        Output: a list of results for each packet: the round trip time in 
-                seconds, or -1 to indicate that packet timed out.
+               optional "fast":True suppresses that delay.
+               "nml" is True if the call is from NML rather than from the
+               REST API.  In that case, the operation stops on failure.
+               Also, for NML the additional argument "payload" is 
+               expected (the data to be sent), and "fast" is implicitly True.
+        Output: a dictionary containing two keys: "status" whose value is
+                a message "ok" for success or an error message string, and
+                "delays", a list of results for each packet: the round 
+                trip time in seconds, or -1 to indicate that packet timed out.
+                If "nml" is True, output is the MAC address of the
+                station that replied (a Macaddr) or the count of messages
+                not looped if there was a timeout (an int).
+                If there is something wrong with the inputs, the return
+                value is a dict with element "status" containing
+                an error message.
         """
-        logging.trace ("processing POST API call, counter request")
         dest = data.get ("dest", LOOPMC)
         if not isinstance (dest, list):
             dest = [ dest ]
+        if not dest:
+            dest = [ LOOPMC ]
         dest = [ Macaddr (d) for d in dest ]
         multidest = dest == [ LOOPMC ]
         if not multidest:
@@ -1209,17 +1222,26 @@ class LoopHandler (Element, timers.Timer):
         dest.append (self.port.macaddr)
         timeout = int (data.get ("timeout", 3))
         packets = int (data.get ("packets", 1))
-        fast = data.get ("fast", False)
+        if nml:
+            fast = True
+            payload = data["payload"]
+        else:
+            payload = b"Python! " * 12
+            fast = data.get ("fast", False)
         if timeout < 1 or packets < 1:
             return { "status" : "invalid arguments" }
         ret = { "status" : "ok" }
         delays = list ()
         for i in range (packets):
-            loopmsg, rnum = self.buildloop (dest[1:])
+            loopmsg, rnum = self.buildloop (dest[1:], payload)
+            if len (loopmsg) > 1500:
+                return { "status" : "payload too long" }
             sent = time.time ()
             reply = self.parent.exchange (loopmsg, dest[0],
                                           self.port, timeout, receipt = rnum)
             if reply is None:
+                if nml:
+                    return packets - i
                 delays.append (-1)
             else:
                 delays.append (time.time () - sent)
@@ -1229,12 +1251,15 @@ class LoopHandler (Element, timers.Timer):
                 if not fast:
                     if i < packets - 1:
                         time.sleep (1)
+        else:
+            if nml:
+                return dest[0]
         ret["delays"] = delays
         return ret
 
-    def buildloop (self, destlist):
+    def buildloop (self, destlist, payload):
         rnum = self.parent.receipt.next ()
-        ret = LoopReply (receipt = rnum, payload = b"Python! " * 12)
+        ret = LoopReply (receipt = rnum, payload = payload)
         for dest in reversed (destlist):
             ret = LoopFwd (dest = dest, payload = ret)
         ret = LoopSkip (payload = ret)
