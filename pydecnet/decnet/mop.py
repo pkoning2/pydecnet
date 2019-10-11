@@ -1205,6 +1205,11 @@ class LoopHandler (Element, timers.Timer):
                 value is a dict with element "status" containing
                 an error message.
         """
+        if not data:
+            # In case POST data was omitted entirely, substitute an
+            # empty dictionary, which will do the right thing (all
+            # defaults apply).
+            data = { }
         dest = data.get ("dest", LOOPMC)
         if not isinstance (dest, list):
             dest = [ dest ]
