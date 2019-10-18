@@ -188,9 +188,9 @@ class Application (Element):
         # Send off a connect request to the specified node.  When the
         # response arrives we'll handle that in loop_work.
         try:
-            self.loop_conn = conn.connect (self, req.node.value, 25, b"",
-                                           req.username, req.password,
-                                           req.account)
+            self.loop_conn = self.parent.connect (req.node.value, 25, b"",
+                                                  req.username, req.password,
+                                                  req.account)
         except UnknownNode:
             resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -21   # Mirror connect request failed

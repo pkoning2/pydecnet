@@ -1,11 +1,9 @@
 #!
 
-"""NSP (End Communications and Session Control layers) for DECnet/Python
+"""Session Control layer for DECnet/Python
 
 """
 
-from collections import deque
-import random
 import importlib
 import shutil
 try:
@@ -21,8 +19,8 @@ from . import packet
 from . import timers
 from . import statemachine
 from . import nsp
-from . import application_process
 from . import html
+from . import application
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -49,7 +47,8 @@ ABORT = 9           # Connection aborted
 # Work items sent up to the application.  All have fields "connection"
 # (the SessionConnection) and "message" (the application data).
 # Disconnect and reject also have a "reason" field.
-class ApplicationWork (Work): pass
+class ApplicationWork (Work):
+    closes = False
 
 class Data (ApplicationWork):
     "Normal data message"
@@ -60,12 +59,14 @@ class Interrupt (ApplicationWork):
 class Disconnect (ApplicationWork):
     "Disconnect message"
     name = "disconnect"
+    closes = True
 class Accept (ApplicationWork):
     "Connect accept message"
     name = "accept"
 class Reject (ApplicationWork):
     "Connect reject message"
     name = "reject"
+    closes = True
 class ConnectInit (ApplicationWork):
     "Connect Initialize message"
     name = "connect"
@@ -198,11 +199,11 @@ class SessionConnInit (packet.Packet):
             
 class SessionObject (Element):
     def __init__ (self, parent, number, name = "", module = "", file = "",
-                  auth = "off"):
+                  auth = "off", arg = [ ]):
         super ().__init__ (parent)
         if auth != "off" and not pam:
             raise ArgumentError ("authentication requested but python-pam is not installed")
-        self.argument = ""
+        self.argument = arg
         self.number = number
         self.name = name
         self.module = module
@@ -218,7 +219,8 @@ class SessionObject (Element):
             if not f:
                 raise ValueError ("File {} not found or not executable".format (self.file))
             self.file = f
-            self.app_class = application_process.Application
+            # None here means we're dealing with a process to be run.
+            self.app_class = None
         elif self.module:
             mod = importlib.import_module (self.module)
             self.app_class = mod.Application
@@ -229,6 +231,9 @@ class SessionObject (Element):
         if number:
             parent.obj_num[number] = self
 
+    def __str__ (self):
+        return "object {}".format (self.name or self.number)
+    
 class DefObj (dict):
     def __init__ (self, name, num, module, auth = "off"):
         self.name = name.upper ()
@@ -237,9 +242,9 @@ class DefObj (dict):
         self.file = None
         self.auth = auth
         
-defobj = ( DefObj ("NML", 19, "decnet.applications.nml"),
-           DefObj ("MIRROR", 25, "decnet.applications.mirror"),
-           DefObj ("EVTLOG", 26, "decnet.applications.evl"),
+defobj = ( DefObj ("NML", 19, "decnet.modules.nml"),
+           DefObj ("MIRROR", 25, "decnet.modules.mirror"),
+           DefObj ("EVTLOG", 26, "decnet.modules.evl"),
          )
 
 class SessionConnection (Element):
@@ -282,14 +287,6 @@ class SessionConnection (Element):
     def setsockopt (self, **kwds):
         return self.nspconn.setsockopt (**kwds)
 
-    def connect (self, client, dest, remuser, conndata = b"",
-                 username = b"", password = b"", account = b""):
-        """Convenience function to let an application open a new
-        connection witout having to look for the Session object.
-        """
-        return self.parent.connect (client, dest, remuser, conndata,
-                                    username, password, account)
-    
 class Session (Element):
     """The session control layer.  This owns all session control
     components.  It talks to NSP for service, to built-in applications,
@@ -317,7 +314,8 @@ class Session (Element):
                                    obj.number)
             else:
                 obj = SessionObject (self, obj.number, obj.name,
-                                     obj.module, obj.file, obj.authentication)
+                                     obj.module, obj.file, obj.authentication,
+                                     obj.argument)
         for k, v in sorted (self.obj_num.items ()):
             if v.module:
                 logging.debug ("Session control object {0.number} ({0.name}) module {0.module}", v)
@@ -443,7 +441,12 @@ class Session (Element):
                 try:
                     logging.trace ("starting object {0.num} ({0.name})",
                                    spkt.dstname)
-                    conn.client = sesobj.app_class (self, sesobj)
+                    cls = sesobj.app_class
+                    if cls:
+                        c = application.ModuleConnector (self, sesobj, cls)
+                    else:
+                        c = application.ProcessConnector (self, sesobj)
+                    conn.client = c
                     conn.client.dispatch (awork)
                 except Exception:
                     logging.debug ("Object application (module) exception at startup",
@@ -498,4 +501,3 @@ class Session (Element):
 
     def nice_read (self, req, resp):
         pass
-    
