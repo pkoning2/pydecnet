@@ -373,19 +373,22 @@ ask for the object by name.
 --file: Command to run.  This is a string that would be recognized by
 the shell as an executable command, either an explicit path spec
 pointing to an executable file, or a command that is mapped to a
-program via the PATH environment variable.  TODO: this is not yet
-supported.
+program via the PATH environment variable.  Conflicts with --module
+and --disable.
 
---module: Python module specification.  Either --file, --module, or
---disable must be specified.  If module is specified, the object is
-executed within PyDECnet.  The argument is a Python module
-identifier, for example "decnet.mirror".
+--module: Python module specification, for an object that is executed
+within PyDECnet.  The argument is a Python module identifier, for
+example "decnet.modules.mirror".  Conflicts with --disable and --file.
 
 --disable: If specified for an entry that matches a built-in object
 (for example --number 25, which is MIRROR), disables that object.
+Conflicts with --file and --module.  Attempts to disable an object
+that is not built-in will produce a "debug" level log message but are
+otherwise ignored.
 
 --argument: An optional argument to pass to the application when it is
-started.   PyDECnet does not interpret this.
+started.  May be repeated to pass a list of arguments.  PyDECnet does
+not interpret this.
 
 --authentication: Either "off" (the default) or "on".  "on" means that
 PyDECnet will verify the supplied authentication information, "off"

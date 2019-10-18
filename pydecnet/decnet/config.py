@@ -242,7 +242,10 @@ ogroup.add_argument ("--module", metavar = "M",
 ogroup.add_argument ("--disable", action = "store_true", default = False,
                      help = "Disable built-in object")
 cp.add_argument ("--argument", metavar = "A",
-                 help = "Optional argument to pass to application when started")
+                 default = [ ], action = "append",
+                 help = """Optional argument to pass to application
+                        when started.  May be repeated to supply an
+                        argument list.""")
 if pam:
     cp.add_argument ("--authentication", choices = ("on", "off"),
                      default = "off",
