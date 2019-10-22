@@ -35,7 +35,7 @@ class ntest (DnTest):
         self.nsp.start ()
         self.assertConns (0)
 
-    def rsend (self, pkt, dest):
+    def rsend (self, pkt, dest, rqr = False, tryhard = False):
         if dest == self.node.nodeid:
             w = Received (owner = self.nsp, src = dest,
                           packet = bytes (pkt), rts = False)

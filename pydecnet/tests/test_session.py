@@ -2,8 +2,9 @@
 
 """Unit test for the Session Control layer.
 
-This also tests the mirror application (in a basic way) as part of
-verifying successful connection to an application.  
+This includes testing the application interface via the use of a
+tester module (or process), which invokes all the SC interfaces on
+request.
 """
 
 from tests.dntest import *
@@ -25,39 +26,13 @@ class stest (DnTest):
         self.config.object[0].disable = False
         self.config.object[0].name = "TESTER"
         self.config.object[0].module = "tests.module_app_exerciser"
-        self.config.object[0].argument = "myargument"
+        self.config.object[0].argument = [ "myargument", "arg2" ]
         self.config.object[0].authentication = "off"
         self.node.nsp = unittest.mock.Mock ()
         self.s = session.Session (self.node, self.config)
         #self.setloglevel (logging.TRACE)
         
 class test_inbound (stest):
-    def test_mirror (self):
-        p = b"\x00\x19\x01\x00\x04PAUL\x00"
-        ci = nsp.ConnInit (payload = p)
-        m = unittest.mock.Mock ()
-        w = Received (owner = self.s, connection = m,
-                      packet = ci, reject = False)
-        self.s.dispatch (w)
-        self.assertEqual (m.accept.call_count, 1)
-        self.assertEqual (m.accept.call_args, unittest.mock.call (b"\xff\xff"))
-        self.assertTrue (m in self.s.conns)
-        # Send a data packet
-        p = b"\x00test data"
-        d = nsp.DataSeg (payload = p)
-        w = Received (owner = self.s, connection = m,
-                      packet = d, reject = False)
-        self.s.dispatch (w)
-        self.assertEqual (m.send_data.call_count, 1)
-        self.assertEqual (m.send_data.call_args,
-                          unittest.mock.call (b"\x01" + p[1:]))
-        # Close the connection
-        disc = nsp.DiscInit (data_ctl = b"", reason = 0)
-        w = Received (owner = self.s, connection = m,
-                      packet = disc, reject = False)
-        self.s.dispatch (w)
-        self.assertEqual (len (self.s.conns), 0)
-
     def test_reject (self):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06reject"
         ci = nsp.ConnInit (payload = p)
@@ -192,6 +167,31 @@ class test_inbound (stest):
         self.s.dispatch (w)
         self.assertEqual (len (self.s.conns), 0)
         
+    def test_arguments (self):
+        p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
+        ci = nsp.ConnInit (payload = p)
+        m = unittest.mock.Mock ()
+        w = Received (owner = self.s, connection = m,
+                      packet = ci, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.accept.call_count, 1)
+        self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
+        self.assertTrue (m in self.s.conns)
+        p = b"argument"
+        d = nsp.DataSeg (payload = p)
+        w = Received (owner = self.s, connection = m,
+                      packet = d, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (m.send_data.call_count, 1)
+        self.assertEqual (m.send_data.call_args,
+                          unittest.mock.call (b"['myargument', 'arg2']"))
+        # Close the connection
+        disc = nsp.DiscInit (data_ctl = b"", reason = 0)
+        w = Received (owner = self.s, connection = m,
+                      packet = disc, reject = False)
+        self.s.dispatch (w)
+        self.assertEqual (len (self.s.conns), 0)
+        
 class test_inbound_err (stest):
     def test_noobj (self):
         p = b"\x00\x15\x01\x00\x04PAUL\x00"
@@ -209,6 +209,9 @@ class test_inbound_err (stest):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x05crash"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        # Force an exception in "abort" because that's what will
+        # happen if you try this when the connection is in CR state.
+        m.abort.side_effect = nsp.WrongState
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.s.dispatch (w)
@@ -243,14 +246,16 @@ class test_outbound (stest):
         nspmock = self.node.nsp
         nspmock.connect.return_value = conn
         dest = Nodeid (42, 1)
-        payload = b"good morning"
-        sc = self.s.connect (dest, payload)
+        payload = b"hello"
+        sc = self.s.connect (self, dest, 25, payload)
         self.assertIs (sc.nspconn, conn)
         self.assertEqual (len (self.s.conns), 1)
         self.assertEqual (self.s.conns[conn], sc)
         self.assertEqual (nspmock.connect.call_count, 1)
-        self.assertEqual (nspmock.connect.call_args,
-                          unittest.mock.call (dest, payload))
+        cidest, cidata = nspmock.connect.call_args[0]
+        self.assertEqual (cidest, dest)
+        cidata = bytes (cidata)
+        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDecnet\x02\x05hello")
         sc.disconnect ()
         self.assertEqual (len (self.s.conns), 0)
 
@@ -259,14 +264,16 @@ class test_outbound (stest):
         nspmock = self.node.nsp
         nspmock.connect.return_value = conn
         dest = Nodeid (42, 1)
-        payload = b"good morning"
-        sc = self.s.connect (dest, payload)
+        payload = b"hi"
+        sc = self.s.connect (self, dest, 25, payload, "100,1", "DEMO", "Plugh")
         self.assertIs (sc.nspconn, conn)
         self.assertEqual (len (self.s.conns), 1)
         self.assertEqual (self.s.conns[conn], sc)
         self.assertEqual (nspmock.connect.call_count, 1)
-        self.assertEqual (nspmock.connect.call_args,
-                          unittest.mock.call (dest, payload))
+        cidest, cidata = nspmock.connect.call_args[0]
+        self.assertEqual (cidest, dest)
+        cidata = bytes (cidata)
+        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDecnet\x03\x05100,1\x04DEMO\x05Plugh\x02hi")
         sc.client = unittest.mock.Mock ()
         pkt = nsp.NoRes ()
         w = Received (owner = self.s, connection = conn,

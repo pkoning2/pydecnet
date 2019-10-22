@@ -86,6 +86,15 @@ class t_node (node.Node):
         self.ecounts[event.__class__] += 1
         self.elist.append (event)
         super ().logevent (event, entity, **kwds)
+
+    def addwork_dispatcher (self, work, handler = None):
+        # This method is used as the side effect of "addwork" if a
+        # particular test actually needs to dispatch work items to
+        # their handler.
+        work.dispatch ()
+
+    def enable_dispatcher (self):
+        self.addwork.side_effect = self.addwork_dispatcher
         
 class DnTest (unittest.TestCase):
     loglevel = logging.CRITICAL

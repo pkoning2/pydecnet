@@ -235,9 +235,9 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_area_ent (self):
-        # Event with Line entity
+        # Event with Area entity
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
-            b"\x05\x33"
+            b"\x05\x00\x33"
         e = events.decode_event (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
