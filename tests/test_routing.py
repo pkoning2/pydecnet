@@ -64,6 +64,7 @@ class rtest (DnTest):
             setattr (self, "c%d" % i, c)
             setattr (self, "d%d" % i, c.datalink)
             i += 1
+        #self.setloglevel (logging.TRACE)
         
     def tearDown (self):
         self.r.stop ()
@@ -85,8 +86,7 @@ class test_ethend (rtest):
         self.assertEqual (self.c1.dr.macid, Macaddr ("aa:00:04:00:02:04"))
         self.assertEqual (self.c1.dr.nodeid, Nodeid (1, 2))
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1, 17))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1, 17))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 2)
         self.assertIsInstance (p, LongData)
@@ -99,8 +99,7 @@ class test_ethend (rtest):
         self.assertEqual (p.payload, b"payload")
         self.assertEqual (dest, Macaddr ("aa:00:04:00:02:04"))
         # Try sending a packet.  Note that out of area makes no difference.
-        ok = self.r.send (b"payload2", Nodeid (3,17))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (3,17))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 2)
         p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, LongData)
@@ -122,8 +121,7 @@ class test_ethend (rtest):
         # Send timeout to DR adjacency object
         DnTimeout (self.c1.dr)
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1,17))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1,17))
         p, dest = self.lastsent (self.d1, 5)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (1,17))
@@ -141,8 +139,7 @@ class test_ethend (rtest):
         self.assertEqual (p.neighbor, NULLID)
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         # Try sending a packet.  Note that out of area makes no difference.
-        ok = self.r.send (b"payload2", Nodeid (3,17))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (3,17))
         p, dest = self.lastsent (self.d1, 7)
         self.assertIsInstance (p, LongData)
         self.assertEqual (p.dstnode, Nodeid (3,17))
@@ -269,8 +266,7 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1,17))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1,17))
         p, dest = self.lastsent (self.d1, 2)
         self.assertIsInstance (p, ShortData)
         self.assertEqual (p.dstnode, Nodeid (1,17))
@@ -363,8 +359,7 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1, 17))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1, 17))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)        
         p, dest = self.lastsent (self.d1, 3)
         self.assertIsInstance (p, ShortData)
@@ -456,13 +451,12 @@ class test_ptpend (rtest):
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Try sending a packet
-        ok = self.r.send (b"payload", Nodeid (1, 66))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1, 66))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 3, ptype = bytes)
         self.assertEqual (p, b"payload")
-        ok = self.r.send (b"payload", Nodeid (1, 44))
-        self.assertFalse (ok)
+        self.r.send (b"payload", Nodeid (1, 44))
+        # FIXME: not reachable, check that.
         self.lastsent (self.d1, 3, ptype = bytes)
 
     def test_recvdata_ph2 (self):
@@ -549,14 +543,13 @@ class test_ph2 (rtest):
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (66))
         # Try sending a packet to the neighbor on ptp-0
-        ok = self.r.send (b"payload", Nodeid (66))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (66))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 2, ptype = bytes)
         self.assertEqual (p, b"payload")
         # Try sending to some other address (not currently reachable)
-        ok = self.r.send (b"payload", Nodeid (44))
-        self.assertFalse (ok)
+        self.r.send (b"payload", Nodeid (44))
+        # FIXME self.assertFalse (ok)
         self.lastsent (self.d1, 2, ptype = bytes)
         # Now send phase2 init to ptp-1
         pkt = b"\x58\x01\x2c\x05REM44\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -570,8 +563,7 @@ class test_ph2 (rtest):
         self.assertEqual (self.c2.rphase, 2)
         self.assertEqual (self.c2.id, Nodeid (44))
         # Try sending to the new neighbor on ptp-1
-        ok = self.r.send (b"payload2", Nodeid (44))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (44))
         self.assertEqual (self.c2.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d2, 2, ptype = bytes)
         self.assertEqual (p, b"payload2")
@@ -738,20 +730,18 @@ class test_ph4l1a (rtest):
         self.assertEqual (w.src, Nodeid (1, 2))
         self.assertFalse (w.rts)
         # Originating packet
-        ok = self.r.send (b"payload2", Nodeid (1, 2))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (1, 2))
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d1, 5)
         self.assertEqual (p.encode (), b"\x02\x02\x04\x05\x04\x00payload2")
         # Originating to the other neighbor
-        ok = self.r.send (b"payload2", Nodeid (1, 3))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (1, 3))
         self.assertEqual (self.c2.datalink.counters.orig_sent, 1)
         p, dest = self.lastsent (self.d2, 3)
         self.assertEqual (p.encode (), b"\x02\x03\x04\x05\x04\x00payload2")
         # Originating to unreachable
-        ok = self.r.send (b"foo", Nodeid (1, 7))
-        self.assertFalse (ok)
+        self.r.send (b"foo", Nodeid (1, 7))
+        # FIXME self.assertFalse (ok)
         self.assertEqual (self.c1.datalink.counters.orig_sent, 1)
         self.assertEqual (self.c2.datalink.counters.orig_sent, 1)
         # long data, converted to short when forwarded
@@ -816,13 +806,12 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.c1.rphase, 2)
         self.assertEqual (self.c1.id, Nodeid (1, 66))
         # Try sending a packet to the neighbor on ptp-0
-        ok = self.r.send (b"payload", Nodeid (1, 66))
-        self.assertTrue (ok)
+        self.r.send (b"payload", Nodeid (1, 66))
         p, dest = self.lastsent (self.d1, 3, ptype = bytes)
         self.assertEqual (p, b"payload")
         # Try sending to some other address (not currently reachable)
-        ok = self.r.send (b"payload", Nodeid (1, 44))
-        self.assertFalse (ok)
+        self.r.send (b"payload", Nodeid (1, 44))
+        # FIXME self.assertFalse (ok)
         self.lastsent (self.d1, 3, ptype = bytes)
         # Now send phase2 init to ptp-1
         pkt = b"\x58\x01\x2c\x05REM44\x00\x00\x04\x02\x01\x02\x40\x00" \
@@ -836,8 +825,7 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.c2.rphase, 2)
         self.assertEqual (self.c2.id, Nodeid (1, 44))
         # Try sending to the new neighbor on ptp-1
-        ok = self.r.send (b"payload2", Nodeid (1, 44))
-        self.assertTrue (ok)
+        self.r.send (b"payload2", Nodeid (1, 44))
         p, dest = self.lastsent (self.d2, 3, ptype = bytes)
         self.assertEqual (p, b"payload2")
 

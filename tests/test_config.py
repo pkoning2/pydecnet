@@ -266,7 +266,7 @@ class TestNSP (Logchecker):
         self.assertEqual (c.max_connections, 4095)
         self.assertEqual (c.nsp_weight, 3)
         self.assertEqual (c.nsp_delay, 2.0)
-        self.assertEqual (c.qmax, 2047)
+        self.assertEqual (c.qmax, 20)    # Default is 20, FIXME?
         self.assertEqual (c.retransmits, 5)
 
     def test_allargs (self):
@@ -318,7 +318,7 @@ class TestObject (Logchecker):
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
         self.assertEqual (cc.authentication, "off")
-        self.assertIsNone (cc.argument)
+        self.assertEqual (cc.argument, [ ])
         
     def test_name (self):
         c = self.ctest ("object --name frob")
@@ -329,7 +329,7 @@ class TestObject (Logchecker):
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
         self.assertEqual (cc.authentication, "off")
-        self.assertIsNone (cc.argument)
+        self.assertEqual (cc.argument, [ ])
         
     def test_allargs1 (self):
         c = self.ctest ("object --number 25 --name mirror --file mir.tec --argument hello --authentication on")
@@ -340,7 +340,7 @@ class TestObject (Logchecker):
         self.assertEqual (cc.file, "mir.tec")
         self.assertIsNone (cc.module)
         self.assertEqual (cc.authentication, "on")
-        self.assertEqual (cc.argument, "hello")
+        self.assertEqual (cc.argument, [ "hello" ])
         
     def test_allargs2 (self):
         c = self.ctest ("object --number 25 --name mirror --disable --argument hello --authentication on")
@@ -351,10 +351,10 @@ class TestObject (Logchecker):
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
         self.assertEqual (cc.authentication, "on")
-        self.assertEqual (cc.argument, "hello")
+        self.assertEqual (cc.argument, [ "hello" ])
         
     def test_allargs1 (self):
-        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --authentication on")
+        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --argument goodbye --authentication on")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
@@ -362,7 +362,7 @@ class TestObject (Logchecker):
         self.assertIsNone (cc.file)
         self.assertEqual (cc.module, "decnet.mirror")
         self.assertEqual (cc.authentication, "on")
-        self.assertEqual (cc.argument, "hello")
+        self.assertEqual (cc.argument, [ "hello", "goodbye" ])
 
 class TestObject_err (Logchecker):
     req = """routing 1.1

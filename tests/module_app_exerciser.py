@@ -13,7 +13,7 @@ from decnet import logging
 class Application (Element):
     def __init__ (self, parent, obj):
         super ().__init__ (parent)
-        # Save the object --argument value
+        # Save the object --argument value (which is a list)
         self.argument = obj.argument
 
     def dispatch (self, item):
@@ -29,7 +29,7 @@ class Application (Element):
                 conn.accept (b"accepted")
         elif isinstance (item, session.Data):
             if msg == b"argument":
-                reply = bytes (self.argument, encoding = "latin1")
+                reply = bytes (repr (self.argument), encoding = "latin1")
             elif msg == b"disconnect":
                 conn.disconnect (b"as requested")
                 return

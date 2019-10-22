@@ -210,10 +210,6 @@ class Node (Entity):
             event.setparams (**kwds)
         else:
             event = event (entity, source = self.nicenode, **kwds)
-        # NML to NCP leaves the entity code number zero for some
-        # reason, but in events it has to be set so the receiver can
-        # identify the entity.
-        event.entity_type.ent_enum = event.entity_type.enum
         self.event_logger.logevent (event)
         
     def description (self, mobile):

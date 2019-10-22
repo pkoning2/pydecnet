@@ -16,7 +16,7 @@ SvnFileRev = "$LastChangedRevision$"
 jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 
 class EntityBase (packet.Packet):
-    _layout = (( "signed", "ent_enum", 1 ),)
+    _layout = (( "signed", "enum", 1 ),)
     classindex = { }
     classindexkey = "enum"
 
@@ -39,10 +39,9 @@ class EntityBase (packet.Packet):
     
     def __str__ (self):
         cname = self.__class__.__name__
-        enum = getattr (self, "ent_enum", self.enum)
         if cname.endswith ("Entity"):
             return "{} = {}".format (cname[:-6], self.ename)
-        return "Entity #{} = {}".format (enum, self.ename)
+        return "Entity #{} = {}".format (self.enum, self.ename)
 
     def __format__ (self, arg):
         return str (self)
