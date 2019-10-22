@@ -50,13 +50,13 @@ def main (argv):
     decode = json.JSONDecoder ().decode
     # Example of a request to send something to the pydecnet logging
     # service.  A JSON encoded dict is sent to stderr, with elements
-    # "level", "message" and "args".  All three are required.  Level
-    # is an integer, the log level (see the Python standard "logging"
-    # module documentation.  "message" is the message to log, which is
-    # run through "format" to fill in any arguments at { }
-    # placeholders.  "args" is a list of values -- typically strings
-    # -- which will be substituted.  If no args are needed, supply an
-    # empty list.
+    # "level", "message" and optionally "args".  Level is an integer,
+    # the log level (see the Python standard "logging" module
+    # documentation.  "message" is the message to log, which is run
+    # through "format" to fill in any arguments at { } placeholders.
+    # "args" is a list of values -- typically strings -- which will be
+    # substituted.  If no args are needed, this element may be
+    # omitted, it will default to an empty list.
     logreq = dict (level = 10,
                    message = "Starting MIRROR with arguments {}",
                    args = [ str (argv[1:]) ])
@@ -92,12 +92,16 @@ def main (argv):
                 # Reply with status code: failure.
                 msg = "\xff"
             # Outgoing requests are written to stdout (in a single
-            # line), JSON encoded.  The required fields are the same as
-            # the three standard fields mentioned above for incoming
-            # work items.  Note that "reason" is not used because
-            # applications don't get to specify a disconnect or reject
-            # reason (the reason for those actions when requested by the
-            # application is always zero).
+            # line), JSON encoded.  The required fields are in general
+            # the same as the three standard fields mentioned above
+            # for incoming work items.  Note that "reason" is not used
+            # because applications don't get to specify a disconnect
+            # or reject reason (the reason for those actions when
+            # requested by the application is always zero).
+            #
+            # Exception: outgoing connect requests have a different
+            # set of arguments, refer to the documentation in api.txt
+            # for details.
             req = { "handle" : conn, "mtype" : "data", "data" : msg }
             msg = encode (req)
             print (msg, flush = True)
