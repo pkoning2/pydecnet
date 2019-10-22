@@ -11,8 +11,8 @@ The protocol is described on page 172 of that document.
 
 This module also serves as sample code for writing Python module based
 applications.  For a sample external (executable file running in a new
-process) application, look in samples/mirror.py.  That implements the
-same protocol but as an external process via the JSON API.
+process) application, look in applications/mirror.py.  That implements
+the same protocol but as an external process via the JSON API.
 """
 
 from decnet.common import Element
