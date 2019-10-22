@@ -63,6 +63,22 @@ class FieldOverflow (DecodeError):
 class InvalidTag (DecodeError):
     """Unknown TLV tag field."""
 
+# Various functions return an interesting value or None to indicate
+# "not found" or the like.  Sometimes more than one "failure" value is
+# needed.  To make this easy, instances of the following type can be
+# used.  All these test as False, so the usual "if retval:" check for
+# "not a failure" still works, but they are distinct.
+class Failure:
+    def __init__ (self, name):
+        self.name = name
+
+    def __str__ (self):
+        return self.name
+    __repr__ = __str__
+    
+    def __bool__ (self):
+        return False
+
 # Tuple of bytestring types (used in isinstance checks when we need
 # to recognize some sort of byte buffer but don't know which specific
 # one of several types for that purpose we're dealing with)

@@ -24,6 +24,10 @@ from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
+UNREACHABLE = Failure ("Unreachable")
+OUT_OF_RANGE = Failure ("Address out of range")
+AGED = Failure ("Visit count exceeded")
+
 internals = """
 Notes on circuits and adjacencies.
 
@@ -610,7 +614,7 @@ class EndnodesRouteInfo (RouteInfo):
     def __init__ (self, maxidx):
         super ().__init__ (None, maxidx, False)
         self.adjacencies = [ None ] * (maxidx + 1)
-        self.oadj = [ None ] * (maxidx + 1)
+        self.oadj = [ UNREACHABLE ] * (maxidx + 1)
 
     def adjacency (self, id):
         return self.adjacencies[id]
@@ -633,7 +637,7 @@ class L1Router (BaseRouter):
         self.maxcost = rconfig.maxcost
         self.maxvisits = rconfig.maxvisits
         self.minhops, self.mincost = allocvecs (rconfig.maxnodes)
-        self.oadj = [ None ] * (self.maxnodes + 1)
+        self.oadj = [ UNREACHABLE ] * (self.maxnodes + 1)
         BaseRouter.__init__ (self, parent, config)
         self.l1info = dict ()
         # Create the special routeinfo column that is used
@@ -673,7 +677,7 @@ class L1Router (BaseRouter):
             ri = self.l1info[ENDNODE]
             tid = adj.nodeid.tid
             if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj \
-              and ri.oadj[tid] is not None:
+              and not ri.oadj[tid]:
                 # We already have an endnode here.  Curious.
                 logging.debug ("Possible duplicate endnode {} on {} and {}",
                                adj.nodeid, adj.circuit,
@@ -763,17 +767,17 @@ class L1Router (BaseRouter):
             setsrm = self.setsrm
         self.check ()
         for i in range (start, end + 1):
-            besth, bestc, besta = INFHOPS, INFCOST, None
+            besth, bestc, besta = INFHOPS, INFCOST, UNREACHABLE
             for r in routeinfodict.values ():
                 if r.cost[i] < bestc or \
                    (r.cost[i] == bestc and \
-                    (besta is None or
+                    (not besta or
                      (r.nodeid and r.nodeid > besta.nodeid))):
                     bestc = r.cost[i]
                     besth = r.hops[i]
                     besta = r.adjacency (i)
             if bestc > self.maxcost or besth > self.maxhops:
-                besth, bestc, besta = INFHOPS, INFCOST, None
+                besth, bestc, besta = INFHOPS, INFCOST, UNREACHABLE
             if minhops[i] != besth or mincost[i] != bestc:
                 minhops[i] = besth
                 mincost[i] = bestc
@@ -784,9 +788,10 @@ class L1Router (BaseRouter):
                                besta and besta.nodeid)
             if besta != oadj[i]:
                 # It's a reachability change only if either the
-                # previous or the current output is None; otherwise
-                # it's just a change from one route to another.
-                rchange = besta is None or oadj[i] is None
+                # previous or the current output is UNREACHABLE;
+                # otherwise it's just a change from one route to
+                # another.
+                rchange = not besta or not oadj[i]
                 oadj[i] = besta
                 if rchange and besta is not self.selfadj:
                     # Note that reachable events are not logged if the
@@ -902,18 +907,19 @@ class L1Router (BaseRouter):
     def findoadj (self, dest):
         """Find the output adjacency for this destination address.
 
-        Returns None for unreachable, or False for out of range.
+        Returns UNREACHABLE for unreachable, or OUT_OF_RANGE for out of
+        range.
         """
         area, tid = dest.split ()
         if area != self.homearea:
             if self.tiver != tiver_ph4:
                 # Not Phase IV, so out of area is unreachable
-                return None
+                return UNREACHABLE
             tid = 0
         try:
             return self.oadj[tid]
         except IndexError:
-            return False
+            return OUT_OF_RANGE
 
     def send (self, data, dest, rqr = False, tryhard = False):
         """Send NSP data to the given destination.  rqr is True to
@@ -960,9 +966,12 @@ class L1Router (BaseRouter):
                     if logging.tracing:
                         logging.trace ("Sending {} byte packet to {}: {}",
                                        len (pkt), a, pkt)
-            # In any case, send the packet on the chosen adjacency
-            a.send (pkt)
-            return
+                else:
+                    a = AGED
+            # Send the packet on the chosen adjacency if all is well
+            if a:
+                a.send (pkt)
+                return
         # If we get to this point, we could not forward the packet,
         # for one of three reasons: not reachable, too many visits,
         # or address out of range.
@@ -980,11 +989,12 @@ class L1Router (BaseRouter):
             # On Ethernet does not apply to this case
             pkt.ie = 0
             self.forward (pkt)
+            return
         if orig:
             return
         kwargs = evtpackethdr (pkt)
-        if a:
-            # Reachable, so the problem was max visits
+        if a is AGED:
+            # The problem was max visits
             self.nodeinfo.counters.aged_loss += 1
             # The architecture spec doesn't mention the source adjacency
             # argument, but that seems like a mistake so put it in.
@@ -993,7 +1003,7 @@ class L1Router (BaseRouter):
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
         else:
-            if a is False:
+            if a is OUT_OF_RANGE:
                 c = events.oor_drop
                 self.nodeinfo.counters.node_oor_loss += 1
             else:
@@ -1115,7 +1125,7 @@ class L2Router (L1Router):
         self.amaxhops = rconfig.amaxhops
         self.amaxcost = rconfig.amaxcost
         self.aminhops, self.amincost = allocvecs (rconfig.maxarea)
-        self.aoadj = [ None ] * (self.maxarea + 1)
+        self.aoadj = [ UNREACHABLE ] * (self.maxarea + 1)
         L1Router.__init__ (self, parent, config)
         self.attached = False
         self.l2info = dict ()
