@@ -26,8 +26,14 @@ DEFCONFIG = "pydecnet.conf"
 
 HIORD = b"\xaa\x00\x04\x00"
 T2 = 1
-PTP_T3MULT = 2
-BCT3MULT = 3
+# The .1 increment is not part of the DECnet architecture spec, but it
+# adopts an idea seen in DECnet/RSX.  The result is that a listen
+# timer will not normally happen unless 2 (point to point) or 3 (LAN)
+# consecutive hellos are lost.  With the design in the architecture, a
+# hello after a single (point to point) dropped hello might well
+# arrive a fraction of a second after the listen timer expiration.
+PTP_T3MULT = 2.1
+BCT3MULT = 3.1
 DRDELAY = 5
 INFHOPS = 31
 INFCOST = 1023

@@ -30,10 +30,10 @@ class Adjacency (Element, timers.Timer):
         timers.Timer.__init__ (self)
         self.circuit = circuit
         self.routing = circuit.parent
-        self.t4 = info.timer * circuit.T3MULT
+        self.t4 = int (info.timer * circuit.T3MULT)
         if not self.t4:
             # Phase 3 or before, no timer in the hello message
-            self.t4 = circuit.t3 * circuit.T3MULT
+            self.t4 = int (circuit.t3 * circuit.T3MULT)
         self.blksize = info.blksize
         self.nodeid = info.id
         self.ntype = info.ntype
