@@ -6,6 +6,7 @@
 
 import subprocess
 import os
+import signal
 import importlib
 import shutil
 try:
@@ -52,6 +53,8 @@ ABORT = 9           # Connection aborted
 class ApplicationWork (Work):
     closes = False
 
+class ApplicationExited (Exception): pass
+    
 class Data (ApplicationWork):
     "Normal data message"
     name = "data"
@@ -75,6 +78,9 @@ class ConnectInit (ApplicationWork):
 class ConnectConfirm (ApplicationWork):
     "Connect confirm message"
     name = "confirm"
+class Exited (ApplicationWork):
+    "Application process has exited"
+    name = "exited"
     
 class EndUser (object):
     """Class for the "End user" field in Connect Initiate data.
@@ -525,8 +531,9 @@ class BaseConnector (Element):
             pass
         try:
             self.dispatch2 (item)
-        except Exception:
-            logging.exception ("Unhandled exception in {}".format (self.object))
+        except Exception as e:
+            if not isinstance (e, ApplicationExited):
+                logging.exception ("Unhandled exception in {}".format (self.object))
             for conn in self.conns.values ():
                 try:
                     conn.nspconn.abort (OBJ_FAIL)
@@ -655,8 +662,24 @@ class ProcessConnector (BaseConnector):
         self.ethread.start ()
         logging.trace ("obj returncode {}", self.sp.returncode)
 
+    def connect (self, dest, remuser, data = b"",
+                 username = b"", password = b"", account = b""):
+        # Override "connect" so we can return the result to the
+        # subprocess.  The other API calls don't have any interesting
+        # return value so for those we don't bother.
+        conn = super ().connect (dest, remuser, data,
+                                 username, password, account)
+        handle = id (conn)
+        jdict = dict (handle = handle, type = "connecting")
+        jdict = self.enc (jdict)
+        logging.trace ("sc json data to {}: {}", self.object, jdict)
+        print (jdict, file = self.sp.stdin)
+
     def dispatch2 (self, item):
-        if isinstance (item, ApplicationWork):
+        if isinstance (item, Exited):
+            self.sp.stdin.close ()
+            raise ApplicationExited
+        elif isinstance (item, ApplicationWork):
             # Process work from the process, a request to Session
             # Control.
             args = item.args
@@ -690,7 +713,21 @@ class ProcessConnector (BaseConnector):
         while not self.othread.stopnow:
             req = opipe.readline ().rstrip ("\n")
             if not req:
-                continue
+                opipe.close ()
+                stat = parent.sp.wait (timeout = 5)
+                if stat < 0:
+                    try:
+                        sname = signal.Signals (-stat).name
+                    except Exception:
+                        sname = "unknown signal"
+                    logging.debug ("Subprocess for {} exited with signal {} ({})",
+                                   str (parent.object), -stat, sname)
+                else:
+                    logging.trace ("Subprocess for {} exited with status {}",
+                                   str (parent.object), stat)
+                work = Exited (parent)
+                parent.node.addwork (work)
+                break
             logging.trace ("json request to sc: {}", req)
             req = self.dec (req)
             work = ApplicationWork (parent, args = req)
@@ -706,7 +743,8 @@ class ProcessConnector (BaseConnector):
         while not self.ethread.stopnow:
             req = epipe.readline ().rstrip ("\n")
             if not req:
-                continue
+                epipe.close ()
+                break
             logging.trace ("app stderr data: {}", req)
             try:
                 reqd = self.dec (req)
