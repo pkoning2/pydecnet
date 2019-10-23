@@ -37,6 +37,11 @@ class test_mirror (DnTest):
         self.s = session.Session (self.node, self.config)
         #self.setloglevel (logging.TRACE)
 
+    def pp (self):
+        # Pause if using external subprocess
+        if self.process:
+            time.sleep (0.2)
+            
     def test_mirror (self):
         p = b"\x00\x19\x01\x00\x04PAUL\x00"
         ci = nsp.ConnInit (payload = p)
@@ -44,8 +49,7 @@ class test_mirror (DnTest):
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.s.dispatch (w)
-        if self.process:
-            time.sleep (0.2)
+        self.pp ()
         self.assertEqual (m.accept.call_count, 1)
         self.assertEqual (m.accept.call_args, unittest.mock.call (b"\xff\xff"))
         self.assertTrue (m in self.s.conns)
@@ -55,8 +59,7 @@ class test_mirror (DnTest):
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
         self.s.dispatch (w)
-        if self.process:
-            time.sleep (0.2)
+        self.pp ()
         self.assertEqual (m.send_data.call_count, 1)
         self.assertEqual (m.send_data.call_args,
                           unittest.mock.call (b"\x01" + p[1:]))
@@ -65,8 +68,7 @@ class test_mirror (DnTest):
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
         self.s.dispatch (w)
-        if self.process:
-            time.sleep (0.2)
+        self.pp ()
         self.assertEqual (len (self.s.conns), 0)
 
 class test_mirror_file (test_mirror):
