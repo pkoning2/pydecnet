@@ -58,7 +58,7 @@ class Application (Element):
                     return self.loop_request (conn, msg)
                 elif fun != nicepackets.NiceReadInfoHdr.function:
                     logging.trace ("Unsupported NICE request")
-                    resp = nicepackets.NiceErrorReply ()
+                    resp = nicepackets.NiceReply ()
                     resp.retcode = -1   # Unrecognized function
                     conn.send_data (resp)
                     return
@@ -84,7 +84,7 @@ class Application (Element):
                 if isinstance (resp, int):
                     # Error code returned
                     logging.trace ("Read data error code {}", resp)
-                    resp2 = nicepackets.NiceErrorReply ()
+                    resp2 = nicepackets.NiceReply ()
                     resp2.retcode = resp
                     resp2.detail = detail
                     conn.send_data (resp2)

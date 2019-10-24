@@ -16,26 +16,13 @@ SvnFileRev = "$LastChangedRevision$"
 jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 
 class EntityBase (packet.Packet):
-    _layout = (( "signed", "enum", 1 ),)
-    classindex = { }
-    classindexkey = "enum"
-
+    __slots__ = (("enum"),)
+    _layout = (())
+    
     def __init__ (self, arg = None):
         super ().__init__ ()
         if arg:
             self.ename = arg
-            
-    @classmethod
-    def defaultclass (cls, x):
-        return StringEntityBase
-    
-    @classmethod
-    def decode (cls, b, *x):
-        e = int.from_bytes (b[:1], "little", signed = True)
-        cls = cls.findclass (e)
-        v = cls ()
-        b2 = packet.Packet.decode (v, b)
-        return v, b2
     
     def __str__ (self):
         cname = self.__class__.__name__
@@ -50,6 +37,7 @@ class EntityBase (packet.Packet):
         return id (self)
 
 class NoEntity (EntityBase):
+    _layout = (())
     _singleton = None
     enum = -1
 
