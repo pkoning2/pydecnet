@@ -340,15 +340,13 @@ class NodeReplyDict (ReplyDict):
 # each entity code in the reply header.
 class NiceReply (NicePacket):
     _layout = (( "signed", "retcode", 1 ),
-               ( "b", "detail", 2 ))
+               ( "b", "detail", 2 ),
+               ( "a", "message", 255 ))
 
     def __init__ (self, *args):
         self.detail = 0xffff
         super ().__init__ (*args)
 
-class NiceErrorReply (NiceReply):
-    _layout = (( "a", "message", 255 ),)
-        
 class NiceReadReply (NiceReply):
     replydict = ReplyDict
     _layout = (( EntityBase, "entity" ),)
@@ -362,7 +360,7 @@ class NiceLoopReply (NiceReply):
     _layout = (( "nice",
                  (( 10, HI, "Physical Address" ), )),)
 
-class NiceLoopErrorReply (NiceErrorReply):
+class NiceLoopErrorReply (NiceReply):
     _layout = (( "b", "notlooped", 2 ),)
     
 class NodeReply (NiceReadReply):
