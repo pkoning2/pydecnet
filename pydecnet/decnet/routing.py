@@ -1356,9 +1356,11 @@ class Update (Element, timers.Timer):
         if isinstance (item, timers.Timeout):
             # No holdoff in effect
             self.holdoff = False
-            # Time to send some updates.  See if the neighbor wants them.
-            if self.parent.ntype == ENDNODE or self.parent.ntype == PHASE2:
-                # Never
+            # Time to send some updates.  See if the neighbor wants
+            # them.  We skip Phase 2, end nodes, and unkwown (meaning
+            # a point to point circuit where we haven't heard from the
+            # other end yet).
+            if self.parent.ntype in (UNKNOWN, ENDNODE, PHASE2):
                 return
             pkttype = self.pkttype
             if isinstance (self.parent, route_ptp.PtpCircuit):
