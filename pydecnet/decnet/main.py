@@ -18,6 +18,7 @@ except ImportError:
 import time
 import threading
 import os
+import signal
 try:
     from daemon import DaemonContext
 except ImportError:
@@ -33,6 +34,8 @@ from . import http
 SvnFileRev = "$LastChangedRevision$"
 
 DEFPIDFILE = "/var/run/pydecnet.pid"
+
+signalled = False
 
 dnparser = argparse.ArgumentParser ()
 # Note: at least one config file is required, but use "*" for nargs,
@@ -94,11 +97,18 @@ class pidfile:
             logging.exception ("error removing pidfile {}", self.fn)
             return
         
+def sighandler (signum, frame):
+    global signalled
+    signalled = True
+    raise KeyboardInterrupt
+
 def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
     """
     global nodes
+    # Handle SIGTERM as a sign to quit
+    signal.signal (signal.SIGTERM, sighandler)
     # Initialize DNFULLVERSION
     http.setdnrev ()
     dnparser.add_argument ("-V", "--version", action = "version",
@@ -180,7 +190,10 @@ def main ():
     except Exception:
         logging.exception ("Exception caught in main")
     except KeyboardInterrupt:
-        logging.info ("Exiting due to Ctrl-C")
+        if signalled:
+            logging.info ("Exiting due to SIGTERM")
+        else:
+            logging.info ("Exiting due to Ctrl/C")
     finally:
         # Stop nodes in reverse of the order in which they were started.
         # Note that the last node (the one that owns the main thread)
