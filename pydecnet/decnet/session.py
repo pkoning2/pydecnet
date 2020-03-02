@@ -81,87 +81,71 @@ class ConnectConfirm (ApplicationWork):
 class Exited (ApplicationWork):
     "Application process has exited"
     name = "exited"
-    
-class EndUser (object):
-    """Class for the "End user" field in Connect Initiate data.
-    """
-    def __init__ (self, num = 0, name = "", group = 0, user = 0):
-        if num not in range (256) or len (name) > 16:
-            raise ValueError ("Invalid num and/or name")
-        self.num = num
-        self.name = name
-        self.group = group
-        self.user = user
-        if num:
-            self.fmt = 0
-        elif self.group or self.user:
-            self.fmt = 2
-        else:
-            self.fmt = 1
-            
+
+class EndUser (packet.Packet):
+    classindex = { }
+    classindexkey = "fmt"
+    _layout = (( packet.B, "fmt", 1 ),
+               ( packet.B, "num", 1 ))
+
     @classmethod
-    def decode (cls, buf):
-        if len (buf) < 2:
-            raise MissingData
-        fmt = buf[0]
-        num = buf[1]
-        if fmt > 2:
-            raise BadEndUser ("Invalid end user format {}", fmt)
-        if fmt == 0:
-            if num == 0:
-                raise BadEndUser ("Format 0 with zero number")
-            return cls (num), buf[2:]
-        if fmt == 1:
-            if num != 0:
-                raise BadEndUser ("Format 1 with non-zero number {}", num)
-            flen, name = packet.decode_a_value (buf[2:], 16)
-            if not name:
-                raise BadEndUser ("Format 1 with no name")
-            return cls (name = name), buf[3 + flen:]
-        if num != 0:
-            raise BadEndUser ("Format 2 with non-zero number {}", num)
-        group = int.from_bytes (buf[2:4], packet.LE)
-        user = int.from_bytes (buf[4:6], packet.LE)
-        flen, name = packet.decode_a_value (buf[6:], 16)
-        if not name:
+    def defaultclass (cls, idx):
+        raise BadEndUser ("Invalid EndUser format code {}".format (idx))
+
+class EndUser0 (EndUser):
+    fmt = 0
+    name = ""
+    group = user = 0
+    
+    def check (self):
+        if not self.num:
+            raise BadEndUser ("Format 0 with zero number")
+
+    def __format__ (self, format):
+        return "{}".format (self.num)
+    
+class EndUser1 (EndUser):
+    fmt = 1
+    num = 0
+    group = user = 0
+    _layout = (( packet.A, "name", 16 ),)
+
+    def check (self):
+        if not self.name:
+            raise BadEndUser ("Format 1 with no name")
+        
+    def __format__ (self, format):
+        return "{}".format (self.name)
+
+class EndUser2 (EndUser):
+    fmt = 2
+    num = 0
+    _layout = (( packet.B, "group", 2),
+               ( packet.B, "user", 2),
+               ( packet.A, "name", 16 ))
+
+    def check (self):
+        if not self.name:
             raise BadEndUser ("Format 2 with no name")
-        return cls (0, name, group, user), buf[7 + flen:]
+    
+    def __format__ (self, format):
+        return "[{},{}]{}".format (self.group, self.user, self.name)
 
-    def __bytes__ (self):
-        if self.num:
-            self.fmt = 0
-            if self.name:
-                raise ValueError ("Can't specify both num and name")
-        else:
-            self.fmt = 1
-            if not self.name:
-                raise ValueError ("Must specify one of num or name")
-        start = byte (self.fmt) + byte (self.num)
-        if self.fmt:
-            return start + packet.encode_i_value (self.name, 16)
-        return start
-
-    def __str__ (self):
-        if self.fmt == 0:
-            return "{}".format (self.num)
-        if self.fmt == 1:
-            return "{}".format (self.name)
-        return "[{0.group},{0.user}]{0.name}".format (self)
-
-LocalUser = EndUser (name = "PyDecnet")
+LocalUser = EndUser1 (name = "PyDECnet")
 
 class SessionConnInit (packet.Packet):
-    _addslots = { "rqstrid", "passwrd", "account", "connectdata", "payload" }
+    _addslots = { "rqstrid", "passwrd", "account", "connectdata" }
     _layout = (( EndUser, "dstname" ),
                ( EndUser, "srcname" ),
-               ( "bm",
+               ( packet.BM,
                  ( "auth", 0, 1 ),
                  ( "userdata", 1, 1 ),
                  ( "proxy", 2, 1 ),
                  ( "proxy_uic", 3, 1 ),
                  ( "reserved", 4, 1 ),
                  ( "scver", 5, 2 ),
-                 ( "mbz2", 7, 1 )))
+                 ( "mbz2", 7, 1 )),
+                packet.Payload )
     mbz2 = 0
     SCVER1 = 0   # Session Control 1.0
     SCVER2 = 1   # Session Control 2.0
@@ -169,13 +153,17 @@ class SessionConnInit (packet.Packet):
     def encode (self):
         self.auth = self.userdata = 0
         payload = list ()
-        if self.rqstrid or self.passwrd or self.account:
-            payload.append (packet.encode_i_value (self.rqstrid, 39))
-            payload.append (packet.encode_i_value (self.passwrd, 39))
-            payload.append (packet.encode_i_value (self.account, 39))
+        r = self.rqstrid
+        p = self.passwrd
+        a = self.account
+        if r or p or a:
+            for f in (r, p, a):
+                f = packet.A.checktype ("session", f)
+                payload.append (f.encode (39))
             self.auth = 1
         if self.connectdata:
-            payload.append (packet.encode_i_value (self.connectdata, 16))
+            data = packet.I.checktype ("data", self.connectdata)
+            payload.append (data.encode (16))
             self.userdata = 1
         self.payload = b''.join (payload)
         return super ().encode ()
@@ -190,15 +178,11 @@ class SessionConnInit (packet.Packet):
         if buf:
             if self.auth:
                 # Authentication fields are present.
-                flen, self.rqstrid = packet.decode_a_value (buf, 39)
-                buf = buf[flen + 1:]
-                flen, self.passwrd = packet.decode_a_value (buf, 39)
-                buf = buf[flen + 1:]
-                flen, self.account = packet.decode_a_value (buf, 39)
-                buf = buf[flen + 1:]
+                self.rqstrid, buf = packet.A.decode (buf, 39)
+                self.passwrd, buf = packet.A.decode (buf, 39)
+                self.account, buf = packet.A.decode (buf, 39)
             if self.userdata:
-                flen, self.connectdata = packet.decode_i_value (buf, 16)
-                buf = buf[flen + 1:]
+                self.connectdata, buf = packet.I.decode (buf, 16)
             if buf:
                 logging.debug ("Extra data in session control CI packet")
         else:
@@ -264,13 +248,11 @@ class SessionConnection (Element):
         self.remotenode = nspconn.destnode
         
     def accept (self, data = b""):
-        if not isinstance (data, (bytes, bytearray, memoryview)):
-            data = bytes (data)
+        data = makebytes (data)
         return self.nspconn.accept (data)
 
     def reject (self, data = b""):
-        if not isinstance (data, (bytes, bytearray, memoryview)):
-            data = bytes (data)
+        data = makebytes (data)
         self.nspconn.reject (APPLICATION, data)
         del self.parent.conns[self.nspconn]
     
@@ -283,13 +265,11 @@ class SessionConnection (Element):
         del self.parent.conns[self.nspconn]
 
     def interrupt (self, data):
-        if not isinstance (data, (bytes, bytearray, memoryview)):
-            data = bytes (data)
+        data = makebytes (data)
         return self.nspconn.interrupt (data)
 
     def send_data (self, data):
-        if not isinstance (data, (bytes, bytearray, memoryview)):
-            data = bytes (data)
+        data = makebytes (data)
         return self.nspconn.send_data (data)
 
     def setsockopt (self, **kwds):

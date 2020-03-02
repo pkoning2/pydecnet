@@ -157,9 +157,6 @@ def main ():
     # done before we start any threads (at least on Linux) because the
     # fork() machinery used by daemon entry doesn't carry the threads
     # along with it.
-    #
-    # TODO: Need to set up a signal handler to implement clean
-    # stopping of the daemon.
     if p.daemon:
         preserve = list ()
         for h in logging.logging._handlerList:

@@ -2,7 +2,7 @@
 
 """Installer for decnet module
 
-Copyright (c) 2013-2019, Paul Koning.
+Copyright (c) 2013-2020, Paul Koning.
 
 Licensed under open source license terms stated in file LICENSE.
 """
@@ -24,7 +24,9 @@ setup (author = "Paul Koning",
        extras_require = {
            "daemon" : "python-daemon",
            "yaml" : "PyYAML",
-           "pam" : "python-pam"
+           "pam" : "python-pam",
+           "serial" : "pyserial",
+           "uart" : "Adafruit_BBIO"
            },
        classifiers=[
            "Development Status :: 3 - Alpha",
@@ -35,5 +37,6 @@ setup (author = "Paul Koning",
            "Programming Language :: Python :: 3.5",
            "Programming Language :: Python :: 3.6",
            "Programming Language :: Python :: 3.7",
+           "Programming Language :: Python :: 3.8",
            ],       
        )

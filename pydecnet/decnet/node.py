@@ -122,6 +122,8 @@ class Node (Entity):
         return [ n.get_api () for n in self.nodeinfo_byid.values () ]
             
     def addnodeinfo (self, n):
+        # Note that duplicate entries (name as well as address) are
+        # caught at config read-in.
         self.nodeinfo_byname[n.nodename] = n
         self.nodeinfo_byid[n] = n
         
@@ -272,12 +274,14 @@ class Node (Entity):
         return title, [ sb, sb2 ], body
 
     def nice_read (self, req):
-        if isinstance (req, nicepackets.NiceReadNode) and \
+        if isinstance (req, (nicepackets.NiceReadNode,
+                             nicepackets.NiceZeroNode)) and \
            req.entity.value == 0:
             # Read of Executor is coded as node address zero, change
             # that to the explicit node address of this node.
             req.entity.value = self.routing.nodeid
-        if isinstance (req, nicepackets.NiceReadNode) and \
+        if isinstance (req, (nicepackets.NiceReadNode,
+                             nicepackets.NiceZeroNode)) and \
            req.entity.code > 0:
             # Read node by name.  Look it up and substitute the
             # address so the layer functions don't need to look for
@@ -295,7 +299,8 @@ class Node (Entity):
         if req.events ():
             # Asking for events
             return -1    # Unknown function or option
-        if isinstance (req, nicepackets.NiceReadNode) and req.loop ():
+        if isinstance (req, (nicepackets.NiceReadNode,
+                             nicepackets.NiceZeroNode)) and req.loop ():
             return       # Nothing matches (we don't do loop nodes)
         # Hand the request to various layers.  NSP first because it
         # knows best what all the nodes are.
@@ -304,7 +309,8 @@ class Node (Entity):
         self.routing.nice_read (req, resp)
         self.datalink.nice_read (req, resp)
         self.mop.nice_read (req, resp)
-        if isinstance (req, nicepackets.NiceReadNode) and \
+        if isinstance (req, (nicepackets.NiceReadNode,
+                             nicepackets.NiceZeroNode)) and \
            self.routing.nodeid in resp:
             exe = resp[self.routing.nodeid]
             # Set the "this is the executor" flag in the entity

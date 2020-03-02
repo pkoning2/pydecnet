@@ -42,6 +42,8 @@ class LoopWork (Work):
 class Application (Element):
     def __init__ (self, parent, obj):
         self.loop_conn = None
+        # TODO: "zero" support is only just started
+        self.readonly = True
         super ().__init__ (parent)
 
     def dispatch (self, item):
@@ -57,13 +59,28 @@ class Application (Element):
                 if fun == nicepackets.NiceTestHeader.function:
                     return self.loop_request (conn, msg)
                 elif fun != nicepackets.NiceReadInfoHdr.function:
-                    logging.trace ("Unsupported NICE request")
-                    resp = nicepackets.NiceReply ()
-                    resp.retcode = -1   # Unrecognized function
-                    conn.send_data (resp)
-                    return
+                    # Load/dump, or some flavor of modify, or system
+                    # dependent.  Do further checking.
+                    # Right now, the only other thing we support is
+                    # zero counters
+                    if fun == nicepackets.NiceZeroCtrHdr.function:
+                        if self.readonly:
+                            logging.trace ("Read-only NICE violation")
+                            resp = nicepackets.NiceReply ()
+                            resp.retcode = -3   # Privilege violation
+                            conn.send_data (resp)
+                            return
+                        baseclass = nicepackets.NiceZeroCtrHdr
+                    else:
+                        logging.trace ("Unsupported NICE request")
+                        resp = nicepackets.NiceReply ()
+                        resp.retcode = -1   # Unrecognized function
+                        conn.send_data (resp)
+                        return
+                else:
+                    baseclass = nicepackets.NiceReadInfoHdr
                 ent = msg[1] & 0x07
-                cls = nicepackets.NiceReadInfoHdr.findclass (ent)
+                cls = baseclass.findclass (ent)
                 resp = 0
                 detail = 0xffff
                 try:
@@ -74,13 +91,17 @@ class Application (Element):
                                          logging.DEBUG)
                     resp = -1
                 if not resp:
-                    if  req.permanent:
+                    if isinstance (req, nicepackets.NiceReadInfoHdr) \
+                       and req.permanent:
                         logging.trace ("Read permanent data not supported")
                         resp = -1   # Unrecognized function
                     else:
                         resp = self.node.nice_read (req)
                 if not resp:     # Reply is None or empty
-                    resp = -8    # Unrecognized component
+                    if resp is None or \
+                       not isinstance (resp, nicepackets.NiceZeroCtrHdr):
+                        # Rejected, or empty data for read info   
+                        resp = -8    # Unrecognized component
                 if isinstance (resp, int):
                     # Error code returned
                     logging.trace ("Read data error code {}", resp)
@@ -140,7 +161,7 @@ class Application (Element):
     def loop_request (self, conn, msg):
         """Process a NICE "loop" request.
         """
-        req = nicepackets.NiceTestHeader (msg)
+        req, x = nicepackets.NiceTestHeader.decode (msg)
         logging.trace ("Loop request: {}", req)
         if req.test_type == nicepackets.NiceLoopCircuit.test_type:
             return self.loop_circuit (conn, msg)
@@ -155,7 +176,7 @@ class Application (Element):
             req = nicepackets.NiceLoopNodeAcc (msg)
         else:
             req = nicepackets.NiceLoopNode (msg)
-        logging.debug ("Loop Node request: {}", req)
+        logging.trace ("Loop Node request: {}", req)
         # Set up state for the loop operation to be done
         w = getattr (req, "loop_with", 2)       # default type MIXED
         l = getattr (req, "loop_length", 128)   # default length 128

@@ -11,11 +11,13 @@ import sys
 import random
 import time
 import socket
+import abc
+import datetime
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
 DNVERSION = "DECnet/Python V1.0"
-CYEAR = "2019"
+CYEAR = "2020"
 AUTHORS = "Paul Koning"
 
 # Defaults
@@ -44,6 +46,8 @@ MSS = MTU - 13           # Max TSDU size
 
 JIFFY = 0.1              # Timer increment in seconds
 
+LE = "little"
+
 # For rev tracking
 SvnFileRev = "$LastChangedRevision$"
 
@@ -57,18 +61,18 @@ class DNAException (Exception):
 
 # Exceptions related to packet encode/decode
 class DecodeError (DNAException):
-    """Packet decode error."""
+    """Packet decode error"""
 class WrongValue (DecodeError):
-    """Constant field in packet with wrong value."""
+    """Constant field in packet with wrong value"""
 class ExtraData (DecodeError):
-    """Unexpected data at end of packet."""
+    """Unexpected data at end of packet"""
 class MissingData (DecodeError):
-    """Unexpected end of packet in decode."""
+    """Unexpected end of packet in decode"""
 class FieldOverflow (DecodeError):
-    """Value too large for field size."""
+    """Value too large for field size"""
 class InvalidTag (DecodeError):
-    """Unknown TLV tag field."""
-
+    """Unknown TLV tag field"""
+    
 # Various functions return an interesting value or None to indicate
 # "not found" or the like.  Sometimes more than one "failure" value is
 # needed.  To make this easy, instances of the following type can be
@@ -95,6 +99,12 @@ bytetypes = (bytes, bytearray, memoryview)
 # we would treat as non-sequence (single value).
 strtypes = (str, bytes, bytearray, memoryview)
 
+# Make sure a value is byte-like.
+def makebytes (v):
+    if not isinstance (v, bytetypes):
+        v = bytes (v)
+    return v
+
 # It would be handy to have the bytes analog of chr() as a builtin,
 # but there isn't one, so make one.
 def byte (n):
@@ -104,6 +114,72 @@ def require (buf, minlen):
     if len (buf) < minlen:
         logging.debug ("Not {} bytes left in packet buffer", minlen)
         raise MissingData
+
+class Field:
+    """Abstract base class for fields in DECnet packets.
+
+    Subclass this to define a particular field or substructure.  For
+    individual fields, typically there is a second base class for the
+    Python data type to be used to represent the field.  An example
+    is Nodeid, which is derived from Field and int (since a DECnet
+    node ID is an integer).  In some cases, the value has to be a
+    data attribute of the class -- this applies when the data needed
+    is from a class that does not support subclassing.  Any needed
+    attributes should typically be mentioned in the __slots__ class
+    attribute.
+
+    Minimally a particular field has to define an encode method, to turn
+    the field into a byte string, and a decode classmethod, to turn a
+    prefix of the supplied byte string into an instance of the field.
+    It can also supply a "__format__" method to define a particular
+    way of displaying the field value.
+
+    If the class defines class attribute "lastfield" to be True, that
+    means fields of this type must be the last field in a  packet.
+    Normally this applies to fields that consume the rest of the packet,
+    for example "Payload" or the TLV field group.
+    """
+    __slots__ = ()
+    lastfield = False
+
+    @abc.abstractmethod
+    def encode (self):
+        pass
+
+    @classmethod
+    def checktype (cls, name, val, *args):
+        """This method is called prior to encoding the value.  The "val"
+        argument might be an instance of cls, or something else, or
+        None.  If None, that means the field was not supplied; this
+        method can substitute a default value, or return None to
+        indicate the field should be omitted, or reject the call if the
+        field is mandatory.  If the type is not what we want, it should
+        be converted and the result returned.  Otherwise, just return
+        the supplied value.
+        """
+        if isinstance (val, cls):
+            return val
+        if val is None:
+            # Supply the default for this type.
+            return cls ()
+        return cls (val)
+
+    @classmethod
+    @abc.abstractmethod
+    def decode (self, buf):
+        pass
+
+    @classmethod
+    def makecoderow (cls, name, *args):
+        """Return code table row data for the Packet encode/decode
+        machinery to use, and some additional items.  The return value
+        is a tuple consisting of field type, field name, any arguments,
+        slot name information, and "wild" flag.  The slot name info is
+        an iterable of slot names.  The wild flag is True if for field
+        groups that accept arbitrary fields, as happens with TLV and
+        NICE groups.  For simple fields that case never applies.
+        """
+        return cls, name, args, { name }, False
 
 class Entity (object):
     """Entity is the base class for most classes that define DECnet
@@ -199,10 +275,10 @@ class IpAddr (str):
         return str.__new__ (cls, s)
             
 _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
-class Nodeid (int):
+class Nodeid (Field, int):
     """A DECnet Node ID.
     """
-    def __new__ (cls, s, id2 = None, wild = False):
+    def __new__ (cls, s = 0, id2 = None, wild = False):
         """Create a Nodeid from a string, an integer, a pair of integers,
         a Mac address, or anything that can be converted to a byte string
         of length 2.
@@ -237,12 +313,12 @@ class Nodeid (int):
             if n == 0 or a == 0:
                 raise ValueError ("Invalid node ID {}".format (s))
         else:
-            s = bytes (s)
+            s = makebytes (s)
             if len (s) != 2:
                 raise DecodeError ("Invalid node ID {}".format (s))
             a, n = divmod (int.from_bytes (s, "little"), 1024)
             if n == 0 and not wild:
-                raise ValueError ("Invalid node ID {}".format (s))
+                raise DecodeError ("Invalid node ID {}".format (s))
         if a > 63 or n > 1023 or (n == 0 and a != 0 and not wild):
             raise ValueError ("Invalid node ID {}".format (s))
         return int.__new__ (cls, (a << 10) + n)
@@ -287,7 +363,7 @@ class Nodeid (int):
 
 class NiceNode (Nodeid):
     """A node address with optional node name. """
-    def __new__ (cls, nodeid, name = ""):
+    def __new__ (cls, nodeid = 0, name = ""):
         n = Nodeid.__new__ (cls, nodeid)
         if not name:
             name = getattr (nodeid, "nodename", None)
@@ -331,7 +407,7 @@ class NiceNode (Nodeid):
             yield self.nodename
 
 _mac_re = re.compile ("[-:]")
-class Macaddr (bytes):
+class Macaddr (Field, bytes):
     """MAC address for Ethernet (or similar LAN).
     """
     def __new__ (cls, s):
@@ -354,7 +430,7 @@ class Macaddr (bytes):
         elif isinstance (s, Nodeid):
             b = HIORD + bytes (s)
         else:
-            b = bytes (s)
+            b = makebytes (s)
             if len (b) != 6:
                 raise ValueError ("Invalid MAC address string {}".format (s))
         return bytes.__new__ (cls, b)
@@ -383,7 +459,7 @@ class Macaddr (bytes):
     
 NULLID = Macaddr (bytes (6))
 
-class Ethertype (bytes):
+class Ethertype (Field, bytes):
     """Protocol type for Ethernet
     """
     def __new__ (cls, s):
@@ -402,7 +478,7 @@ class Ethertype (bytes):
             except OverflowError:
                 raise ValueError ("Invalid Ethertype value {}".format (s)) from None
         else:
-            b = bytes (s)
+            b = makebytes (s)
             if len (b) != 2:
                 raise ValueError ("Invalid Ethertype string {}".format (s))
         return bytes.__new__ (cls, b)
@@ -429,7 +505,7 @@ LATPROTO     = Ethertype ("60-04")   # used by bridge
 LOOPPROTO    = Ethertype ("90-00")
 
 _version = struct.Struct ("<BBB")
-class Version (bytes):
+class Version (Field, bytes):
     """DECnet component version number -- 3 integers.
     """
     def __new__ (cls, v1, v2 = 0, v3 = 0):
@@ -441,7 +517,7 @@ class Version (bytes):
         elif isinstance (v1, int):
             v = _version.pack (v1, v2, v3)
         else:
-            v = bytes (v1)
+            v = makebytes (v1)
             if len (v) != 3:
                 raise ValueError ("Invalid version string {}".format (v1))
         return super ().__new__ (cls, v)
@@ -460,6 +536,52 @@ class Version (bytes):
         return "{}.{}.{}".format (v1, v2, v3)
 
     __repr__ = __str__
+    
+maxint = [ (1 << (8 * i)) - 1 for i in range (9) ]
+
+class Timestamp (Field):
+    """Elapsed time.  Internally this stores the time of creation of
+    the object, but when encoding or formatting that is converted to 
+    delta time (truncated to whole seconds).  The encoding is that of
+    a 2-byte DECnet counter, i.e., the delta time of 65535 if it is 
+    too large.
+    """
+    __slots__ = ("start",)
+    
+    def __init__ (self, v = 0):
+        """Initialize a new delta-t value.  The supplied value is the
+        delta time (seconds before now) to be represented.  What we
+        actually store is the corresponding start time, i.e., the
+        current time minus the supplied delta.  The delta defaults to
+        zero, so the default constructor produces a start time of "right
+        now".
+        """
+        v = datetime.timedelta (seconds = -v)
+        self.start = datetime.datetime.now () + v
+
+    def __int__ (self):
+        delta = datetime.datetime.now () - self.start
+        delta = int (delta.total_seconds ())
+        return delta
+    
+    def encode (self, flen):
+        return min (int (self), maxint[flen]).to_bytes (flen, LE)
+
+    @classmethod
+    def decode (cls, buf, flen):
+        """Decode delta t from a packet.  This doesn't really work 
+        well because of time skew but it's a reasonable approximation.
+        """
+        if len (buf) < flen:
+            logging.debug ("Not {} bytes left for integer field", flen)
+            raise MissingData
+        return cls (int.from_bytes (buf[:flen], LE)), buf[flen:]
+
+    def __format__ (self, format):
+        delta = datetime.datetime.now () - self.start
+        # Discard the microseconds
+        delta = datetime.timedelta (delta.days, delta.seconds)
+        return delta.__format__ (format)
     
 def scan_ver (s):
     """Convert a string specifying the console carrier verification data
@@ -568,14 +690,7 @@ class BaseCounters (object):
     """
     def __init__ (self, owner):
         self._owner = owner
-        self._time_zeroed = time.time ()
-
-    @property
-    def time_since_zeroed (self):
-        delta = int (time.time () - self._time_zeroed)
-        if delta > 65535:
-            delta = 65535
-        return delta
+        self.time_since_zeroed = Timestamp ()
 
     def copy (self, other):
         """This copies the counters to the destination, for each counter
@@ -610,3 +725,13 @@ def setcode (code):
         f.nice_code = code
         return f
     return sc
+
+# Decorator to set label attribute on functions/methods, for with
+# methods in a state machine.  The label is used by HTML output that
+# shows the current state (such as routing circuit status).
+def setlabel (lb):
+    def sc (f):
+        f.label = lb
+        return f
+    return sc
+    

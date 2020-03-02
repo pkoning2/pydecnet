@@ -646,7 +646,7 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.eventcount (events.reach_chg), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEvent (events.reach_chg, back = 1,
-                          entity = events.NodeEntity (Nodeid (1, 2)),
+                          entity = events.NodeEventEntity (Nodeid (1, 2)),
                           status = "reachable")
         self.assertEqual (self.c1.rphase, 4)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
@@ -658,7 +658,7 @@ class test_ph4l1a (rtest):
         self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
         self.assertEvent (events.reach_chg, back = 1,
-                          entity = events.NodeEntity (Nodeid (1, 3)),
+                          entity = events.NodeEventEntity (Nodeid (1, 3)),
                           status = "reachable")
         self.assertEqual (self.c2.rphase, 4)
         self.assertEqual (self.c2.id, Nodeid (1, 3))
@@ -773,7 +773,7 @@ class test_ph4l1a (rtest):
         #self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
         self.assertEvent (events.reach_chg, back = 1,
-                          entity = events.NodeEntity (Nodeid (1, 3)),
+                          entity = events.NodeEventEntity (Nodeid (1, 3)),
                           status = "reachable")
         self.assertEqual (self.c2.rphase, 4)
         self.assertEqual (self.c2.id, Nodeid (1, 3))

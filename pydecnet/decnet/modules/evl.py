@@ -39,7 +39,7 @@ class Application (Element):
             try:
                 # All we have to do is decode the event message into
                 # an Event object, then send that to our logger.
-                e = events.decode_event (msg)
+                e, x = events.EventBase.decode (msg)
                 logging.log (e.loglevel, e)
             except DecodeError:
                 logging.exception ("Error parsing event {}", msg)

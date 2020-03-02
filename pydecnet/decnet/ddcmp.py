@@ -9,6 +9,15 @@ import socket
 import queue
 import errno
 
+try:
+    import serial
+except ImportError:
+    serial = None
+try:
+    from Adafruit_BBIO import UART
+except ImportError:
+    UART = None
+    
 import crc
 
 from .common import *
@@ -25,23 +34,23 @@ SvnFileRev = "$LastChangedRevision$"
 # The CRC-16 polynomial; see section D.2 of the DDCMP spec.
 class CRC16 (crc.CRC, poly = (16, 15, 2, 0)): pass
 
+class HdrCrcError (DecodeError):
+    "Invalid CRC for DDCMP header"
+    
 # DDCMP sequence numbers.  Note that these are mod 256 but not exactly
 # RFC 1982 compatible, because the number of pending messages is allowed
 # to go all the way to modulus - 1 rather than only up to modulus / 2.
-class Seq (modulo.Mod, mod = 256):
+class Seq (Field, modulo.Mod, mod = 256):
     @classmethod
     def decode (cls, buf):
-        if buf:
-            return cls (buf[0]), buf[1:]
-        return None, buf
-
-    def __bytes__ (self):
-        return self.to_bytes (1, packet.LE)
+        require (buf, 1)
+        return cls (buf[0]), buf[1:]
 
     def encode (self):
-        if self is None:
-            return b"\000"
-        return bytes (self)
+        return self.to_bytes (1, packet.LE)
+
+    def __bytes__ (self):
+        return self.encode ()
     
 # DDCMP byte codes that have specific meanings
 SOH = 0o201        # SOH - start of data message
@@ -75,27 +84,86 @@ ACKTMR = 1        # Timeout when waiting for data ACK
 STACKTMR = 3      # Timeout when waiting for STACK during startup on TCP
 UDPTMR = 60       # Timeout between retries of startup on UDP
 
-class DMMsg (packet.Packet):
-    _addslots = { "payload" }
-    # baselayout is the layout of the header without the Header CRC.
-    # We need that so we can encode using that layout, to get the header
-    # bytes over which to compute the CRC.
-    baselayout = (( "b", "soh", 1 ),
-               ( "bm",
+class DMHdr (packet.Packet):
+    "DDCMP packet common part -- the header including the header CRC"
+    # For incoming packets, the caller may have checked the header
+    # CRC, since that is part of packet framing (in stream input
+    # modes).  Decoding will verify the Header CRC if "check" is True
+    # (the default), but will skip it otherwise.  Outbound (encode),
+    # the correct header CRC is always generated.
+    classindex = { }
+    classindexkey = "soh"
+    _layout = (( packet.B, "soh", 1 ),)
+    addr = 1
+    # Default.  For packet classes, True if this packet has a settable
+    # "resp" field that the sender needs to fill in.
+    setresp = True
+    
+    @classmethod
+    def decode (cls, buf, recv = None, check = True):
+        if check and not CRC16 (buf[:HDRLEN]).good:
+            raise HdrCrcError
+        ret, buf = super (__class__, cls).decode (buf, recv, check)
+        return ret, buf[2:]
+
+    def encode (self):
+        ret = super ().encode ()
+        crc = CRC16 (ret)
+        return ret + bytes (crc)
+
+class DataMsg (DMHdr):
+    "A data message"
+    # To allow for efficient processing of data messages in stream mode
+    # connections, the decode method can accept just the header along
+    # with a function that will deliver the data portion.
+    _layout = (( packet.BM,
                  ( "count", 0, 14 ),
                  ( "qsync", 14, 1 ),
                  ( "select", 15, 1 )),
                ( Seq, "resp" ),
                ( Seq, "num" ),
-               ( "b", "addr", 1 ))
-    _layout = baselayout + (( "bv", "hcrc", 2 ),)
-    addr = 1
-DMMsg.basetable = packet.process_layout (DMMsg, DMMsg.baselayout)
+               ( packet.B, "addr", 1 ))
 
-class DataMsg (DMMsg):
+    _addslots = ("payload", "crcok")
     soh = SOH
 
-class MaintMsg (DMMsg):
+    @classmethod
+    def decode (cls, buf, recv = None, check = True):
+        # Optional argument recv is a function that will deliver the
+        # next n bytes of packet data packet.  It is used to obtain
+        # the data portion of the message.  If recv is supplied, buf
+        # must be just the header.  If recv is omitted or None, buf
+        # must be the entire packet including data CRC.  Data CRC is
+        # always checked (the "check" argument is present in order to
+        # match the signature of the base class decode method).
+        #
+        # Note that decode succeeds even for bad data CRC, because some
+        # of the header fields still have to be acted on.
+        ret, buf = super (__class__, cls).decode (buf)
+        dl = ret.count
+        if recv:
+            assert not buf, "Too much data in header buffer"
+            ret.payload = recv (dl)
+            crc = CRC16 (ret.payload)
+            crc.update (recv (2))
+        else:
+            require (buf, dl + 2)
+            ret.payload = buf[:dl]
+            crc = CRC16 (buf[:dl + 2])
+            buf = buf[dl + 2:]
+        ret.crcok = crc.good
+        return ret, buf
+            
+    def encode (self):
+        payload = makebytes (self.payload)
+        self.count = len (payload)
+        ret = [ super ().encode () ]
+        ret.append (payload)
+        crc = CRC16 (payload)
+        ret.append (bytes (crc))
+        return b"".join (ret)
+    
+class MaintMsg (DataMsg):
     # Maintenance message is like regular data message, but
     # different start byte and no sequence numbers.  We don't
     # simply subclass it from DataMsg because then it a maint
@@ -106,25 +174,23 @@ class MaintMsg (DMMsg):
     select = 1
     resp = Seq (0)
     num = Seq (0)
+    setresp = False
 
 # Control messages are similar but with type and subtype fields
 # instead of the count field, since there is no payload.
-class CtlMsg (packet.Packet):
-    baselayout = (( "b", "enq", 1 ),
-               ( "b", "type", 1 ),
-               ( "bm",
+class CtlMsg (DMHdr):
+    _layout = (( packet.B, "type", 1 ),
+               ( packet.BM,
                  ( "subtype", 0, 6 ),
                  ( "qsync", 6, 1 ),
                  ( "select", 7, 1 )),
                ( Seq, "resp" ),
                ( Seq, "num" ),
-               ( "b", "addr", 1 ))
-    _layout = baselayout + (( "bv", "hcrc", 2 ),)
-    enq = ENQ
-    addr = 1
-CtlMsg.basetable = packet.process_layout (CtlMsg, CtlMsg.baselayout)
+               ( packet.B, "addr", 1 ))
 
-HDRLEN = len (CtlMsg ())
+    classindex = { }
+    classindexkey = "type"
+    soh = ENQ
 
 class AckMsg (CtlMsg):
     type = ACK
@@ -139,6 +205,7 @@ class RepMsg (CtlMsg):
     type = REP
     subtype = 0
     resp = Seq (0)
+    setresp = False
 
 class StartMsg (CtlMsg):
     type = STRT
@@ -147,6 +214,7 @@ class StartMsg (CtlMsg):
     select = 1
     resp = Seq (0)
     num = Seq (0)
+    setresp = False
 
 class StackMsg (CtlMsg):
     type = STACK
@@ -155,18 +223,20 @@ class StackMsg (CtlMsg):
     select = 1
     resp = Seq (0)
     num = Seq (0)
+    setresp = False
+
+HDRLEN = len (StartMsg ())
 
 class Err (Work):
     """A work item that indicates a bad received message.  The "code" attribute
     says what specifically was wrong.  The code values are taken from the
     DDCMP protocol coding of NAK message reason codes.
     """
-    def __init__ (self, code):
+    def __init__ (self, owner, code):
+        super ().__init__ (owner)
         self.code = code
         self.resp = None
         
-ctlmsgs = { c.type : c for c in (AckMsg, NakMsg, RepMsg, StartMsg, StackMsg ) }
-
 class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     """An implementation of the DDCMP protocol.  This conforms to the
     Digital Network Architecture DDCMP protocol spec, V4.1 (AA-K175A-TK).
@@ -176,10 +246,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     The current implementation supports point to point full duplex mode
     only.  Half duplex and multipoint are TBD.
 
-    Communication is either via UDP or TCP.  If UDP, each packet corresponds
-    exactly to a DDCMP message.  In TCP, the byte stream carries the DDCMP
-    messages and this module will do the framing just as it is done on
-    an asynchronous serial link.
+    Communication can be over UDP or TCP, or using a serial line (UART).
+    If UDP, each packet corresponds exactly to a DDCMP message.  In TCP
+    or on a serial line, the byte stream carries the DDCMP messages and
+    this module will do packet framing using the "header CRC" method.
+    SYN bytes are accepted but ignored while looking for start of
+    packet.  On TCP, each transmitted packet is preceded by 4 SYN bytes.
 
     The device parameter is of the form proto:lport:host:rport.  Proto is
     "tcp", "udp" or "telnet".  Lport is the local port number (an integer).
@@ -190,6 +262,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     sim_tmxr.c module.  (TBD: how are race conditions resolved?)  Incoming
     connections are accepted only from the specified peer.
 
+    Alternatively, if module "pyserial" is installed, "proto" can also
+    be "serial".  In that case, the device parameter takes the form
+    serial:devname[:speed[:uart]] where devname is the device name of a
+    UART port supported by pyserial, and speed is the line speed.  It
+    defaults to 9600 if omitted.  On a BeagleBone system, the uart
+    argument may be supplied to have the specified UART port on the
+    system configured for use by Linux.  This requires the Adafruit_BBIO
+    module to be installed.
+
     If UDP is used, traffic is between the specified local port and the
     peer address/port.  Incoming packets are accepted only from that peer.
 
@@ -197,20 +278,25 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     according to TELNET protocol rules.  This supports connections via
     telnet servers to async ports running DDCMP.  That includes SIMH
     terminal connections accessed via TCP when in Telnet mode rather
-    than raw mode.
+    than raw mode.  Note that SIMH allows terminal ports to be
+    configured with the "notelnet" attach argument, to suppress the
+    default Telnet encapsulation.  This is slightly more efficient and
+    is the preferred way of connecting to SIMH for DDCMP on serial
+    ports.
 
-    In TCP mode, message resynchronization is done by the "Header CRC"
-    method: the byte stream is searched for a valid start of header
-    byte, and if the bytes starting at that point constitute a header
-    with a valid Header CRC, it is assumed that we have framed the
-    message correctly.  The transmitted byte stream contains four SYN
-    bytes before each message and one DEL byte after it, in conformance
-    with the DDCMP spec recommendations.  Resynchronization is only
-    needed after an error; once sync has been established, it is
-    presumed to remain in effect until an error occurs.  For example, a
-    Header CRC error will be detected and counted as such if the link is
-    in sync (but a second Header CRC error immediately following will
-    not be, since at that point sync is not established).
+    In TCP and serial modes, message resynchronization is done by the
+    "Header CRC" method: the byte stream is searched for a valid start
+    of header byte, and if the bytes starting at that point constitute a
+    header with a valid Header CRC, it is assumed that we have framed
+    the message correctly.  The transmitted byte stream contains four
+    SYN bytes before each message (in TCP mode only) and one DEL byte
+    after it, in conformance with the DDCMP spec recommendations.
+    Resynchronization is only needed after an error; once sync has been
+    established, it is presumed to remain in effect until an error
+    occurs.  For example, a Header CRC error will be detected and
+    counted as such if the link is in sync (but a second Header CRC
+    error immediately following will not be, since at that point sync is
+    not established).
 
     In UDP mode, framing is implicit: each UDP packet contains a DDCMP
     message.  The message may be preceded and/or followed by fill bytes
@@ -225,21 +311,46 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         statemachine.StateMachine.__init__ (self)
         datalink.PtpDatalink.__init__ (self, owner, name, config)
         self.config = config
-        proto, lport, host, rport = config.device.split (':')
+        self.qmax = config.qmax
+        proto, *rest = config.device.split (':')
         proto = proto.lower ()
-        if proto == "tcp" or proto == "telnet":
-            self.tcp = True
-            self.telnet = (proto == "telnet")
-        elif proto == "udp":
+        if proto == "serial":
+            if not serial:
+                raise ValueError ("Serial port support not available")
+            if not rest or len (rest) > 3:
+                raise ValueError ("Invalid serial device spec {}".format (config.device))
+            self.dev = rest[0]
+            self.uart = None
+            if len (rest) > 1:
+                self.speed = int (rest[1])
+                if len (rest) > 2:
+                    if not UART:
+                        raise ValueError ("BeagleBone UART module not available")
+                    self.uart = rest[2]
+            else:
+                self.speed = 9600
+            if self.uart:
+                UART.setup (self.uart)
+            self.serial = True
             self.tcp = False
+            logging.trace ("DDCMP datalink {} initialized on uart {}"
+                           " speed {}", self.name, self.dev, self.speed)
         else:
-            raise ValueError ("Invalid protocol {}".format (proto))
-        self.lport = int (lport)
-        self.host = datalink.HostAddress (host)
-        self.rport = int (rport)
-        # All set
-        logging.trace ("DDCMP datalink {} initialized using {} on "
-                       "port {} to {}:{}", self.name, proto, self.lport,
+            self.serial = False
+            lport, host, rport = rest
+            if proto == "tcp" or proto == "telnet":
+                self.tcp = True
+                self.telnet = (proto == "telnet")
+            elif proto == "udp":
+                self.tcp = False
+            else:
+                raise ValueError ("Invalid protocol {}".format (proto))
+            self.lport = int (lport)
+            self.host = datalink.HostAddress (host)
+            self.rport = int (rport)
+            # All set
+            logging.trace ("DDCMP datalink {} initialized using {} on "
+                           "port {} to {}:{}", self.name, proto, self.lport,
                        host, self.rport)
 
     def open (self):
@@ -249,6 +360,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     def close (self):
         pass
+
+    def cansend (self):
+        return (self.n - self.a) < self.qmax
     
     def port_open (self):
         if self.state != self.s0 and self.state != self.reconnect:
@@ -275,6 +389,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         self.notsent = queue.Queue ()
         # Create the receive thread
         self.rthread = StopThread (name = self.tname, target = self.run)
+        if self.serial:
+            # Just start receiving
+            self.rthread.start ()
+            logging.trace ("DDCMP {} listen on UART {} active",
+                           self.name, self.dev)
+            return
         if self.tcp:
             # We'll try for either outbound or incoming connections, whichever
             # appears first.  Create the inbound (listen) socket here.
@@ -297,9 +417,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             if self.socket:
                 self.socket.close ()
             return
+        self.rthread.start ()
         logging.trace ("DDCMP {} listen to {} active",
                        self.name, self.rport)
-        self.rthread.start ()
 
     def try_connect (self):
         # Get rid of any existing connect socket
@@ -380,17 +500,6 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             raise OSError
         return p
     
-    def ctlmsg (self, msg):
-        """Convert the supplied message data (8 bytes) into the corresponding
-        specific message (packet) object, wrapped in a Received work item.
-        If it isn't a valid type, return an error object instead.
-        """
-        try:
-            c = ctlmsgs[msg[1]]
-            return Received (self, packet = c (msg))
-        except KeyError:
-            return Err (R_FMT)
-
     def run (self):
         """This method runs the receive thread.  Here we look for connections
         (if in TCP mode) and receive the incoming data.  Message framing
@@ -398,15 +507,45 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         down to the DDCMP state machine which runs in the main thread.
         """
         logging.trace ("DDCMP datalink {} receive thread started", self.name)
-        if not self.socket:
-            return
-        # Split out the two cases since they are rather different.
-        if self.tcp:
-            self.run_tcp ()
+        # Split out the three cases since they are rather different.
+        if self.serial:
+            self.run_serial ()
         else:
-            self.run_udp ()
+            if not self.socket:
+                return
+            if self.tcp:
+                self.run_tcp ()
+            else:
+                self.run_udp ()
         logging.trace ("DDCMP datalink {} receive thread stopped", self.name)
 
+    def handle_pkt (self, pkt, c):
+        # Handle a parsed packet
+        tp = pkt.__class__.__name__
+        if isinstance (pkt, CtlMsg):
+            # Control packet.
+            msg = "Received {} control packet on {}".format (tp, self.name)
+            pktlogging.tracepkt (msg, c)
+            self.node.addwork (Received (self, packet = pkt))
+        elif pkt.crcok:
+            # Data packet with good data CRC.
+            msg = "Received {} packet on {}".format (tp, self.name)
+            pktlogging.tracepkt (msg, c)
+            self.node.addwork (Received (self, packet = pkt))
+        else:
+            # Fun complication: if the data CRC of a data
+            # (not maintenance) message is bad, we're
+            # still expected to act on the received ack
+            # number (the "resp" field).  So pass that
+            # along.
+            e = Err (self, R_CRC)
+            if not isinstance (pkt, MaintMsg):
+                e.resp = pkt.resp
+            msg = "{} packet with bad data CRC on {}".format (tp, self.name)
+            pktlogging.tracepkt (msg, c)
+            logging.debug (msg)
+            self.node.addwork (e)
+        
     def run_tcp (self):
         """Receive thread for the TCP case.
         """
@@ -528,43 +667,16 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         if not self.insync:
                             logging.trace ("Back in sync on {}", self.name)
                         self.insync = True
-                        if h == ENQ:
-                            # Control packet.
-                            msg = "Received control packet on {}".format (self.name)
+                        # Decode via the header base class, which will
+                        # identify the actual message type using packet
+                        # class indexing and return that.  Tell decode
+                        # that the header CRC has already been checked.
+                        try:
+                            pkt, x = DMHdr.decode (c, self.recvall, False)
+                            self.handle_pkt (pkt, c)
+                        except DecodeError as e:
+                            msg = "Invalid packet: {}".format (e)
                             pktlogging.tracepkt (msg, c)
-                            self.node.addwork (self.ctlmsg (c))
-                            continue
-                        if h == SOH:
-                            c = DataMsg (c)
-                            tp = "data"
-                        else:
-                            c = MaintMsg (c)
-                            tp = "maint"
-                        # At this point we have parsed the header, but
-                        # not yet received or checked the payload.  Given
-                        # the header, we now have the payload length.
-                        # Go receive the payload and data CRC.
-                        data = self.recvall (c.count)
-                        crc = CRC16 (data)
-                        crc.update (self.recvall (2))
-                        if crc.good:
-                            # Good data CRC.
-                            c.payload = data
-                            msg = "Received {} packet on {}".format (tp, self.name)
-                            pktlogging.tracepkt (msg, c)
-                            self.node.addwork (Received (self, packet = c))
-                        else:
-                            # Fun complication: if the data CRC of a data
-                            # (not maintenance) message is bad, we're
-                            # still expected to act on the received ack
-                            # number (the "resp" field).  So pass that
-                            # along.
-                            e = Err (R_CRC)
-                            if h == SOH:
-                                e.resp = c.resp
-                            msg = "{} packet with bad data CRC on {}".format (tp, self.name)
-                            pktlogging.tracepkt (msg, c)
-                            self.node.addwork (e)
                     else:
                         # Header CRC is bad.  If we're in sync, report
                         # that as a bad header.  If not, treat it as
@@ -574,7 +686,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                         pktlogging.tracepkt (msg, c)
                         if self.insync:
                             self.insync = False
-                            self.node.addwork (Err (R_HCRC))
+                            self.node.addwork (Err (self, R_HCRC))
                             logging.trace ("Lost sync on {}", self.name)
                         else:
                             logging.trace ("Out of sync, another HCRC error on {}", self.name)
@@ -618,69 +730,96 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                     # Something else, error
                     i = len (msg)
                     break
-                # Check for format error (not good packet start, or not
-                # enough data for a DDCMP header)
-                if len (msg) - i < HDRLEN:
-                    self.node.addwork (Err (R_FMT))
+                else:
+                    # Nothing but fillers, ignore this.
                     continue
+                try:
+                    c = msg[i:]
+                    pkt, x = DMHdr.decode (c)
+                except HdrCrcError:
+                    # Header CRC is bad.  Report it.
+                    msg = "Header CRC error"
+                    pktlogging.tracepkt (msg, c)
+                    self.node.addwork (Err (self, R_HCRC))
+                except DecodeError as e:
+                    msg = "Invalid packet: {}".format (e)
+                    pktlogging.tracepkt (msg, c)
+                    self.node.addwork (Err (self, R_FMT))
+                    continue
+                self.handle_pkt (pkt, c)
+
+    def run_serial (self):
+        """Receive thread for the UART case.
+        """
+        # We have to open it here rather than earlier to make sure the
+        # device is not closed if --daemon is used.
+        self.serial = serial.Serial (port = self.dev, baudrate = self.speed,
+                      parity = 'N', bytesize = 8, timeout = 5)
+        logging.trace ("Opened serial port {}, speed {}", self.dev, self.speed)
+        self.insync = False
+        self.state = self.Istart
+        self.send_start ()
+        # Start looking for messages.
+        while True:
+            if (self.rthread and self.rthread.stopnow):
+                self.disconnected ()
+                return
+            # Get the first byte.
+            try:
+                c = self.serial.read (1)
+            except Exception:
+                c = None
+            if not c:
+                # Timeout, keep looking for start of frame
+                continue
+            h = c[0]
+            if h == SYN or h == DEL:
+                # sync or fill, skip it
+                continue
+            if h == ENQ or h == SOH or h == DLE:
+                # Valid start of header.  Receive the header.
+                c += self.serial.read (HDRLEN - 1)
                 # Check the Header CRC
-                hdr = msg[i:i + HDRLEN]
-                crc = CRC16 (hdr)
+                crc = CRC16 (c)
                 if crc.good:
                     # Header CRC is valid.  Construct a packet object
                     # of the correct class.
-                    if h == ENQ:
-                        # Control packet.
-                        self.node.addwork (self.ctlmsg (hdr))
-                        continue
-                    if h == SOH:
-                        c = DataMsg (hdr)
-                    else:
-                        c = MaintMsg (hdr)
-                    # At this point we have parsed the header, but not
-                    # yet checked the payload.  Given the header, we
-                    # now have the payload length.  Go pick up the
-                    # payload and data CRC.
-                    i += HDRLEN
-                    if len (msg) < i + c.count + 2:
-                        # Packet too short for payload
-                        self.node.addwork (Err (R_FMT))
-                        continue
-                    dlen = c.count
-                    data = msg[i:i + dlen]
-                    crc = CRC16 (data)
-                    crc.update (msg[i + dlen:i + dlen + 2])
-                    if crc.good:
-                        # Good data CRC.
-                        c.payload = data
-                        self.node.addwork (Received (self, packet = c))
-                    else:
-                        # Fun complication: if the data CRC of a data
-                        # (not maintenance) message is bad, we're
-                        # still expected to act on the received ack
-                        # number (the "resp" field).  So pass that
-                        # along.
-                        e = Err (R_CRC)
-                        if h == SOH:
-                            e.resp = c.resp
-                        else:
-                            e.resp = None
-                        self.node.addwork (e)
+                    if not self.insync:
+                        logging.trace ("Back in sync on {}", self.name)
+                    self.insync = True
+                    # Decode via the header base class, which will
+                    # identify the actual message type using packet
+                    # class indexing and return that.  Tell decode
+                    # that the header CRC has already been checked.
+                    try:
+                        pkt, x = DMHdr.decode (c, self.serial.read, False)
+                        self.handle_pkt (pkt, c)
+                    except DecodeError as e:
+                        msg = "Invalid packet: {}".format (e)
+                        pktlogging.tracepkt (msg, c)
                 else:
-                    # Header CRC is bad.  Report it.
-                    self.node.addwork (Err (R_HCRC))
+                    # Header CRC is bad.  If we're in sync, report
+                    # that as a bad header.  If not, treat it as
+                    # message not framed correctly, and silently
+                    # keep looking
+                    msg = "bad header CRC on {}".format (self.name)
+                    pktlogging.tracepkt (msg, c)
+                    if self.insync:
+                        self.insync = False
+                        self.node.addwork (Err (self, R_HCRC))
+                        logging.debug ("Lost sync on {}", self.name)
+                    else:
+                        logging.debug ("Out of sync, another HCRC error on {}", self.name)
 
     def sendmsg (self, msg, timeout = ACKTMR):
-        """Send the supplied message.  If the message has a "resp" field,
-        that is filled in from the current state (the last correctly received
-         message).  Then the header CRC is set, to allow that field and any
-        other header fields to be modified as needed right up to the point
-        that the message is sent.
+        """Send the supplied message.  If the message has a "resp" field
+        that needs to be filled in, it is filled in from the current
+        state (the last correctly received message).
 
-        For data messages, the "payload" attributes must both the message
-        payload and the data CRC, and the "count" field musg have been set
-        to the message payload length (i.e., the length of the "payload" 
-        data minus 2).
+        For data messages, the "payload" attributes must contain the
+        message payload.  Its length will be placed in the packet header
+        during the encode process.  For all packet types, encode will
+        insert the correct CRC values.
 
         The optional timeout argument specified what timeout to start after
         sending the message.  The default is one second.  Specify zero
@@ -688,35 +827,41 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         """
         # If the message has a "resp" field, set it.  Note that "hasattr"
         # does not work for this because, if it has never been set, the
-        # object does not in fact have that attribute.  But Packet
-        # instances all have __slots__, which is a set of the field names,
-        # so we test that.
-        if "resp" in msg.__allslots__:
+        # object does not in fact have that attribute.
+        if msg.setresp:
             msg.resp = self.r
             self.ackflag = False    # No more need for ACK
-        # Ask the encoder to encode just the part preceding the header CRC.
-        hdr = msg.encode (msg.basetable)
-        crc = CRC16 (hdr)
-        # Set the Header CRC
-        msg.hcrc = bytes (crc)
-        # Now encode the whole message
-        msg = bytes (msg)
-        if logging.tracing:
-            pktlogging.tracepkt ("Sending packet on {}".format (self.name), msg)
+        # Just encode the message; CRCs are handled by the encoder.
+        msg = msg.encode ()
         try:
-            if self.tcp:
+            if self.serial:
+                # Append a DEL byte.  No sync bytes in front, they
+                # aren't useful for async connections.
+                msg = msg + DEL1
+                if logging.tracing:
+                    pktlogging.tracepkt ("Sending packet on {}"
+                                         .format (self.name), msg)
+                self.serial.write (msg)
+            elif self.tcp:
                 msg = SYN4 + msg + DEL1
                 if self.telnet:
                     msg = msg.replace (DEL1, DEL2)
+                if logging.tracing:
+                    pktlogging.tracepkt ("Sending packet on {}"
+                                         .format (self.name), msg)
                 self.socket.sendall (msg)
             else:
+                if logging.tracing:
+                    pktlogging.tracepkt ("Sending packet on {}"
+                                         .format (self.name), msg)
                 self.socket.sendto (msg, (self.host.addr, self.rport))
         except (OSError, AttributeError):
             # AttributeError happens if socket has been changed to "None"
             self.disconnected ()
         if timeout:
             self.node.timers.start (self, timeout)
-            
+
+    @setlabel ("Halted")
     def s0 (self, data):
         """State machine for the Halted state -- ignore all received messages.
         """
@@ -731,7 +876,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.port_open ()
         # Anything other than timeout should not come here but is ignored.
         return None    # no change in state
-        
+
+    @setlabel ("TCP connecting")
     def connecting (self, data):
         """State machine for the connecting state -- this applies to TCP
         mode operation while we're still looking for a connection from
@@ -742,7 +888,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             self.try_connect ()
         # Anything other than timeout should not come here but is ignored.
         return None    # no change in state
-        
+
+    @setlabel ("Starting")
     def Istart (self, data):
         """Istarted state -- we get here after the connection is up and we
         have sent the Start message.
@@ -769,6 +916,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # By default, no state change
         return None
 
+    @setlabel ("Start ACK")
     def AStart (self, data):
         """Astarted state -- we get here after the connection is up and we
         have sent the Stack message.
@@ -781,17 +929,17 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             pkt = data.packet
             if isinstance (pkt, StackMsg):
                 return self.running_state ()
-            elif isinstance (pkt, (AckMsg, DataMsg)):
-                # Set running state, stop the timer, then process
-                # the received data or ACK message as usual
-                self.state = self.running_state ()
-                self.running (data)
-                return self.state    # Make state change explicit in trace
             elif isinstance (pkt, MaintMsg):
                 # Set state to Maintenance, then process the message
                 # as for that state
                 self.state = self.Maint
                 self.Maint (data)
+                return self.state    # Make state change explicit in trace
+            elif isinstance (pkt, (AckMsg, DataMsg)):
+                # Set running state, stop the timer, then process
+                # the received data or ACK message as usual
+                self.state = self.running_state ()
+                self.running (data)
                 return self.state    # Make state change explicit in trace
             else:
                 # Unexpected message, we use the option of ignoring it
@@ -816,10 +964,17 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # Return what we want for next state.
         return self.running
 
+    @setlabel ("Running")
     def running (self, data):
         if isinstance (data, Received):
             data = data.packet
-            if isinstance (data, DataMsg):
+            if isinstance (data, MaintMsg):
+                # Set state to Maintenance, then process the message
+                # as for that state
+                self.state = self.Maint
+                self.Maint (data)
+                return self.state    # Make state change explicit in trace
+            elif isinstance (data, DataMsg):
                 # Process the ack (the resp field) unconditionally
                 self.process_ack (data)
                 # Check the sequence number
@@ -878,7 +1033,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     def send_start (self):
         msg = StartMsg ()
-        if self.tcp:
+        if self.tcp or self.serial:
             tmo = STACKTMR
         else:
             tmo = random.random () * UDPTMR + UDPTMR
@@ -941,7 +1096,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # for handling the NAK case this way is to ensure that the
         # retransmitted and new messages will appear in the correct
         # sequence number order.
-        while self.n + 1 != self.a:
+        while self.cansend ():
             try:
                 data = self.notsent.get_nowait ()
                 self.send (data, queue = isinstance (msg, NakMsg))
@@ -962,14 +1117,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             assert (msg)
             self.sendmsg (msg)
             
+    @setlabel ("Maintenance")
     def Maint (self, data):
         if isinstance (data, MaintMsg):
             # Pass the payload up to our client.
             msg = data.payload
             logging.trace ("Received DDCMP maintenance message on {} len {}: {!r}",
                            self.name, len (msg), msg)
-            # We don't have any maintenance ports yet, so for now just
-            # discard the packet
+            # We don't have any way to open maintenance ports yet, so
+            # for now just discard the packet.
             if False: #self.port:
                 self.counters.bytes_recv += len (msg)
                 self.counters.pkts_recv += 1
@@ -990,23 +1146,22 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # of the unacked message queue rather than transmitting it
         # right now; see "process_ack" above for why we need this.
         if self.state == self.running:
-            if self.n + 1 == self.a:
+            if not self.cansend ():
                 # Can't send now, queue it for when an ACK arrives
                 self.notsent.put (data)
                 return
             # Advance the next sequence number.
+            n = self.n
             self.n += 1
-            data = bytes (data)
+            data = makebytes (data)
             mlen = len (data)
             if logging.tracing:
-                logging.trace ("Sending DDCMP message on {} len {}: {!r}",
-                               self.name, mlen, data)
+                logging.trace ("Sending DDCMP message #{} on {} len {}: {!r}",
+                               n, self.name, mlen, data)
             self.counters.bytes_sent += mlen
             self.counters.pkts_sent += 1
             # Build a DDCMP Data message.
-            crc = CRC16 (data)
-            msg = DataMsg (payload = data + bytes (crc), count = mlen,
-                           num = self.n)
+            msg = DataMsg (payload = data, num = self.n)
             # Put it into the unacked message list
             assert (self.unack[self.n] is None)
             self.unack[self.n] = msg

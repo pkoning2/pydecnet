@@ -82,3 +82,14 @@ class StateMachine (timers.Timer):
             return "{}<state: {}>".format (self.__class__.__name__, self.state.__name__)
 
     __str__ = statename
+
+    def statelabel (self):
+        """Return the label for the current state.  This is the "label"
+        attribute of the state method, if it has one, otherwise the 
+        method name.
+        """
+        try:
+            return self.state.label
+        except AttributeError:
+            return self.state.__name__
+    

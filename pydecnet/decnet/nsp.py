@@ -37,7 +37,7 @@ class InvalidLS (NSPDecodeError): "Reserved LSFLAGS value"
 # datalink layer payload, in the case of Phase II)
 
 # Sequence numbers are modulo 4096
-class Seq (modulo.Mod, mod = 4096):
+class Seq (Field, modulo.Mod, mod = 4096):
     """Sequence numbers for NSP -- integers modulo 2^12.  Note that
     creating one of these (e.g., from packet decode) ignores high
     order bits rather than complaining about them.
@@ -52,10 +52,13 @@ class Seq (modulo.Mod, mod = 4096):
         v = int.from_bytes (buf[:2], packet.LE)
         return cls (v), buf[2:]
 
-    def __bytes__ (self):
+    def encode (self):
         return self.to_bytes (2, packet.LE)
+
+    def __bytes__ (self):
+        return self.encode ()
     
-class AckNum (object):
+class AckNum (Field):
     """Class for the (usually optional) ACK field in an NSP packet.
     """
     # Values for QUAL:
@@ -64,7 +67,7 @@ class AckNum (object):
     XACK = 2
     XNAK = 3
     _labels = ( "ACK", "NAK", "XACK", "XNAK" )
-    def __init__ (self, num, qual = ACK):
+    def __init__ (self, num = 0, qual = ACK):
         if not 0 <= qual <= 3:
             raise ValueError ("Invalid QUAL value {}".format (qual))
         self.qual = qual
@@ -92,13 +95,16 @@ class AckNum (object):
                     return cls (v, qual), buf
         return None, buf
 
-    def __bytes__ (self):
-        return (0x8000 + (self.qual << 12) + self.num).to_bytes (2, packet.LE)
-
+    @classmethod
+    def checktype (cls, name, val):
+        # This allows for the field to be optional, which is
+        # represented by an attribute value of None.
+        if val is None:
+            return val
+        return super (__class__, cls).checktype (name, val)
+    
     def encode (self):
-        if self is None:
-            return b""
-        return bytes (self)
+        return (0x8000 + (self.qual << 12) + self.num).to_bytes (2, packet.LE)
     
     def is_nak (self):
         return self.qual == self.NAK or self.qual == self.XNAK
@@ -113,7 +119,7 @@ class AckNum (object):
     
 # Common header -- just the MSGFLG field, expanded into its subfields.
 class NspHdr (packet.Packet):
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "mbz", 0, 2 ),
                  ( "type", 2, 2 ),
                  ( "subtype", 4, 3 ),
@@ -149,8 +155,8 @@ class AckHdr (NspHdr):
     it is typical to use the first field for "this subchannel" and the 
     second for "the other subchannel", that isn't required.
     """
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
+    _layout = (( packet.B, "dstaddr", 2 ),
+               ( packet.B, "srcaddr", 2 ),
                ( AckNum, "acknum" ),
                ( AckNum, "acknum2" ))
 
@@ -193,21 +199,21 @@ class AckOther (AckHdr):
     check = AckData.check
         
 class AckConn (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),)
+    _layout = (( packet.B, "dstaddr", 2 ),)
     type = NspHdr.ACK
     subtype = NspHdr.ACK_CONN
     
 class DataSeg (AckHdr):
-    _addslots = { "payload" }
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "segnum", 0, 12, Seq ),
-                 ( "dly", 12, 1 )),)
+                 ( "dly", 12, 1 )),
+                packet.Payload)
     type = NspHdr.DATA
     int_ls = 0
     
 class IntMsg (AckHdr):
-    _addslots = { "payload" }
-    _layout = (( Seq, "segnum" ),)
+    _layout = (( Seq, "segnum" ),
+               packet.Payload)
     type = NspHdr.DATA
     subtype = 3
     int_ls = 1
@@ -216,10 +222,10 @@ class IntMsg (AckHdr):
 # Link Service message also uses the interrupt subchannel.
 class LinkSvcMsg (AckHdr):
     _layout = (( Seq, "segnum" ),
-               ( "bm",
+               ( packet.BM,
                  ( "fcmod", 0, 2 ),
                  ( "fcval_int", 2, 2 )),
-               ( "signed", "fcval", 1 ))
+               ( packet.SIGNED, "fcval", 1 ))
     type = NspHdr.DATA
     subtype = 1
     int_ls = 1
@@ -243,14 +249,14 @@ class LinkSvcMsg (AckHdr):
 
 # Common parts of CI, RCI, and CC
 class ConnMsg (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
-               ( "bm",
+    _layout = (( packet.B, "dstaddr", 2 ),
+               ( packet.B, "srcaddr", 2 ),
+               ( packet.BM,
                  ( "mb1", 0, 2 ),
                  ( "fcopt", 2, 2 ),
                  ( "mbz", 4, 4 )),
-               ( "ex", "info", 1 ),
-               ( "b", "segsize", 2 ))
+               ( packet.EX, "info", 1 ),
+               ( packet.B, "segsize", 2 ))
     type = NspHdr.CTL
     mb1 = 1
     mbz = 0
@@ -272,7 +278,7 @@ nspphase = { ConnMsg.VER_PH2 : 2, ConnMsg.VER_PH3 : 3,
 # This is either Connect Initiate or Retransmitted Connect Initiate
 # depending on the subtype value.
 class ConnInit (ConnMsg):
-    _addslots = { "payload" }
+    _layout = (packet.Payload,)
     #subtype = NspHdr.CI
     #subtype = NspHdr.RCI
     dstaddr = 0
@@ -281,13 +287,13 @@ class ConnInit (ConnMsg):
 # mainly in the session layer, which is just payload to us).
 # However, the srcaddr is now non-zero.
 class ConnConf (ConnMsg):
-    _layout = (( "i", "data_ctl", 16 ),)    # CC payload is an I field
+    _layout = (( packet.I, "data_ctl", 16 ),)    # CC payload is an I field
     subtype = NspHdr.CC
 
 class DiscConf (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
-               ( "b", "reason", 2 ))
+    _layout = (( packet.B, "dstaddr", 2 ),
+               ( packet.B, "srcaddr", 2 ),
+               ( packet.B, "reason", 2 ))
     type = NspHdr.CTL
     subtype = NspHdr.DC
     # Supply a dummy value in the object to allow common handling with
@@ -309,10 +315,10 @@ class NoLink (DiscConf):
 
 # DI is like DC but it adds session control disconnect data
 class DiscInit (NspHdr):
-    _layout = (( "b", "dstaddr", 2 ),
-               ( "b", "srcaddr", 2 ),
-               ( "b", "reason", 2 ),
-               ( "i", "data_ctl", 16 ))
+    _layout = (( packet.B, "dstaddr", 2 ),
+               ( packet.B, "srcaddr", 2 ),
+               ( packet.B, "reason", 2 ),
+               ( packet.I, "data_ctl", 16 ))
     type = NspHdr.CTL
     subtype = NspHdr.DI
 
@@ -339,6 +345,7 @@ dcmap = { c.reason : c for c in ( NoRes, DiscComp, NoLink ) }
 
 class NspCounters (BaseCounters):
     nodecounters = [
+        ( "time_since_zeroed", "Time since counters zeroed" ),
         ( "byt_rcv", "User bytes received" ),
         ( "byt_xmt", "User bytes sent" ),
         ( "msg_rcv", "User messages received" ),
@@ -455,8 +462,7 @@ class NSP (Element):
             # NSP, it will be in the form of a Packet object, not a
             # buffer, so trying to parse it will bring pain.  If so,
             # just turn it into bytes so the common code works.
-            if not isinstance (buf, (bytes, bytearray, memoryview)):
-                buf = bytes (buf)
+            buf = makebytes (buf)
             msgflg = buf[0]
             try:
                 t = msgmap[msgflg]
@@ -752,14 +758,10 @@ class NSP (Element):
 
     def read_node (self, req, nodeinfo, resp, links = None):
         # Fill in a NICE read node response record with information
-        # from nodeinfo, inserting it into resp or updating any record
-        # already there (the latter case does not occur right now but
-        # allow for it).
-        try:
-            r = resp[nodeinfo]
-        except KeyError:
-            resp[nodeinfo] = r = nicepackets.NodeReply ()
-            r.entity = nicepackets.NodeEntity (nodeinfo)
+        # from nodeinfo, inserting it into resp.  Note that asking for
+        # it causes the entry to be created.
+        r = resp[nodeinfo]
+        r.entity = nicepackets.NodeEntity (nodeinfo)
         # We have a node for which we have some information.  Check
         # the information type request to see what is wanted.
         if req.info < 2:

@@ -83,7 +83,10 @@ class EventFilter (set):
 
     def __contains__ (self, e):
         if isinstance (e, Event):
-            ent = e.entity_type
+            ent = getattr (e, "entity_type", None)
+            if ent is None:
+                # Supply a placeholder entity if the caller didn't.
+                e.entity_type = NoEntity ()
             code = e.classindexkey ()
             return (ent, code) in self or (NoEntity, code) in self
         return super ().__contains__ (e)
@@ -101,7 +104,7 @@ class EventSink (object):
         return evt in self.filter
     
 class LocalConsole (EventSink):
-    def __init__ (self):
+    def __init__ (self, config = None):
         super ().__init__ ()
         self.filter.setfilter (set (Event.classindex))
         
@@ -146,12 +149,11 @@ class RemoteSink (EventSink):
 class EventLogger (Element):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
-        if not config or not not config.logging:
+        if not config or not config.logging:
             self.sinks = { (None, "console") :  LocalConsole () }
         else:
             self.sinks = dict ()
             for dest, c in config.logging.items ():
-                print (c)
                 sn, st = dest
                 if sn:
                     # Remote sink

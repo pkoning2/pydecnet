@@ -113,10 +113,8 @@ class test_rhello (DnTest):
         self.assertEqual (s.blksize, 528)
         self.assertEqual (s.prio, 64)
         self.assertEqual (s.timer, 128)
-        e = Elist ()
-        e.decode (s.elist)
-        r = RSent ()
-        r.decode (e.rslist)
+        e = Elist (s.elist)
+        r = RSent (e.rslist)
         self.assertEqual (r.router, Nodeid (1, 7))
         self.assertEqual (r.prio, 31)
         self.assertEqual (r.twoway, 1)
@@ -174,9 +172,8 @@ class test_p3routing (routingmsg):
                                                           (2, (3, 11)) ])
 
     def test_decodebad (self):
-        s = PhaseIIIRouting ()
         with self.assertRaises (ChecksumError):
-            s.decode (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x06\x88")
+            PhaseIIIRouting (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x06\x88")
 
     def test_encode (self):
         s = PhaseIIIRouting (srcnode = Nodeid (4),
@@ -198,21 +195,19 @@ class test_l1routing (routingmsg):
                                                           (6, (3, 11)) ])
 
     def test_decodebad (self):
-        s = L1Routing ()
         with self.assertRaises (ChecksumError):
-            s.decode (b"\x07\x03\x00\x00\x02\x00\x05\x00"
-                      b"\xff\x7f\x06\x08\x0c\x88")
+            L1Routing (b"\x07\x03\x00\x00\x02\x00\x05\x00"
+                       b"\xff\x7f\x06\x08\x0c\x88")
 
     def test_decodebadseg (self):
-        s = L1Routing ()
         # Segment entry count 0
         with self.assertRaises (FormatError):
-            s.decode (b"\x07\x03\x00\x00\x00\x00\x07\x00"
-                      b"\xff\x7f\x06\x08\x0d\x88")
+            L1Routing (b"\x07\x03\x00\x00\x00\x00\x07\x00"
+                       b"\xff\x7f\x06\x08\x0d\x88")
         # Segment start id out of range
         with self.assertRaises (FormatError):
-            s.decode (b"\x07\x03\x00\x00\x02\x00\x00\x04"
-                      b"\xff\x7f\x06\x08\x08\x8c")
+            L1Routing (b"\x07\x03\x00\x00\x02\x00\x00\x04"
+                       b"\xff\x7f\x06\x08\x08\x8c")
 
     def test_encode (self):
         segs = [ L1Segment (count = 2, startid = 3,
@@ -236,19 +231,17 @@ class test_l2routing (routingmsg):
                                                           (6, (3, 11)) ])
 
     def test_decodebad (self):
-        s = L2Routing ()
         with self.assertRaises (ChecksumError):
-            s.decode (b"\x09\x03\x00\x00\x02\x00\x05\x00"
-                      b"\xff\x7f\x06\x08\x0c\x88")
+            L2Routing (b"\x09\x03\x00\x00\x02\x00\x05\x00"
+                       b"\xff\x7f\x06\x08\x0c\x88")
 
     def test_decodebadseg (self):
-        s = L2Routing ()
         # Segment entry count 0
         with self.assertRaises (FormatError):
-            s.decode (b"\x09\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
+            L2Routing (b"\x09\x03\x00\x00\x00\x00\x07\x00\xff\x7f\x06\x08\x0d\x88")
         # Segment start id out of range
         with self.assertRaises (FormatError):
-            s.decode (b"\x09\x03\x00\x00\x02\x00\x3f\x00\xff\x7f\x06\x08\x47\x88")
+            L2Routing (b"\x09\x03\x00\x00\x02\x00\x3f\x00\xff\x7f\x06\x08\x47\x88")
 
     def test_encode (self):
         segs = [ L2Segment (count = 2, startid = 3,
@@ -295,8 +288,7 @@ class test_ph2verify (DnTest):
         
 class test_ph2nop (DnTest):
     def test_decode (self):
-        s = NopMsg ()
-        s.decode (b"\x08TESTDATA")
+        s = NopMsg (b"\x08TESTDATA")
         self.assertEqual (s.payload, b"TESTDATA")
 
     def test_encode (self):

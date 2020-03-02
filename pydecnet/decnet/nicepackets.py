@@ -304,19 +304,21 @@ class ReplyDict (KPdict):
         self.node = node
         
     def makeitem (self, k):
-        rc = self.replyclass
-        ret = rc ()
-        ret.entity = rc.entity_class (k)
+        ret = self.replyclass ()
+        # Put in the entity
+        ret.entity = ret.entity_class (k)
         return ret
-
+    
     def sorted (self, req):
         # Like items() but in sorted order by key
         return sorted (self.items ())
 
 class NodeReplyDict (ReplyDict):
     def makeitem (self, k):
+        ret = super ().makeitem (k)
         k = self.node.nodeinfo (k)
-        return super ().makeitem (k)
+        ret.entity = k
+        return ret
         
     def sorted (self, req):
         # Special handler for sorting node replies.  Executor always
@@ -338,18 +340,15 @@ class NodeReplyDict (ReplyDict):
                 
 # Base class for NICE reply packets.  These need to be subclassed for
 # each entity code in the reply header.
-class NiceReply (NicePacket):
-    _layout = (( "signed", "retcode", 1 ),
-               ( "b", "detail", 2 ),
-               ( "a", "message", 255 ))
+class NiceReply (packet.Packet):
+    _layout = (( packet.SIGNED, "retcode", 1 ),
+               ( packet.B, "detail", 2 ),
+               ( packet.A, "message", 255 ))
+    replydict = ReplyDict
 
     def __init__ (self, *args):
         self.detail = 0xffff
         super ().__init__ (*args)
-
-class NiceReadReply (NiceReply):
-    replydict = ReplyDict
-    _layout = (( EntityBase, "entity" ),)
 
 rvalues = ( "Routing III", "Non-Routing III", "Phase II", "Area",
             "Routing IV", "Non-Routing IV" )
@@ -357,127 +356,128 @@ rvalues = ( "Routing III", "Non-Routing III", "Phase II", "Area",
 ed_values = ( "Enabled", "Disabled" )
 
 class NiceLoopReply (NiceReply):
-    _layout = (( "nice",
-                 (( 10, HI, "Physical Address" ), )),)
+    _layout = (( NICE, True,
+                 ( 10, HI, "Physical Address" )),)
 
 class NiceLoopErrorReply (NiceReply):
-    _layout = (( "b", "notlooped", 2 ),)
+    _layout = (( packet.B, "notlooped", 2 ),)
     
-class NodeReply (NiceReadReply):
-    entity_class = NodeEntity
+class NodeReply (NiceReply):
     replydict = NodeReplyDict
+    entity_class = NodeEntity
   
-    _layout = (( "nice",
-                 [ ( 0, C1, "State", None,
-                         ( "On",
-                           "Off",
-                           "Shut",
-                           "Restricted",
-                           "Reachable",
-                           "Unreachable" ) ),
-                   ( 10, HI, "Physical Address" ),
-                   ( 100, AI, "Identification" ),
-                   ( 101, CMVersion, "Management Version" ),
-                   ( 110, AI, "Service Circuit" ),
-                   ( 111, H8, "Service Password" ),
-                   ( 112, C1, "Service Device" ),
-                   ( 113, C1, "CPU", None,
-                           ( "PDP8",
-                             "PDP11",
-                             "DECSystem-10/20",
-                             "VAX" ) ),
-                   ( 114, HI, "Hardware Address" ),
-                   ( 115, C1, "Service Node Version", None, 
-                           ( "Phase III",
-                             "Phase IV" ) ),
-                   ( 120, AI, "Load File" ),
-                   ( 121, AI, "Secondary Loader" ),
-                   ( 122, AI, "Tertiary Loader" ),
-                   ( 123, AI, "Diagnostic File" ),
-                   ( 125, C1, "Software Type", None,
-                           ( "Secondary Loader",
-                             "Tertiary Loader",
-                             "System" ) ),
-                   ( 126, AI, "Software Identification" ),
-                   ( 130, AI, "Dump File" ),
-                   ( 131, AI, "Secondary Dumper" ),
-                   ( 135, O4, "Dump Address" ),
-                   ( 136, DU4, "Dump Count" ),
-                   ( 140, CMNode, "Host" ),
-                   ( 150, DU2, "Loop Count" ),
-                   ( 151, DU2, "Loop Length" ),
-                   ( 152, C1, "Loop With", None,
-                           ( "Zeroes",
-                             "Ones",
-                             "Mixed" ) ),
-                   ( 153, HI, "Loop Assistant Physical Address" ),
-                   ( 154, C1, "Loop Help", None,
-                           ( "Transmit",
-                             "Receive",
-                             "Full" ) ),
-                   ( 155, CMNode, "Loop node" ),
-                   ( 156, CMNode, "Loop assistant node" ),
-                   ( 160, DU2, "Counter Timer" ),
-                   ( 501, AI, "Circuit" ),
-                   ( 502, DU2, "Address" ),
-                   ( 510, DU2, "Incoming Timer" ),
-                   ( 511, DU2, "Outgoing Timer" ),
-                   ( 600, DU2, "Active Links" ),
-                   ( 601, DU2, "Delay" ),
-                   ( 700, CMVersion, "ECL Version" ),
-                   ( 710, DU2, "Maximum Links" ),
-                   ( 720, DU1, "Delay Factor" ),
-                   ( 721, DU1, "Delay Weight" ),
-                   ( 722, DU2, "Inactivity Timer" ),
-                   ( 723, DU2, "Retransmit Factor" ),
-                   ( 810, C1, "Type", "adj_type", rvalues ),
-                   ( 820, DU2, "Cost" ),
-                   ( 821, DU1, "Hops" ),
-                   ( 822, AI, "Circuit", "adj_circuit" ),
-                   ( 830, CMNode, "Next Node" ),
-                   ( 900, CMVersion, "Routing Version" ),
-                   ( 901, C1, "Type", None, rvalues ),
-                   ( 910, DU2, "Routing Timer" ),
-                   ( 911, CM, "Subaddresses" ),
-                   ( 912, DU2, "Broadcast Routing Timer" ),
-                   ( 920, DU2, "Maximum Address" ),
-                   ( 921, DU2, "Maximum Circuits" ),
-                   ( 922, DU2, "Maximum Cost" ),
-                   ( 923, DU1, "Maximum Hops" ),
-                   ( 924, DU1, "Maximum Visits" ),
-                   ( 925, DU1, "Maximum Area" ),
-                   ( 926, DU2, "Max Broadcast Nonrouters" ),
-                   ( 927, DU2, "Max Broadcast Routers" ),
-                   ( 928, DU2, "Area Maximum Cost" ),
-                   ( 929, DU1, "Area Maximum Hops" ),
-                   ( 930, DU2, "Maximum Buffers" ),
-                   ( 931, DU2, "Buffer Size" ),
-                   ( 932, DU2, "Segment Buffer Size" ),
-                   # RSTS/E (DECnet/E) specific code points
-                   ( 2120, AI, "Recv Org. Password", "rec_orig_pw" ),
-                   ( 2121, AI, "Recv Ans. Password", "rec_ans_pw" ),
-                   ( 2122, AI, "Xmit Org. Password", "xmit_orig_pw" ),
-                   ( 2123, AI, "Xmit Ans. Password", "xmit_ans_pw" ),
-                   ( 2124, AI, "Alias" ),
-                   ( 2125, AI, "Default Account" ),
-                   ( 2126, DU1, "Data Xmit Queue Max" ),
-                   ( 2127, DU1, "Int/LS Queue Max", "int_max" ),
-                   ( 2128, AI, "Volatile Param File Name" ),
-                   ( 2129, DU2, "Maximum Nodes" ),
-                   # RSX specific code points
-                   ( 522, C1, "Incoming proxy", None, ed_values ),
-                   ( 523, C1, "Outgoing proxy", None, ed_values ),
-                   # VMS specific code points
-                   ( 933, DU1, "Maximum path splits" ),
-                   ( 2731, C1, "Default access", None,
-                     # Guesses:
-                     ( "Disabled", "Incoming", "Outgoing",
-                       "Incoming and outgoing" )),
-                   ( 2740, DU2, "Pipeline quota" ),
-                   ( 2743, DU2, "Alias maximum links" ),
-                   ( 2780, C1, "Path split policy", None, ed_values ),
-                   ( 2785, DU2, "Maximum declared objects" )
-                 ] + node_counters ),)
+    _layout = (( NodeEntity, "entity" ),
+               ( NICE, True,
+                 ( 0, C1, "State", None,
+                       ( "On",
+                         "Off",
+                         "Shut",
+                         "Restricted",
+                         "Reachable",
+                         "Unreachable" ) ),
+                 ( 10, HI, "Physical Address" ),
+                 ( 100, AI, "Identification" ),
+                 ( 101, CMVersion, "Management Version" ),
+                 ( 110, AI, "Service Circuit" ),
+                 ( 111, H8, "Service Password" ),
+                 ( 112, C1, "Service Device" ),
+                 ( 113, C1, "CPU", None,
+                         ( "PDP8",
+                           "PDP11",
+                           "DECSystem-10/20",
+                           "VAX" ) ),
+                 ( 114, HI, "Hardware Address" ),
+                 ( 115, C1, "Service Node Version", None, 
+                         ( "Phase III",
+                           "Phase IV" ) ),
+                 ( 120, AI, "Load File" ),
+                 ( 121, AI, "Secondary Loader" ),
+                 ( 122, AI, "Tertiary Loader" ),
+                 ( 123, AI, "Diagnostic File" ),
+                 ( 125, C1, "Software Type", None,
+                         ( "Secondary Loader",
+                           "Tertiary Loader",
+                           "System" ) ),
+                 ( 126, AI, "Software Identification" ),
+                 ( 130, AI, "Dump File" ),
+                 ( 131, AI, "Secondary Dumper" ),
+                 ( 135, O4, "Dump Address" ),
+                 ( 136, DU4, "Dump Count" ),
+                 ( 140, CMNode, "Host" ),
+                 ( 150, DU2, "Loop Count" ),
+                 ( 151, DU2, "Loop Length" ),
+                 ( 152, C1, "Loop With", None,
+                         ( "Zeroes",
+                           "Ones",
+                           "Mixed" ) ),
+                 ( 153, HI, "Loop Assistant Physical Address" ),
+                 ( 154, C1, "Loop Help", None,
+                         ( "Transmit",
+                           "Receive",
+                           "Full" ) ),
+                 ( 155, CMNode, "Loop node" ),
+                 ( 156, CMNode, "Loop assistant node" ),
+                 ( 160, DU2, "Counter Timer" ),
+                 ( 501, AI, "Circuit" ),
+                 ( 502, DU2, "Address" ),
+                 ( 510, DU2, "Incoming Timer" ),
+                 ( 511, DU2, "Outgoing Timer" ),
+                 ( 600, DU2, "Active Links" ),
+                 ( 601, DU2, "Delay" ),
+                 ( 700, CMVersion, "ECL Version" ),
+                 ( 710, DU2, "Maximum Links" ),
+                 ( 720, DU1, "Delay Factor" ),
+                 ( 721, DU1, "Delay Weight" ),
+                 ( 722, DU2, "Inactivity Timer" ),
+                 ( 723, DU2, "Retransmit Factor" ),
+                 ( 810, C1, "Type", "adj_type", rvalues ),
+                 ( 820, DU2, "Cost" ),
+                 ( 821, DU1, "Hops" ),
+                 ( 822, AI, "Circuit", "adj_circuit" ),
+                 ( 830, CMNode, "Next Node" ),
+                 ( 900, CMVersion, "Routing Version" ),
+                 ( 901, C1, "Type", None, rvalues ),
+                 ( 910, DU2, "Routing Timer" ),
+                 ( 911, CM, "Subaddresses" ),
+                 ( 912, DU2, "Broadcast Routing Timer" ),
+                 ( 920, DU2, "Maximum Address" ),
+                 ( 921, DU2, "Maximum Circuits" ),
+                 ( 922, DU2, "Maximum Cost" ),
+                 ( 923, DU1, "Maximum Hops" ),
+                 ( 924, DU1, "Maximum Visits" ),
+                 ( 925, DU1, "Maximum Area" ),
+                 ( 926, DU2, "Max Broadcast Nonrouters" ),
+                 ( 927, DU2, "Max Broadcast Routers" ),
+                 ( 928, DU2, "Area Maximum Cost" ),
+                 ( 929, DU1, "Area Maximum Hops" ),
+                 ( 930, DU2, "Maximum Buffers" ),
+                 ( 931, DU2, "Buffer Size" ),
+                 ( 932, DU2, "Segment Buffer Size" ),
+                 # RSTS/E (DECnet/E) specific code points
+                 ( 2120, AI, "Recv Org. Password", "rec_orig_pw" ),
+                 ( 2121, AI, "Recv Ans. Password", "rec_ans_pw" ),
+                 ( 2122, AI, "Xmit Org. Password", "xmit_orig_pw" ),
+                 ( 2123, AI, "Xmit Ans. Password", "xmit_ans_pw" ),
+                 ( 2124, AI, "Alias" ),
+                 ( 2125, AI, "Default Account" ),
+                 ( 2126, DU1, "Data Xmit Queue Max" ),
+                 ( 2127, DU1, "Int/LS Queue Max", "int_max" ),
+                 ( 2128, AI, "Volatile Param File Name" ),
+                 ( 2129, DU2, "Maximum Nodes" ),
+                 # RSX specific code points
+                 ( 522, C1, "Incoming proxy", None, ed_values ),
+                 ( 523, C1, "Outgoing proxy", None, ed_values ),
+                 # VMS specific code points
+                 ( 933, DU1, "Maximum path splits" ),
+                 ( 2731, C1, "Default access", None,
+                   # Guesses:
+                   ( "Disabled", "Incoming", "Outgoing",
+                     "Incoming and outgoing" )),
+                 ( 2740, DU2, "Pipeline quota" ),
+                 ( 2743, DU2, "Alias maximum links" ),
+                 ( 2780, C1, "Path split policy", None, ed_values ),
+                 ( 2785, DU2, "Maximum declared objects" ))
+                 + node_counters)
 
 # RSX:
 # Parameter #522             = %H'00' 
@@ -507,129 +507,132 @@ class NodeReply (NiceReadReply):
 #    Alias maximum links = 32, Path split policy = Enabled
 #    Maximum Declared Objects = 31
 
-class CircuitReply (NiceReadReply):
+class CircuitReply (NiceReply):
     entity_class = CircuitEntity
 
-    _layout = (( "nice",
-                 [( 0, C1, "State", None,
-                       ( "On", "Off", "Service", "Cleared" )),
-                  ( 1, C1, "Substate", None,
-                       ( "Starting", "Reflecting", "Looping",
-                         "Loading", "Dumping", "Triggering",
-                         "Autoservice", "Autoloading",
-                         "Autodumping", "Autotriggering",
-                         "Synchronizing", "Failed" )),
-                  ( 100, C1, "Service", None, ( "Enabled", "Disabled" )),
-                  ( 110, DU2, "Counter timer" ),
-                  ( 120, HI, "Service physical address" ),
-                  ( 121, C1, "Service substate" ),
-                  ( 200, CMNode, "Connected node" ),
-                  ( 201, CM, "Connected object", None, ( DU1, AI )),
-                  ( 400, AI, "Loopback name" ),
-                  ( 800, CMNode, "Adjacent node" ),
-                  ( 801, CMNode, "Designated router" ),
-                  ( 810, DU2, "Block size" ),
-                  ( 811, DU2, "Originating queue limit" ),
-                  ( 900, DU1, "Cost" ),
-                  ( 901, DU1, "Maximum routers" ),
-                  ( 902, DU1, "Router priority" ),
-                  ( 906, DU2, "Hello timer" ),
-                  ( 907, DU2, "Listen timer" ),
-                  ( 910, C1, "Blocking", None, ( "Enabled", "Disabled" )),
-                  ( 920, DU1, "Maximum recalls" ),
-                  ( 921, DU2, "Recall timer" ),
-                  ( 930, AI, "Number" ),
-                  ( 1000, CM, "User", None, ( C1, DUNode, AI )),
-                  ( 1010, C1, "Polling state", None,
-                          ( "Automatic", "Active",
-                            "Inactive", "Dying", "Dead" )),
-                  ( 1011, C1, "Polling substate", None,
-                          { 1 : "Active",
-                            2 : "Inactive",
-                            3 : "Dying",
-                            4 : "Dead" }),
-                  ( 1100, CM, "Owner", None, ( C1, DUNode, AI )),
-                  ( 1110, AI, "Line" ),
-                  ( 1111, C1, "Usage", None,
-                          ( "Permanent", "Incoming", "Outgoing" )),
-                  ( 1112, C1, "Type", None,
-                          { 0 : "DDCMP point",
-                            1 : "DDCMP control",
-                            2 : "DDCMP tributary",
-                            3 : "X.25",
-                            4 : "DDCMP DMC",
-                            6 : "Ethernet",
-                            7 : "CI",
-                            8 : "QP2 (DTE20)",
-                            9 : "BISYNC" }),
-                  ( 1120, AI, "Dte" ),
-                  ( 1121, DU2, "Channel" ),
-                  ( 1122, DU2, "Maximum data" ),
-                  ( 1123, DU1, "Maximum window" ),
-                  ( 1140, DU1, "Tributary" ),
-                  ( 1141, DU2, "Babble timer" ),
-                  ( 1142, DU2, "Transmit timer" ),
-                  ( 1145, DU1, "Maximum buffers" ),
-                  ( 1146, DU1, "Maximum transmits" ),
-                  ( 1150, DU1, "Active base" ),
-                  ( 1151, DU1, "Active increment" ),
-                  ( 1152, DU1, "Inactive base" ),
-                  ( 1153, DU1, "Inactive increment" ),
-                  ( 1154, DU1, "Inactive threshold" ),
-                  ( 1155, DU1, "Dying base" ),
-                  ( 1156, DU1, "Dying increment" ),
-                  ( 1157, DU1, "Dying threshold" ),
-                  ( 1158, DU1, "Dead threshold" )
-                 ] + circuit_counters ),)
+    _layout = ( ( CircuitEntity, "entity" ),
+                ( NICE, True,
+                 ( 0, C1, "State", None,
+                      ( "On", "Off", "Service", "Cleared" )),
+                 ( 1, C1, "Substate", None,
+                      ( "Starting", "Reflecting", "Looping",
+                        "Loading", "Dumping", "Triggering",
+                        "Autoservice", "Autoloading",
+                        "Autodumping", "Autotriggering",
+                        "Synchronizing", "Failed" )),
+                 ( 100, C1, "Service", None, ( "Enabled", "Disabled" )),
+                 ( 110, DU2, "Counter timer" ),
+                 ( 120, HI, "Service physical address" ),
+                 ( 121, C1, "Service substate" ),
+                 ( 200, CMNode, "Connected node" ),
+                 ( 201, CM, "Connected object", None, ( DU1, AI )),
+                 ( 400, AI, "Loopback name" ),
+                 ( 800, CMNode, "Adjacent node" ),
+                 ( 801, CMNode, "Designated router" ),
+                 ( 810, DU2, "Block size" ),
+                 ( 811, DU2, "Originating queue limit" ),
+                 ( 900, DU1, "Cost" ),
+                 ( 901, DU1, "Maximum routers" ),
+                 ( 902, DU1, "Router priority" ),
+                 ( 906, DU2, "Hello timer" ),
+                 ( 907, DU2, "Listen timer" ),
+                 ( 910, C1, "Blocking", None, ( "Enabled", "Disabled" )),
+                 ( 920, DU1, "Maximum recalls" ),
+                 ( 921, DU2, "Recall timer" ),
+                 ( 930, AI, "Number" ),
+                 ( 1000, CM, "User", None, ( C1, DUNode, AI )),
+                 ( 1010, C1, "Polling state", None,
+                         ( "Automatic", "Active",
+                           "Inactive", "Dying", "Dead" )),
+                 ( 1011, C1, "Polling substate", None,
+                         { 1 : "Active",
+                           2 : "Inactive",
+                           3 : "Dying",
+                           4 : "Dead" }),
+                 ( 1100, CM, "Owner", None, ( C1, DUNode, AI )),
+                 ( 1110, AI, "Line" ),
+                 ( 1111, C1, "Usage", None,
+                         ( "Permanent", "Incoming", "Outgoing" )),
+                 ( 1112, C1, "Type", None,
+                         { 0 : "DDCMP point",
+                           1 : "DDCMP control",
+                           2 : "DDCMP tributary",
+                           3 : "X.25",
+                           4 : "DDCMP DMC",
+                           6 : "Ethernet",
+                           7 : "CI",
+                           8 : "QP2 (DTE20)",
+                           9 : "BISYNC" }),
+                 ( 1120, AI, "Dte" ),
+                 ( 1121, DU2, "Channel" ),
+                 ( 1122, DU2, "Maximum data" ),
+                 ( 1123, DU1, "Maximum window" ),
+                 ( 1140, DU1, "Tributary" ),
+                 ( 1141, DU2, "Babble timer" ),
+                 ( 1142, DU2, "Transmit timer" ),
+                 ( 1145, DU1, "Maximum buffers" ),
+                 ( 1146, DU1, "Maximum transmits" ),
+                 ( 1150, DU1, "Active base" ),
+                 ( 1151, DU1, "Active increment" ),
+                 ( 1152, DU1, "Inactive base" ),
+                 ( 1153, DU1, "Inactive increment" ),
+                 ( 1154, DU1, "Inactive threshold" ),
+                 ( 1155, DU1, "Dying base" ),
+                 ( 1156, DU1, "Dying increment" ),
+                 ( 1157, DU1, "Dying threshold" ),
+                 ( 1158, DU1, "Dead threshold" ))
+                 + circuit_counters)
     
-class LineReply (NiceReadReply):
+class LineReply (NiceReply):
     entity_class = LineEntity
     
-    _layout = (( "nice",
-                 [( 0, C1, "State", None,
-                       ( "On", "Off", "Service", "Cleared" )),
-                  ( 1, C1, "Substate", None,
-                       ( "Starting", "Reflecting", "Looping",
-                         "Loading", "Dumping", "Triggering",
-                         "Autoservice", "Autoloading",
-                         "Autodumping", "Autotriggering",
-                         "Synchronizing", "Failed" )),
-                  ( 100, C1, "Service", None,
-                         ( "Enabled", "Disabled" )),
-                  ( 110, DU2, "Counter timer" ),
-                  ( 1100, AI, "Device" ),
-                  ( 1105, DU2, "Receive buffers" ),
-                  ( 1110, C1, "Controller", None,
-                          ( "Normal", "Loopback" )),
-                  ( 1111, C1, "Duplex", None,
-                          ( "Full", "Half" )),
-                  ( 1112, C1, "Protocol", None,
-                          { 0 : "DDCMP point",
-                            1 : "DDCMP control",
-                            2 : "DDCMP tributary",
-                            4 : "DDCMP DMC",
-                            5 : "LAPB",
-                            6 : "Ethernet",
-                            7 : "CI",
-                            8 : "QP2 (DTE20)" }),
-                  ( 1113, C1, "Clock", None, ( "External", "Internal" )),
-                  ( 1120, DU2, "Service timer" ),
-                  ( 1121, DU2, "Retransmit timer" ),
-                  ( 1122, DU2, "Holdback timer" ),
-                  ( 1130, DU2, "Maximum block" ),
-                  ( 1131, DU1, "Maximum retransmits" ),
-                  ( 1132, DU1, "Maximum window" ),
-                  ( 1150, DU2, "Scheduling timer" ),
-                  ( 1151, DU2, "Dead timer" ),
-                  ( 1152, DU2, "Delay timer" ),
-                  ( 1153, DU2, "Stream timer" ),
-                  ( 1160, HI, "Hardware address" )
-                 ] + line_counters ),)
+    _layout = ( ( LineEntity, "entity" ),
+                ( NICE, True,
+                 ( 0, C1, "State", None,
+                      ( "On", "Off", "Service", "Cleared" )),
+                 ( 1, C1, "Substate", None,
+                      ( "Starting", "Reflecting", "Looping",
+                        "Loading", "Dumping", "Triggering",
+                        "Autoservice", "Autoloading",
+                        "Autodumping", "Autotriggering",
+                        "Synchronizing", "Failed" )),
+                 ( 100, C1, "Service", None,
+                        ( "Enabled", "Disabled" )),
+                 ( 110, DU2, "Counter timer" ),
+                 ( 1100, AI, "Device" ),
+                 ( 1105, DU2, "Receive buffers" ),
+                 ( 1110, C1, "Controller", None,
+                         ( "Normal", "Loopback" )),
+                 ( 1111, C1, "Duplex", None,
+                         ( "Full", "Half" )),
+                 ( 1112, C1, "Protocol", None,
+                         { 0 : "DDCMP point",
+                           1 : "DDCMP control",
+                           2 : "DDCMP tributary",
+                           4 : "DDCMP DMC",
+                           5 : "LAPB",
+                           6 : "Ethernet",
+                           7 : "CI",
+                           8 : "QP2 (DTE20)" }),
+                 ( 1113, C1, "Clock", None, ( "External", "Internal" )),
+                 ( 1120, DU2, "Service timer" ),
+                 ( 1121, DU2, "Retransmit timer" ),
+                 ( 1122, DU2, "Holdback timer" ),
+                 ( 1130, DU2, "Maximum block" ),
+                 ( 1131, DU1, "Maximum retransmits" ),
+                 ( 1132, DU1, "Maximum window" ),
+                 ( 1150, DU2, "Scheduling timer" ),
+                 ( 1151, DU2, "Dead timer" ),
+                 ( 1152, DU2, "Delay timer" ),
+                 ( 1153, DU2, "Stream timer" ),
+                 ( 1160, HI, "Hardware address" ))
+                 + line_counters)
 
-class LoggingReply (NiceReadReply):
+class LoggingReply (NiceReply):
     entity_class = LoggingEntity
     
-    _layout = (( "nice", ()),)
+    _layout = ( ( LoggingEntity, "entity" ),
+                ( NICE, True ) )
 
 class C1Fun (C1):
     vlist = ( "Loop", "Dump", "Primary loader",
@@ -640,44 +643,46 @@ class C1Mon (C1):
     vlist = ( "#0", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     
-class ModuleReply (NiceReadReply):
+class ModuleReply (NiceReply):
     entity_class = ModuleEntity
     
-    _layout = (( "nice",
-                 (( 100, AI, "Circuit" ),
-                  ( 110, C1, "Surveillance" ),
-                  ( 111, CM3, "Elapsed time", None, ( DU2, DU1, DU1 )),
-                  ( 120, HI, "Physical address" ),
-                  ( 130, CM5, "Last report", None,
-                         ( DU1, C1Mon, DU1, DU1, DU1 )),
-                  ( 1001, CMVersion, "Maintenance version", "version" ),
-                  ( 1002, CM10, "Functions", None, [ C1Fun ] * 10),
-                  ( 1003, HI, "Console user", "console_user" ),
-                  ( 1004, DU2, "Reservation timer", "reservation_timer" ),
-                  ( 1005, DU2, "Command size", "console_cmd_size", ),
-                  ( 1006, DU2, "Response size", "console_resp_size" ),
-                  ( 1007, HI, "Hardware address", "hwaddr" ),
-                  ( 1100, C1, "Device", "device", MOPdevices ),
-                  ( 1200, CM2, "Software identification", None, ( C1, AI )),
-                  ( 1300, C1, "System processor", "processor", MOPCPUs ),
-                  ( 1400, C1, "Data link", "datalink", MOPdatalinks ),
-                  ( 1401, DU2, "Data link buffer size", "bufsize" ))),)
+    _layout = ( ( ModuleEntity, "entity" ),
+                ( NICE, True,
+                 ( 100, AI, "Circuit" ),
+                 ( 110, C1, "Surveillance" ),
+                 ( 111, CM3, "Elapsed time", None, ( DU2, DU1, DU1 )),
+                 ( 120, HI, "Physical address" ),
+                 ( 130, CM5, "Last report", None,
+                        ( DU1, C1Mon, DU1, DU1, DU1 )),
+                 ( 1001, CMVersion, "Maintenance version", "version" ),
+                 ( 1002, CM10, "Functions", None, [ C1Fun ] * 10),
+                 ( 1003, HI, "Console user", "console_user" ),
+                 ( 1004, DU2, "Reservation timer", "reservation_timer" ),
+                 ( 1005, DU2, "Command size", "console_cmd_size", ),
+                 ( 1006, DU2, "Response size", "console_resp_size" ),
+                 ( 1007, HI, "Hardware address", "hwaddr" ),
+                 ( 1100, C1, "Device", "device", MOPdevices ),
+                 ( 1200, CM2, "Software identification", None, ( C1, AI )),
+                 ( 1300, C1, "System processor", "processor", MOPCPUs ),
+                 ( 1400, C1, "Data link", "datalink", MOPdatalinks ),
+                 ( 1401, DU2, "Data link buffer size", "bufsize" )))
 
-class AreaReply (NiceReadReply):
+class AreaReply (NiceReply):
     entity_class = AreaEntity
     
-    _layout = (( "nice",
-                 (( 0, C1, "State", None,
-                        { 4 : "Reachable",
-                          5 : "Unreachable" } ),
-                  ( 820, DU2, "Cost" ),
-                  ( 821, DU1, "Hops" ),
-                  ( 822, AI, "Circuit", "adj_circuit" ),
-                  ( 830, CMNode, "Next Node" ))),)
+    _layout = ( ( AreaEntity, "entity" ),
+                ( NICE, True,
+                 ( 0, C1, "State", None,
+                       { 4 : "Reachable",
+                         5 : "Unreachable" } ),
+                 ( 820, DU2, "Cost" ),
+                 ( 821, DU1, "Hops" ),
+                 ( 822, AI, "Circuit", "adj_circuit" ),
+                 ( 830, CMNode, "Next Node" )))
 
 # Entity encoding in requests.  This is as opposed to
 # nice_coding.EntityBase which is for replies and for event messages.
-class ReqEntityBase (packet.Indexed):
+class ReqEntityBase (Field, packet.Indexed):
     classindex = { }
     classindexkey = "e_type"
 
@@ -710,7 +715,7 @@ class ReqEntityBase (packet.Indexed):
         if c < 0:
             return byte (c & 0xff)
         v = self.value
-        if not isinstance (v, (bytes, bytearray, memoryview)):
+        if not isinstance (v, bytetypes):
             v = bytes (str (v), "latin1")
         if len (v) > 127:
             raise LengthError
@@ -740,7 +745,7 @@ class NodeReqEntity (ReqEntityBase):
             nn = int.from_bytes (b[1:3], "little")
             nn = Nodeid (nn, wild = True)
             return cls (code, nn), b[3:]
-        v, b = ReqEntityBase.decode (b)
+        v, b = super (__class__, cls).decode (b)
         v.__class__ = cls
         return v, b
 
@@ -788,32 +793,31 @@ class AreaReqEntity (ReqEntityBase):
         return super ().encode ()
 
 # Loop node parameters
-loop_params = [ ( "nice_req",
-                  (( 10, HI, "Physical Address" ),
-                   ( 150, DU2, "Loop Count" ),
-                   ( 151, DU2, "Loop Length" ),
-                   ( 152, C1, "Loop With", None,
-                           ( "Zeroes",
-                             "Ones",
-                             "Mixed" ) ),
-                   ( 153, HI, "Loop Assistant Physical Address" ),
-                   ( 154, C1, "Loop Help", None,
-                           ( "Transmit",
-                             "Receive",
-                             "Full" ) ),
-                   # TODO: the next two should be NodeReqEntity, but
-                   # that doesn't work at the moment, the NICE packet
-                   # format machinery isn't flexible enough.
-                   ( 155, AI, "Loop node" ),
-                   ( 156, AI, "Loop assistant node" )
-                   )) ]
+loop_params = (( NICE, False,
+                 ( 10, HI, "Physical Address" ),
+                 ( 150, DU2, "Loop Count" ),
+                 ( 151, DU2, "Loop Length" ),
+                 ( 152, C1, "Loop With", None,
+                         ( "Zeroes",
+                           "Ones",
+                           "Mixed" ) ),
+                 ( 153, HI, "Loop Assistant Physical Address" ),
+                 ( 154, C1, "Loop Help", None,
+                         ( "Transmit",
+                           "Receive",
+                           "Full" ) ),
+                 # TODO: the next two should be NodeReqEntity, but
+                 # that doesn't work at the moment, the NICE packet
+                 # format machinery isn't flexible enough.
+                 ( 155, AI, "Loop node" ),
+                 ( 156, AI, "Loop assistant node" )),)
 
 # Base class for NICE Test packets
-class NiceTestHeader (NicePacket):
+class NiceTestHeader (packet.Packet):
     function = 18
 
-    _layout = (( "b", "function", 1 ),
-               ( "bm",
+    _layout = (( packet.B, "function", 1 ),
+               ( packet.BM,
                  ( "test_type", 0, 3 ),
                  ( "access_ctl", 7, 1 )),)
 
@@ -830,30 +834,33 @@ class NiceLoopNode (NiceLoopNodeBase):
 class NiceLoopNodeAcc (NiceLoopNodeBase):
     access_ctl = 1
 
-    _layout = [ ( "a", "username", 39 ),
-                ( "a", "password", 39 ),
-                ( "a", "account", 39 ) ] + loop_params
+    _layout = (( packet.A, "username", 39 ),
+               ( packet.A, "password", 39 ),
+               ( packet.A, "account", 39 )) + loop_params
 
 class NiceLoopCircuit (NiceTestHeader):
     test_type = 3
 
-    _layout = [ ( CircuitReqEntity, "circuit" ) ] + loop_params
+    _layout = (( CircuitReqEntity, "circuit" ),) + loop_params
                    
 # Base class for NICE Read Information request packets
-class NiceReadInfoHdr (NicePacket):
+class NiceReadInfoHdr (packet.Packet):
     function = 20
     
     classindex = { }
 
     @classmethod
     def classindexkey (cls):
+        return cls.instanceindexkey (cls)
+        
+    def instanceindexkey (self):
         try:
-            return cls.entity_class.e_type
+            return self.entity_class.e_type
         except AttributeError:
             return None
         
-    _layout = (( "b", "function", 1 ),
-               ( "bm",
+    _layout = (( packet.B, "function", 1 ),
+               ( packet.BM,
                  ( "permanent", 7, 1 ),
                  ( "info", 4, 3 ),
                  ( "entity_type", 0, 3 )))
@@ -917,41 +924,130 @@ class NiceReadInfoHdr (NicePacket):
 class NiceReadNode (NiceReadInfoHdr):
     entity_class = NodeReqEntity
     replyclass = NodeReply
-    _addslots = { "payload" }
 
-    _layout = (( NodeReqEntity, "entity" ),)
+    _layout = (( NodeReqEntity, "entity" ),
+               packet.Payload )
         
 class NiceReadLine (NiceReadInfoHdr):
     entity_class = LineReqEntity
     replyclass = LineReply
-    _addslots = { "payload" }
 
-    _layout = (( LineReqEntity, "entity" ),)
+    _layout = (( LineReqEntity, "entity" ),
+               packet.Payload )
         
 class NiceReadLogging (NiceReadInfoHdr):
     entity_class = LoggingReqEntity
     replyclass = LoggingReply
-    _addslots = { "payload" }
 
-    _layout = (( LoggingReqEntity, "entity" ),)
+    _layout = (( LoggingReqEntity, "entity" ),
+               packet.Payload )
         
 class NiceReadCircuit (NiceReadInfoHdr):
     entity_class = CircuitReqEntity
     replyclass = CircuitReply
-    _addslots = { "payload" }
 
-    _layout = (( CircuitReqEntity, "entity" ),)
+    _layout = (( CircuitReqEntity, "entity" ),
+               packet.Payload )
         
 class NiceReadModule (NiceReadInfoHdr):
     entity_class = ModuleReqEntity
     replyclass = ModuleReply
-    _addslots = { "payload" }
 
-    _layout = (( ModuleReqEntity, "entity" ),)
+    _layout = (( ModuleReqEntity, "entity" ),
+               packet.Payload )
         
 class NiceReadArea (NiceReadInfoHdr):
     entity_class = AreaReqEntity
     replyclass = AreaReply
-    _addslots = { "payload" }
 
-    _layout = (( AreaReqEntity, "entity" ),)
+    _layout = (( AreaReqEntity, "entity" ),
+               packet.Payload )
+
+# Base class for NICE Read Information request packets
+class NiceZeroCtrHdr (packet.Packet):
+    function = 21
+    
+    classindex = { }
+
+    @classmethod
+    def classindexkey (cls):
+        return cls.instanceindexkey (cls)
+        
+    def instanceindexkey (self):
+        try:
+            return self.entity_class.e_type
+        except AttributeError:
+            return None
+        
+    _layout = (( packet.B, "function", 1 ),
+               ( packet.BM,
+                 ( "readzero", 7, 1 ),
+                 ( "entity_type", 0, 3 )))
+
+    def makereplydict (self, node):
+        rc = self.replyclass
+        return rc.replydict (rc, node)
+
+    # The following methods reference self.entity which has to be
+    # defined in each subclass.
+    def mult (self):
+        return self.entity.code < 0
+
+    def one (self):
+        return self.entity.code >= 0
+
+    def known (self):
+        # This includes the node wildcard cases
+        return self.entity.code in (-1, -6, -7)
+
+    def act (self):
+        return self.entity.code == -2
+
+    def loop (self):
+        return self.entity.code == -3
+    
+    def adj (self):
+        return self.entity.code == -4
+    
+    def sig (self):
+        return self.entity.code == -5
+
+    def sigact (self):
+        return self.entity.code == -2 or self.entity.code == -5
+
+    def wild (self):
+        return self.entity.code < -5
+
+# For most of these we don't actually expect any additional data, but
+# set the "payload" slot to permit it.  Module does use it.  The spec
+# makes it sound like NICE coded data but it isn't, so we'll
+# special-case the parsing for those cases that are supported.
+#
+# Note that there are no logging or area counters.
+class NiceZeroNode (NiceZeroCtrHdr):
+    entity_class = NodeReqEntity
+    replyclass = NodeReply
+
+    _layout = (( NodeReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceZeroLine (NiceZeroCtrHdr):
+    entity_class = LineReqEntity
+    replyclass = LineReply
+
+    _layout = (( LineReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceZeroCircuit (NiceZeroCtrHdr):
+    entity_class = CircuitReqEntity
+    replyclass = CircuitReply
+
+    _layout = (( CircuitReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceZeroModule (NiceZeroCtrHdr):
+    entity_class = ModuleReqEntity
+    replyclass = ModuleReply
+
+    _layout = (( ModuleReqEntity, "entity" ),
+               packet.Payload )

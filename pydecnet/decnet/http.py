@@ -13,12 +13,16 @@ import io
 import os.path
 from urllib.parse import urlparse, parse_qs
 import re
-import ssl
 import mimetypes
 import time
 from datetime import timedelta
 import subprocess
 
+try:
+    import ssl
+except ImportError:
+    ssl = None
+    
 from .common import *
 from . import logging
 from . import html

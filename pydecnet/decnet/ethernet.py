@@ -34,9 +34,10 @@ class EthPort (datalink.BcPort):
         f[12:14] = self.proto
 
     def send (self, msg, dest):
-        destb = bytes (dest)
+        destb = makebytes (dest)
         if len (destb) != 6:
             raise ValueError ("Invalid destination address length")
+        msg = makebytes (msg)
         l = len (msg)
         if logging.tracing:
             pktlogging.tracepkt ("Sending packet on {} to {}"
