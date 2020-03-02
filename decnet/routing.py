@@ -55,13 +55,15 @@ called when ready for routing upper layer.
 """
 
 # Circuit counter descriptions and field (attribute) names
-fieldlist = (("Terminating packets received", "term_recv"),
+fieldlist = (("Time since counters zeroed", "time_since_zeroed"),
+             ("Terminating packets received", "term_recv"),
              ("Originating packets sent", "orig_sent"),
              ("Transit packets received", "trans_recv"),
              ("Transit packets sent", "trans_sent"),
              ("Circuit down", "cir_down"),
              ("Adjacency down", "adj_down"),
-             ("Initialization failure", "init_fail"))
+             ("Initialization failure", "init_fail"),
+             ("Time since circuit up", "last_up"))
     
 def allocvecs (maxidx):
     hops = bytearray (maxidx + 1)
@@ -524,9 +526,11 @@ class EndnodeRouting (BaseRouter):
         header = self.circuit.html_header ()
         h = self.circuit.html_row ()
         if what == "counters":
-            ctr = [ ( "{} =".format (fl),
-                      getattr (self.circuit.datalink.counters, f))
-                    for fl, f in fieldlist ]
+            ctr = list ()
+            for fl, f in fieldlist:
+                c = getattr (self.circuit.datalink.counters, f, None)
+                if c is not None:
+                    ctr.append (( "{} =".format (fl), c))
             h.append (ctr)
         if what == "counters":
             return [ html.detail_section ("Circuit", header, [ h ]) ]
@@ -800,11 +804,11 @@ class L1Router (BaseRouter):
                     if l2:
                         if not besta:
                             self.node.logevent (events.area_chg,
-                                                events.AreaEntity (i),
+                                                events.AreaEventEntity (i),
                                                 status = "unreachable")
                         else:
                             self.node.logevent (events.area_chg, 
-                                                events.AreaEntity (i),
+                                                events.AreaEventEntity (i),
                                                 status = "reachable")
                     elif i:
                         # That check for 0 is there so reachability changes
@@ -812,11 +816,11 @@ class L1Router (BaseRouter):
                         nod = self.node.nodeinfo (Nodeid (self.homearea, i))
                         if not besta:
                             self.node.logevent (events.reach_chg,
-                                                events.NodeEntity (nod),
+                                                events.NodeEventEntity (nod),
                                                 status = "unreachable")
                         else:
                             self.node.logevent (events.reach_chg, 
-                                                events.NodeEntity (nod),
+                                                events.NodeEventEntity (nod),
                                                 status = "reachable")
 
     def usecol (self, adj, l2):
@@ -999,7 +1003,7 @@ class L1Router (BaseRouter):
             # The architecture spec doesn't mention the source adjacency
             # argument, but that seems like a mistake so put it in.
             self.node.logevent (events.aged_drop,
-                                events.CircuitEntity (srcadj.circuit),
+                                events.CircuitEventEntity (srcadj.circuit),
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
         else:
@@ -1009,7 +1013,7 @@ class L1Router (BaseRouter):
             else:
                 c = events.unreach_drop
                 self.nodeinfo.counters.unreach_loss += 1
-            self.node.logevent (c, events.CircuitEntity (srcadj.circuit),
+            self.node.logevent (c, events.CircuitEventEntity (srcadj.circuit),
                                 adjacent_node = srcadj.nodeid,
                                 **kwargs)
     
@@ -1029,9 +1033,11 @@ class L1Router (BaseRouter):
                     h = c.html_row ()
                     if h:
                         if what == "counters":
-                            ctr = [ ( "{} =".format (fl),
-                                      getattr (c.datalink.counters, f))
-                                    for fl, f in fieldlist ]
+                            ctr = list ()
+                            for fl, f in fieldlist:
+                                i = getattr (c.datalink.counters, f, None)
+                                if i is not None:
+                                    ctr.append (( "{} =".format (fl), i))
                             h.append (ctr)
                         rows.append (h)
             if rows:
@@ -1276,8 +1282,7 @@ class L2Router (L1Router):
                 for i in range (1, self.maxarea):
                     a = self.aoadj[i]
                     if a:
-                        resp[i] = r = nicepackets.AreaReply ()
-                        r.entity = nicepackets.AreaEntity (i)
+                        r = resp[i]
                         r.state = 4    # Reachable
                         if a is self.selfadj:
                             r.next_node = self.nodeinfo
@@ -1292,8 +1297,7 @@ class L2Router (L1Router):
                 i = req.entity.value
                 if not 0 < i <= self.maxarea:
                     return
-                resp[i] = r = nicepackets.AreaReply ()
-                r.entity = nicepackets.AreaEntity (i)
+                r = resp[i]
                 a = self.aoadj[i]
                 if a:
                     r.state = 4    # Reachable
@@ -1410,7 +1414,7 @@ class Update (Element, timers.Timer):
         minhops = self.minhops
         mincost = self.mincost
         seg = pkttype.segtype
-        if seg:
+        if pkttype is not PhaseIIIRouting:
             # Phase 4 (segmented) format
             ret = list ()
             p = None
@@ -1429,7 +1433,7 @@ class Update (Element, timers.Timer):
                     srm[i] = 0
                     if not p:
                         p = pkttype (srcnode = self.node.nodeid)
-                        p.segments = list ()
+                        p.segments = packet.LIST ()
                         seg = None
                         curlen = 6   # Packet header plus checksum
                     # Find out how many unflagged entries there are, and
@@ -1449,7 +1453,7 @@ class Update (Element, timers.Timer):
                                 curlen += 2
                     if not seg:
                         seg = pkttype.segtype (startid = i)
-                        seg.entries = list ()
+                        seg.entries = packet.LIST ()
                         curlen += 4    # Segment header
                     ent = RouteSegEntry (cost = mincost[i], hops = minhops[i])
                     seg.entries.append (ent)
@@ -1462,7 +1466,7 @@ class Update (Element, timers.Timer):
         else:
             # Phase 3 (not segmented) format
             p = pkttype (srcnode = self.routing.tid)
-            p.segments = list ()
+            p.segments = packet.LIST ()
             for i in range (1, len (minhops)):
                 srm[i] = 0
                 p.segments.append (RouteSegEntry (cost = mincost[i],

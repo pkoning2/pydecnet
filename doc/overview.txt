@@ -24,8 +24,9 @@ according to those versions.  This is primarily a test tool.
 
 Supported datalinks
 
-Supported datalinks include Ethernet, the DMC-11 emulation implemented
-in SIMH V3.9, "Multinet" encapsulation of point to point datalink
+Supported datalinks include Ethernet, DDCMP over TCP, UDP, or
+asynchronous serial connections, the DMC-11 emulation implemented in
+SIMH V3.9, "Multinet" encapsulation of point to point datalink
 messages over UDP or TCP, and GRE encapsulation of Ethernet packets.
 
 Note that Multinet encapsulation over UDP is not recommended because
@@ -43,13 +44,13 @@ PyDECnet contains the following major components:
   - Routing
   - NSP
   - Session Control
-  - Network Management   (planned, not yet implemented)
+  - Network Management   ("show" and "loop" support only)
   - Applications
     - File transfer      (planned, not yet implemented)
     - NML
-    - EVL
+    - EVL		 (event receiver only, sender NYI)
     - Mirror
-- API for MOP and Session Control, using JSON over HTTPS
+- API for MOP and Session Control, using JSON over HTTP(S)
 - HTTP(S) based monitoring interface
 
 The API allows external processes to access protocol services in

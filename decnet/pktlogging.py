@@ -7,7 +7,7 @@ def tracepkt (msg, pkt, level = logging.TRACE):
     """Create a TRACE level log entry with given message and the supplied
     packet. 
     """
-    pkt = bytes (pkt)
+    pkt = makebytes (pkt)
     parse = list ()
     if pkt:
         for ln in range (0, len (pkt), 16):

@@ -309,7 +309,7 @@ class Multinet (datalink.PtpDatalink):
     def send (self, msg, dest = None):
         sock = self.socket
         if sock and self.status == RUN:
-            msg = bytes (msg)
+            msg = makebytes (msg)
             mlen = len (msg)
             if logging.tracing:
                 pktlogging.tracepkt ("Sending Multinet message on {}"

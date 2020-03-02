@@ -47,120 +47,78 @@ class ReceiptGen (object):
 CONSMC = Macaddr ("AB-00-00-02-00-00")
 LOOPMC = Macaddr ("CF-00-00-00-00-00")
 
-class MopHdr (packet.Packet):
-    _layout = ( ( "b", "code", 1 ), )
-
-class SysId (MopHdr):
-    tolerant = True
-    _addslots = ( "last_ts", )
-    
-    _layout = ( ( "res", 1 ),
-                ( "b", "receipt", 2 ),
-                ( "tlv", 2, 1, True,
-                  { 1 : ( Version, "version" ),
-                    2 : ( "bm",
-                          ( "loop", 0, 1 ),
-                          ( "dump", 1, 1 ),
-                          ( "ploader", 2, 1 ),
-                          ( "sloader", 3, 1 ),
-                          ( "boot", 4, 1 ),
-                          ( "carrier", 5, 1 ),
-                          ( "counters", 6, 1 ),
-                          ( "carrier_reserved", 7, 1 ),
-                          ( None, 8, 8 ) ),    # Reserved
-                    3 : ( Macaddr, "console_user" ),
-                    4 : ( "b", "reservation_timer", 2 ),
-                    5 : ( "b", "console_cmd_size", 2 ),
-                    6 : ( "b", "console_resp_size", 2 ),
-                    7 : ( Macaddr, "hwaddr" ),
-                    8 : ( "time", "time", 10 ),
-                    100 : ( "b", "device", 1 ),
-                    # Spec says max is 17 but sometimes longer values are seen
-                    200 : ( "c", "software", 127 ),
-                    300 : ( "b", "processor", 1 ),
-                    400 : ( "b", "datalink", 1 ),
-                    401 : ( "b", "bufsize", 2 ) } )
-                )
-    
-    code = 7
-    def_version = Version (3, 0, 0)
-    def services (self):
-        srv = list ()
-        for s in ( "loop", "dump", "ploader", "sloader",
-                   "boot", "carrier", "counters" ):
-            if getattr (self, s):
-                srv.append (s)
-        return srv
-        
-    def encode_c (self, field, maxlen):
-        """Encode "field" according to the rules for the "software"
-        protocol field.  If "field" is a string, encode it as for the
-        "I" type. If it is an integer, it has to be in -2..0, and the
-        encoding is just that one byte.
-        """
-        val = getattr (self, field)
+class C (packet.FieldGroup):
+    """A MOP software identification field.  This is either a counted
+    string, or a single byte integer in the range -2..0.
+    """
+    # We have to do this as a FieldGroup to get access to the owning
+    # Packet object, which is where the "tolerant" flag is found.
+    @classmethod
+    def encode (cls, pkt, fname, maxlen):
+        val = getattr (pkt, fname, None)
+        if val is None:
+            return b""
         if isinstance (val, int):
-            if val not in (0, -1, -2):
+            if not -2 <= val <= 0:
                 logging.debug ("MOP C-n field integer not in -2..0")
-                raise DecodeError
-            val = byte (val)
+                raise DecodeError ("Value {} not valid for C field".format (val))
+            return val.to_bytes (1, "little", signed = True)
+        if isinstance (val, str):
+            val = bytes (val, encoding = "latin1")
         else:
-            if isinstance (val, str):
-                val = bytes (val, "latin-1", "ignore")
-            vl = len (val)
-            if vl > maxlen:
-                logging.debug ("Value too long for {} byte field", maxlen)
-                raise DecodeError
-            val = byte (vl) + val
-        return val
+            val = makebytes (val)
+        return byte (len (val)) + val
+    
+    @classmethod
+    def decode (cls, buf, pkt, fname, maxlen):
+        """Decode the next field in the buffer according to the rules
+        for the "software" protocol field.  Basically this is like an
+        A-n field, but special values 0, -1, and -2 are accepted in the
+        first byte, and string values are taken to be text strings.
 
-    def decode_c (self, buf, field, maxlen):
-        """Decode "field" according to the rules for the "software"
-        protocol field.  Basically this is like an I-n field, but
-        special values 0, -1, and -2 are accepted in the first byte,
-        and string values are taken to be text strings.
-
-        If "tolerant" is True, the decoder accepts certain non-conforming
-        forms that are found in the wild.
+        If the packet attribute "tolerant" is True, the decoder accepts
+        certain non-conforming forms that are found in the wild.
         """
         if not buf:
-            if tolerant:
+            if pkt.tolerant:
                 return buf
             logging.debug ("No data left for C field")
             raise MissingData
-        flen = buf[0]
-        # Convert to a signed byte value
-        if flen >= 128:
-            flen -= 256
+        flen = int.from_bytes (buf[:1], "little", signed = True)
         if flen < -2:
             logging.debug ("C field with negative length {}", flen)
             raise DecodeError
-        elif flen <= 0:
-            v = flen
-            flen = 1
-        else:
-            if flen > maxlen:
-                if self.tolerant:
-                    flen = maxlen
-                    v = buf
-                else:
-                    logging.debug ("C field length {} longer than max length {}",
-                                   flen, maxlen)
-                    raise DecodeError
-            else:
-                v = buf[1:flen + 1]
-            v = bytes (v).decode ()
-        setattr (self, field, v)
-        return buf[flen + 1:]
+        if flen <= 0:
+            setattr (pkt, fname, flen)
+            return buf[1:]
+        if (flen > maxlen or flen > len (buf)) and pkt.tolerant:
+            setattr (pkt, fname, str (buf, encoding = "latin1"))
+            return b""
+        val, buf = packet.A.decode (buf, maxlen)
+        setattr (pkt, fname, val)
+        return buf
 
-    def encode_time (self, field, flen):
+    @classmethod
+    def checktype (cls, name, val):
+        if isinstance (val, __class__):
+            return val
+        if isinstance (val, int):
+            return cls (val)
+        return packet.A.checktype (name, val)
+    
+    @classmethod
+    def makecoderow (cls, name, maxlen):
+        return cls, None, (name, maxlen), { name }, False
+    
+class TIME (Field):
+    __slots__ = ("tm",)
+    
+    def encode (self):
         """Encode a time.struct_time value into a 10 byte MOP encoding
         of time.
         """
-        assert flen == 10
-        val = getattr (self, field)
         try:
-            tzoff = val.tm_gmtoff // 60
+            tzoff = tm.tm_gmtoff // 60
         except AttributeError:
             tzoff = 0
         if tzoff < 0:
@@ -169,21 +127,19 @@ class SysId (MopHdr):
             moff = (256 - moff) & 0xff
         else:
             hoff, moff = divmod (tzoff, 60)
-        cent, yr = divmod (val.tm_year, 100)
-        eval = ( cent, yr, val.tm_mon, val.tm_mday, val.tm_hour,
-                 val.tm_min, val.tm_sec, 0, hoff, moff )
+        cent, yr = divmod (self.tm.tm_year, 100)
+        eval = ( cent, yr, self.tm.tm_mon, self.tm.tm_mday, self.tm.tm_hour,
+                 self.tm.tm_min, self.tm.tm_sec, 0, hoff, moff )
         return bytes (eval)
-    
-    def decode_time (self, buf, field, flen):
+
+    @classmethod
+    def decode (cls, buf):
         """Decode a MOP time value, which is a 10 byte value vaguely
         like what's found in a "struct tm" in Unix, or Python
         time.struct_time.
         """
-        assert flen == 10
-        if len (buf) < flen:
-            logging.debug ("Not {} bytes left for time field", flen)
-            raise MissingData
-        t = buf[:flen]
+        require (buf, 10)
+        t = buf[:10]
         if t[0]:
             yr = t[0] * 100 + t[1]
         else:
@@ -196,43 +152,87 @@ class SysId (MopHdr):
         if moff >= 128:
             moff -= 256
         tzoff = (hoff * 60 + moff) * 60
-        tm = time.struct_time ((yr, t[2], t[3], t[4], t[5], t[6],
-                                0, 0, -1, "", tzoff))
-        setattr (self, field, tm)
-        return buf[flen:]
+        ret = cls ()
+        ret.tm = time.struct_time ((yr, t[2], t[3], t[4], t[5], t[6],
+                                    0, 0, -1, "", tzoff))
+        return ret, buf[10:]
+    
+class MopHdr (packet.Packet):
+    _layout = ( ( packet.B, "code", 1 ), )
 
+class SysId (MopHdr):
+    tolerant = True
+    _addslots = ( "last_ts", )
+    
+    _layout = ( ( packet.RES, 1 ),
+                ( packet.B, "receipt", 2 ),
+                ( packet.TLV, 2, 1, True,
+                  ( 1, Version, "version" ),
+                  ( 2, packet.BM,
+                        ( "loop", 0, 1 ),
+                        ( "dump", 1, 1 ),
+                        ( "ploader", 2, 1 ),
+                        ( "sloader", 3, 1 ),
+                        ( "boot", 4, 1 ),
+                        ( "carrier", 5, 1 ),
+                        ( "counters", 6, 1 ),
+                        ( "carrier_reserved", 7, 1 ) ),
+                  ( 3, Macaddr, "console_user" ),
+                  ( 4, packet.B, "reservation_timer", 2 ),
+                  ( 5, packet.B, "console_cmd_size", 2 ),
+                  ( 6, packet.B, "console_resp_size", 2 ),
+                  ( 7, Macaddr, "hwaddr" ),
+                  ( 8, TIME, "time" ),
+                  ( 100, packet.B, "device", 1 ),
+                  # Spec says max is 17 but sometimes longer values are seen
+                  ( 200, C, "software", 127 ),
+                  ( 300, packet.B, "processor", 1 ),
+                  ( 400, packet.B, "datalink", 1 ),
+                  ( 401, packet.B, "bufsize", 2 ))
+                )
+    
+    code = 7
+    def_version = Version (3, 0, 0)
+    def services (self):
+        srv = list ()
+        for s in ( "loop", "dump", "ploader", "sloader",
+                   "boot", "carrier", "counters" ):
+            if getattr (self, s):
+                srv.append (s)
+        return srv
+        
 class RequestId (MopHdr):
-    _layout = ( ( "res", 1 ),
-                ( "b", "receipt", 2 ), )
+    _layout = ( ( packet.RES, 1 ),
+                ( packet.B, "receipt", 2 ), )
     code = 5
 
 class RequestCounters (MopHdr):
-    _layout = ( ( "b", "receipt", 2 ), )
+    _layout = ( ( packet.B, "receipt", 2 ), )
     code = 9
 
 class Counters (MopHdr):
     # Note that most of the error counts don't apply to DECnet/Python,
     # but we define them so that we can parse and report them in
     # messages from other systems where they do have meaning.
-    _layout = ( ( "b", "receipt", 2 ),
-                ( "b", "time_since_zeroed", 2 ),
-                ( "ctr", "bytes_recv", 4 ),
-                ( "ctr", "bytes_sent", 4 ),
-                ( "ctr", "pkts_recv", 4 ),
-                ( "ctr", "pkts_sent", 4 ),
-                ( "ctr", "mcbytes_recv", 4 ),
-                ( "ctr", "mcpkts_recv", 4 ),
-                ( "ctr", "pkts_deferred", 4),
-                ( "ctr", "pkts_1_collision", 4),
-                ( "ctr", "pkts_mult_collision", 4),
-                ( "ctr", "send_fail", 2),
-                ( "b", "send_reasons", 2),
-                ( "ctr", "recv_fail", 2),
-                ( "b", "recv_reasons", 2),
-                ( "ctr", "unk_dest", 2 ),
-                ( "ctr", "data_overrun", 2),
-                ( "ctr", "no_sys_buf", 2),
-                ( "ctr", "no_user_buf", 2) )
+    _layout = ( ( packet.B, "receipt", 2 ),
+                ( Timestamp, "time_since_zeroed", 2 ),
+                ( packet.CTR, "bytes_recv", 4 ),
+                ( packet.CTR, "bytes_sent", 4 ),
+                ( packet.CTR, "pkts_recv", 4 ),
+                ( packet.CTR, "pkts_sent", 4 ),
+                ( packet.CTR, "mcbytes_recv", 4 ),
+                ( packet.CTR, "mcpkts_recv", 4 ),
+                ( packet.CTR, "pkts_deferred", 4),
+                ( packet.CTR, "pkts_1_collision", 4),
+                ( packet.CTR, "pkts_mult_collision", 4),
+                ( packet.CTR, "send_fail", 2),
+                ( packet.B, "send_reasons", 2),
+                ( packet.CTR, "recv_fail", 2),
+                ( packet.B, "recv_reasons", 2),
+                ( packet.CTR, "unk_dest", 2 ),
+                ( packet.CTR, "data_overrun", 2),
+                ( packet.CTR, "no_sys_buf", 2),
+                ( packet.CTR, "no_user_buf", 2) )
     code = 11
     # Bit definitions for send_fail field
     SEND_FAIL_EXC_COLL = 1
@@ -247,41 +247,41 @@ class Counters (MopHdr):
     RECV_FAIL_LONG = 4
 
 class ConsoleRequest (MopHdr):
-    _layout = ( ( "bv", "verification", 8 ), )
+    _layout = ( ( packet.BV, "verification", 8 ), )
     code = 13
 
 class ConsoleRelease (MopHdr):
     code = 15
 
 class ConsoleCommand (MopHdr):
-    _addslots = { "payload" }
-    _layout = ( ( "bm",
+    _layout = ( ( packet.BM,
                   ( "seq", 0, 1 ),
-                  ( "break", 1, 1 ) ), )
+                  ( "break", 1, 1 )),
+                 packet.Payload)
     code = 17
 
 class ConsoleResponse (MopHdr):
-    _addslots = { "payload" }
-    _layout = ( ( "bm",
+    _layout = ( ( packet.BM,
                   ( "seq", 0, 1 ),
                   ( "cmd_lost", 1, 1 ),
-                  ( "resp_lost", 2, 1 ) ), )
+                  ( "resp_lost", 2, 1 ) ),
+                packet.Payload )
     code = 19
 
 class LoopSkip (packet.Packet):
-    _addslots = { "payload" }
-    _layout = ( ( "b", "skip", 2 ), )
+    _layout = ( ( packet.B, "skip", 2 ),
+                packet.Payload )
     
 class LoopFwd (packet.Packet):
-    _addslots = { "payload" }
-    _layout = ( ( "b", "function", 2 ),
-                ( Macaddr, "dest" ) )
+    _layout = ( ( packet.B, "function", 2 ),
+                ( Macaddr, "dest" ),
+                packet.Payload )
     function = 2
 
 class LoopReply (packet.Packet):
-    _addslots = { "payload" }
-    _layout = ( ( "b", "function", 2 ),
-                ( "b", "receipt", 2 ) )
+    _layout = ( ( packet.B, "function", 2 ),
+                ( packet.B, "receipt", 2 ),
+                packet.Payload )
     function = 1
 
 # Dictionary of packet codes to packet layout classes
@@ -468,7 +468,7 @@ class MopCircuit (Element):
         
     def getentity (self, name):
         if name == "counters":
-            return self.datalink.counters
+            return self.request_counters
         return super ().getentity (name)
     
     def start (self):
@@ -660,9 +660,9 @@ class CounterHandler (Element):
             return { "status" : "timeout" }
         ret = { "status" : "ok" }
         for t, n, *x in Counters._layout:
-            if t == "ctr":
+            if t == packet.CTR:
                 ret[n] = getattr (reply, n)
-        ret["time_since_zeroed"] = reply.time_since_zeroed
+        ret["time_since_zeroed"] = int (reply.time_since_zeroed)
         return ret
         
 class SysIdHandler (Element, timers.Timer):
@@ -731,6 +731,8 @@ class SysIdHandler (Element, timers.Timer):
     def send_ctrs (self, dest, receipt):
         reply = Counters (receipt = receipt)
         self.port.parent.counters.copy (reply)
+        # Make sure this is an integer
+        reply.time_since_zeroed = int (reply.time_since_zeroed)
         self.port.send (reply, dest)
 
     def html (self, what):
@@ -794,8 +796,9 @@ class SysIdHandler (Element, timers.Timer):
             item["console_user"] = getattr (v, "console_user", "")
             item["reservation_timer"] = getattr (v, "reservation_timer", 0)
             item["hwaddr"] = getattr (v, "hwaddr", "")
-            systime = getattr (v, "time", "")
+            systime = getattr (v, "time", None)
             if systime:
+                systime = systime.tm
                 tzoff = systime.tm_gmtoff
                 systime = time.strftime ("%d-%b-%Y %H:%M:%S", systime)
                 if tzoff:

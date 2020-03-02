@@ -15,41 +15,94 @@ SvnFileRev = "$LastChangedRevision$"
 # Base time for time code in event message
 jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 
-class EntityBase (packet.Packet):
-    __slots__ = (("enum"),)
-    _layout = (())
+class EventEntityBase (Field, packet.Indexed):
+    classindex = { }
+    classindexkey = "enum"
+    __slots__ = ()
     
-    def __init__ (self, arg = None):
-        super ().__init__ ()
+    @classmethod
+    def defaultclass (cls, code):
+        """This method is called when findclass() is asked for a class
+        that is not in the index.  If so, we'll make up a new Event
+        Entity class based on StringEntityBase, and return that.
+        """
+        name = "EventEntity{}".format (code)
+        doc = "Entity #{}".format (code)
+        cdict = { "enum" : code, "label" : doc }
+        # Note that the metaclass will add the new class to the
+        # classindex, so we do this work only once for any given
+        # entity code.
+        c = type (name, (EventEntityBase, StringEntityBase), cdict)
+        return c
+
+    def encode (self):
+        return byte (self.enum) + super ().encode ()
+
+    @classmethod
+    def decode (cls, buf):
+        enum = buf[0]
+        if cls is __class__:
+            cls = cls.findclass (enum)
+            return cls.decode (buf)
+        ret, buf = super (__class__, cls).decode (buf[1:])
+        ret.enum = enum
+        return ret, buf
+ 
+class EntityBase (packet.Packet):
+    _addslots = ("enum",)
+    classindex = { }
+    classindexkey = "enum"
+
+    @classmethod
+    def defaultclass (cls, idx):
+        return StringEntityBase
+    
+    def __new__ (cls, arg = None):
+        ret = packet.Packet.__new__ (cls)
         if arg:
-            self.ename = arg
+            ret.ename = arg
+        return ret
     
     def __str__ (self):
-        cname = self.__class__.__name__
-        if cname.endswith ("Entity"):
-            return "{} = {}".format (cname[:-6], self.ename)
-        return "Entity #{} = {}".format (self.enum, self.ename)
+        return "{} = {}".format (self.__class__.label, self.ename)
 
     def __format__ (self, arg):
         return str (self)
-    
+        
     def __hash__ (self):
         return id (self)
 
-class NoEntity (EntityBase):
-    _layout = (())
+class NoEntity (EventEntityBase):
     _singleton = None
-    enum = -1
-
+    enum = 255   # Unsigned byte corresponding to -1
+ 
+    # We'll make this a singleton class.  Not that it's really
+    # necessary, but why not.
     def __new__ (cls):
         if cls._singleton is None:
-            cls._singleton = EntityBase.__new__ (cls)
+            cls._singleton = EventEntityBase.__new__ (cls)
         return cls._singleton
+
+    def encode (self):
+        return byte (self.enum)
+
+    @classmethod
+    def decode (cls, buf):
+        ret = cls ()
+        enum = buf[0]
+        if enum != cls.enum:
+            raise WrongValue ("Cannot change attribute enum " \
+                              "from {} to {}".format (cls.enum, enum))
+        return ret, buf[1:]
 
     def __str__ (self):
         return ""
 
+    def __format__ (self, arg):
+        return ""
+
 class NodeEntity (EntityBase):
+    "Node"
     enum = 0
     _layout = (( NiceNode, "ename" ),)
 
@@ -73,18 +126,36 @@ class NodeEntity (EntityBase):
         return "{} = {}".format (t, self.ename)
     
 class StringEntityBase (EntityBase):
-    _layout = (( "a", "ename", 16 ),)
+    _layout = (( packet.A, "ename", 16 ),)
 
-class LineEntity (StringEntityBase): enum = 1
-class LoggingEntity (StringEntityBase): enum = 2
-class CircuitEntity (StringEntityBase): enum = 3
-class ModuleEntity (StringEntityBase): enum = 4
+class LineEntity (StringEntityBase):
+    label = "Line"
+    enum = 1
+class LoggingEntity (StringEntityBase):
+    label = "Logging"
+    enum = 2
+class CircuitEntity (StringEntityBase):
+    label = "Circuit"
+    enum = 3
+class ModuleEntity (StringEntityBase):
+    label = "Module"
+    enum = 4
 class AreaEntity (EntityBase):
+    label = "Area"
     enum = 5
-    _layout = (( "res", 1 ),
-               ( "b", "ename", 1 ))
+    _layout = (( packet.RES, 1 ),
+               ( packet.B, "ename", 1 ))
 
-class NiceType (packet.Indexed):
+# Make corresponding event entity classes (which put the entity code
+# number before the entity value encoding):
+class NodeEventEntity (EventEntityBase, NodeEntity): pass
+class LineEventEntity (EventEntityBase, LineEntity): pass
+class LoggingEventEntity (EventEntityBase, LoggingEntity): pass
+class CircuitEventEntity (EventEntityBase, CircuitEntity): pass
+class ModuleEventEntity (EventEntityBase, ModuleEntity): pass
+class AreaEventEntity (EventEntityBase, AreaEntity): pass
+    
+class NiceType (Field, packet.Indexed):
     # Base type for all the NICE data type codes
     classindex = { }
     classindexkey = "code"
@@ -119,32 +190,105 @@ class NiceType (packet.Indexed):
         return c
 
     @classmethod
-    def makenice (cls, v, *x):
-        "If v is not already an instance of NiceType, make it an instance of cls."
+    def checktype (cls, name, v, tlist = None):
+        """If v is not already an instance of NiceType, make it an
+        instance of cls.
+        """
+        # Note this is different from the base class checktype, which
+        # forces v to be an instance of cls.  We don't want that because
+        # decoding a NICE packet will pick the type from what the packet
+        # calls for.
+        # The tlist argument is unused but sometimes passed, so we allow
+        # for it.
         if not isinstance (v, NiceType):
             v = cls (v)
         return v
     
-    def makenicelist (self, tlist):
-        pass
-    
-    def format (self, *x):
+    def format (self, tlist = None):
         "Format the data value according to its defined data type"
+        # Allow a tlist argument since some common code passes that.
         return self.fmt.format (self)
     
+    @classmethod
+    def makecoderow (cls, param, pcls, desc, *rest):
+        """Process a row in the NICE parameter sequence.
+        """
+        # The NICE layout is given by a sequence of parameter descriptions.
+        # Each entry is a tuple, which is processed by this method:
+        #   Parameter number
+        #   Data type (NICE parameter data class)
+        #   Field description
+        #   Optional field name to use in the class
+        #   Optional value label sequence or dictionary
+        #
+        # Note that counters and non-counters have separate number spaces,
+        # so a parameter number may occur twice, once for a counter, once
+        # for a non-counter.  In addition, there may be multiple variable
+        # names mapped to the same parameter number.  This is useful if
+        # there are several encodings; an example is the "packet header"
+        # argument in the routing events.  If this is done, the last
+        # occurrence of the parameter number is the one used to decode
+        # incoming packets (i.e., the one whose layout is used as the
+        # template).
+        #
+        # If the field name is omitted or None, the name is generated from
+        # the description by converting to lower case and changing all
+        # spaces to underscore.
+        #
+        # The value label argument may be used for C (coded) and CTM
+        # (masked counter) data; the values are strings which are the
+        # string to display for that value (C) or the name of that bit in
+        # the bitmap (CTM).  If omitted the result is defined by a class
+        # attribute (if subclassed) or as if an empty list was given,
+        # which causes all strings to be the fallback (#number) instead.
+        #
+        # When decoding incoming data, the data type is indicated explicitly
+        # in the binary data.  For that case, the data type (NICE data
+        # class) is used only if it has the same data type code as is given
+        # in the decoded data.  Otherwise, the type code is looked up in the
+        # classindex to find the class matching that code.  This means that
+        # a subclass with custom handling (for example alternate formatting,
+        # see DUNode for an example) can be used for a DU-2 field, but if
+        # the decoded data has some other type code, the DUNode class is
+        # disregarded.
+        #
+        # The output is a tuple consisting of:
+        # - a boolean: true if this item is a counter
+        # - parameter number
+        # - parameter name
+        # - a tuple to insert into the decode dictionary, consisting of
+        #     data class, variable name, and value-label data
+        # - a tuple to append to the encode and formatting list, consisting
+        #     of the parameter number, data class, variable name, description,
+        #     and value-label data.
+        try:
+            fn = rest[0]
+        except IndexError:
+            fn = None
+        if not fn:
+            fn = desc.lower ().replace (" ", "_")
+        try:
+            vals = rest[1]
+        except IndexError:
+            vals = ()
+        return pcls.counter, param, fn, \
+               (pcls, fn, vals), (param, pcls, fn, desc, vals)
+
 class DU1 (NiceType, int):
     bytecnt = 1
     signed = False
     code = 1
     
-    def encode (self):
+    def encode (self, tlist = None):
         "Encode the value, including the type code"
+        tlist = tlist or self.vlist
         return byte (self.code) + \
                self.to_bytes (self.bytecnt, "little", signed = self.signed)
 
     @classmethod
-    def decode (cls, b, *x):
+    def decode (cls, b, tlist = None):
         "Decode the value, not including the type code"
+        tlist = tlist or cls.vlist
         bc = cls.bytecnt
         f = b[0:bc]
         b = b[bc:]
@@ -171,7 +315,7 @@ class H1 (DU1):
     fmt = "{0:0>{1}x}"
     code = 0x21
 
-    def format (self, *x):
+    def format (self, tlist = None):
         # Not clear if this matches the letter of the spec, but for hex
         # integers it is helpful to show the full length value, with all
         # the leading zeroes.
@@ -181,7 +325,7 @@ class O1 (DU1):
     fmt = "{0:0>{1}o}"
     code = 0x31
 
-    def format (self, *x):
+    def format (self, tlist = None):
         # Show the full length value, with all the leading zeroes.
         digits = (self.bytecnt * 8 + 2) // 3
         return self.fmt.format (self, digits)
@@ -189,12 +333,12 @@ class O1 (DU1):
 class AI (NiceType, str):
     code = 0x40
 
-    def encode (self):
+    def encode (self, tlist = None):
         b = bytes (self, "latin1")
         return b"\x40" + byte (len (b)) + b
 
     @classmethod
-    def decode (cls, b, *x):
+    def decode (cls, b, tlist = None):
         if not b:
             raise MissingData
         l = b[0]
@@ -205,14 +349,14 @@ class AI (NiceType, str):
 class HI (NiceType, bytes):
     code = 0x20
     
-    def format (self, *x):
+    def format (self, tlist = None):
         return "-".join ("{:02x}".format (i) for i in self)
 
-    def encode (self):
+    def encode (self, tlist = None):
         return b"\x20" + byte (len (self)) + self
 
     @classmethod
-    def decode (cls, b, *x):
+    def decode (cls, b, tlist = None):
         if not b:
             raise MissingData
         l = b[0]
@@ -235,43 +379,67 @@ class CM1 (NiceType, list):
     code = 0xc1
     bytecnt = 1
     delim = " "
-    
-    @classmethod
-    def makenice (cls, v, tlist = ()):
-        """If v is not already an instance of NiceType, make it an
-        instance of cls.  Also do this to each of the list elements in
-        v.
-        """
-        if not isinstance (v, NiceType):
-            v = cls (v)
-        v.makenicelist (tlist or cls.vlist)
-        return v
 
-    def makenicelist (self, tlist):
-        for i, cls in zpr (range (len (self)), tlist):
-            self[i] = cls.makenice (self[i])
-        
+    @classmethod
+    def checktype (cls, name, val, tlist):
+        tlist = tlist or cls.vlist        
+        if not isinstance (val, cls):
+            val = cls (val)
+        for i, cls in zpr (range (len (val)), tlist):
+            val[i] = cls.checktype (name, val[i])
+        return val
+    
     def format (self, tlist):
-        return self.delim.join (i.format () for i in self)
+        vl = [ ]
+        tlist = tlist or self.vlist
+        for i, cls in zpr (self, tlist):
+            vl.append (cls.checktype ("cm", i).format ())
+        return self.delim.join (vl)
 
     @classmethod
     def decode (cls, buf, tlist):
         if tlist:
             t = tlist[0]
-            if not (isinstance (t, type) and issubclass (tlist[0], NiceType)):
+            if not (isinstance (t, type) and issubclass (t, NiceType)):
                 tlist = ()
         vl = [ ]
-        for i, cls2 in zpr (range (cls.bytecnt), tlist or cls.vlist):
+        tlist = tlist or cls.vlist
+        for i, cls2 in zpr (range (cls.bytecnt), tlist):
             require (buf, 1)
             cls2 = cls2.findclass (buf[0])
-            v, buf = cls2.decode (buf[1:])
+            v, buf = cls2.decode (buf[1:], cls2.vlist)
             vl.append (v)
         return cls (vl), buf
 
-    def encode (self):
-        vl = [ i.encode () for i in self ]
+    def encode (self, tlist):
+        vl = [ ]
+        tlist = tlist or self.vlist
+        for i, cls in zpr (self, tlist):
+            vl.append (cls.checktype ("cm", i).encode ())
         return byte (0xc0 + len (vl)) + b"".join (vl)
     
+    @classmethod
+    def makecoderow (cls, param, pcls, desc, fn, vals):
+        """Process a row in the NICE parameter sequence for a CM-n field.
+        """
+        # The NICE layout is given by a sequence of parameter descriptions.
+        # Each entry is a tuple, which is processed by this method:
+        #   Parameter number
+        #   Data type (NICE parameter data class)
+        #   Field description
+        #   Optional field name to use in the class
+        #   Optional value label sequence or dictionary
+        #
+        # Here we handle the case for CM-n fields, where the fifth
+        # argument instead gives a sequence of NICE field types that
+        # make up the coded multiple data item.  This argument is
+        # required (and therefore the preceding argument is also
+        # required, but it can be None to get the default handling).
+        if not fn:
+            fn = desc.lower ().replace (" ", "_")
+        return pcls.counter, param, fn, \
+               (pcls, fn, vals), (param, pcls, fn, desc, vals)
+
 # We refer to CM since that actually works for any count.
 CM = CM1
 
@@ -300,12 +468,12 @@ class CTR1 (DU1):
     maxval = 255
     maxstr = ">254"
 
-    def format (self, *x):
+    def format (self, tlist = None):
         if self >= self.maxval:
             return self.maxstr
         return "{}".format (self)
 
-    def format_qual (self, x):
+    def format_qual (self, tlist = None):
         return ""
     
     def encode (self, pnum):
@@ -340,7 +508,7 @@ class Map:
                min (self, self.maxval).to_bytes (self.bytecnt, "little")
 
     @classmethod
-    def decode (cls, b, *x):
+    def decode (cls, b, tlist = None):
         bc = cls.bytecnt
         if len (b) < bc + 2:
             raise MissingData
@@ -365,30 +533,51 @@ class CTM1 (Map, CTR1): code = 0xb000
 class CTM2 (Map, CTR2): code = 0xd000
 class CTM4 (Map, CTR4): code = 0xf000
 
-class NicePacket (packet.Packet):
-    """Base class to add NICE data item processing to packet.Packet.
-    This cannot actually be instantiated directly; derive from this
-    class and add a _layout table to describe the fields in the packet.
-    """
-    _layout = ()     # To indicate that we don't have a real layout
-    _addslots = ("__dict__",)
-
-    def format_nice (self):
+class NICE (packet.FieldGroup):
+    lastfield = True
+    
+    @classmethod
+    def makecoderow (cls, resp, *layouts):
+        """Process the layout data for a NICE item.
+        """
+        # A layout entry for NICE consists of the "response" flag,
+        # followed by a sequence of parameter descriptions.  The
+        # response flag is False for request packets, True for response
+        # or event packets.
+        #
+        # Refer to the comments in NiceType.makecoderow for a detailed
+        # description of the parameter description contents.
+        cdict = dict ()
+        ncdict = dict ()
+        flist = list ()
+        names = set ()
+        for v in layouts:
+            ctr, k, fn, v, f = NiceType.makecoderow (*v)
+            names.add (fn)
+            if ctr:
+                cdict[k] = v
+            else:
+                ncdict[k] = v
+            flist.append (f)
+        return cls, None, ( resp, ncdict, cdict, flist ), names, True
+        
+    @staticmethod
+    def format (pkt):
         """Format the NICE data block.  Fixed header fields are not
         processed, those should be handled by the caller.
         """
-        e, d, niceargs = self._codetable[-1]
-        ncdict, cdict, flist = niceargs
-        assert e == self.__class__.encode_nice
+        ftype, fname, niceargs = pkt._codetable[-1]
+        resp, cdict, ncdict, flist = niceargs
+        assert ftype == __class__
         ret = [ ]
         # If there are non-standard fields, add made up entries for them
         # into the format list.
-        xparams = self.xfields ()
+        xparams = pkt.xfields ()
         if xparams:
             xparams.sort (key = packet.fieldnum)
             xflist = [ ]
             for fn in xparams:
-                v = getattr (self, fn)
+                v = getattr (pkt, fn)
                 if v.counter:
                     dparam = "Counter #{}".format (packet.fieldnum (fn))
                 else:
@@ -399,9 +588,9 @@ class NicePacket (packet.Packet):
             # variable.
             flist = flist + xflist
         for param, pcls, fn, desc, vals in flist:
-            v = getattr (self, fn, None)
+            v = getattr (pkt, fn, None)
             if v is not None:
-                v = pcls.makenice (v, vals)
+                v = pcls.checktype (fn, v, vals)
                 if v.counter:
                     s = "{:>11s} {}{}".format (v.format (), desc,
                                                v.format_qual (vals))
@@ -410,17 +599,37 @@ class NicePacket (packet.Packet):
                 ret.append (s)
         return "    " + "\n    ".join (ret)
 
-    def encode_nice_common (self, ncdict, cdict, flist, resp):
+    @classmethod
+    def encode (cls, pkt, resp, ncdict, cdict, flist):
         ret = [ ]
         for param, pcls, fn, desc, vals in flist:
-            v = getattr (self, fn, None)
+            v = getattr (pkt, fn, None)
             if v is not None:
-                v = pcls.makenice (v, vals)
+                v = pcls.checktype (fn, v, vals)
                 if pcls.counter:
                     ret.append (v.encode (param))
                 else:
                     ret.append (param.to_bytes (2, "little"))
-                    e = v.encode ()
+                    e = v.encode (vals)
+                    if resp:
+                        ret.append (e)
+                    else:
+                        # request, omit the code field
+                        ret.append (e[1:])
+        # Add any unknown fields.  This isn't currently used but it
+        # allows us to decode a packet and re-encode it with no loss of
+        # data.
+        xparams = pkt.xfields ()
+        if xparams:
+            xparams.sort (key = packet.fieldnum)
+            for fn in xparams:
+                param = packet.fieldnum (fn)
+                v = getattr (pkt, fn)
+                if v.counter:
+                    ret.append (v.encode (param))
+                else:
+                    ret.append (param.to_bytes (2, "little"))
+                    e = v.encode (())
                     if resp:
                         ret.append (e)
                     else:
@@ -428,7 +637,8 @@ class NicePacket (packet.Packet):
                         ret.append (e[1:])
         return b''.join (ret)
 
-    def decode_nice_common (self, buf, ncdict, cdict, flist, resp):
+    @classmethod
+    def decode (cls, buf, pkt, resp, ncdict, cdict, flist):
         """Decode the remainder of the buffer as a sequence of NICE
         fields.  Each value field is decoded according to the format
         code of the item, which is used to turn the data into an
@@ -442,7 +652,7 @@ class NicePacket (packet.Packet):
         pos = 0
         while buf:
             if len (buf) < 3:
-                if self.tolerant:
+                if cls.tolerant:
                     return b''
                 logging.debug ("Incomplete NICE data item at end of buffer")
                 raise MissingData
@@ -481,7 +691,7 @@ class NicePacket (packet.Packet):
                 pcls = DU1
                 fn = "field{}".format (param)
                 vals = ()
-                self._xfields = True
+                pkt._xfields = True
             if code is None:
                 # If decoding a request, the parameter number tells us
                 # the expected code.
@@ -493,29 +703,14 @@ class NicePacket (packet.Packet):
                 pcls = NiceType.findclass (code)
             v, buf = pcls.decode (buf, vals)
             # Done with this data item; store it.
-            setattr (self, fn, v)
-
-    def encode_nice (self, ncdict, cdict, flist):
-        "Encode case for encoding a response (with code fields)"
-        return self.encode_nice_common (ncdict, cdict, flist, True)
-
-    def encode_nice_req (self, ncdict, cdict, flist):
-        "Encode case for encoding a request (no code fields)"
-        return self.encode_nice_common (ncdict, cdict, flist, False)
-
-    def decode_nice (self, buf, ncdict, cdict, flist):
-        "Decode case for decoding a response (with code fields)"
-        return self.decode_nice_common (buf, ncdict, cdict, flist, True)
-
-    def decode_nice_req (self, buf, ncdict, cdict, flist):
-        "Decode case for decoding a request (no code fields)"
-        return self.decode_nice_common (buf, ncdict, cdict, flist, False)
-
+            setattr (pkt, fn, v)
+        return buf
+    
 # Subclasses of standard NICE type codes may be defined, which are used
 # to specify alternate format methods.
 class DUNode (DU2):
     "2 byte node number, formatted in standard area.node style."
-    def format (self, *x):
+    def format (self, tlist = None):
         area, tid = divmod (self, 1024)
         if area:
             return "{}.{}".format (area, tid)
@@ -525,10 +720,10 @@ class CMNode (CM2):
     "Node address and name"
     vlist = (DUNode, AI)
     
-    def format (self, *x):
+    def format (self, tlist = None):
         if len (self) == 2:
             return "{} ({})".format (self[0].format (), self[1].format ())
-        return super ().format (*x)
+        return super ().format (tlist)
     
 class CMVersion (CM3):
     "CMn for version numbers, which will be printed with . separators."
@@ -539,10 +734,10 @@ class CMProc (CM4):
     "Source/dest process descriptor"
     vlist = (DU1, DU2, DU2, AI)
     
-    def format (self, *x):
+    def format (self, tlist = None):
         if len (self) == 4:
             return "{} [{},{}]{}".format (*self)
-        return super ().format (*x)
+        return super ().format (tlist)
     
 # NICE parameter definition lists for the various kinds of counters.
 # These are broken out because they get used in several places -- not
@@ -552,7 +747,7 @@ class CMProc (CM4):
 # counters object defined in nsp.py and routing.py -- this makes the
 # "copy" method work for transferring those internal counters into
 # this NICE reply object.
-node_counters = [
+node_counters = (
     ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
     ( 600, CTR4, "User bytes received", "byt_rcv" ),
     ( 601, CTR4, "User bytes sent", "byt_xmt" ),
@@ -577,9 +772,9 @@ node_counters = [
     # RSTS/E specific codes
     ( 2200, CTR2, "Current reachable nodes" ),
     ( 2201, CTR2, "Maximum reachable nodes" )
-]   
+)
 
-circuit_counters = [
+circuit_counters = (
     ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
     ( 800, CTR4, "Terminating packets received", "term_recv" ),
     ( 801, CTR4, "Originating packets sent", "orig_sent" ),
@@ -616,10 +811,12 @@ circuit_counters = [
     ( 1065, CTR2, "User buffer unavailable" ),
     ( 1240, CTR1, "Locally initiated resets" ),
     ( 1241, CTR1, "Remotely initiated resets" ),
-    ( 1242, CTR1, "Network initiated resets" )
-]
+    ( 1242, CTR1, "Network initiated resets" ),
+    # PyDECnet specific
+    ( 3900, CTR2, "Seconds since last circuit up", "last_up" )
+)
     
-line_counters = [
+line_counters = (
     ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
     ( 1000, CTR4, "Bytes received", "bytes_recv" ),
     ( 1001, CTR4, "Bytes sent" ),
@@ -680,4 +877,4 @@ line_counters = [
               "NAKs received, header format error",
               "Receive overrun",
               "FRMR received, head format error" ))
-]            
+)

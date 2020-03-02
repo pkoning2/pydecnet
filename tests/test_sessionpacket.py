@@ -44,7 +44,7 @@ class test_packets (DnTest):
             userfoo, x = session.EndUser.decode (p)
         # Type 1, with num
         p = b"\x01\x66\x03FOO"
-        with self.assertRaises (session.BadEndUser):
+        with self.assertRaises (session.WrongValue):
             userfoo, x = session.EndUser.decode (p)
         # Type 3
         p = b"\x03\x00\x11\x00\x22\x01\x03BAR"

@@ -374,8 +374,7 @@ class test_routing (lantest):
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         rslist = Elist (p.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 64)
@@ -404,8 +403,7 @@ class test_routing (lantest):
         self.assertEqual (dest, Macaddr ("AB-00-00-03-00-00"))
         rslist = Elist (p.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 64)
@@ -636,8 +634,7 @@ class test_routing (lantest):
         self.assertIsInstance (p1, RouterHello)
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 31)
@@ -666,8 +663,7 @@ class test_routing (lantest):
         self.assertIsInstance (p1, RouterHello)
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (1, 2))
         self.assertEqual (rsent.prio, 31)
@@ -824,8 +820,7 @@ class test_l2routing (test_routing):
         self.assertIsInstance (p1, RouterHello)
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (2, 2))
         self.assertEqual (rsent.prio, 64)
@@ -855,8 +850,7 @@ class test_l2routing (test_routing):
         self.assertIsInstance (p1, RouterHello)
         rslist = Elist (p1.elist).rslist
         self.assertTrue (rslist)
-        rsent = RSent ()
-        rslist = rsent.decode (rslist)
+        rsent, rslist = RSent.decode (rslist)
         self.assertFalse (rslist)
         self.assertEqual (rsent.router, Nodeid (2, 2))
         self.assertEqual (rsent.prio, 64)

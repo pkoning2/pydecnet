@@ -2,6 +2,10 @@
 
 from tests.dntest import *
 import io
+try:
+    import pam
+except ImportError:
+    pam = None
 
 from decnet import config
 from decnet import ethernet
@@ -106,7 +110,7 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 GRE foo --prio -1", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --prio 128", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo\ncircuit foo-0 Ethernet dev",
-                       "Duplicate name")
+                       "Conflicting value for circuit name")
         
 class TestLogging (Logchecker):
     req = """bridge br-0
@@ -128,6 +132,14 @@ class TestLogging (Logchecker):
         self.assertEqual (cc.sink_node, "foo")
         self.assertEqual (cc.events, "1.2,2.2-7,4.*")
         self.assertEqual (cc.sink_file, "file.dat")
+
+    def test_repeated (self):
+        c = self.ctest ("logging console\nlogging console")
+        cc = c.logging[(None, "console")]
+        self.assertEqual (cc.type, "console")
+        self.assertIsNone (cc.sink_node)
+        self.assertEqual (cc.events, "")
+        self.assertEqual (cc.sink_file, "events.dat")
         
 class TestLogging_err (Logchecker):
     req = """routing 1.1
@@ -138,8 +150,8 @@ class TestLogging_err (Logchecker):
         self.checkerr ("logging", "required: type")
         self.checkerr ("logging wrongsink", "invalid choice")
         self.checkerr ("logging console --frob", "unrecognized argument")
-        self.checkerr ("logging console\nlogging console",
-                       "Duplicate name")
+        self.checkerr ("logging console\nlogging console --sink-file foo.dat",
+                       "Conflicting value for logger name")
 
 class TestHttp (Logchecker):
     req = ""
@@ -243,6 +255,15 @@ class TestNode (Logchecker):
         self.assertEqual (cc.inbound_verification, "bar")
         self.assertEqual (cc.outbound_verification, "baz")
 
+    def test_repeated (self):
+        c = self.ctest ("node 1.3 foo\nnode 1.3 foo")
+        cc = c.node["FOO"]
+        self.assertEqual (cc.id, Nodeid (1, 3))
+        self.assertIsNone (cc.inbound_verification)
+        self.assertIsNone (cc.outbound_verification)
+        self.assertEqual (set (c.node), { "FOO" })
+        
+
 class TestNode_err (Logchecker):
     req = """routing 1.1
     """
@@ -252,10 +273,10 @@ class TestNode_err (Logchecker):
         self.checkerr ("node", "arguments are required")
         self.checkerr ("node 1.4", "arguments are required")
         self.checkerr ("node 1.2 foo --frob", "unrecognized argument")
-        # Note that right now we catch duplicate name but not
-        # duplicate address.
         self.checkerr ("node 1.3 foo\nnode 1.42 foo",
-                       "Duplicate name")
+                       "Conflicting value for node name")
+        self.checkerr ("node 1.3 foo\nnode 1.3 bar",
+                       "Conflicting value for node address")
 
 class TestNSP (Logchecker):
     req = """routing 1.1
@@ -331,6 +352,7 @@ class TestObject (Logchecker):
         self.assertEqual (cc.authentication, "off")
         self.assertEqual (cc.argument, [ ])
         
+    @unittest.skipIf (pam is None, "No PAM support")
     def test_allargs1 (self):
         c = self.ctest ("object --number 25 --name mirror --file mir.tec --argument hello --authentication on")
         cc = c.object[0]
@@ -343,27 +365,28 @@ class TestObject (Logchecker):
         self.assertEqual (cc.argument, [ "hello" ])
         
     def test_allargs2 (self):
-        c = self.ctest ("object --number 25 --name mirror --disable --argument hello --authentication on")
+        # Not quite all; omit authentication so this can run without PAM.
+        c = self.ctest ("object --number 25 --name mirror --disable --argument hello")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
         self.assertTrue (cc.disable)
         self.assertIsNone (cc.file)
         self.assertIsNone (cc.module)
-        self.assertEqual (cc.authentication, "on")
         self.assertEqual (cc.argument, [ "hello" ])
         
-    def test_allargs1 (self):
-        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --argument goodbye --authentication on")
+    def test_allargs3 (self):
+        # Not quite all; omit authentication so this can run without PAM.
+        c = self.ctest ("object --number 25 --name mirror --module decnet.mirror --argument hello --argument goodbye")
         cc = c.object[0]
         self.assertEqual (cc.number, 25)
         self.assertEqual (cc.name, "mirror")
         self.assertFalse (cc.disable)
         self.assertIsNone (cc.file)
         self.assertEqual (cc.module, "decnet.mirror")
-        self.assertEqual (cc.authentication, "on")
+        self.assertEqual (cc.authentication, "off")
         self.assertEqual (cc.argument, [ "hello", "goodbye" ])
-
+        
 class TestObject_err (Logchecker):
     req = """routing 1.1
     """
@@ -374,6 +397,12 @@ class TestObject_err (Logchecker):
         self.checkerr ("object --disable --file foo", "not allowed with argument")
         self.checkerr ("object --disable --module foo", "not allowed with argument")
         self.checkerr ("object --file bar --module foo", "not allowed with argument")
+        self.checkerr ("object --number 25 --name mirror\n"
+                       "object --number 42 --name mirror",
+                       "Conflicting value for object name")
+        self.checkerr ("object --number 25 --name mirror\n"
+                       "object --number 25 --name bouncer",
+                       "Conflicting value for object number")
         
 if __name__ == "__main__":
     unittest.main ()

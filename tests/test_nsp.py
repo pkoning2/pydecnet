@@ -1465,7 +1465,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.nsp.dispatch (w)
         args = self.assertTrace ("Packet with bad address")
-        self.assertEqual (args[1], p)
+        self.assertEqual (bytes (args[1]), p)
         # Ditto but data segment
         d = b"\x60" + lla.to_bytes (2, "little") + \
             b"\x73\x00\x01\x00inbound data"

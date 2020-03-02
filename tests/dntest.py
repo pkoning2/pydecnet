@@ -179,7 +179,7 @@ class DnTest (unittest.TestCase):
                 pass
             self.assertEqual (p, v)
         eparams = [ k for k, v in e.__dict__.items () if
-                    isinstance (v, events.Param) and k not in kwds ]
+                    isinstance (v, packet.Field) and k not in kwds ]
         if eparams:
             eparams = " ".join (sorted (eparams))
             msg = "Missing event parameter checks: {}".format (eparams)
@@ -215,8 +215,7 @@ class DnTest (unittest.TestCase):
             except Exception as e:
                 self.fail ("Unexpected exception %s for input %s (len %d)"
                            % (e, b[:l], l))
-        ret = cls ()
-        ret.decode (b)
+        ret = cls (b)
         return ret
 
     def shortfield (self, b, cls, maxlen = None):

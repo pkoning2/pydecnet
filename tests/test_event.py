@@ -7,9 +7,9 @@ from decnet.nice_coding import *
 
 class TestEventDecode (DnTest):
     def test_decode00 (self):
-        # The most basic event: no parameters.
+        "The most basic event: no parameters."
         b = b"\x01\x07\x00\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK\xff"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.events_lost)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
@@ -26,9 +26,9 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
         
     def test_decodems (self):
-        # Similar to above but with ms field included
+        "Similar to above but with ms field included"
         b = b"\x01\x07\x00\x00\x00\x00\x00\x00\xfa\x00\x03\x04\x04GROK\xff"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.events_lost)
         self.assertFalse (e.ms_absent)
         self.assertEqual (e.event_class, 0)
@@ -45,9 +45,9 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_decode_bigts (self):
-        # High timestamp
+        "High timestamp"
         b = b"\x01\x07\x00\x00\xff\x7f\xbe\xa8\xdb\x03\x03\x04\x04GROK\xff"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.events_lost)
         es = str (e)
         # Event type 0.0, Event records lost
@@ -60,10 +60,10 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_unkevent_code (self):
-        # Known class but unknown event number
+        "Known class but unknown event number"
         b = b"\x01\x07\x0f\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK\xff"
-        e = events.decode_event (b)
-        self.assertEqual (type (e), events.NetmanEvent)
+        e, x = events.EventBase.decode (b)
+        self.assertEqual (type (e), events.NetmanDefaultEvent)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 15)
@@ -78,9 +78,9 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_unk_cls (self):
-        # Unknown class
+        "Unknown class, no entity"
         b = b"\x01\x07\x0f\x40\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK\xff"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertEqual (type (e), events.DefaultEvent)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 256)
@@ -95,8 +95,29 @@ class TestEventDecode (DnTest):
         # Check encoding
         self.assertEqual (b, bytes (e))
 
+    def test_unk_cls2 (self):
+        "Unknown class, node entity"
+        b = b"\x01\x07\x0f\x40\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
+            b"\x00\x8c\x0c\x83ARK"
+        e, x = events.EventBase.decode (b)
+        self.assertEqual (type (e), events.DefaultEvent)
+        self.assertTrue (e.ms_absent)
+        self.assertEqual (e.event_class, 256)
+        self.assertEqual (e.event_code, 15)
+        self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
+        es = str (e)
+        # Event type 256.15
+        # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
+        self.assertRegex (es, r"Event type 256\.15")
+        self.assertRegex (es, r"From node 1\.3 \(GROK\)")
+        self.assertRegex (es, r"occurred 01-Jan-1977 00:00:00")
+        self.assertRegex (es, r"Node = 3\.140 \(ARK\)")
+        # Check encoding
+        self.assertEqual (b, bytes (e))
+
+
     def test_unk_cls_params (self):
-        # Unknown class
+        "Unknown class"
         b = b"\x01\x07\x0f\x40\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK\xff" \
             b"\x01\x00\x40\x06Foobar" \
             b"\x05\x00\x81\x0f" \
@@ -104,7 +125,7 @@ class TestEventDecode (DnTest):
             b"\x08\x00\x22\xab\x31" \
             b"\x09\x00\x31\xaa" \
             b"\x02\x01\xc2\x02\x12\x00\x20\x06\xaa\x00\x04\x00\x12\x08"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertEqual (type (e), events.DefaultEvent)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 256)
@@ -139,17 +160,17 @@ class TestEventDecode (DnTest):
         #self.assertEqual (b, bytes (e))
 
     def test_node_ent (self):
-        # Event with Node entity
+        "Event with Node entity"
         b = b"\x01\x07\x01\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x00\x05\x08\x03ARK"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.node_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 1)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertIsInstance (e.entity_type, events.NodeEntity)
-        self.assertEqual (e.entity_type, NodeEntity (NiceNode (Nodeid (2, 5), "ARK")))
+        self.assertIsInstance (e.entity_type, events.NodeEventEntity)
+        self.assertEqual (e.entity_type, NodeEventEntity (NiceNode (Nodeid (2, 5), "ARK")))
         es = str (e)
         # Event type 0.1, Automatic node counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
@@ -163,17 +184,17 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_line_ent (self):
-        # Event with Line entity
+        "Event with Line entity"
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x01\x05DMC-0"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 8)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertIsInstance (e.entity_type, events.LineEntity)
-        self.assertEqual (e.entity_type, events.LineEntity ("DMC-0"))
+        self.assertIsInstance (e.entity_type, events.LineEventEntity)
+        self.assertEqual (e.entity_type, events.LineEventEntity ("DMC-0"))
         es = str (e)
         # Event type 0.8, Automatic counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
@@ -187,17 +208,17 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_circ_ent (self):
-        # Event with Circuit entity
+        "Event with Circuit entity"
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x03\x05DMC-0"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 8)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertIsInstance (e.entity_type, events.CircuitEntity)
-        self.assertEqual (e.entity_type, events.CircuitEntity ("DMC-0"))
+        self.assertIsInstance (e.entity_type, events.CircuitEventEntity)
+        self.assertEqual (e.entity_type, events.CircuitEventEntity ("DMC-0"))
         es = str (e)
         # Event type 0.8, Automatic counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
@@ -211,17 +232,17 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_module_ent (self):
-        # Event with Line entity
+        "Event with Line entity"
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x04\x05AX.25"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 8)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertIsInstance (e.entity_type, events.ModuleEntity)
-        self.assertEqual (e.entity_type, events.ModuleEntity ("AX.25"))
+        self.assertIsInstance (e.entity_type, events.ModuleEventEntity)
+        self.assertEqual (e.entity_type, events.ModuleEventEntity ("AX.25"))
         es = str (e)
         # Event type 0.8, Automatic counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
@@ -235,16 +256,16 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_area_ent (self):
-        # Event with Area entity
+        'Event with Area entity (where the event definition specifies "any entity"'
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x05\x00\x33"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 8)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertEqual (e.entity_type, events.AreaEntity (51))
+        self.assertEqual (e.entity_type, events.AreaEventEntity (51))
         es = str (e)
         # Event type 0.8, Automatic counters
         # From node 1.3 (GROK), occurred 01-Jan-1977 00:00:00
@@ -258,16 +279,16 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_unk_ent (self):
-        # Event with Line entity
+        "Event with unknown entity (entity code 9)"
         b = b"\x01\x07\x08\x00\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x09\x05DMC-0"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.auto_ctrs)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 0)
         self.assertEqual (e.event_code, 8)
         self.assertEqual (e.source, NiceNode (Nodeid (1, 3), "GROK"))
-        self.assertIsInstance (e.entity_type, EntityBase)
+        self.assertEqual (e.entity_type.__class__.__name__, "EventEntity9")
         self.assertEqual (e.entity_type.enum, 9)
         self.assertEqual (e.entity_type.ename, "DMC-0")
         es = str (e)
@@ -283,13 +304,13 @@ class TestEventDecode (DnTest):
         self.assertEqual (b, bytes (e))
 
     def test_routing_evt (self):
-        # Event 4.7
+        "Event 4.7"
         b = b"\x01\x07\x07\x01\x00\x00\x00\x00\x00\x80\x03\x04\x04GROK" \
             b"\x03\x05DMC-0" \
             b"\x00\x00\xc4\x21\x42\x02\x10\x00\x02\x03\x00\x01\x17" \
             b"\x05\x00\x81\x0b" \
             b"\x07\x00\x81\x07"
-        e = events.decode_event (b)
+        e, x = events.EventBase.decode (b)
         self.assertIsInstance (e, events.circ_fault)
         self.assertTrue (e.ms_absent)
         self.assertEqual (e.event_class, 4)
@@ -319,8 +340,8 @@ class TestEventDecode (DnTest):
 
 class TestEventEncode (DnTest):
     def test_routing_evt (self):
-        # Event 4.7
-        e = events.circ_fault (entity = events.CircuitEntity ("DMC-0"),
+        "Event 4.7"
+        e = events.circ_fault (entity = events.CircuitEventEntity ("DMC-0"),
                                packet_header = [ 0x42, 16, 3, 23 ],
                                reason = "listener_invalid_data",
                                status = 7)

@@ -14,26 +14,25 @@ can be caught and then logged, resulting in the same output as for a simple
 
 import time
 import struct
+import collections
 
 from .common import *
 from . import logging
 from .nice_coding import *
 
-class Event (NicePacket):
+class EventBase (packet.Packet):
     """Base class for DECnet events.  This defines the standard header
     through the entity field.
     """
     classindex = { }
-    event_class = None
-    event_code = None
     loglevel = logging.INFO
     
     @classmethod
     def classindexkey (cls):
-        try:
-            return cls.event_class, cls.event_code
-        except AttributeError:
-            return None
+        return cls.instanceindexkey (cls)
+
+    def instanceindexkey (self):
+        return self.event_class, self.event_code
 
     @classmethod
     def defaultclass (cls, idx):
@@ -43,36 +42,39 @@ class Event (NicePacket):
         except KeyError:
             return cls.classindex[(None, None)]
         
-    _layout = (( "b", "function", 1 ),
-               ( "bm",
+    _layout = (( packet.B, "function", 1 ),
+               ( packet.BM,
                  ( "console", 0, 1 ),
                  ( "file", 1, 1 ),
                  ( "monitor", 2, 1 )),
-               ( "bm",
+               ( packet.BM,
                  ( "event_code", 0, 5 ),
                  ( "event_class", 6, 9 )),
-               ( "b", "halfday", 2 ),
-               ( "b", "seconds", 2 ),
-               ( "bm",
+               ( packet.B, "halfday", 2 ),
+               ( packet.B, "seconds", 2 ),
+               ( packet.BM,
                  ( "milliseconds", 0, 10 ),
                  ( "ms_absent", 15, 1 )),
-               ( NiceNode, "source" ),
-               ( EntityBase, "entity_type" ))
+               ( NiceNode, "source" ))
     function = 1
+
+    def __new__ (cls, entity = None, *args, **kwargs):
+        return super (__class__, cls).__new__ (cls)
 
     def __init__ (self, entity = None, source = None, **kwds):
         """Construct an Event object.  Arguments are:
-        entity: TBD
+        entity: the reporting entity for this event.  Note that
+          this works only when creating a subclass of EventBase
+          where entity_type is defined in the layout.
         source: source node for the event.  Usually omitted, will be
           set by node.logevent.  If supplied it must be a NiceNode
           instance.
         other keywords are handled as event parameter names with the
           associated value to set in the event.
         """
-        NicePacket.__init__ (self)
-        if entity is None:
-            entity = NoEntity ()
-        self.entity_type = entity
+        super ().__init__ ()
+        if entity is not None:
+            self.entity_type = entity
         self.source = source
         # Set event creation time to current time
         sec, self.milliseconds = divmod (int ((time.time () - jbase) * 1000), 1000)
@@ -98,7 +100,7 @@ class Event (NicePacket):
         e = "{:s}".format (self.entity_type)
         if e:
             ret.append ("  {}".format (e))
-        ret.append (self.format_nice ())
+        ret.append (NICE.format (self))
         return '\n'.join (ret)
 
     def setparams (self, **kwds):
@@ -114,22 +116,10 @@ class Event (NicePacket):
                 pass
             setattr (self, k, v)
 
-class EventHeader (Event):
-    # This is used for the initial parsing of an event, to pick up the
-    # event codes and any other header data we may need.
-    _addslots = { "payload" }
-
-    def format_nice (self, *args):
-        return ""
-
-def decode_event (msg):
-    evt = EventHeader ()
-    evt.decode (msg)
-    cls = evt.findclass ((evt.event_class, evt.event_code))
-    e = cls ()
-    e.decode (msg)
-    return e
-
+class Event (EventBase):
+    event_class = None
+    event_code = None
+    
 class DefaultEvent (Event):
     # This is the event class used for decoding any event message with a
     # class code we do not know.  It accepts any NICE data but doesn't
@@ -139,30 +129,37 @@ class DefaultEvent (Event):
     # classes or default classes that don't define a particular class or
     # code, so this one ends up as the default class to use for
     # decoding.
-    _layout = (( "nice", () ),)
+    _layout = (( EventEntityBase, "entity_type" ),
+               ( NICE, True ))
 
 class NetmanBase (Event):
     event_class = 0
+    nicedef = ( NICE, True,
+                ( 0, C1, "Service", None, ( "Load", "Dump" )),
+                ( 1, CM, "Status", None, ( C1, C2, AI )),
+                ( 2, C1, "Operation", None, ( "Initiated", "Terminated" )),
+                ( 3, C1, "Reason", None,
+                  ( "Receive timeout",
+                    "Receive error"
+                    "Line state change by higher level",
+                    "Unrecognized request",
+                    "Line open error" )),
+                ( 4, CM, "Qualifier", None, ( C2, AI )),
+                ( 5, CMNode, "Node" ),
+                ( 6, AI, "DTE" ),
+                ( 7, AI, "Filespec" ),
+                ( 8, C1, "Software type", None,
+                  ( "Secondary loader",
+                    "Tertiary loader",
+                    "System" )))
 
 class NetmanEvent (NetmanBase):
-    _layout = (( "nice",
-                 (( 0, C1, "Service", None, ( "Load", "Dump" )),
-                  ( 1, CM, "Status", None, ( C1, C2, AI )),
-                  ( 2, C1, "Operation", None, ( "Initiated", "Terminated" )),
-                  ( 3, C1, "Reason", None,
-                    ( "Receive timeout",
-                      "Receive error"
-                      "Line state change by higher level",
-                      "Unrecognized request",
-                      "Line open error" )),
-                  ( 4, CM, "Qualifier", None, ( C2, AI )),
-                  ( 5, CMNode, "Node" ),
-                  ( 6, AI, "DTE" ),
-                  ( 7, AI, "Filespec" ),
-                  ( 8, C1, "Software type", None,
-                    ( "Secondary loader",
-                      "Tertiary loader",
-                      "System" )))),)
+    _layout = (( NoEntity, "entity_type" ),
+               NetmanBase.nicedef ) 
+                     
+class NetmanDefaultEvent (NetmanBase):
+    _layout = (( EventEntityBase, "entity_type" ),
+               NetmanBase.nicedef ) 
                      
 class events_lost (NetmanEvent):
     "Event records lost"
@@ -171,17 +168,21 @@ class events_lost (NetmanEvent):
 class node_ctrs (NetmanBase):
     "Automatic node counters"
     event_code = 1
-    _layout = (( "nice", node_counters ),)
+    _layout = (( NodeEventEntity, "entity_type" ),
+               ( NICE, True ) + node_counters )
 
 # TODO: counters
 class line_ctrs (NetmanEvent):
     "Automatic line counters"
     event_code = 2
 
-class circ_svc (NetmanEvent):
+class circ_svc (NetmanBase):
     "Automatic service"
     event_code = 3
+    _layout = (( CircuitEventEntity, "entity_type" ),
+               NetmanBase.nicedef ) 
 
+# TODO
 class line_zero (NetmanEvent):
     "Line counters zeroed"
     event_code = 4
@@ -189,40 +190,46 @@ class line_zero (NetmanEvent):
 class node_zero (NetmanBase):
     "Node counters zeroed",    
     event_code = 5
-    _layout = (( "nice", node_counters ),)
+    _layout = (( NodeEventEntity, "entity_type" ),
+               ( NICE, True ) + node_counters )
 
-class circ_loop (NetmanEvent):
+class circ_loop (NetmanBase):
     "Passive loopback"
     event_code = 6
+    _layout = (( CircuitEventEntity, "entity_type" ),
+               NetmanBase.nicedef ) 
 
-class circ_svcabt (NetmanEvent):
+class circ_svcabt (circ_loop):
     "Aborted service request"
     event_code = 7
 
 # TODO: entity dependent counters?
-class auto_ctrs (NetmanEvent):
+class auto_ctrs (NetmanBase):
     "Automatic counters"
     event_code = 8
+    _layout = (( EventEntityBase, "entity_type" ),
+               NetmanBase.nicedef ) 
 
-class ctrs_zero (NetmanEvent):
+class ctrs_zero (auto_ctrs):
     "Counters zeroed"
     event_code = 9
     
 se_state = ( "On", "Off", "Shut", "Restricted" )
 class SessionEvent (Event):
     event_class = 2
-    _layout = (( "nice",
-                 (( 0, C1, "Reason", None,
-                    ( "Operator command",
-                      "Normal operation" ) ),
-                  ( 1, C1, "Old state", None, se_state ),
-                  ( 2, C1, "New state", None, se_state ),
-                  ( 3, CMNode, "Source node" ),
-                  ( 4, CMProc, "Source process" ),
-                  ( 5, CMProc, "Destination process" ),
-                  ( 6, AI, "User" ),
-                  ( 7, C1, "Password", None, ( "Set", ) ),
-                  ( 8, AI, "Account" ))),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, C1, "Reason", None,
+                   ( "Operator command",
+                     "Normal operation" ) ),
+                 ( 1, C1, "Old state", None, se_state ),
+                 ( 2, C1, "New state", None, se_state ),
+                 ( 3, CMNode, "Source node" ),
+                 ( 4, CMProc, "Source process" ),
+                 ( 5, CMProc, "Destination process" ),
+                 ( 6, AI, "User" ),
+                 ( 7, C1, "Password", None, ( "Set", ) ),
+                 ( 8, AI, "Account" )))
     _values = { "reason" : { "operator_command" : 0,
                              "normal_operation" : 1 },
                 "old_state" :  { "on" : 0,
@@ -246,12 +253,13 @@ class acc_rej (SessionEvent):
     
 class EclEvent (Event):
     event_class = 3
-    _layout = (( "nice",
-                 [( 0, CM, "Message", None, ( H1, DU2, DU2, HI ) ),
-                  ( 1, DS1, "Current flow control request count",
-                    "request_count" ),
-                  ( 2, CMNode, "Source node" )]
-                 + node_counters),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, CM, "Message", None, ( H1, DU2, DU2, HI ) ),
+                 ( 1, DS1, "Current flow control request count",
+                   "request_count" ),
+                 ( 2, CMNode, "Source node" ))
+                 + node_counters)
 
 class inv_msg (EclEvent):
     "Invalid message"
@@ -269,38 +277,39 @@ class db_reuse (EclEvent):
 
 class RoutingEvent (Event):
     event_class = 4
-    _layout = (( "nice",
-               (( 0, CM, "Packet header", "eth_packet_header",
-                  ( H1, DU1, DU1, HI, DU1, DU1, HI, DU1, DU1, H1, DU1 )),
-                ( 0, CM, "Packet header", "ni_packet_header",
-                  ( H1, H1, DU2, AI )),
-                ( 0, CM, "Packet header", "nv_packet_header",
-                  ( H1, H1 )),
-                ( 0, CM, "Packet header", "packet_header",
-                  ( H1, DUNode, DUNode, DU1 )),
-                ( 1, HI, "Packet beginning" ),
-                ( 2, DU2, "Highest address" ),
-                ( 3, CMNode, "Node" ),
-                ( 4, CMNode, "Expected node" ),
-                ( 5, C1, "Reason", None,
-                  ( "Circuit synchronization lost",
-                    "Data errors",
-                    "Unexpected packet type",
-                    "Routing update checksum error",
-                    "Adjacency address change",
-                    "Verification receive timeout",
-                    "Version skew",
-                    "Adjacency address out of range",
-                    "Adjacency block size too small",
-                    "Invalid verification seed value",
-                    "Adjacency listener receive timeout",
-                    "Adjacency listener received invalid data",
-                    "Call failed",
-                    "Verification password require for Phase III node",
-                    "Dropped by adjacent node" )),
-                ( 6, CMVersion, "Received version" ),
-                ( 7, C1, "Status", None, ( "Reachable", "Unreachable" )),
-                ( 8, CMNode, "Adjacent node" ))),)
+    _layout = (( CircuitEventEntity, "entity_type" ),
+               ( NICE, True,
+               ( 0, CM, "Packet header", "eth_packet_header",
+                 ( H1, DU1, DU1, HI, DU1, DU1, HI, DU1, DU1, H1, DU1 )),
+               ( 0, CM, "Packet header", "ni_packet_header",
+                 ( H1, H1, DU2, AI )),
+               ( 0, CM, "Packet header", "nv_packet_header",
+                 ( H1, H1 )),
+               ( 0, CM, "Packet header", "packet_header",
+                 ( H1, DUNode, DUNode, DU1 )),
+               ( 1, HI, "Packet beginning" ),
+               ( 2, DU2, "Highest address" ),
+               ( 3, CMNode, "Node" ),
+               ( 4, CMNode, "Expected node" ),
+               ( 5, C1, "Reason", None,
+                 ( "Circuit synchronization lost",
+                   "Data errors",
+                   "Unexpected packet type",
+                   "Routing update checksum error",
+                   "Adjacency address change",
+                   "Verification receive timeout",
+                   "Version skew",
+                   "Adjacency address out of range",
+                   "Adjacency block size too small",
+                   "Invalid verification seed value",
+                   "Adjacency listener receive timeout",
+                   "Adjacency listener received invalid data",
+                   "Call failed",
+                   "Verification password require for Phase III node",
+                   "Dropped by adjacent node" )),
+               ( 6, CMVersion, "Received version" ),
+               ( 7, C1, "Status", None, ( "Reachable", "Unreachable" )),
+               ( 8, CMNode, "Adjacent node" )))
 
     _values = { "reason" : { "sync_lost" : 0,
                              "data_errors" : 1,
@@ -380,10 +389,15 @@ class init_oper (RoutingEvent):
     "Initialization failure, operator fault"
     event_code = 13
 
-class reach_chg (RoutingEvent):
+class reach_chg (Event):
     "Node reachability change"
+    event_class = 4
     event_code = 14
-
+    _layout = (( NodeEventEntity, "entity_type" ),
+               ( NICE, True,
+                ( 7, C1, "Status", None, ( "Reachable", "Unreachable" ))))
+    _values = RoutingEvent._values
+    
 class adj_up (RoutingEvent):
     "Adjacency up"
     event_code = 15
@@ -392,9 +406,14 @@ class adj_rej (RoutingEvent):
     "Adjacency rejected"
     event_code = 16
 
-class area_chg (RoutingEvent):
+class area_chg (Event):
     "Area reachability change"
+    event_class = 4
     event_code = 17
+    _layout = (( AreaEventEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 7, C1, "Status", None, ( "Reachable", "Unreachable" ))))
+    _values = RoutingEvent._values
 
 class adj_down (RoutingEvent):
     "Adjacency down"
@@ -409,45 +428,46 @@ dl_state11 = ( "On", "Off", "Shut" )
 
 class DlEvent (Event):
     event_class = 5
-    _layout = (( "nice",
-                 (( 0, C1, "Old state", None, dl_state ),
-                  ( 1, C1, "New state", None, dl_state ),
-                  ( 2, HI, "Header" ),
-                  ( 3, DU1, "Selected tributary" ),
-                  ( 4, DU1, "Previous tributary" ),
-                  ( 5, C1, "Tributary status", None,
-                    ( "Streaming",
-                      "Continued send after timeout",
-                      "Continued send after deselect",
-                      "Ended streaming" )),
-                  ( 6, DU1, "Received tributary" ),
-                  ( 7, DU2, "Block length" ),
-                  ( 8, DU2, "Buffer length" ),
-                  ( 9, AI, "DTE" ),
-                  ( 10, C1, "Reason", None,
-                    ( "Operator command", "Normal operation" )),
-                  ( 11, C1, "Old state", "old_state_11", dl_state11 ),
-                  ( 12, C1, "New state", "new_state_11", dl_state11 ),
-                  ( 13, C2, "Parameter type", None, () ),
-                  ( 14, DU1, "Cause" ),
-                  ( 15, DU1, "Diagnostic" ),
-                  ( 16, C1, "Failure reason", None,
-                    ( "Excessive collisions",
-                      "Carrier check failed",
-                      "(OBSOLETE)",
-                      "Short circuit",
-                      "Open circuit",
-                      "Frame too long",
-                      "Remote failure to defer",
-                      "Block check error",
-                      "Framing error",
-                      "Data overrun",
-                      "System buffer unavailable",
-                      "User buffer unavailable",
-                      "Unrecognized frame destination")),
-                  ( 17, DU2, "Distance" ),
-                  ( 18, CM3, "Ethernet header", None, ( HI, HI, HI )),
-                  ( 19, H1, "Hardware status" ))),)
+    _layout = (( CircuitEventEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, C1, "Old state", None, dl_state ),
+                 ( 1, C1, "New state", None, dl_state ),
+                 ( 2, HI, "Header" ),
+                 ( 3, DU1, "Selected tributary" ),
+                 ( 4, DU1, "Previous tributary" ),
+                 ( 5, C1, "Tributary status", None,
+                   ( "Streaming",
+                     "Continued send after timeout",
+                     "Continued send after deselect",
+                     "Ended streaming" )),
+                 ( 6, DU1, "Received tributary" ),
+                 ( 7, DU2, "Block length" ),
+                 ( 8, DU2, "Buffer length" ),
+                 ( 9, AI, "DTE" ),
+                 ( 10, C1, "Reason", None,
+                   ( "Operator command", "Normal operation" )),
+                 ( 11, C1, "Old state", "old_state_11", dl_state11 ),
+                 ( 12, C1, "New state", "new_state_11", dl_state11 ),
+                 ( 13, C2, "Parameter type", None, () ),
+                 ( 14, DU1, "Cause" ),
+                 ( 15, DU1, "Diagnostic" ),
+                 ( 16, C1, "Failure reason", None,
+                   ( "Excessive collisions",
+                     "Carrier check failed",
+                     "(OBSOLETE)",
+                     "Short circuit",
+                     "Open circuit",
+                     "Frame too long",
+                     "Remote failure to defer",
+                     "Block check error",
+                     "Framing error",
+                     "Data overrun",
+                     "System buffer unavailable",
+                     "User buffer unavailable",
+                     "Unrecognized frame destination")),
+                 ( 17, DU2, "Distance" ),
+                 ( 18, CM3, "Ethernet header", None, ( HI, HI, HI )),
+                 ( 19, H1, "Hardware status" )))
 
     _values = { "old_state" :  { "halted" : 0,
                                  "istrt" : 1,
@@ -528,19 +548,24 @@ class line_coll (DlEvent):
     "Collision detect check failed"
     event_code = 16
 
-class mod_dteup (DlEvent):
+class mod_dteup (Event):
     "DTE up"
+    event_class = 5
     event_code = 17
+    _layout = (( ModuleEventEntity, "entity_type" ),
+               ( NICE, True,
+                  ( 9, AI, "DTE" )))
 
-class mod_dtedown (DlEvent):
+class mod_dtedown (mod_dteup):
     "DTE down"
     event_code = 18
 
 class PhyEvent (Event):
     event_class = 6
-    _layout = (( "nice",
-                 (( 0, O2, "Device register" ),
-                  ( 1, C1, "New state", None, ( "Off", "On" )))),)
+    _layout = (( LineEventEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, O2, "Device register" ),
+                 ( 1, C1, "New state", None, ( "Off", "On" ))))
 
 class line_dsr (PhyEvent):
     "Data set ready transition"
@@ -570,25 +595,26 @@ class line_perf (PhyEvent):
 
 class RstsAppEvent (Event):
     event_class = 33
-    _layout = (( "nice",
-                 (( 0, C1, "Access", None, ( "Local", "Remote" )),
-                  ( 1, C1, "Function", None,
-                    ( "Illegal",
-                      "Open/read",
-                      "Open/write",
-                      "Rename",
-                      "Delete",
-                      "Reserved",
-                      "Directory",
-                      "Submit",
-                      "Execute")),
-                  ( 3, CMNode, "Remote node" ),
-                  ( 4, CMProc, "Remote process" ),
-                  ( 5, CMProc, "Local process" ),
-                  ( 6, AI, "User" ),
-                  ( 7, C1, "Password", None, ( "Set", ) ),
-                  ( 8, AI, "Account" ),
-                  ( 9, AI, "File accessed" ))),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, C1, "Access", None, ( "Local", "Remote" )),
+                 ( 1, C1, "Function", None,
+                   ( "Illegal",
+                     "Open/read",
+                     "Open/write",
+                     "Rename",
+                     "Delete",
+                     "Reserved",
+                     "Directory",
+                     "Submit",
+                     "Execute")),
+                 ( 3, CMNode, "Remote node" ),
+                 ( 4, CMProc, "Remote process" ),
+                 ( 5, CMProc, "Local process" ),
+                 ( 6, AI, "User" ),
+                 ( 7, C1, "Password", None, ( "Set", ) ),
+                 ( 8, AI, "Account" ),
+                 ( 9, AI, "File accessed" )))
         
 class rsts_fal (RstsAppEvent):
     "Remote file access"
@@ -596,17 +622,18 @@ class rsts_fal (RstsAppEvent):
 
 class RstsSessionEvent (Event):
     event_class = 34
-    _layout = (( "nice",
-                 (( 0, C1, "Reason", None,
-                    ( "I/O error on Object database",
-                      "Spawn Directive failed",
-                      "Unknown Object identification" )),
-                  ( 3, CMNode, "Source node" ),
-                  ( 4, CMProc, "Source process" ),
-                  ( 5, CMProc, "Destination process", "dest_process" ),
-                  ( 6, AI, "User" ),
-                  ( 7, C1, "Password", None, ( "Set", ) ),
-                  ( 8, AI, "Account" ))),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True,
+                 ( 0, C1, "Reason", None,
+                   ( "I/O error on Object database",
+                     "Spawn Directive failed",
+                     "Unknown Object identification" )),
+                 ( 3, CMNode, "Source node" ),
+                 ( 4, CMProc, "Source process" ),
+                 ( 5, CMProc, "Destination process", "dest_process" ),
+                 ( 6, AI, "User" ),
+                 ( 7, C1, "Password", None, ( "Set", ) ),
+                 ( 8, AI, "Account" )))
 
 class rsts_spawn (RstsSessionEvent):
     "Object spawned"
@@ -623,7 +650,8 @@ class rsts_spawn_fail (RstsSessionEvent):
 
 class RsxEvent (Event):
     event_class = 64
-    _layout = (( "nice", () ),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True ))
 
 class rsx_rdb_corrupt (RsxEvent):
     "Routing database corrupt"
@@ -635,7 +663,8 @@ class rsx_rdb_restored (RsxEvent):
 
 class rsx_93 (Event):
     event_class = 93
-    _layout = (( "nice", () ),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True ))
 
 class rsx_state_change (rsx_93):
     "State change"
@@ -643,7 +672,8 @@ class rsx_state_change (rsx_93):
 
 class rsx_94 (Event):
     event_class = 94
-    _layout = (( "nice", () ),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True ))
     
 class rsx_dce_err (rsx_94):
     "DCE detected packet error"
@@ -655,7 +685,8 @@ class rsx_dce_err (rsx_94):
 
 class VmsEvent (Event):
     event_class = 128
-    _layout = (( "nice", () ),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True ))
 
 class vms_dap_crc (VmsEvent):
     "DAP CRC error detected"
@@ -675,7 +706,8 @@ class vms_proc_term (VmsEvent):
 
 class VmsDnsEvent (Event):
     event_class = 353
-    _layout = (( "nice", () ),)
+    _layout = (( NoEntity, "entity_type" ),
+               ( NICE, True ))
 
 class vms_dns_comm (VmsDnsEvent):
     "DECdns clerk unable to communicate with server"
@@ -684,3 +716,18 @@ class vms_dns_comm (VmsDnsEvent):
 class vms_dns_advert (VmsDnsEvent):
     "Local DECdns Advertiser error"
     event_code = 20
+
+# Documentation tool, intended to be called interactively when needed
+# for updating the description in config.txt.
+def printEventLevels ():
+    levels = collections.defaultdict (list)
+    for k, v in EventBase.classindex.items ():
+        ec, en = k
+        if en is None:
+            continue
+        levels[v.loglevel].append (v)
+    for l, elist in sorted (levels.items ()):
+        print ("\nLevel {}".format (logging.logging.getLevelName (l)))
+        for v in elist:
+            print ("{}.{} ({})".format (v.event_class, v.event_code,
+                                        v.__doc__))

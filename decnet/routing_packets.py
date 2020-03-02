@@ -58,7 +58,7 @@ def evtpackethdr (pkt, exc = None):
     may change the choice of parameter used.
     """
     if isinstance (pkt, bytetypes):
-        buf = bytes (pkt)
+        buf = pkt
     else:
         try:
             buf = pkt.decoded_from
@@ -86,8 +86,7 @@ def evtpackethdr (pkt, exc = None):
     return { "packet_beginning" : buf[:6] }
     
 class ShortData (packet.Packet):
-    _addslots = { "payload" }
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "sfpd", 0, 3 ),
                  ( "rqr", 3, 1 ),
                  ( "rts", 4, 1 ),
@@ -95,31 +94,32 @@ class ShortData (packet.Packet):
                  ( "pf", 7, 1 )),
                ( Nodeid, "dstnode" ),
                ( Nodeid, "srcnode" ),
-               ( "bm",
-                 ( "visit", 0, 6 )))
+               ( packet.BM,
+                 ( "visit", 0, 6 )),
+               packet.Payload )
     sfpd = 2
     vers = 0
     pf = 0
     ie = 0    # "intra ethernet" -- for translation to/from long
 
 class LongData (packet.Packet):
-    _addslots = { "payload" }
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "lfpd", 0, 3 ),
                  ( "rqr", 3, 1 ),
                  ( "rts", 4, 1 ),
                  ( "ie", 5, 1 ),
                  ( "vers", 6, 1 ),
                  ( "pf", 7, 1 )),
-               ( "res", 2 ),    # d-area, d-subarea
-               ( "bv", "dsthi", 4 ),
+               ( packet.RES, 2 ),    # d-area, d-subarea
+               ( packet.BV, "dsthi", 4 ),
                ( Nodeid, "dstnode" ),
-               ( "res", 2 ),    # s-area, s-subarea
-               ( "bv", "srchi", 4 ),
+               ( packet.RES, 2 ),    # s-area, s-subarea
+               ( packet.BV, "srchi", 4 ),
                ( Nodeid, "srcnode" ),
-               ( "res", 1 ),
-               ( "b", "visit", 1 ),
-               ( "res", 2 ))    # s-class, pt
+               ( packet.RES, 1 ),
+               ( packet.B, "visit", 1 ),
+               ( packet.RES, 2 ),    # s-class, pt
+               packet.Payload)
     lfpd = 6
     vers = 0
     pf = 0
@@ -127,7 +127,7 @@ class LongData (packet.Packet):
     srchi = HIORD
 
 class CtlHdr (packet.Packet):
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "control", 0, 1 ),
                  ( "type", 1, 3 ),
                  ( "pf", 7, 1 )),)
@@ -136,14 +136,14 @@ class CtlHdr (packet.Packet):
 
 class PtpInit (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
-               ( "bm",
+               ( packet.BM,
                  ( "ntype", 0, 2 ),
                  ( "verif", 2, 1 ),
                  ( "blo", 3, 1 )),
-               ( "b", "blksize", 2 ),
+               ( packet.B, "blksize", 2 ),
                ( Version, "tiver" ),
-               ( "b", "timer", 2 ),
-               ( "i", "reserved", 64 ))
+               ( packet.B, "timer", 2 ),
+               ( packet.I, "reserved", 64 ))
     type = 0
     blo = 0
 
@@ -160,12 +160,12 @@ class PtpInit (CtlHdr):
     
 class PtpInit3 (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
-               ( "bm",
+               ( packet.BM,
                  ( "ntype", 0, 2 ),
                  ( "verif", 2, 1 )),
-               ( "b", "blksize", 2 ),
+               ( packet.B, "blksize", 2 ),
                ( Version, "tiver" ),
-               ( "i", "reserved", 64 ))
+               ( packet.I, "reserved", 64 ))
     type = 0
     blo = 0
     # Defined in phase IV hello, supply dummy value for commonality
@@ -183,18 +183,18 @@ class PtpInit3 (CtlHdr):
 
 class PtpVerify (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
-               ( "i", "fcnval", 64 ))
+               ( packet.I, "fcnval", 64 ))
     type = 1
     
 class PtpHello (CtlHdr):
     _layout = (( Nodeid, "srcnode" ),
-               ( "i", "testdata", 128 ))
+               ( packet.I, "testdata", 128 ))
     type = 2
 
 class RouteSegEntry (packet.Packet):
     """An entry in the routing message: the cost/hops fields.
     """
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "cost", 0, 10 ),
                  ( "hops", 10, 5 )),)
 
@@ -202,8 +202,8 @@ class L1Segment (packet.Packet):
     """A segment of a Level 1 routing message.  It consists of
     a header followed by some number of segment entries.
     """
-    _layout = (( "b", "count", 2 ),
-               ( "b", "startid", 2 ))
+    _layout = (( packet.B, "count", 2 ),
+               ( packet.B, "startid", 2 ))
     _addslots = { "entries" }
 
     def validate (self):
@@ -211,21 +211,18 @@ class L1Segment (packet.Packet):
             logging.debug ("Invalid L1 segment, start {}, count {}",
                            self.startid, self.count)
             raise FormatError
-        
-    def decode (self, buf):
-        data = super ().decode (buf)
-        self.validate ()
-        self.entries = [ ]
-        for id in range (self.count):
-            ent = RouteSegEntry ()
-            data = ent.decode (data)
-            self.entries.append (ent)
-        return data
+
+    @classmethod
+    def decode (cls, buf):
+        seg, buf = super (__class__, cls).decode (buf)
+        seg.validate ()
+        seg.entries, buf = packet.LIST.decode (buf, RouteSegEntry, seg.count)
+        return seg, buf
 
     def encode (self):
-        payload = b''.join ([ bytes (e) for e in self.entries ])
         self.count = len (self.entries)
-        return super ().encode () + payload
+        entries = packet.LIST.checktype ("entries", self.entries)
+        return super ().encode () + entries.encode (RouteSegEntry)
     
 class L2Segment (L1Segment):
     """A segment of a Level 2 routing message.  Similar to the
@@ -246,8 +243,8 @@ class RoutingMessage (CtlHdr):
     """Routing message base class.  It consists of a header,
     followed by some number of segments, followed by a checksum.
     """
-    _layout = (( "b", "srcnode", 2 ),
-               ( "res", 1 ))
+    _layout = (( packet.B, "srcnode", 2 ),
+               ( packet.RES, 1 ))
     _addslots = { "segments" }
     initchecksum = 1    # Phase 4 case
 
@@ -269,24 +266,16 @@ class RoutingMessage (CtlHdr):
                            s, check)
             raise ChecksumError
 
-    def decode_segments (self, data):
-        segments = [ ]
-        while data:
-            seg = self.segtype ()
-            data = seg.decode (data)
-            segments.append (seg)
-        return segments
-            
-    def decode (self, buf):
-        segs = super ().decode (buf)
-        self.validate (segs)
-        self.segments = self.decode_segments (segs[:-2])
-
-    def encode_segments (self):
-        return b''.join ([ bytes (s) for s in self.segments ])
+    @classmethod
+    def decode (cls, buf):
+        ret, buf2 = super (__class__, cls).decode (buf)
+        ret.validate (buf2)
+        ret.segments, buf = packet.LIST.decode (buf2[:-2], ret.segtype)
+        return ret, buf
     
     def encode (self):
-        segs = self.encode_segments ()
+        segs = packet.LIST.checktype ("segments", self.segments)
+        segs = segs.encode (self.segtype)
         s = self.initchecksum
         for i in range (0, len (segs), 2):
             s += int.from_bytes (segs[i:i+2], packet.LE)
@@ -330,18 +319,13 @@ class PhaseIIIRouting (RoutingMessage):
     """
     initchecksum = 0
     type = 3
-    segtype = None
+    # "segtype" is normally the type of a routing segment, which is
+    # the outer type.  We don't have segments, so instead the inner
+    # type is the one we mention.
+    segtype = RouteSegEntry
     lowid = 1
+    startid = 1
     
-    def decode_segments (self, data):
-        id = 1
-        entries = [ ]
-        while data:
-            e = RouteSegEntry ()
-            data = e.decode (data)
-            entries.append (e)
-        return entries
-
     def entries (self, circ):
         """Return a generator that walks over the routing message
         entries, yielding tuples: id, (hops, cost) -- the latter from the
@@ -356,45 +340,45 @@ class PhaseIIIRouting (RoutingMessage):
 
 class RouterHello (CtlHdr):
     _layout = (( Version, "tiver" ),
-               ( "bv", "hiid", 4 ),
+               ( packet.BV, "hiid", 4 ),
                ( Nodeid, "id" ),
-               ( "bm",
+               ( packet.BM,
                  ( "ntype", 0, 2 )),
-               ( "b", "blksize", 2 ),
-               ( "b", "prio", 1 ),
-               ( "res", 1 ),    # area
-               ( "b", "timer", 2 ),
-               ( "res", 1 ),    # mpd
-               ( "i", "elist", 244 ))
+               ( packet.B, "blksize", 2 ),
+               ( packet.B, "prio", 1 ),
+               ( packet.RES, 1 ),    # area
+               ( packet.B, "timer", 2 ),
+               ( packet.RES, 1 ),    # mpd
+               ( packet.I, "elist", 244 ))
     type = 5
     hiid = HIORD
     ntype_l1 = 2
     ntype_l2 = 1
 
 class Elist (packet.Packet):
-    _layout = (( "res", 7 ),
-               ( "i", "rslist", 236 ))
+    _layout = (( packet.RES, 7 ),
+               ( packet.I, "rslist", 236 ))
 
 class RSent (packet.Packet):
-    _layout = (( "bv", "hiid", 4 ),
+    _layout = (( packet.BV, "hiid", 4 ),
                ( Nodeid, "router" ),
-               ( "bm",
+               ( packet.BM,
                  ( "prio", 0, 7 ),
                  ( "twoway", 7, 1 )))
     hiid = HIORD
     
 class EndnodeHello (CtlHdr):
     _layout = (( Version, "tiver" ),
-               ( "bv", "hiid", 4 ),
+               ( packet.BV, "hiid", 4 ),
                ( Nodeid, "id" ),
-               ( "bm",
+               ( packet.BM,
                  ( "ntype", 0, 2 )),
-               ( "b", "blksize", 2 ),
-               ( "res", 9 ),    # area and seed
-               ( "bv", "neighbor", 6 ),
-               ( "b", "timer", 2 ),
-               ( "res", 1 ),
-               ( "i", "testdata", 128 ))
+               ( packet.B, "blksize", 2 ),
+               ( packet.RES, 9 ),    # area and seed
+               ( packet.BV, "neighbor", 6 ),
+               ( packet.B, "timer", 2 ),
+               ( packet.RES, 1 ),
+               ( packet.I, "testdata", 128 ))
     type = 6
     hiid = HIORD
     ntype = ENDNODE
@@ -402,21 +386,21 @@ class EndnodeHello (CtlHdr):
     prio = 0
 
 class NodeInit (packet.Packet):
-    _layout = (( "b", "msgflag", 1 ),
-               ( "b", "starttype", 1 ),
-               ( "ex", "srcnode", 2 ),
-               ( "a", "nodename", 6 ),
-               ( "bm",
+    _layout = (( packet.B, "msgflag", 1 ),
+               ( packet.B, "starttype", 1 ),
+               ( packet.EX, "srcnode", 2 ),
+               ( packet.A, "nodename", 6 ),
+               ( packet.BM,
                  ( "int", 0, 3 )),
-               ( "bm",
+               ( packet.BM,
                  ( "verif", 0, 1 ),
                  ( "rint", 1, 2 )),
-               ( "b", "blksize", 2 ),
-               ( "b", "nspsize", 2 ),
-               ( "b", "maxlnks", 2 ),
+               ( packet.B, "blksize", 2 ),
+               ( packet.B, "nspsize", 2 ),
+               ( packet.B, "maxlnks", 2 ),
                ( Version, "routver" ),
                ( Version, "commver" ),
-               ( "a", "sysver", 32 ))
+               ( packet.A, "sysver", 32 ))
     msgflag = 0x58
     starttype = 1
     # These two are field of Phase 3/4 messages, but are implied here.
@@ -430,24 +414,24 @@ class NodeInit (packet.Packet):
             raise InvalidAddress (self.srcnode)
 
 class NodeVerify (packet.Packet):
-    _layout = (( "b", "msgflag", 1 ),
+    _layout = (( packet.B, "msgflag", 1 ),
                # Yes, the spec says this is 2 bytes even though it's 1 in Init
-               ( "b", "starttype", 2 ),
-               ( "bv", "password", 8 ))
+               ( packet.B, "starttype", 2 ),
+               ( packet.BV, "password", 8 ))
     msgflag = 0x58
     starttype = 2
 
 class NopMsg (packet.Packet):
-    _addslots = { "payload" }
-    _layout = (( "b", "msgflag", 1 ),)
+    _layout = (( packet.B, "msgflag", 1 ),
+               packet.Payload)
     msgflag = 0x08
 
 # Phase 2 routing header
 class RouteHdr (packet.Packet):
-    _addslots = { "payload" }
-    _layout = (( "b", "msgflag", 1 ),
-               ( "a", "dstnode", 6 ),
-               ( "a", "srcnode", 6 ))
+    _layout = (( packet.B, "msgflag", 1 ),
+               ( packet.A, "dstnode", 6 ),
+               ( packet.A, "srcnode", 6 ),
+               packet.Payload)
                
 # Regexp used to validate "testdata" field.
 testdata_re = re.compile (b"^\252*$")

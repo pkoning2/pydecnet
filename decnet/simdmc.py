@@ -224,7 +224,7 @@ class SimhDMC (datalink.PtpDatalink):
                     
     def send (self, msg, dest = None):
         if self.status == RUN:
-            msg = bytes (msg)
+            msg = makebytes (msg)
             if logging.tracing:
                 logging.trace ("Sending DMC message len {}: {!r}",
                                len (msg), msg)

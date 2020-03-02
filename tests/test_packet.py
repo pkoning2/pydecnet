@@ -4,75 +4,62 @@ from tests.dntest import *
 
 from decnet import packet
 
-class BE2 (int):
-    """2-byte big endian integer.
-    """
-    def __new__ (cls, val, bval = None):
-        if bval is None:
-            val = int.from_bytes (val.to_bytes (2, "little"), "big")
-        else:
-            val = bval
-        return int.__new__ (cls, val)
-
-    def __int__ (self):
-        return int.from_bytes (self.to_bytes (2, "little"), "big")
-    
 class alltypes (packet.Packet):
-    _layout = (( "bm",
+    _layout = (( packet.BM,
                  ( "bit1", 0, 1 ),
                  ( "bit2", 1, 2 ),
-                 ( "bit6", 3, 6 ),
-                 ( "be", 9, 16, BE2 )),
-               ( "i", "image", 10 ),
-               ( "b", "int6", 6 ),
-               ( "ex", "extended", 7 ),
-               ( "signed", "sint", 2 ),
-               ( "bv", "byte5", 5 ),
-               ( "res", 1 ),
-               ( "b", "int4", 4 ),
+                 ( "bit6", 3, 6 )),
+               ( packet.I, "image", 10 ),
+               ( packet.B, "int6", 6 ),
+               ( packet.EX, "extended", 7 ),
+               ( packet.SIGNED, "sint", 2 ),
+               ( packet.BV, "byte5", 5 ),
+               ( packet.RES, 1 ),
+               ( packet.B, "int4", 4 ),
                ( Nodeid, "node" ))
-class allpayload (alltypes): _addslots = { "payload" }
+class allpayload (alltypes):
+    _layout = (packet.Payload,)
 
-testdata = b"\025\x21\xc2\x01\006abcdef\001\000\000\001\000\000\200\003" \
+testdata = b"\025\x01\006abcdef\001\000\000\001\000\000\200\003" \
            b"\012\377bytesX\001\001\000\000\003\004"
-# In the above, X is the value for the one-byte "res" (reserved) field,
+# In the above, X is the value for the one-byte RES (reserved) field,
 # which is don't care on decode but 0 on encode.  So construct the
 # output we expect for encode:
 testdata2 = testdata.replace (b"X", b"\000")
 
 class alltlv (packet.Packet):
-    _layout = (( "b", "int1", 1 ),
-               ( "tlv", 1, 1, False,
-                 { 1 : ( "bm",
-                         ( "bit1", 0, 1 ),
-                         ( "bit2", 1, 2 ),
-                         ( "bit6", 3, 6 )),
-                   2 : ( "i", "image", 10 ),
-                   3 : ( "b", "int6", 6 ),
-                   7 : ( "ex", "extended", 7 ),
-                   8 : ( "signed", "sint", 2 ),
-                   9 : ( "bv", "byte5", 5 ),
-                   10: ( "b", "int4", 4 ),
-                   11: ( "bs", "bytestring", 50 ),
-                   12: ( Nodeid, "node" ) }))
+    _layout = (( packet.B, "int1", 1 ),
+               ( packet.TLV, 1, 1, False,
+                 ( 1, packet.BM,
+                       ( "bit1", 0, 1 ),
+                       ( "bit2", 1, 2 ),
+                       ( "bit6", 3, 6 )),
+                 ( 2, packet.I, "image", 10 ),
+                 ( 3, packet.B, "int6", 6 ),
+                 ( 7, packet.EX, "extended", 7 ),
+                 ( 8, packet.SIGNED, "sint", 2 ),
+                 ( 9, packet.BV, "byte5", 5 ),
+                 ( 10, packet.B, "int4", 4 ),
+                 ( 11, packet.I, "bytestring", 50 ),
+                 ( 12, Nodeid, "node" ) ))
 
 class alltlv_w (packet.Packet):
-    _layout = (( "b", "int1", 1 ),
-               ( "tlv", 1, 1, True,
-                 { 1 : ( "bm",
-                         ( "bit1", 0, 1 ),
-                         ( "bit2", 1, 2 ),
-                         ( "bit6", 3, 6 )),
-                   2 : ( "i", "image", 10 ),
-                   3 : ( "b", "int6", 6 ),
-                   7 : ( "ex", "extended", 7 ),
-                   8 : ( "signed", "sint", 2 ),
-                   9 : ( "bv", "byte5", 5 ),
-                   10: ( "b", "int4", 4 ),
-                   11: ( "bs", "bytestring", 50 ),
-                   12: ( Nodeid, "node" ) }))
+    _layout = (( packet.B, "int1", 1 ),
+               ( packet.TLV, 1, 1, True,
+                 ( 1, packet.BM,
+                      ( "bit1", 0, 1 ),
+                      ( "bit2", 1, 2 ),
+                      ( "bit6", 3, 6 )),
+                 ( 2, packet.I, "image", 10 ),
+                 ( 3, packet.B, "int6", 6 ),
+                 ( 7, packet.EX, "extended", 7 ),
+                 ( 8, packet.SIGNED, "sint", 2 ),
+                 ( 9, packet.BV, "byte5", 5 ),
+                 ( 10, packet.B, "int4", 4 ),
+                 ( 11, packet.I, "bytestring", 50 ),
+                 ( 12, Nodeid, "node" ) ))
 
-tlvdata = b"\001\002\005\004abcd\013\024four score and seven" \
+tlvdata = b"\001\002\004abcd\013\024four score and seven" \
           b"\012\004\004\001\000\000\014\002\003\004"
 
 class TestPacket (DnTest):
@@ -91,26 +78,27 @@ class TestPacket (DnTest):
             class foo (packet.Packet): pass
 
     def test_badlayout1 (self):
-        # Can't define a packet subclass with undefined type code
+        # Can't define a packet subclass with type Field
         with self.assertRaises (TypeError):
-            class foo (packet.Packet): _layout = ( ("invalid", 0, 0), )
+            class foo (packet.Packet): _layout = ( (Field, 0, 0), )
 
     def test_badlayout2 (self):
         # Can't have a duplicate field name
         with self.assertRaises (packet.InvalidField):
             class foo (packet.Packet):
-                _layout = ( ("b", "dupname", 2),
-                            ("b", "dupname", 2))
+                _layout = ( (packet.B, "dupname", 2),
+                            (packet.B, "dupname", 2))
+
     def test_badlayout3 (self):
         # Can't redefine a field from a base class
         class foo (packet.Packet):
-            _layout = ( ("b", "dupname", 2),)
+            _layout = ( (packet.B, "dupname", 2),)
         with self.assertRaises (packet.InvalidField):
             class bar (foo):
-                _layout = ( ("b", "dupname", 2),)
+                _layout = ( (packet.B, "dupname", 2),)
 
     def test_badlayout4 (self):
-        # Field types that are a class must have a decode method
+        # Field types must have a decode method
         with self.assertRaises (packet.InvalidField):
             class foo (packet.Packet):
                 _layout = ( (int, "name"),)
@@ -121,7 +109,6 @@ class TestPacket (DnTest):
         self.assertEqual (a.bit1, 1)
         self.assertEqual (a.bit2, 2)
         self.assertEqual (a.bit6, 34)
-        self.assertEqual (a.be, 4321)
         self.assertEqual (a.image, b"abcdef")
         self.assertEqual (a.int6, 16777217)
         self.assertEqual (a.extended, 384)
@@ -145,19 +132,19 @@ class TestPacket (DnTest):
                            % (e, testdata[:l], l))
         
     def test_alltypes_e (self):
-        a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18, be = BE2 (0, 511),
+        a = alltypes (bit1 = 1, bit2 = 2, bit6 = 18,
                       image = b"defghi", int6 = 32767,
                       extended = 12, sint = -2,
                       byte5 = b"hound", int4 = 511,
                       node = Nodeid (2, 2))
         b = bytes (a)
-        self.assertEqual (b, b"\x95\x02\xfe\x01\006defghi\377\177\000\000\000\000"
+        self.assertEqual (b, b"\x95\x00\006defghi\377\177\000\000\000\000"
                           b"\014\376\377hound\000\377\001\000\000\002\010")
 
     def test_alltypes_def (self):
         a = alltypes (node = Nodeid (1))    # Default what can be
         b = bytes (a)
-        self.assertEqual (b, b"\000\000\000\000\000\000\000\000\000\000\000"
+        self.assertEqual (b, b"\000\000\000\000\000\000\000\000\000"
                           b"\000\000\000\000\000\000\000\000\000"
                           b"\000\000\000\000\001\000")
 
@@ -182,12 +169,11 @@ class TestPacket (DnTest):
     def test_constfield (self):
         # Value defined in class is constant field
         class constimage (alltypes):
-            image = b"foobar"
+            image = packet.I (b"foobar")
         a = constimage (testdata.replace (b"abcdef", b"foobar"))
         self.assertEqual (a.bit1, 1)
         self.assertEqual (a.bit2, 2)
         self.assertEqual (a.bit6, 34)
-        self.assertEqual (a.be, 4321)
         self.assertEqual (a.image, b"foobar")
         self.assertEqual (a.int6, 16777217)
         self.assertEqual (a.extended, 384)
@@ -249,7 +235,9 @@ class TestPacket (DnTest):
         self.assertFalse (hasattr (a, "byte5"))
         self.assertEqual (a.field4, b"abc")
         self.assertEqual (a.field254, b"Test")
-        self.assertEqual (a.xfields (), ["field4", "field254"])
+        # Use "sorted" because in older versions of Python the order
+        # is randomized.
+        self.assertEqual (sorted (a.xfields ()), ["field254", "field4"])
 
     def test_desc (self):
         # Check the "fieldlabel" method

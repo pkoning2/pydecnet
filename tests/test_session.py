@@ -7,6 +7,7 @@ tester module (or process), which invokes all the SC interfaces on
 request.
 """
 import time
+import signal
 
 from tests.dntest import *
 from decnet import nsp
@@ -380,8 +381,13 @@ class test_file (test_inbound):
         self.assertEqual (m.abort.call_count, 1)
         self.assertEqual (m.abort.call_args,
                           unittest.mock.call (session.OBJ_FAIL))
-        self.assertEqual (logging.debug.call_args,
-                          unittest.mock.call ("Subprocess for {} exited with signal {} ({})", "object TESTER", 15, "SIGTERM"))
+        if hasattr (signal, "Signals"):
+            self.assertEqual (logging.debug.call_args,
+                              unittest.mock.call ("Subprocess for {} exited with signal {} ({})", "object TESTER", 15, "SIGTERM"))
+        else:
+            # Python 3.3 doesn't have the signal.Signals feature
+            self.assertEqual (logging.debug.call_args,
+                              unittest.mock.call ("Subprocess for {} exited with signal {} ({})", "object TESTER", 15, "unknown signal"))
     
 class test_outbound (stest):
     def test_outbound (self):
@@ -398,7 +404,7 @@ class test_outbound (stest):
         cidest, cidata = nspmock.connect.call_args[0]
         self.assertEqual (cidest, dest)
         cidata = bytes (cidata)
-        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDecnet\x02\x05hello")
+        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDECnet\x02\x05hello")
         sc.disconnect ()
         self.assertEqual (len (self.s.conns), 0)
 
@@ -416,7 +422,7 @@ class test_outbound (stest):
         cidest, cidata = nspmock.connect.call_args[0]
         self.assertEqual (cidest, dest)
         cidata = bytes (cidata)
-        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDecnet\x03\x05100,1\x04DEMO\x05Plugh\x02hi")
+        self.assertEqual (cidata, b"\x00\x19\x01\x00\x08PyDECnet\x03\x05100,1\x04DEMO\x05Plugh\x02hi")
         sc.client = unittest.mock.Mock ()
         pkt = nsp.NoRes ()
         w = Received (owner = self.s, connection = conn,
