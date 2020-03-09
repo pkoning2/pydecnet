@@ -129,7 +129,6 @@ def main ():
         sys.exit (1)
     # First start up the logging machinery
     logging.start (p)
-    logging.info ("Starting DECnet/Python {}-{}", http.DNVERSION, http.DNREV)
 
     # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
@@ -146,6 +145,11 @@ def main ():
                 sys.exit (1)
             if c.http.http_port:
                 httpserver = http.Monitor (c)
+    if not nodes:
+        print ("At least one routing or bridge instance must be configured")
+        sys.exit (1)
+        
+    logging.info ("Starting DECnet/Python {}-{}", http.DNVERSION, http.DNREV)
 
     # Before starting the various layers and elements, become daemon
     # if requested.  This means we don't have to worry about keeping
