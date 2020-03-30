@@ -328,7 +328,7 @@ class Multinet (datalink.PtpDatalink):
             else:
                 # UDP mode
                 hdr = self.seq.to_bytes (2, "little") + b"\000\000"
-                self.seq += 1
+                self.seq = (self.seq + 1) & 0xffff
                 try:
                     sock.sendto (hdr + msg, (self.host.addr, self.portnum))
                 except (socket.error, AttributeError, OSError):
