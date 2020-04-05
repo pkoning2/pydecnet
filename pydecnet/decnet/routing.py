@@ -958,7 +958,9 @@ class L1Router (BaseRouter):
                         # Mark "not intra-Ethernet"
                         pkt.ie = 0
                     if pkt.rts:
-                        limit *= 2
+                        # Double the limit with a max of 63 since
+                        # we're dealing with a 6 bit field.
+                        limit = min (limit * 2, 63)
                 if pkt.visit < limit:
                     # Visit limit still ok, send it and exit
                     if orig:
