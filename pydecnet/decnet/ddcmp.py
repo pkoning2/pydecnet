@@ -94,7 +94,7 @@ class DMHdr (packet.Packet):
     classindex = { }
     classindexkey = "soh"
     _layout = (( packet.B, "soh", 1 ),)
-    addr = 1
+
     # Default.  For packet classes, True if this packet has a settable
     # "resp" field that the sender needs to fill in.
     setresp = True
@@ -107,6 +107,9 @@ class DMHdr (packet.Packet):
         return ret, buf[2:]
 
     def encode (self):
+        # Supply the address.  Note that we don't enforce it on
+        # receive.
+        self.addr = 1
         ret = super ().encode ()
         crc = CRC16 (ret)
         return ret + bytes (crc)
