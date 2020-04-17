@@ -632,7 +632,7 @@ class PtpCircuit (statemachine.StateMachine):
                        self.parent.ntype in { L1ROUTER, L2ROUTER } and \
                        pkt.blksize < self.parent.maxnodes * 2 + 6:
                         self.datalink.counters.init_fail += 1
-                        logging.debug ("{} Phase III node block size {} too small for --max-nodes {}", self.name, pkt.blksize, self.parent.maxnodes)
+                        logging.debug ("{} Phase III node block size {} too small for --maxnodes {}", self.name, pkt.blksize, self.parent.maxnodes)
                         logging.debug ("   block size allows max nodes up to {}", (self.blksize - 6) // 2)
                         n = self.optnode (pkt.srcnode)
                         return self.restart (events.init_oper,
