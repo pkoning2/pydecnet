@@ -180,20 +180,19 @@ class LanCircuit (timers.Timer):
     
     def nice_read (self, req, resp):
         if isinstance (req, nicepackets.NiceReadNode) and req.sumstat ():
-            return  # TODO
-            r = resp[neighbor]
-            r.adj_circuit = str (self)
-            if req.sum ():
-                # Set next hop if summary.
-                r.next_node = neighbor
-            else:
-                # status
-                if self.rphase == 4:
-                    r.adj_type = self.ntype + 2
-                elif self.rphase == 3:
-                    r.adj_type = 1 if self.ntype == ENDNODE else 0
+            for neighbor in sorted (a.adjnode () for a in self.adjacencies.values ()):
+                r = resp[neighbor]
+                r.adj_circuit = str (self)
+                if req.sum ():
+                    # Set next hop if summary.
+                    r.next_node = neighbor
                 else:
-                    r.adj_type = 2
+                    # status
+                    r.adj_type = self.ntype + 2
+                    # Fill in hops/cost in case we're not getting this
+                    # from the routing table.
+                    r.hops = 1
+                    r.cost = self.config.cost
         elif isinstance (req, nicepackets.NiceReadCircuit):
             cn = str (self)
             if req.counters ():

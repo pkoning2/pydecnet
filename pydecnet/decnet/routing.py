@@ -1081,11 +1081,8 @@ class L1Router (BaseRouter):
                 r = resp[ni]
                 r.state = 4    # reachable
                 r.adj_circuit = a.circuit
-                if self.minhops[i] > 1 or req.info == 0:
-                    # If status, set next hop only if it's not this
-                    # node
-                    nxt = self.node.nodeinfo (a.nodeid)
-                    r.next_node = nxt
+                nxt = self.node.nodeinfo (a.nodeid)
+                r.next_node = nxt
                 if req.info == 1:
                     r.hops = self.minhops[i]
                     r.cost = self.mincost[i]
