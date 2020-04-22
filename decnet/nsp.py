@@ -1208,13 +1208,14 @@ class Other_Subchannel (Subchannel):
     def send (self, pkt):
         """Queue a packet for transmission, and send it if we're allowed.
 
-        We only handle Interrupt messages here; PyDECnet does not send
-        Link Service messages currently.  (If we ever allow more than
-        one Interrupt message inbound that would change; there does not
+        The check for "allowed" does not apply to link service messages.
+        PyDECnet does not send Link Service messages except for the
+        no-op Keepalive message.  (If we ever allow more than one
+        Interrupt message inbound that would change; there does not
         appear to be any good reason for using data subchannel flow
-        control.)  
+        control.)
         """
-        if self.maxmsg < self.nextmsg:
+        if not isinstance (pkt, LinkSvcMsg) and self.maxmsg < self.nextmsg:
             # Interrupt sends are refused if we're not allowed to send
             # right now.  
             raise CantSend
@@ -1225,7 +1226,7 @@ class Other_Subchannel (Subchannel):
         qe.send ()
         self.maxseqsent = max (self.maxseqsent, pkt.segnum)
         
-class Connection (Element, statemachine.StateMachine, timers.Timer):
+class Connection (Element, statemachine.StateMachine):
     """An NSP connection object.  This contains the connection state
     machine, the data and other-data subchannel state, and the session
     control API with the exception of the "connect" call.  Arriving
@@ -1269,7 +1270,6 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
     def __init__ (self, parent, *, inbound = None, outbound = None):
         Element.__init__ (self, parent)
         statemachine.StateMachine.__init__ (self)
-        timers.Timer.__init__ (self)
         # srcaddr and dstaddr are the connection identifiers, not
         # node addresses -- this matches the spec terminology
         self.srcaddr = srcaddr = self.parent.get_id ()
@@ -1351,11 +1351,13 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             raise ValueError ("missing inbound or outbound argument")
 
     def setphase (self, pkt):
-        # Remember the connection version (lower of the local and
-        # remote version numbers).  Since the version numbers are
-        # not in numeric order, map received version to remote
-        # DECnet phase, and save the lower of that and ours.
-        self.rphase = nspphase[pkt.info]
+        # Remember the connection version (lower of the local and remote
+        # version numbers).  Since the version numbers are not in
+        # numeric order, map received version to remote DECnet phase,
+        # and save the lower of that and ours.  The field is specified
+        # as EX format, but only the bottom 2 bits are defined as the
+        # NSP version code.
+        self.rphase = nspphase[pkt.info & 3]
         self.cphase = min (self.rphase, self.parent.node.phase)
         
     def s0 (self, item):
@@ -1587,11 +1589,15 @@ class Connection (Element, statemachine.StateMachine, timers.Timer):
             else:
                 # No estimate yet, use this one
                 self.destnode.delay = delta
+            if self.destnode.delay > 5:
+                # Cap it at 5 seconds.  Sometimes we have congestion and
+                # the algorithm doesn't deal with that sanely.
+                self.destnode.delay = 5
 
     def acktimeout (self):
         if self.destnode.delay:
             return self.destnode.delay * self.parent.config.nsp_delay
-        return 5
+        return 2    # Spec says default is 5 but 2 is plenty nowadays
     
     def makepacket (self, cls, **kwds):
         pkt = cls (dstaddr = self.dstaddr, **kwds)
