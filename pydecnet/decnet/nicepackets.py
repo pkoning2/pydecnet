@@ -825,7 +825,7 @@ class NiceLoopNodeBase (NiceTestHeader):
     test_type = 0
     
     _layout = (( NodeReqEntity, "node" ),)
-
+    
 class NiceLoopNode (NiceLoopNodeBase):
     username = password = account = b""
 
@@ -923,6 +923,7 @@ class NiceReadInfoHdr (packet.Packet):
 # special-case the parsing for those cases that are supported.
 class NiceReadNode (NiceReadInfoHdr):
     entity_class = NodeReqEntity
+    entity_type = entity_class.e_type
     replyclass = NodeReply
 
     _layout = (( NodeReqEntity, "entity" ),
@@ -930,6 +931,7 @@ class NiceReadNode (NiceReadInfoHdr):
         
 class NiceReadLine (NiceReadInfoHdr):
     entity_class = LineReqEntity
+    entity_type = entity_class.e_type
     replyclass = LineReply
 
     _layout = (( LineReqEntity, "entity" ),
@@ -937,6 +939,7 @@ class NiceReadLine (NiceReadInfoHdr):
         
 class NiceReadLogging (NiceReadInfoHdr):
     entity_class = LoggingReqEntity
+    entity_type = entity_class.e_type
     replyclass = LoggingReply
 
     _layout = (( LoggingReqEntity, "entity" ),
@@ -944,6 +947,7 @@ class NiceReadLogging (NiceReadInfoHdr):
         
 class NiceReadCircuit (NiceReadInfoHdr):
     entity_class = CircuitReqEntity
+    entity_type = entity_class.e_type
     replyclass = CircuitReply
 
     _layout = (( CircuitReqEntity, "entity" ),
@@ -951,6 +955,7 @@ class NiceReadCircuit (NiceReadInfoHdr):
         
 class NiceReadModule (NiceReadInfoHdr):
     entity_class = ModuleReqEntity
+    entity_type = entity_class.e_type
     replyclass = ModuleReply
 
     _layout = (( ModuleReqEntity, "entity" ),
@@ -958,6 +963,7 @@ class NiceReadModule (NiceReadInfoHdr):
         
 class NiceReadArea (NiceReadInfoHdr):
     entity_class = AreaReqEntity
+    entity_type = entity_class.e_type
     replyclass = AreaReply
 
     _layout = (( AreaReqEntity, "entity" ),
@@ -1026,6 +1032,7 @@ class NiceZeroCtrHdr (packet.Packet):
 # Note that there are no logging or area counters.
 class NiceZeroNode (NiceZeroCtrHdr):
     entity_class = NodeReqEntity
+    entity_type = entity_class.e_type
     replyclass = NodeReply
 
     _layout = (( NodeReqEntity, "entity" ),
@@ -1033,6 +1040,7 @@ class NiceZeroNode (NiceZeroCtrHdr):
         
 class NiceZeroLine (NiceZeroCtrHdr):
     entity_class = LineReqEntity
+    entity_type = entity_class.e_type
     replyclass = LineReply
 
     _layout = (( LineReqEntity, "entity" ),
@@ -1040,6 +1048,7 @@ class NiceZeroLine (NiceZeroCtrHdr):
         
 class NiceZeroCircuit (NiceZeroCtrHdr):
     entity_class = CircuitReqEntity
+    entity_type = entity_class.e_type
     replyclass = CircuitReply
 
     _layout = (( CircuitReqEntity, "entity" ),
@@ -1047,6 +1056,7 @@ class NiceZeroCircuit (NiceZeroCtrHdr):
         
 class NiceZeroModule (NiceZeroCtrHdr):
     entity_class = ModuleReqEntity
+    entity_type = entity_class.e_type
     replyclass = ModuleReply
 
     _layout = (( ModuleReqEntity, "entity" ),
