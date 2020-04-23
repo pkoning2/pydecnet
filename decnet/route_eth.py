@@ -278,6 +278,8 @@ class EndnodeLanCircuit (LanCircuit):
                                    testdata = 50 * b'\252')
         self.datalink.add_multicast (ALL_ENDNODES)
         self.dr = None
+        # Common code looks for this:
+        self.adjacencies = dict ()
         self.prevhops = dict ()
         # We need this because the routing module wants packets to
         # come with their source adjacency, and we don't have such a thing.
@@ -295,6 +297,7 @@ class EndnodeLanCircuit (LanCircuit):
                             adjacent_node = self.dr.adjnode ())
         self.dr.down ()
         self.dr = None
+        self.adjacencies.clear ()
         
     def sendhello (self):
         self.lasthello = time.time ()
@@ -329,6 +332,7 @@ class EndnodeLanCircuit (LanCircuit):
                                         adjacent_node = self.dr.adjnode ())
                     self.dr.down ()
                     self.dr = adjacency.Adjacency (self, item)
+                    self.adjacencies = { item.id : self.dr }
                     self.datalink.counters.last_up = Timestamp ()
                     self.node.logevent (events.adj_up,
                                         entity = events.CircuitEventEntity (self),
@@ -338,6 +342,7 @@ class EndnodeLanCircuit (LanCircuit):
                     self.dr.alive ()
             else:
                 self.dr = adjacency.Adjacency (self, item)
+                self.adjacencies = { item.id : self.dr }
                 self.datalink.counters.last_up = Timestamp ()
                 self.node.logevent (events.adj_up,
                                     entity = events.CircuitEventEntity (self),
