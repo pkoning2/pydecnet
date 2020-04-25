@@ -9,4 +9,3 @@ recursive-include decnet *.py
 recursive-include samples *.py *.json *.yaml
 recursive-include tests *.py
 recursive-include doc *.txt
-recursive-include tools *.py
