@@ -151,9 +151,26 @@ class AreaEntity (EntityBase):
 class NodeEventEntity (EventEntityBase, NodeEntity): pass
 class LineEventEntity (EventEntityBase, LineEntity): pass
 class LoggingEventEntity (EventEntityBase, LoggingEntity): pass
-class CircuitEventEntity (EventEntityBase, CircuitEntity): pass
 class ModuleEventEntity (EventEntityBase, ModuleEntity): pass
 class AreaEventEntity (EventEntityBase, AreaEntity): pass
+
+# This doesn't work the easy way because some nodes (DECnet/E has been
+# known to do so) send circuit events with line entity.  So handle the
+# entity number separately.
+
+class CircuitEventEntity (EventEntityBase, StringEntityBase):
+    label = "Circuit"
+
+    def encode (self):
+        self.enum = 3
+        return super ().encode ()
+    
+    @classmethod
+    def decode (cls, buf):
+        ret, buf = super (CircuitEventEntity, cls).decode (buf)
+        if ret.enum != 3 and ret.enum != 1:
+            raise WrongValue ("Unexpected entity number {}".format (ret.enum))
+        return ret, buf
     
 class NiceType (Field, packet.Indexed):
     # Base type for all the NICE data type codes
@@ -345,6 +362,10 @@ class AI (NiceType, str):
         if len (b) < l + 1:
             raise MissingData
         return cls (b[1:l + 1], "latin1"), b[l + 1:]
+
+# Make an extra entry which will be used by the "defaultclass" method
+# to find this class when seen with a new length.
+AI.classindex[AI.code + 1] = AI
 
 class HI (NiceType, bytes):
     code = 0x20

@@ -80,6 +80,19 @@ port.  By default, JSON is allowed only on the HTTPS port.
 --source: source IP address to use, for both HTTP and HTTPS.  Defaults
 to accepting any local address.
 
+--http-root: directory which contains the "resources" subdirectory,
+from which fixed files such as the decnet.css and icon files are
+served.  Defaults to the directory containing the PyDECnet source
+files.
+
+--mapper: argument is a string which is the map title.  This option
+enables the network mapper, which uses information collected from NICE
+management queries of reachable nodes to construct a map of the
+network.  PLEASE NOTE: on the HECnet, this SHOULD ONLY be enabled
+after prior approval from Johnny Billquist and Paul Koning, to prevent
+excessive load on network nodes due to polling from too many places.
+One or two mappers per network is sufficient.
+
 TODO: define authorization mechanisms.
 
 Component "routing"

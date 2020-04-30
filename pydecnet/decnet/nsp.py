@@ -116,6 +116,21 @@ class AckNum (Field):
         if self.is_cross ():
             return other
         return this
+
+class tolerantI (packet.I):
+    # A version of the I (image string) field, but coded to be
+    # tolerant of messed up input since some implementation such as
+    # Cisco send bad values some of the time.
+    @classmethod
+    def decode (cls, buf, maxlen):
+        if not buf:
+            logging.trace ("Missing I field, empty field substituted")
+            return cls (b""), b""            
+        flen = buf[0]
+        if flen > maxlen or flen > len (buf) + 1:
+            logging.trace ("Invalid I field, empty field substituted")
+            return cls (b""), b""
+        return super (__class__, cls).decode (buf, maxlen)
     
 # Common header -- just the MSGFLG field, expanded into its subfields.
 class NspHdr (packet.Packet):
@@ -199,10 +214,18 @@ class AckOther (AckHdr):
     check = AckData.check
         
 class AckConn (NspHdr):
-    _layout = (( packet.B, "dstaddr", 2 ),)
+    # A Conn Ack doesn't have payload, but VAXELN sends extraneous
+    # bytes at the end and pretending that's payload will suppress a
+    # parse error.
+    _layout = (( packet.B, "dstaddr", 2 ),
+               packet.Payload)
     type = NspHdr.ACK
     subtype = NspHdr.ACK_CONN
-    
+
+    def __init__ (self, *args, **kwargs):
+        super ().__init__ (*args, **kwargs)
+        self.payload = b""
+        
 class DataSeg (AckHdr):
     _layout = (( packet.BM,
                  ( "segnum", 0, 12, Seq ),
@@ -287,7 +310,7 @@ class ConnInit (ConnMsg):
 # mainly in the session layer, which is just payload to us).
 # However, the srcaddr is now non-zero.
 class ConnConf (ConnMsg):
-    _layout = (( packet.I, "data_ctl", 16 ),)    # CC payload is an I field
+    _layout = (( tolerantI, "data_ctl", 16 ),)    # CC payload is an I field
     subtype = NspHdr.CC
 
 class DiscConf (NspHdr):
@@ -318,10 +341,10 @@ class DiscInit (NspHdr):
     _layout = (( packet.B, "dstaddr", 2 ),
                ( packet.B, "srcaddr", 2 ),
                ( packet.B, "reason", 2 ),
-               ( packet.I, "data_ctl", 16 ))
+               ( tolerantI, "data_ctl", 16 ))
     type = NspHdr.CTL
     subtype = NspHdr.DI
-
+    
 OBJ_FAIL = 38       # Object failed (copied from session.py)
 UNREACH = 39        # Destination unreachable (copied from session.py)
 
@@ -899,7 +922,7 @@ class txqentry (timers.Timer):
             else:
                 # Not CI, so close due to "destination unreachable"
                 disc = DiscInit (reason = UNREACH, data_ctl = b"")
-                c.to_sc (Received (self, packet = disc), True)
+                c.to_sc (Received (self, packet = disc), False)
                 c.close ()
                 # Mark connection as closed
                 c.state = c.closed

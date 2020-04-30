@@ -115,7 +115,7 @@ class Application (Element):
                                         len (resp[0]) == 1):
                     resp = resp[0]
                     if isinstance (resp, list):
-                        resp = resp[0]                        
+                        resp = resp[0]
                     resp.retcode = 1   # success
                     conn.send_data (resp)
                 else:

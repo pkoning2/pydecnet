@@ -17,8 +17,10 @@ setup (author = "Paul Koning",
        #url = ""
        version = "1.0",
        packages = [ "decnet", "decnet.modules",
-                    "decnet.applications", "decnet.resources" ],
-       package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.svg" ] },
+                    "decnet.applications", "decnet.resources",
+                    "decnet.resources.images" ],
+       package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.svg", "*.js" ],
+                        "decnet.resources.images" : [ "*.png" ]},
        scripts = [ "pydecnet" ],
        py_modules = [ "crc" ],
        extras_require = {

@@ -221,6 +221,19 @@ cp.add_argument ("--http-port", metavar = "S", default = 8000,
 cp.add_argument ("--source", default = "", type = IpAddr,
                  help = """Source IP address to use for IP based
                  device communication (default: auto-select)""")
+cp.add_argument ("--http-root", metavar = "R",
+                 help = """Root directory for files served by the HTTP
+                        server.  Must contain the "resources" directory
+                        which contains the resource files.  Default:
+                        the directory containing the PyDECnet source.""")
+
+# Restricted use arguments, see config.txt
+cp.add_argument ("--mapper", default = "", help = argparse.SUPPRESS)
+cp.add_argument ("--mapdb", default = "/var/db/decnet/mapdata.json",
+                 help = argparse.SUPPRESS)
+cp.add_argument ("--nodedbserver", default = "mim.update.uu.se",
+                 help = argparse.SUPPRESS)
+cp.add_argument ("--dbpassword", default = "", help = argparse.SUPPRESS)
 if ssl:
     cp.add_argument ("--https-port", metavar = "S", default = 8443,
                      type = int, choices = range (65536),

@@ -7,19 +7,21 @@
 import logging
 import logging.config
 import logging.handlers
-from .common import *
 import os
 import stat
 import sys
 import json
 import time
 import functools
+import copy
 
 try:
     from yaml import load, Loader
 except ImportError:
     load = None
     
+from .common import *
+
 SvnFileRev = "$LastChangedRevision$"
 
 # Additional level
@@ -61,6 +63,11 @@ stdlog =  {
     "root": {
         "handlers": [ "dnhandler" ],
         "level": "INFO"
+        },
+    "loggers" : {
+        "decnet": {
+            "propagate" : True
+            }
         }
     }
 
@@ -86,6 +93,13 @@ logging.setLogRecordFactory (DecnetLogRecord)
 logging.addLevelName (TRACE, "TRACE")
 
 def start (p):
+    # Start logging using the supplied config.  If a chroot argument
+    # is specified in the program arguments in "p", prefix each file
+    # name with the supplied chroot value.  This is done since the
+    # logger is started before the chroot() call is made.  Then
+    # afterwards, the "restart" function is called to reload the same
+    # config but without the chroot prefixed onto the file paths.
+    global logconfig, chrootlogconfig
     if p.log_config:
         fn = p.log_config
         with open (fn, "rt") as f:
@@ -95,22 +109,26 @@ def start (p):
                 print ("YAML config file but no YAML support",
                        file = sys.stderr)
                 sys.exit (1)
-            lc = load (lc, Loader = Loader)
+            logconfig = load (lc, Loader = Loader)
         else:
-            lc = json.loads (lc)
+            logconfig = json.loads (lc)
+        if "loggers" not in logconfig:
+            logconfig["loggers"] = stdlog["loggers"]
+        if "decnet" not in logconfig["loggers"]:
+            logconfig["loggers"]["decnet"] = stdlog["loggers"]["decnet"]
     else:
-        lc = stdlog
-        h = lc["handlers"]["dnhandler"]
-        rl = lc["root"]
+        logconfig = stdlog
+        h = logconfig["handlers"]["dnhandler"]
+        rl = logconfig["root"]
         if p.log_file:
-            h["filename"] = p.log_file
+            h["filename"] = abspath (p.log_file)
             if p.keep:
                 h["class"] = "logging.handlers.TimedRotatingFileHandler"
                 h["when"] = "midnight"
                 h["backupCount"] = p.keep
             else:
                 h["class"] = "logging.FileHandler"
-                h["mode"] = "w"
+                h["mode"] = "a"
         elif p.syslog:
             if p.syslog == "local":
                 # Pseudo-destination meaning whatever appears to be the
@@ -143,11 +161,41 @@ def start (p):
                 print ("--daemon requires --log-file", file = sys.stderr)
                 sys.exit (1)
         rl["level"] = p.log_level
-    #print ("Logging config is:\n", lc)
+    # Make a copy of the config and put the root in front of each file
+    # name string.  Also collect the file names, then after starting
+    # the logger, set uid/gid of each file.
+    chroot = p.chroot
+    fns = list ()
+    chrootlogconfig = copy.deepcopy (logconfig)
+    for h in chrootlogconfig["handlers"].values ():
+        try:
+            h["filename"] = chroot + h["filename"]
+            fns.append (h["filename"])
+        except KeyError:
+            pass
+        try:
+            h["address"] = chroot + h["address"]
+        except (KeyError, TypeError):
+            pass
     # Create a formatter using {} formatting, and set the message
     # format we want
-    logging.config.dictConfig (lc)
+    logging.config.dictConfig (chrootlogconfig)
+    if p.uid or p.gid:
+        for fn in fns:
+            os.chown (fn, p.uid or -1, p.gid or -1)
+    setdecnetlogger ()
 
+def restart (chrootdone = True):
+    # Simply reload the appropriate saved config
+    if chrootdone:
+        lc = logconfig
+    else:
+        lc = chrootlogconfig
+    logging.config.dictConfig (lc)
+    setdecnetlogger ()
+    info ("Logging configuration reloaded")
+    
+def setdecnetlogger ():
     # We're going to make a child logger "decnet" for everything we
     # do.  By default that will simply delegate to the root logger,
     # but a custom log config could set up something special for it if
@@ -164,16 +212,18 @@ def start (p):
     warning = decnetLogger.warning
     info = decnetLogger.info
     debug = decnetLogger.debug
+    exception = decnetLogger.exception
     # Handle TRACE as a call to the "log" method with the level
     # supplied ahead of time.  Doing it this way, rather than via a
     # simple "trace" function in this module, results in the correct
     # caller info in the message (the place where the "trace" call is
     # made, rather than a trace function here calling "log").
     trace = functools.partial (decnetLogger.log, TRACE)
-    exception = decnetLogger.exception
-    return
 
-def stop ():
-    info ("DECnet/Python shut down")
+def stop (exiting = True):
+    if exiting:
+        info ("DECnet/Python shut down")
+    else:
+        trace ("DECnet/Python logging stopped")
     logging.shutdown ()
     

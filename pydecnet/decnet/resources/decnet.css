@@ -113,3 +113,22 @@ div.footer {
     padding: 6pt;
     padding-top: 12pt;
 }
+
+div.netmap {
+    height: 80vh;
+}
+
+span.hs3 {
+    color: black;
+}
+span.hs2 {
+    color: red;
+}
+span.hs1 {
+    color: gray;
+    font-style: italic;
+}
+span.hs0 {
+    color: gray;
+    font-style: italic;
+}

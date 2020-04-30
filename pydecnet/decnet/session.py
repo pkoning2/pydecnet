@@ -325,17 +325,18 @@ class Session (Element):
         return { "version" : "2.0.0" }    # ?
 
     def connect (self, client, dest, remuser, conndata = b"",
-                 username = b"", password = b"", account = b""):
+                 username = b"", password = b"", account = b"",
+                 srcname = LocalUser):
         if isinstance (remuser, int):
             remuser = EndUser (num = remuser)
         else:
             remuser = EndUser (name = remuser)
-        sc = SessionConnInit (srcname = LocalUser, dstname = remuser,
+        sc = SessionConnInit (srcname = srcname, dstname = remuser,
                               connectdata = conndata, rqstrid = username,
                               passwrd = password, account = account)
         nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
-                                                       LocalUser, remuser)
+                                                       srcname, remuser)
         ret.client = client
         return ret
 
@@ -373,8 +374,11 @@ class Session (Element):
                                pkt, nspconn, item.reject)
             if nspconn not in self.conns:
                 if not isinstance (pkt, nsp.ConnInit):
-                    # Complain and then ignore this.
-                    logging.debug ("NSP packet but no connection: {}", pkt)
+                    # Trace and then ignore this.  This happens due to a
+                    # timing window between disconnect and when we see
+                    # packets from NSP that were queued up in the
+                    # meantime.
+                    logging.trace ("NSP packet but no connection: {}", pkt)
                     return
                 # Parse the connect data
                 try:
@@ -429,12 +433,22 @@ class Session (Element):
                 logging.trace ("starting object {0.num} ({0.name})",
                                spkt.dstname)
                 cls = sesobj.app_class
-                if cls:
-                    c = ModuleConnector (self, sesobj, cls)
-                else:
-                    c = ProcessConnector (self, sesobj)
-                conn.client = c
-                conn.client.dispatch (awork)
+                try:
+                    if cls:
+                        c = ModuleConnector (self, sesobj, cls)
+                    else:
+                        c = ProcessConnector (self, sesobj)
+                    conn.client = c
+                    conn.client.dispatch (awork)
+                except FileNotFoundError:
+                    logging.trace ("File not found for object")
+                    nspconn.reject (NO_OBJ)
+                    return
+                except Exception:
+                    # Something went wrong trying to start that
+                    logging.exception ("Error starting object")
+                    nspconn.reject (OBJ_FAIL)
+                    return                    
             else:
                 conn = self.conns[nspconn]
                 if isinstance (pkt, nsp.DataSeg):
@@ -518,7 +532,10 @@ class BaseConnector (Element):
                 try:
                     conn.nspconn.abort (OBJ_FAIL)
                 except nsp.WrongState:
-                    conn.nspconn.reject (OBJ_FAIL)
+                    try:
+                        conn.nspconn.reject (OBJ_FAIL)
+                    except nsp.WrongState:
+                        pass
                 del self.parent.conns[conn.nspconn]
             del self.conns
 
@@ -558,9 +575,11 @@ class BaseConnector (Element):
         return conn.setsockopt (**kwds)
 
     def connect (self, dest, remuser, data = b"",
-                 username = b"", password = b"", account = b""):
+                 username = b"", password = b"", account = b"",
+                 srcname = LocalUser):
         conn = self.parent.connect (self, dest, remuser, data,
-                                    username, password, account)
+                                    username, password, account,
+                                    srcname)
         self.conns[id (conn)] = conn
         return conn
 
@@ -572,13 +591,25 @@ BaseConnector.api = frozenset (k for (k, v) in BaseConnector.__dict__.items ()
                                and callable (v))
 
 class ModuleConnector (BaseConnector):
-    """A connector applications implemented as Python modules and
-    run within the pydecnet process ("module" type DECnet objects).  The
-    actual application modules derive from this class.
+    """A connector for applications implemented as Python modules and
+    run within the pydecnet process ("module" type DECnet objects). 
     """
     def __init__ (self, parent, obj, appcls):
         super ().__init__ (parent, obj)
         self.app = appcls (self, obj)
+
+    def dispatch2 (self, item):
+        self.app.dispatch (item)
+            
+class InternalConnector (BaseConnector):
+    """A connector for session control users internal to PyDECnet, not
+    covered by the ModuleConnector case.  Examples include components
+    that initiate connections rather than respond to them, such as the
+    network mapper.
+    """
+    def __init__ (self, sc, owner, name = None):
+        super ().__init__ (sc, name)
+        self.app = owner
 
     def dispatch2 (self, item):
         self.app.dispatch (item)
