@@ -118,9 +118,6 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         if plen < 60:
             # Runt???
             return
-        if logging.tracing:
-            pktlogging.tracepkt ("Received packet on {}"
-                                 .format (self.name), packet)
         proto = packet[12:14]
         try:
             port = self.ports[proto]
@@ -136,6 +133,11 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         # Note that we don't count packets that fail the address
         # filter, otherwise we'd count lots of stuff for others.
         if dest == port.macaddr or dest in port.destfilter:
+            # We only log packets that make it past the address and
+            # protocol type filters.
+            if logging.tracing:
+                pktlogging.tracepkt ("Received packet on {}"
+                                     .format (self.name), packet)
             if dest[0] & 1:
                 self.counters.mcbytes_recv += plen
                 self.counters.mcpkts_recv += 1
