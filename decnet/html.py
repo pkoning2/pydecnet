@@ -4,6 +4,13 @@
 
 """
 
+import time
+from datetime import timedelta
+
+def setstarttime ():
+    global start_time
+    start_time = time.time ()
+    
 class wraphtml (object):
     open = ""
     close = ""
@@ -64,12 +71,30 @@ class drow (trow):
         super ().__init__ (cell (col1, 'class="td-col1"'),
                            cell (col2, 'class="td-col2"'))
     
+class table (wraphtml):
+    open = "<table>"
+    close = "</table>"
+    rclass = trow
+
+    def __init__ (self, header, data):
+        super ().__init__ (wrap (header, thdr),
+                           *[ wrap (i, self.rclass) for i in data])
+
+class dtable (table):
+    open = '<table class="tb-details">'
+    rclass = drow
+
+    def __init__ (self, data):
+        super ().__init__ ("", data)
+
 class detailrow (trow):
+    detailtable = dtable
+    
     def __init__ (self, *contents):
         *row1, extra = contents
         if extra:
             row1[0] = cell (row1[0], 'rowspan="2"')
-            self.extra = dtable (extra)
+            self.extra = self.detailtable (extra)
         else:
             self.extra = None
         super ().__init__ (*row1)
@@ -81,25 +106,9 @@ class detailrow (trow):
                     .format (line1, len (self.contents), self.extra)
         return line1
             
-class table (wraphtml):
-    open = "<table>"
-    close = "</table>"
-    rclass = trow
-
-    def __init__ (self, header, data):
-        super ().__init__ (wrap (header, thdr),
-                           *[ wrap (i, self.rclass) for i in data])
-
 class detail_table (table):
     rclass = detailrow
     
-class dtable (table):
-    open = '<table class="tb-details">'
-    rclass = drow
-
-    def __init__ (self, data):
-        super ().__init__ ("", data)
-
 class lines (wraphtml):
     open = "<p>"
     close = "</p>"
@@ -173,7 +182,7 @@ class doc (object):
         self.middle = middle
         self.bottom = bottom
         
-    def __str__ (self):
+    def __str__ (self, hdradd = ""):
         addmeta = ""
         if self.mobile:
             addmeta = \
@@ -181,9 +190,10 @@ class doc (object):
 <meta name="viewport" content="width=device-width, initial-scale=1">'''
 
         return """<html><head>
+  <meta charset="UTF-8">
   <title>{0.title}</title>
   <link href="/resources/decnet.css" rel="stylesheet" type="text/css">
-  {1}
+  {1}{2}
 </head>
 <body>
 <div class="flex-page">
@@ -191,6 +201,26 @@ class doc (object):
 {0.middle}
 {0.bottom}
 </body></html>
-""".format (self, addmeta)
+""".format (self, addmeta, hdradd)
 
 #   <meta http-equiv="refresh" content="15">
+
+class mapdoc (doc):
+    "Similar to doc, but for maps"
+    def __str__ (self):
+        return super ().__str__ ('''
+  <link rel="stylesheet" href="resources/leaflet.css">
+  <script src="resources/leaflet.js"></script>
+  <script src="resources/leaflet-arc.min.js"></script>''')
+
+def page_title (title, report = "Reported", mapper = None):
+    now = time.time ()
+    uptime = str (timedelta (int (now - start_time) / 86400.))
+    now = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (now))
+    spaces = "&nbsp;" * 4
+    links = spaces + '<a href="/">Home</a>'
+    if mapper:
+        links += spaces + '<a href="/map">Network map</a>'
+    return top (title, "{} {}, up {}{}".format (report, now, uptime, links))
+    
+    

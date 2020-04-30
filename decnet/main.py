@@ -23,8 +23,12 @@ try:
     from daemon import DaemonContext
 except ImportError:
     DaemonContext = None
+try:
+    import pwd
+except ImportError:
+    pwd = None
     
-from . import common
+from .common import *
 from . import config
 from . import node
 from . import events
@@ -48,6 +52,18 @@ if DaemonContext:
     dnparser.add_argument ("-d", "--daemon", action = "store_true",
                            default = False,
                            help = "Run as daemon.  Requires a log file name to be specified.")
+else:
+    dnparser.set_defaults (daemon = False)
+if hasattr (os, "setuid") and hasattr (os, "chroot"):
+    dnparser.add_argument ("--chroot", default = "", metavar = "P",
+                           help = "Root to change to, see documentation for details")
+    dnparser.add_argument ("--uid", default = None,
+                           help = "User ID or user name to set")
+    dnparser.add_argument ("--gid", default = 0, type = int,
+                           help = "Group ID to set")
+else:
+    dnparser.set_defaults (chroot = None, uid = None, gid = 0)
+    
 dnparser.add_argument ("--pid-file", metavar = "FN",
                        default = DEFPIDFILE,
                        help = "PID file (default: {})".format (DEFPIDFILE))
@@ -78,17 +94,20 @@ dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        help = "Show configuration file help (for CMD if given)")
 
 class pidfile:
-    def __init__ (self, fn):
-        self.fn = fn
+    def __init__ (self, args):
+        self.args = args
+        self.fn = abspath (args.pid_file)
 
     def __enter__ (self):
+        fn = self.args.chroot + self.fn
         try:
-            f = open (self.fn, "wt")
+            f = open (fn, "wt")
         except Exception as exc:
-            logging.exception ("failure creating pidfile {}", self.fn)
+            logging.exception ("failure creating pidfile {}", fn)
             return
         f.write ("{}\n".format (os.getpid ()))
         f.close ()
+        os.chown (fn, self.args.uid or -1, self.args.gid or -1)
 
     def __exit__ (self, exc_type, exc_value, traceback):
         try:
@@ -114,8 +133,6 @@ def main ():
     dnparser.add_argument ("-V", "--version", action = "version",
                            version = http.DNFULLVERSION)
     p = dnparser.parse_args ()
-    if not DaemonContext:
-        p.daemon = False
     if p.config_help is not None:
         if p.config_help:
             args = p.config_help, "-h"
@@ -127,6 +144,23 @@ def main ():
     if not p.configfile:
         print ("At least one config file argument must be specified")
         sys.exit (1)
+
+    # Handle the chroot and uid/gid arguments
+    if p.chroot:
+        p.chroot = abspath (p.chroot)
+        assert os.path.isdir (p.chroot)
+    if p.uid:
+        try:
+            p.uid = int (p.uid)
+        except ValueError:
+            if pwd:
+                rec = pwd.getpwnam (p.uid)
+                p.uid = rec.pw_uid
+                if not p.gid:
+                    p.gid = rec.pw_gid
+    else:
+        p.uid = 0
+
     # First start up the logging machinery
     logging.start (p)
 
@@ -143,45 +177,57 @@ def main ():
             if httpserver:
                 print ("Duplicate http interface definition")
                 sys.exit (1)
-            if c.http.http_port:
-                httpserver = http.Monitor (c)
+            if c.http.http_port or c.http.https_port:
+                httpserver = c.http
     if not nodes:
         print ("At least one routing or bridge instance must be configured")
         sys.exit (1)
+    if httpserver:
+        httpserver = http.Monitor (httpserver, nodes)
         
     logging.info ("Starting DECnet/Python {}-{}", http.DNVERSION, http.DNREV)
 
     # Before starting the various layers and elements, become daemon
-    # if requested.  This means we don't have to worry about keeping
-    # all the file descriptors used by DECnet open.  But we do need to
-    # worry about the logging descriptors.  This is uncivilized (it
-    # involves digging in logging module internals).
+    # if requested.  This means we don't have to worry about file
+    #  descriptors used by DECnet -- none are open yet.  The exception
+    #  is logging, which we handle by stopping it just before the
+    #  daemon call and restarting it right after.
     #
     # Apart from the file descriptors issue, daemon transition must be
     # done before we start any threads (at least on Linux) because the
     # fork() machinery used by daemon entry doesn't carry the threads
     # along with it.
-    if p.daemon:
-        preserve = list ()
-        for h in logging.logging._handlerList:
-            # The list contains weak references, resolve to what it refers
-            # to.
-            h = h ()
-            f = getattr (h, "socket", None) or getattr (h, "stream", None)
-            if f:
-                preserve.append (f)
-        logging.trace ("About to transition to daemon mode")
-        daemoncontext = DaemonContext (pidfile = pidfile (p.pid_file),
-                                       files_preserve = preserve)
-        daemoncontext.open ()
-        logging.info ("Running as daemon")
-
+    try:
+        if p.daemon:
+            logging.trace ("About to transition to daemon mode")
+            logging.stop (exiting = False)
+            daemoncontext = DaemonContext (pidfile = pidfile (p))
+            daemoncontext.open ()
+            logging.restart (chrootdone = False)
+            logging.info ("Now running as daemon")
+        if p.chroot or p.gid or p.uid:
+            if p.chroot:
+                logging.trace ("About to change root to {}", p.chroot)
+                logging.stop (exiting = False)
+                os.chroot (p.chroot)
+                os.chdir ("/")
+                logging.restart ()
+            if p.gid:
+                os.setgid (p.gid)
+            if p.uid:
+                os.setuid (p.uid)
+            logging.info ("Running in {} as uid {}, gid {}", p.chroot,
+                          p.uid, p.gid)
+    except Exception:
+        logging.exception ("Exception in daemon or chroot or uid/gid actions")
+        raise
+    
     # Start all the nodes, each in a thread of its own.
     for n in nodes:
         n.start ()
     try:
         if httpserver:
-            httpserver.start (nodes)
+            httpserver.start ()
         else:
             logging.trace ("idling without http")
             while True:

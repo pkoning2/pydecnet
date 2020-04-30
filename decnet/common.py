@@ -13,6 +13,7 @@ import time
 import socket
 import abc
 import datetime
+import os.path
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
@@ -58,6 +59,9 @@ class DNAException (Exception):
             text, *args = self.args
             return text.format (*args)
         return self.__doc__
+
+class InternalError (DNAException):
+    """Internal PyDECnet error"""
 
 # Exceptions related to packet encode/decode
 class DecodeError (DNAException):
@@ -559,6 +563,9 @@ class Timestamp (Field):
         v = datetime.timedelta (seconds = -v)
         self.start = datetime.datetime.now () + v
 
+    def startts (self):
+        return int (self.start.timestamp ())
+    
     def __int__ (self):
         delta = datetime.datetime.now () - self.start
         delta = int (delta.total_seconds ())
@@ -735,3 +742,21 @@ def setlabel (lb):
         return f
     return sc
     
+# Dummy context manager, used when we want to use a real context
+# manager with some configurations but don't need it in others.  Using
+# this one (via a variable reference to one of two classes) avoids
+# lots of ugly conditional code.
+class NullContext:
+    def __init__ (self, *args, **kwds):
+        pass
+        
+    def __enter__ (self):
+        pass
+    
+    def __exit__ (self, exc_type, exc_val, exc_tb):
+        # Always pass through any exceptions
+        return False
+
+def abspath (p):
+    "Like os.path.abspath but also does expanduser to it"
+    return os.path.abspath (os.path.expanduser (p))

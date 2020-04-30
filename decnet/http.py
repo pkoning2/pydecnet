@@ -15,7 +15,6 @@ from urllib.parse import urlparse, parse_qs
 import re
 import mimetypes
 import time
-from datetime import timedelta
 import subprocess
 
 try:
@@ -28,7 +27,6 @@ from . import logging
 from . import html
 
 packagedir = os.path.dirname (__file__)
-resourcedir = os.path.join (packagedir, "resources")
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -65,7 +63,6 @@ PYTHONVERSION = "Python {}.{}.{} ({}) on {}".format (sys.version_info.major,
                                                      sys.version_info.releaselevel,
                                                      sys.platform)
 
-
 class DNJsonDecoder (json.JSONDecoder):
     def __init__ (self):
         super ().__init__ (strict = False)
@@ -95,33 +92,46 @@ dnDecoder = DNJsonDecoder ()
 dnEncoder = DNJsonEncoder ()
 
 class Monitor:
-    def __init__ (self, config):
+    def __init__ (self, config, nodelist):
         self.config = config
+        self.nodelist = nodelist
+        httproot = config.http_root or packagedir
+        self.resources = os.path.join (httproot, "resources")
+        if config.mapper:
+            from . import mapper
+            self.mapserver = mapper.Mapper (config, nodelist)
+        else:
+            self.mapserver = None
 
-    def start (self, nodelist):
-        global start_time
-        start_time = time.time ()
+    def start (self):
+        html.start_time = time.time ()
         setdnrev ()
         ports = list ()
-        config = self.config.http
-        if config.http_port:
-            if config.https_port:
+        mapserver = self.mapserver
+        if mapserver:
+            mapserver.start ()
+        if self.config.http_port:
+            if self.config.https_port:
                 # Both are defined, start https server in a thread
                 t = StopThread (target = self.serverstart, name = "https",
-                                args = (nodelist, config, True))
+                                args = (True,))
                 t.start ()
-            self.serverstart (nodelist, config, False)
+            self.serverstart (False)
         else:
-            self.serverstart (nodelist, config, True)
+            self.serverstart (True)
 
-    def serverstart (self, nodelist, config, secure):
+    def serverstart (self, secure):
+        config = self.config
         if secure:
             server_address = (config.source, config.https_port)
-            logging.debug ("Starting https server on port {}", config.https_port)
+            logging.debug ("Starting https server on port {}",
+                           config.https_port)
         else:
             server_address = (config.source, config.http_port)
             logging.debug ("Starting http server on port {}", config.http_port)
-        httpd = DECnetMonitor (server_address, DECnetMonitorRequest, nodelist, config, secure)
+        httpd = DECnetMonitor (server_address, DECnetMonitorRequest,
+                               self.nodelist, config, self.resources,
+                               self.mapserver, secure)
         if secure:
             httpd.socket = ssl.wrap_socket (httpd.socket,
                                             certfile = config.certificate,
@@ -129,9 +139,12 @@ class Monitor:
         httpd.serve_forever ()
         
 class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
-    def __init__ (self, addr, rclass, nodelist, config, secure):
+    def __init__ (self, addr, rclass, nodelist, config, resources,
+                  mapserver, secure):
         self.nodelist = nodelist
         self.api = config.api
+        self.mapserver = mapserver
+        self.resources = resources
         self.secure = secure or config.insecure_api
         super ().__init__ (addr, rclass)
 
@@ -161,6 +174,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             return None, None
         parts = parts[1:]
         nodelist = self.server.nodelist
+        mapserver = self.server.mapserver
         if len (nodelist) > 1:
             if not p.query:
                 return 0, None, parts
@@ -181,17 +195,12 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                                self.msg_500.format (traceback.format_exc ())]
         self.send_error (500)
 
-    def http_title (self, title):
-        now = time.time ()
-        uptime = str (timedelta (int (now - start_time) / 86400.))
-        now = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (now))
-        return html.top (title, "Reported {}, up {}".format (now, uptime))
-    
     def do_GET (self):
         try:
             nodeidx, tnode, parts = self.findnode ()
             if parts is None:
                 return
+            mapserver = self.server.mapserver
             if parts[0] == "robots.txt":
                 parts = [ "resources", "robots.txt" ]
             if parts[0] == "api" and self.server.api:
@@ -202,12 +211,13 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                 if not ret:
                     return
                 ctype = "application/json"
+                ret = str (ret).encode ("utf-8", "ignore")
             elif parts[0] == "resources":
                 # Fetching a resource (a constant file)
-                fn = os.path.join (resourcedir, *parts[1:])
+                fn = os.path.join (self.server.resources, *parts[1:])
                 ctype = mimetypes.guess_type (fn, False)[0]
                 try:
-                    with open (fn, "rt") as f:
+                    with open (fn, "rb") as f:
                         ret = f.read ()
                 except OSError:
                     self.send_error (404, "File not found")
@@ -221,7 +231,15 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                 if not parts:
                     parts = ['']
                 ctype = "text/html"
-                if not tnode:
+                if mapserver and parts[0] == "map":
+                    ctype = "text/html"
+                    title, top, body = mapserver.html (mobile, parts[1:])
+                    if not title:
+                        self.send_error (404, "File not found")
+                        return
+                    ret = html.mapdoc (mobile, title, top,
+                                       body, bottom)
+                elif not tnode:
                     if parts != ['']:
                         logging.trace ("Missing system parameter")
                         self.send_error (400, "Missing system parameter")
@@ -236,10 +254,10 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                     if len (self.server.nodelist) > 1:
                         sb.insert (0, self.node_sidebar (mobile, nodeidx))
                     sb = html.sidebar (*sb)
-                    top = self.http_title (title)
+                    top = html.page_title (title, mapper = mapserver)
                     ret = html.doc (mobile, title, top,
                                     html.middle (sb, body), bottom)
-            ret = str (ret).encode ("utf-8", "ignore")
+                ret = str (ret).encode ("utf-8", "ignore")
             self.send_response (200)
             self.send_header ("Content-type", ctype)
             self.send_header ("Content-Length", str (len (ret)))
@@ -279,15 +297,15 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
             self.handle_exception ("POST")
 
     def node_sidebar (self, mobile, idx = -1):
-        return html.sbelement (html.sblabel ("Systems"),
-                               *[ (html.sbbutton_active if idx == i
-                                       else html.sbbutton) (mobile,
-                                                            n.description (mobile))
-                                  for i, n in enumerate (self.server.nodelist) ])
-
+        ret = [ (html.sbbutton_active
+                 if idx == i else html.sbbutton) (mobile,
+                                                  n.description (mobile))
+                 for i, n in enumerate (self.server.nodelist) ]
+        return html.sbelement (html.sblabel ("Systems"), *ret)
+    
     def node_list (self, mobile):
         title = "DECnet/Python monitoring"
-        top = self.http_title (title)
+        top = html.page_title (title, mapper = self.mapserver)
         return html.doc (mobile, title, top,
                          html.sidebar (self.node_sidebar (mobile)), bottom)
     

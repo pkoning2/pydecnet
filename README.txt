@@ -67,15 +67,15 @@ decnet.pcap pure Python wrapper is used instead.
 
 Project status:
 
-As of 4/22/2019, the following are implemented and at least somewhat
+As of 4/29/2020, the following are implemented and at least somewhat
 tested:
 
 - Data links: LAN and point to point frameworks, Ethernet (via the
 Johnny Bilquist bridge; via pcap; on Mac OS, via TAP); GRE
-encapsulation of Ethernet; DDCMP (point to point only, over TCP or
-over an actual UART); SIMH 3.9 payload-only DMC-11 emulation; Multinet
+encapsulation of Ethernet; DDCMP (point to point only, over TCP, UDP,
+or an actual UART); SIMH 3.9 payload-only DMC-11 emulation; Multinet
 over UDP (not recommended due to the fact that this protocol grossly
-violates the DECnet specifications) and over TCP. 
+violates the DECnet specifications) and over TCP.
 
 - MOP on Ethernet, including console carrier and counters request.
 
@@ -86,11 +86,15 @@ connection tracking part).  All have received at least cursory
 testing. 
 
 - NSP and Session Control layer, with support for internal
-applications (implemented as Python modules).  There is a functional
-"mirror" application module which is enabled by default. 
+applications (implemented as Python modules).  There are several
+application modules available, all of which are enabled by default:
+"mirror" (for NCP LOOP NODE support), "nml" (NICE protocol
+implementation for read operations only) and "evl" (logging sink,
+accepts DECnet event messages from other nodes and send them to the
+logging machinery).
 
-- Fairly complete monitoring via HTTP or HTTPS, with partial CSS
-support.
+- Fairly complete monitoring via HTTP or HTTPS, with CSS support.
+Also monitoring via the NICE protocol.
 
 - An API framework accessed via JSON.  At the moment this supports
 status queries (accessing about the same data as the HTTP monitoring
@@ -109,8 +113,26 @@ To do:
 
 - More documentation.
 
-- More built-in application: NML (NICE protocol server), EVL (event
-logger remote source/sink).  Also support for external applications
-via additional JSON API mechanisms.
+- Also support for external applications via additional JSON API
+mechanisms.
 
-- Control (not just monitoring) via HTTP.
+- Control (not just monitoring) via HTTP and NICE.
+
+****************************************************************
+
+Notes on the network mapper
+
+PyDECnet includes a network map server, which operates by collecting
+information about nodes from the HECnet node database, and then
+scanning the network status to find reachable nodes and operational
+circuits.  The resulting data is then mapped using the Leaflet map
+display tools.
+
+A network needs only one or two map servers, and on HECnet those are
+provided already.  For this reason, PLEASE DO NOT enable the map
+server in PyDECnet unless you first coordinate with Johnny Billquist
+and Paul Koning.
+
+The Leaflet and Leaflet.Arc packages used by the mapper are included
+with the PyDECnet sources; their licenses can be found in
+Leaflet-LICENSE and Leaflet-arc-LICENSE.md respectively.
