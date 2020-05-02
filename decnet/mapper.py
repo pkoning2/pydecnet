@@ -132,7 +132,7 @@ L.control.layers (basemaps, overlaymaps).addTo (map);
 
 dtr_re = re.compile (r"(.+?): +(.+)")
 
-notime = "&nbsp;" * 15
+notime = "&nbsp;" * 10
 
 def timestr (t):
     if t:
@@ -145,6 +145,7 @@ class mapcirctable (html.table):
 
 class mapdatarow (html.detailrow):
     detailtable = mapcirctable
+    detailclass = "mapdetails"
 
 class mapdatatable (html.detail_table):
     rclass = mapdatarow
@@ -318,7 +319,7 @@ class MapPath:
                 pop.append (" ".join (pop2))
         return "<br>".join (tip), "<br>".join (pop)
     
-    def draw (self):
+    def draw (self, width):
         tip, pop = self.actconns ()
         if not pop:
             return ""
@@ -338,9 +339,9 @@ class MapPath:
         # Australia to US) we turn it into a straight line, which does
         # get drawn sensibly.
         if abs (self.loc[1][1] - self.loc[0][1]) > 180:
-            return """L.polyline([{}], {{color: "{}", weight: 2, linecap:'butt'}}){}{}""".format (self, c, dp, dt)
+            return """L.polyline([{}], {{color: "{}", weight: {}, linecap:'butt'}}){}{}""".format (self, c, width, dp, dt)
         else:
-            return """L.Polyline.Arc({}, {{vertices: 100, color: "{}", weight: 2, linecap:'butt'}}){}{}""".format (self, c, dp, dt)
+            return """L.Polyline.Arc({}, {{vertices: 100, color: "{}", weight: {}, linecap:'butt'}}){}{}""".format (self, c, width, dp, dt)
 
 class MapItem:
     def __init__ (self):
@@ -457,13 +458,11 @@ class Mapdata:
         return loc
     
     def addnode (self, node):
-        logging.trace ("adding {}", node.__dict__)
         try:
             old = self.nodes[node.id]
             for k, v in node.__dict__.items ():
                 if k != "id" and v is not None:
                     setattr (old, k, v)
-            logging.trace ("updated to {}", self.nodes[node.id].__dict__)
         except KeyError:
             self.nodes[node.id] = node
             logging.trace ("added as new node")
@@ -553,8 +552,13 @@ class NodePoller (Element, statemachine.StateMachine):
         try:
             logging.trace ("Connecting to NML at {} ({})",
                            Nodeid (self.nodeid), self.curnode.name)
+            # We'll request proxy.  That doesn't seem to do anything
+            # useful with VMS, so if default access is not enabled the
+            # result will be an authentication failure.  I still don't
+            # know how to make it work with VMS proxy.
             self.conn = self.scport.connect (self.nodeid, 19, NICEVERSION,
-                                             srcname = MapperUser)
+                                             srcname = MapperUser,
+                                             proxy = True)
             # Note that we don't need to set a timer at this
             # point, because NSP guarantees that a connect request
             # will be answered in bounded time (with a "timeout"
@@ -574,7 +578,7 @@ class NodePoller (Element, statemachine.StateMachine):
             except Exception:
                 self.nmlversion = None
             logging.trace ("connection made to {} ({}), NML version {}",
-                           self.curnode.id, self.curnode.name, self.nmlversion)
+                           self.nodeid, self.curnode.name, self.nmlversion)
             # Issue the read exec characteristics
             return self.next_request (execchar, self.procexec)
         elif isinstance (item, session.Reject):
@@ -696,6 +700,11 @@ class NodePoller (Element, statemachine.StateMachine):
                 nodeid = Nodeid (nodeid[0])
                 a = self.parent.mapadj (self.curnode, circ, nodeid)
                 a.update (True, self.pollts)
+                if a.tonode.area != self.nodeid.area:
+                    # It is a cross-area adjacency, that means both
+                    # ends are area routers.
+                    self.curnode.type = a.tonode.type = 3    # Area router
+                    logging.trace ("Marking nodes as area routers")
                 # Unlike the active nodes status, we don't get the
                 # adjacent node type returned in circuit status,
                 # so we have to visit it.  But if it was seen as
@@ -715,6 +724,11 @@ class NodePoller (Element, statemachine.StateMachine):
             nodename = getattr (r.entity.ename, "nodename", "")
             n = self.parent.mapnode (nodeid, nodename)
             n.update (True, self.pollts)
+            if n.id.area != self.nodeid.area:
+                # It is a reachable node in another area, that means
+                # both ends are area routers.
+                self.curnode.type = n.type = 3    # Area router
+                logging.trace ("Marking nodes as area routers")
             # See if it's a neighbor and its type was given
             ntype = getattr (r, "adj_type", None)
             circ = getattr (r, "adj_circuit", None)
@@ -780,6 +794,9 @@ class Mapper (Element, statemachine.StateMachine):
 
     def startdbupdate (self):
         logging.info ("Starting mapping database update")
+        # Update defaults to incremental.  As of 5/1/2020, the
+        # timestamp is the last-modified timestamp (originally it was
+        # the creation timestamp).
         self.dbthread = threading.Thread (target = self.dbupdate,
                                           daemon = True)
         self.dbthread.start ()
@@ -967,7 +984,7 @@ class Mapper (Element, statemachine.StateMachine):
         # And the paths
         arcs = list ()
         for p in paths.values ():
-            a = p.draw ()
+            a = p.draw (2)
             if a:
                 arcs.append (a)
         body = """
@@ -977,7 +994,10 @@ class Mapper (Element, statemachine.StateMachine):
         self.mapbody = MAPBODYHDR + body + MAPBODYEND
         self.databody = html.section (self.datatitle,
                                       mapdatatable (nodehdr, nodedata))
-        self.top = html.page_title (self.title, "Last updated", True)
+        maplinks = (("/map", "Network map"), ("/map/data", "Map data table"))
+        self.top = html.page_title (self.title, report = "Last updated",
+                                    links = maplinks, up = False,
+                                    ts = m.lastscan)
         
     def dbupdate (self, full = False):
         # This runs in a separate thread, to get updated records from
@@ -1041,7 +1061,7 @@ class Mapper (Element, statemachine.StateMachine):
                     addr = Nodeid (v)
                 elif k == "Owner":
                     owner = v
-                elif k == "Time":
+                elif k == "Time" or k == "Modified":
                     timestamp = time.mktime (time.strptime (v, "%d %b %Y %H:%M:%S"))
                 elif k == "Loc":
                     loc = v

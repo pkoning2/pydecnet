@@ -89,6 +89,7 @@ class dtable (table):
 
 class detailrow (trow):
     detailtable = dtable
+    detailclass = "details"
     
     def __init__ (self, *contents):
         *row1, extra = contents
@@ -102,8 +103,9 @@ class detailrow (trow):
     def __str__ (self):
         line1 = super ().__str__ ()
         if self.extra:
-            return '{}\n<tr><td colspan="{}" class="details">{}</td></tr>' \
-                    .format (line1, len (self.contents), self.extra)
+            return '{}\n<tr><td colspan="{}" class="{}">{}</td></tr>' \
+                    .format (line1, len (self.contents),
+                             self.detailclass, self.extra)
         return line1
             
 class detail_table (table):
@@ -213,14 +215,18 @@ class mapdoc (doc):
   <script src="resources/leaflet.js"></script>
   <script src="resources/leaflet-arc.min.js"></script>''')
 
-def page_title (title, report = "Reported", mapper = None):
+def page_title (title, report = "Reported", ts = 0,
+                links = (), up = True):
     now = time.time ()
-    uptime = str (timedelta (int (now - start_time) / 86400.))
-    now = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (now))
+    if not ts:
+        ts = now
+    ts = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (ts))
     spaces = "&nbsp;" * 4
-    links = spaces + '<a href="/">Home</a>'
-    if mapper:
-        links += spaces + '<a href="/map">Network map</a>'
-    return top (title, "{} {}, up {}{}".format (report, now, uptime, links))
+    ll = (("/", "Home"),) + links
+    links = ''.join (spaces + '<a href="{}">{}</a>'.format (*l) for l in ll)
+    if up:
+        uptime = str (timedelta (int (now - start_time) / 86400.))
+        return top (title, "{} {}, up {}{}".format (report, ts, uptime, links))
+    return top (title, "{} {}{}".format (report, ts, links))
     
     

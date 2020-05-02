@@ -50,6 +50,11 @@ table, th, td {
     padding-right: 3pt;
 }
 
+.mapdetails {
+    padding: 1pt;
+    padding-left: 6pt;
+}
+
 h2, h3 {
     text-align: left;
     font-weight: bold;
