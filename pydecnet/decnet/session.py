@@ -326,7 +326,7 @@ class Session (Element):
 
     def connect (self, client, dest, remuser, conndata = b"",
                  username = b"", password = b"", account = b"",
-                 srcname = LocalUser):
+                 srcname = LocalUser, proxy = False):
         if isinstance (remuser, int):
             remuser = EndUser (num = remuser)
         else:
@@ -334,6 +334,10 @@ class Session (Element):
         sc = SessionConnInit (srcname = srcname, dstname = remuser,
                               connectdata = conndata, rqstrid = username,
                               passwrd = password, account = account)
+        if proxy:
+            sc.scver = sc.SCVER2
+            sc.proxy = 1
+            sc.proxy_uic = 0
         nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
                                                        srcname, remuser)
@@ -576,10 +580,10 @@ class BaseConnector (Element):
 
     def connect (self, dest, remuser, data = b"",
                  username = b"", password = b"", account = b"",
-                 srcname = LocalUser):
+                 srcname = LocalUser, proxy = False):
         conn = self.parent.connect (self, dest, remuser, data,
                                     username, password, account,
-                                    srcname)
+                                    srcname, proxy)
         self.conns[id (conn)] = conn
         return conn
 
