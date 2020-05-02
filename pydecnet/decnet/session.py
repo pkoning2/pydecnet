@@ -23,7 +23,6 @@ from . import timers
 from . import statemachine
 from . import nsp
 from . import html
-from . import http
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -636,8 +635,8 @@ class ProcessConnector (BaseConnector):
         super ().__init__ (parent,obj)
         self.sp = None
         self.othread = self.ethread = None
-        self.enc = http.DNJsonEncoder ().encode
-        self.dec = http.DNJsonDecoder ().decode
+        self.enc = DNJsonEncoder ().encode
+        self.dec = DNJsonDecoder ().decode
         # Build the minimal environment we want to pass down
         env = dict ()
         for k in "HOME", "PATH", "USER", "LOGNAME":

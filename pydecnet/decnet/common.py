@@ -14,6 +14,7 @@ import socket
 import abc
 import datetime
 import os.path
+import json
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
@@ -760,3 +761,32 @@ class NullContext:
 def abspath (p):
     "Like os.path.abspath but also does expanduser to it"
     return os.path.abspath (os.path.expanduser (p))
+
+class DNJsonDecoder (json.JSONDecoder):
+    def __init__ (self):
+        super ().__init__ (strict = False)
+
+    def decode (self, s):
+        if isinstance (s, (bytes, bytearray)):
+            s = str (s, encoding = "latin1")
+        return super ().decode (s)
+    
+class DNJsonEncoder (json.JSONEncoder):
+    def __init__ (self):
+        super ().__init__ (allow_nan = False, separators = (',', ':'))
+        
+    def default (self, o):
+        # Encode bytes and bytearray as latin-1 strings -- but not
+        # their subclasses which are expected to supply their own
+        # formatting mechanisms.  Macaddr is an example.
+        if type (o) in { bytes, bytearray }:
+            return str (o, encoding = "latin1")
+        try:
+            return str (o)
+        except Exception:
+            pass
+        return super ().default (o)
+    
+dnDecoder = DNJsonDecoder ()
+dnEncoder = DNJsonEncoder ()
+
