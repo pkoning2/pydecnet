@@ -25,6 +25,7 @@ except ImportError:
 from .common import *
 from . import logging
 from . import html
+from . import mapper
 
 packagedir = os.path.dirname (__file__)
 
@@ -98,13 +99,12 @@ class Monitor:
         httproot = config.http_root or packagedir
         self.resources = os.path.join (httproot, "resources")
         if config.mapper:
-            from . import mapper
             self.mapserver = mapper.Mapper (config, nodelist)
         else:
             self.mapserver = None
 
     def start (self):
-        html.start_time = time.time ()
+        html.setstarttime ()
         setdnrev ()
         ports = list ()
         mapserver = self.mapserver
@@ -144,6 +144,10 @@ class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
         self.nodelist = nodelist
         self.api = config.api
         self.mapserver = mapserver
+        if mapserver:
+            self.addlinks = (("/map", "Network map"),)
+        else:
+            self.addlinks = ()
         self.resources = resources
         self.secure = secure or config.insecure_api
         super ().__init__ (addr, rclass)
@@ -254,7 +258,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                     if len (self.server.nodelist) > 1:
                         sb.insert (0, self.node_sidebar (mobile, nodeidx))
                     sb = html.sidebar (*sb)
-                    top = html.page_title (title, mapper = mapserver)
+                    top = html.page_title (title, links = self.server.addlinks)
                     ret = html.doc (mobile, title, top,
                                     html.middle (sb, body), bottom)
                 ret = str (ret).encode ("utf-8", "ignore")
@@ -305,7 +309,7 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     
     def node_list (self, mobile):
         title = "DECnet/Python monitoring"
-        top = html.page_title (title, mapper = self.mapserver)
+        top = html.page_title (title, links = self.server.addlinks)
         return html.doc (mobile, title, top,
                          html.sidebar (self.node_sidebar (mobile)), bottom)
     
