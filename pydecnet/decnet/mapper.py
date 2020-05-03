@@ -771,6 +771,9 @@ class Mapper (Element, statemachine.StateMachine):
                                                    n.routing.nodeinfo)
         self.datatitle = "{} map data on {}".format (config.mapper,
                                                      n.routing.nodeinfo)
+        # Do a dummy getaddrinfo to load whatever is needed for that
+        # to work later on, after chroot.
+        socket.getaddrinfo ("google.com", 80)
 
     def start (self):
         # Load the map database
@@ -1005,10 +1008,10 @@ class Mapper (Element, statemachine.StateMachine):
         # short timeout which will deliver a Timeout work item to the
         # main state machine, allowing that state machine to clean up
         # the thread and proceed with other work.
-        dtr = socket.create_connection ((self.config.nodedbserver, 1234))
-        logging.debug ("Connected to database server at MIM")
-        nodes = 0
         try:
+            dtr = socket.create_connection ((self.config.nodedbserver, 1234))
+            logging.debug ("Connected to database server at MIM")
+            nodes = 0
             dtrf = dtr.makefile (mode = "r", encoding = "latin1")
             dtr.send (bytes (self.config.dbpassword + "\n", encoding = "latin1"))
             l = dtrf.readline ()
@@ -1088,7 +1091,6 @@ class Mapper (Element, statemachine.StateMachine):
             logging.debug ("{} node database entries updated", nodes)
         except Exception:
             logging.exception ("Error during map database update")
-            raise
         finally:
             dtrf.close ()
             dtr.close ()
