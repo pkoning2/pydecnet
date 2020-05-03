@@ -170,8 +170,8 @@ cp.add_argument ("type", choices = datalinks, metavar = "type",
                  help = "Datalink type; one of {}.".format (", ".join (datalinks)))
 cp.add_argument ("device", help = "Device or connection string")
 cp.add_argument ("--cost", type = int, metavar = "N",
-                 help = "Circuit cost (range 1..25, default 1)",
-                 choices = range (1, 26), default = 1)
+                 help = "Circuit cost (range 1..25, default 4)",
+                 choices = range (1, 26), default = 4)
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval "
                  "(overrides exec setting)")
