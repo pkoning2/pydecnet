@@ -140,13 +140,13 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
         if p.scheme or p.netloc or p.params or p.fragment:
             logging.trace ("Invalid path: {}", self.path)
             self.send_error (400, "Invalid request")
-            return None, None
+            return None, None, None
         logging.trace ("http from {} get {}", self.client_address, p.path)
         parts = os.path.realpath (p.path).split ("/")
         if not parts or parts[0]:
             self.send_error (400, "Invalid request")
             logging.trace ("Invalid path: {}", self.path)
-            return None, None
+            return None, None, None
         parts = parts[1:]
         nodelist = self.server.nodelist
         mapserver = self.server.mapserver
