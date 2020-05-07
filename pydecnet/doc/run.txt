@@ -163,14 +163,16 @@ particular, they are:
 5. The mapper database
 6. Device names mentioned in circuit settings
 7. Any libraries referenced at runtime.  See below for an example
+8. /etc/localtime -- optional; if not present, mapper will display
+   time stamps in UTC.
 
 Note also that all these files affected by --chroot are accessed using
 the UID and GID specified by the --uid and --gid arguments, if
 present.  This means file and directory permissions have to be
 appropriate for those accesses to be allowed.  You need to make sure
-the directory where log files are written allows file creation for
-that UID and GID, and that devices used for DECnet circuits allow
-access.
+the directories where log and map database files are written allows
+file creation for that UID and GID, and that devices used for DECnet
+circuits allow access.
 
 Similarly, host network resources accesses made by PyDECnet, such as
 for TCP or UDP sockets, will use the supplied UID and GID if present.

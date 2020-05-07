@@ -211,9 +211,9 @@ class mapdoc (doc):
     "Similar to doc, but for maps"
     def __str__ (self):
         return super ().__str__ ('''
-  <link rel="stylesheet" href="resources/leaflet.css">
-  <script src="resources/leaflet.js"></script>
-  <script src="resources/leaflet-arc.min.js"></script>''')
+  <link rel="stylesheet" href="/resources/leaflet.css">
+  <script src="/resources/leaflet.js"></script>
+  <script src="/resources/leaflet-arc.min.js"></script>''')
 
 def page_title (title, report = "Reported", ts = 0,
                 links = (), up = True):
