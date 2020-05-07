@@ -29,7 +29,9 @@ from .nsp import UnknownNode, WrongState, NSPException
 
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
-ENDNODES = (1, 5)
+
+ENDNODES = (nicepackets.ENDNODE3, nicepackets.ENDNODE4)
+PHASE3 = (nicepackets.ROUTING3, nicepackets.ENDNODE3)
 
 STARTDELAY = 60
 NICETIMEOUT = 60
@@ -113,7 +115,8 @@ var Esri_WorldTopoMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest
 		shadowSize:  [41, 41]});
 '''
 MAPBODYEND = """
-  var map = L.map('map', {layers: [osm, places, paths]}).setView([45, -20], 3);
+  var map = L.map('map', {layers: [osm, l2places, l2paths,
+      l1places, l1paths]}).setView([45, -20], 3);
 
 L.control.scale().addTo(map);
 
@@ -124,10 +127,13 @@ var basemaps = { "OpenStreetMap" : osm,
   "ESRI World Topo Map" : Esri_WorldTopoMap
  };
 
-var overlaymaps = { "Node locations" : places,
-  "Paths" : paths };
+var overlaymaps = { "Core Node locations" : l2places,
+  "Backbone Paths" : l2paths,
+  "Level 1 Node locations" : l1places,
+  "Level 1 Paths" : l1paths };
 
 L.control.layers (basemaps, overlaymaps).addTo (map);
+
 </script></div>"""
 
 dtr_re = re.compile (r"(.+?): +(.+)")
@@ -155,7 +161,8 @@ class MapLocation:
         self.name = name
         self.loc = tuple (loc)
         self.nodes = dict ()
-
+        self.bb = False
+        
     def __eq__ (self, other):
         return self.loc == other.loc
     
@@ -174,7 +181,7 @@ class MapLocation:
     def add (self, node):
         # "node" is a MapNode instance
         self.nodes[node] = node
-
+            
     def color (self):
         c = collections.Counter ()
         for n in self.nodes.values ():
@@ -237,12 +244,13 @@ class MapLocation:
         return """L.marker({}, {{icon: {}Icon}}){}{}""".format (self, self.color (), dp, dt)
 
 class MapPath:
-    def __init__ (self, loc1, loc2):
+    def __init__ (self, loc1, loc2, bb = False):
         loc1 = tuple (loc1)
         loc2 = tuple (loc2)
         if loc1 > loc2:
             loc1, loc2 = loc2, loc1
         self.loc = (loc1, loc2)
+        self.bb = bb
         self.conns = dict ()
 
     def __eq__ (self, other):
@@ -319,7 +327,11 @@ class MapPath:
                 pop.append (" ".join (pop2))
         return "<br>".join (tip), "<br>".join (pop)
     
-    def draw (self, width):
+    def draw (self):
+        if self.bb:
+            width = 2
+        else:
+            width = 1
         tip, pop = self.actconns ()
         if not pop:
             return ""
@@ -389,12 +401,13 @@ def decode_neighbors (l):
     return ret
 
 class MapNode (MapItem):
-    def __init__ (self, name, num, loc = ""):
+    def __init__ (self, name, num, ntype, loc = ""):
         super ().__init__ ()
         self.name = name
         self.id = Nodeid (num)
         self.adj = dict ()
         self.loc = loc
+        self.type = ntype
         
     def __hash__ (self):
         return hash (self.id)
@@ -498,7 +511,8 @@ class Mapdata:
         self.__init__ (self.fn)
         for n in d["nodes"]:
             name = n.get ("name", "")
-            nn = MapNode (name, Nodeid (n["id"]))
+            ntype = n.get ("type", None)
+            nn = MapNode (name, Nodeid (n["id"]), ntype)
             for k, v in n.items ():
                 if k == "latlong":
                     v = tuple (v)
@@ -632,9 +646,12 @@ class NodePoller (Element, statemachine.StateMachine):
         elif isinstance (item, session.Disconnect):
             self.conn = False
         elif isinstance (item, timers.Timeout):
-            # Timeout.  Pretend the request is finished and handle it,
-            # try to keep going if desired.
-            return self.handler (self.replies)
+            # Timeout.  It would be nice to keep going but that isn't
+            # doable because we're out of sync with the other side
+            # now.  We might end up receiving a reply for a previous
+            # request, and since the replies are not self-describing
+            # we'd get all messed up in the parsing.
+            logging.debug ("Timeout waiting for reply")
         else:
             logging.debug ("Unexpected item {}".format (item))
         return self.finished ()
@@ -727,7 +744,7 @@ class NodePoller (Element, statemachine.StateMachine):
             if n.id.area != self.nodeid.area:
                 # It is a reachable node in another area, that means
                 # both ends are area routers.
-                self.curnode.type = n.type = 3    # Area router
+                self.curnode.type = n.type = nicepackets.AREA
                 logging.trace ("Marking nodes as area routers")
             # See if it's a neighbor and its type was given
             ntype = getattr (r, "adj_type", None)
@@ -744,8 +761,8 @@ class NodePoller (Element, statemachine.StateMachine):
                 # endnode and we know its name, there is no need
                 # because we already have everything we want to
                 # know.
-                if ntype in (0, 1) and nodeid.area != self.nodeid.area \
-                   or ntype == 2 \
+                if ntype in PHASE3 and nodeid.area != self.nodeid.area \
+                   or ntype == nicepackets.PHASE2 \
                    or ntype in ENDNODES and n.name:
                     self.parent.done.add (nodeid)
                     continue
@@ -898,14 +915,14 @@ class Mapper (Element, statemachine.StateMachine):
         logging.info ("Network scan took {}, found {} total nodes, {} up, {} down",
                       self.started, up + down, up, down)
             
-    def mapnode (self, nodeid, name = ""):
+    def mapnode (self, nodeid, name = "", ntype = None):
         try:
             ret = m.nodes[nodeid]
         except KeyError:
             # Odd, a reachable node not mentioned in the node
             # database.  Make up a database entry for it, with a name
             # if we know it.
-            ret = MapNode (name, nodeid)
+            ret = MapNode (name, nodeid, ntype)
             m.nodes[nodeid] = ret
         return ret
     
@@ -928,7 +945,8 @@ class Mapper (Element, statemachine.StateMachine):
     
     def update_map (self):
         locations = dict ()
-        paths = dict ()
+        l2paths = dict ()
+        l1paths = dict ()
         nodedata = list ()
         nodehdr = [ "Node", "Type", "Location", "Last down", "Last up" ]
         for k, n in sorted (m.nodes.items ()):
@@ -963,6 +981,10 @@ class Mapper (Element, statemachine.StateMachine):
                     # Endpoints match, nothing to draw
                     continue
                 tonode = self.mapnode (a.tonode)
+                try:
+                    ll = locations[l2]
+                except KeyError:
+                    locations[l2] = ll = MapLocation (tonode.loc or NOLOC, l2)
                 ch = a.health ()
                 crow = [ '<span class="hs{}">{}</span>'.format (ch, a.circ),
                          '<span class="hs{}">{}</span>'.format (ch, NiceNode (tonode.id, tonode.name)),
@@ -973,27 +995,40 @@ class Mapper (Element, statemachine.StateMachine):
                 else:
                     k = (l2, l1)
                 # Add this circuit to the path
+                if n.type == nicepackets.AREA and n2.type == nicepackets.AREA:
+                    # Backbone connection
+                    paths = l2paths
+                    # Mark the endpoints as being backbone sites
+                    l.bb = ll.bb = True
+                else:
+                    paths = l1paths
                 try:
                     c = paths[k]
                 except KeyError:
-                    paths[k] = c = MapPath (l1, l2)
+                    paths[k] = c = MapPath (l1, l2, bb = paths is l2paths)
                 c.add (n.id, a.tonode, a)
             if t in ENDNODES:
                 noderow.append (None)
             else:
                 noderow.append (circuits)
             nodedata.append (noderow)
-        markers = [ l.marker () for l in locations.values () ]
+        l1markers = [ l.marker () for l in locations.values () if not l.bb ]
+        l2markers = [ l.marker () for l in locations.values () if l.bb ]
         # And the paths
-        arcs = list ()
-        for p in paths.values ():
-            a = p.draw (2)
-            if a:
-                arcs.append (a)
+        l1arcs = list ()
+        l2arcs = list ()
+        for arcs, paths in (l1arcs, l1paths), (l2arcs, l2paths):
+            for p in paths.values ():
+                a = p.draw ()
+                if a:
+                    arcs.append (a)
         body = """
-  var places = L.layerGroup ([ {} ]);
-  var paths  = L.layerGroup ([ {} ]);"""
-        body = body.format (",".join (markers), ",".join (arcs))
+  var l1places = L.layerGroup ([ {} ]);
+  var l1paths  = L.layerGroup ([ {} ]);
+  var l2places = L.layerGroup ([ {} ]);
+  var l2paths  = L.layerGroup ([ {} ]);"""
+        body = body.format (",\n".join (l1markers), ",\n".join (l1arcs),
+                            ",\n".join (l2markers), ",\n".join (l2arcs))
         self.mapbody = MAPBODYHDR + body + MAPBODYEND
         self.databody = html.section (self.datatitle,
                                       mapdatatable (nodehdr, nodedata))
@@ -1051,7 +1086,7 @@ class Mapper (Element, statemachine.StateMachine):
                         # and, if applicable, a place name, for the
                         # previous record.
                         nodes += 1
-                        curnode = MapNode (name, addr, loc)
+                        curnode = MapNode (name, addr, None, loc)
                         curnode.owner = owner
                         curnode.time = timestamp
                         if coord != (0, 0):
@@ -1075,13 +1110,7 @@ class Mapper (Element, statemachine.StateMachine):
                 # We have a final record.  Create a node and, if
                 # applicable, a place name, for the previous record.
                 nodes += 1
-                if coord == (0, 0):
-                    c, msg = findloc (loc)
-                    if c:
-                        coord = c
-                    else:
-                        logging.trace (msg)
-                curnode = MapNode (name, addr, loc)
+                curnode = MapNode (name, addr, None, loc)
                 curnode.owner = owner
                 curnode.time = timestamp
                 if coord != (0, 0):

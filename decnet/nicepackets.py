@@ -350,6 +350,16 @@ class NiceReply (packet.Packet):
         self.detail = 0xffff
         super ().__init__ (*args)
 
+# NICE codes and corresponding strings for node types.  Note that
+# these are different from node type as encoded in routing layer
+# protocol messages.
+ROUTING3 = 0
+ENDNODE3 = 1
+PHASE2 = 2
+AREA = 3
+ROUTING4 = 4
+ENDNODE4 = 5
+
 rvalues = ( "Routing III", "Non-Routing III", "Phase II", "Area",
             "Routing IV", "Non-Routing IV" )
 
