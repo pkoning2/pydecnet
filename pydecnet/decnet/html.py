@@ -215,18 +215,13 @@ class mapdoc (doc):
   <script src="/resources/leaflet.js"></script>
   <script src="/resources/leaflet-arc.min.js"></script>''')
 
-def page_title (title, report = "Reported", ts = 0,
-                links = (), up = True):
+def page_title (title, links = ()):
     now = time.time ()
-    if not ts:
-        ts = now
-    ts = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (ts))
+    ts = time.strftime ("%d-%b-%Y %H:%M:%S %Z", time.localtime (now))
     spaces = "&nbsp;" * 4
     ll = (("/", "Home"),) + links
     links = ''.join (spaces + '<a href="{}">{}</a>'.format (*l) for l in ll)
-    if up:
-        uptime = str (timedelta (int (now - start_time) / 86400.))
-        return top (title, "{} {}, up {}{}".format (report, ts, uptime, links))
-    return top (title, "{} {}{}".format (report, ts, links))
+    uptime = str (timedelta (int (now - start_time) / 86400.))
+    return top (title, "Reported {}, up {}{}".format (ts, uptime, links))
     
     

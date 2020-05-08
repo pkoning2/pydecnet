@@ -53,6 +53,20 @@ H_UP = 3
 FADE_TIME = 14 * DAY
 GONE_TIME = 60 * DAY
 
+ROCKALL = (57.596306, -13.687306)
+
+def east (l, l2 = ROCKALL):
+    # Compare with longitude more significant.
+    return (l[1], l[0]) > (l2[1], l2[0])
+
+def page_title (title, tsscan = 0, tsdb = 0, links = ()):
+    tsscan = time.strftime ("%d-%b-%Y %H:%M %Z", time.localtime (tsscan))
+    tsdb = time.strftime ("%d-%b-%Y %H:%M %Z", time.localtime (tsdb))
+    spaces = "&nbsp;" * 4
+    ll = (("/", "Home"),) + links
+    links = ''.join (spaces + '<a href="{}">{}</a>'.format (*l) for l in ll)
+    return html.top (title, "Node DB last updated {}{}Network data last updated {}{}".format (tsdb, spaces, tsscan, links))
+    
 # DEF_LOC is the geographic coordinates we use for nodes for which the
 # database does not give a location.
 DEF_LOC = (-37.3, -12.68)        # Inaccessible Island, h/t to Daniel Suarez
@@ -175,8 +189,10 @@ class MapLocation:
     def __gt__ (self, other):
         return self.loc > other.loc
     
-    def __format__ (self, x):
-        return "[{},{}]".format (self.loc[0], self.loc[1])
+    def __format__ (self, off):
+        off = off or "0"
+        off = int (off) * 360
+        return "[{},{}]".format (self.loc[0], self.loc[1] + off)
 
     def add (self, node):
         # "node" is a MapNode instance
@@ -241,13 +257,21 @@ class MapLocation:
             dt = ".bindTooltip('{}')".format (tip)
         else:
             dt = ""
-        return """L.marker({}, {{icon: {}Icon}}){}{}""".format (self, self.color (), dp, dt)
+        ret = [ "L.marker({}, {{icon: {}Icon}}){}{}"
+                .format (self, self.color (), dp, dt) ]
+        if east (self.loc):
+            ret.append ("L.marker({:-1}, {{icon: {}Icon}}){}{}"
+                        .format (self, self.color (), dp, dt))
+        else:
+            ret.append ("L.marker({:1}, {{icon: {}Icon}}){}{}"
+                        .format (self, self.color (), dp, dt))
+        return ",\n".join (ret)
 
 class MapPath:
     def __init__ (self, loc1, loc2, bb = False):
         loc1 = tuple (loc1)
         loc2 = tuple (loc2)
-        if loc1 > loc2:
+        if east (loc1, loc2):
             loc1, loc2 = loc2, loc1
         self.loc = (loc1, loc2)
         self.bb = bb
@@ -265,9 +289,22 @@ class MapPath:
     def __gt__ (self, other):
         return self.loc > other.loc
     
-    def __format__ (self, x):
-        return "[{},{}],[{},{}]".format (self.loc[0][0], self.loc[0][1],
-                                         self.loc[1][0], self.loc[1][1])
+    def __format__ (self, off):
+        off = off or "0"
+        off = int (off) * 360
+        l1, l2 = self.loc
+        lat1, long1 = l1
+        lat2, long2 = l2
+        long1 += off
+        long2 += off
+        # For some reason, arcs that cross the 180 degree meridian
+        # only draw correctly if done from the eastern to the western
+        # (positive to negative longitude) points..  For others it
+        # doesn't matter.
+        if long1 < long2:
+            lat1, long1, lat2, long2 = lat2, long2, lat1, long1
+        return "[{},{}],[{},{}]".format (lat1, long1,
+                                         lat2, long2)
 
     def add (self, id1, id2, adj):
         # id1 and id2 are the node IDs of the endpoints, adj is a MapAdj.
@@ -343,17 +380,22 @@ class MapPath:
         c = self.color ()
         if not c:
             return ""
-        # The map drawing machinery doesn't correctly handle the 360
-        # degree wraparound; only marks +/- 180 degrees from the
-        # origin are shown properly.  But great circle arcs that cross
-        # the 180 degree latitude line instead go off to the right,
-        # connecting to nothing.  So when we see one of those (e.g.,
-        # Australia to US) we turn it into a straight line, which does
-        # get drawn sensibly.
-        if abs (self.loc[1][1] - self.loc[0][1]) > 180:
-            return """L.polyline([{}], {{color: "{}", weight: {}, linecap:'butt'}}){}{}""".format (self, c, width, dp, dt)
-        else:
-            return """L.Polyline.Arc({}, {{vertices: 100, color: "{}", weight: {}, linecap:'butt'}}){}{}""".format (self, c, width, dp, dt)
+        # Always start with the connection between the base
+        # coordinates.
+        ret = [ 'L.Polyline.Arc({}, {{vertices: 100, color: "{}", weight: {}, linecap:"butt"}}){}{}'.format (self, c, width, dp, dt) ]
+        if abs (self.loc[1][1] - self.loc[0][1]) > 180 \
+           or east (self.loc[0]):
+            # If the path crosses the 180 degree meridian, the
+            # canonical coordinates result in a path going from plus
+            # longitude to the right.  We'll create a second arc on
+            # the left.  We also put in an alias arc on the left if
+            # the base path is in the eastern hemisphere
+            ret.append ('L.Polyline.Arc({:-1}, {{vertices: 100, color: "{}", weight: {}, linecap:"butt"}}){}{}'.format (self, c, width, dp, dt))
+        elif not east (self.loc[1]):
+            # If the path is in the western hemisphere, create an
+            # alias to the right.
+            ret.append ('L.Polyline.Arc({:1}, {{vertices: 100, color: "{}", weight: {}, linecap:"butt"}}){}{}'.format (self, c, width, dp, dt))
+        return ",\n".join (ret)
 
 class MapItem:
     def __init__ (self):
@@ -1033,9 +1075,9 @@ class Mapper (Element, statemachine.StateMachine):
         self.databody = html.section (self.datatitle,
                                       mapdatatable (nodehdr, nodedata))
         maplinks = (("/map", "Network map"), ("/map/data", "Map data table"))
-        self.top = html.page_title (self.title, report = "Last updated",
-                                    links = maplinks, up = False,
-                                    ts = m.lastscan)
+        self.top = page_title (self.title,
+                               links = maplinks, tsdb = m.lastupdate,
+                               tsscan = m.lastscan)
         
     def dbupdate (self, full = False):
         # This runs in a separate thread, to get updated records from
