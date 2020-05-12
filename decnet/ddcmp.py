@@ -1013,6 +1013,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 else:
                     # Rep number does not match our latest, send NAK
                     self.send_nak (R_REP)
+            elif isinstance (data, StartMsg):
+                # Start while running, halt the circuit
+                self.disconnected ()
+            elif isinstance (data, StackMsg):
+                # Send another ACK
+                self.ackflag = True
         elif isinstance (data, timers.Timeout):
             # DDCMP is different from most ARQ protocols: it doesn't
             # retransmit data on timeout, but instead asks the other
@@ -1136,8 +1142,9 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             else:
                 logging.trace ("Message discarded, no port open")
         elif isinstance (data, StartMsg):
-            # The spec says to "notify" the user.  There isn't any obvious
-            # way to do that, so instead let's halt if we get a Start.
+            # The spec says to "notify" the user.  There isn't any
+            # obvious way to do that, so instead let's halt if we get
+            # a Start.
             self.disconnected ()
         return None
         
