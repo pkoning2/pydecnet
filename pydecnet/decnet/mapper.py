@@ -10,13 +10,17 @@
 # Leaflet.Arc from https://github.com/MAD-GooZe/Leaflet.Arc
 
 import datetime
-import pytz
 import subprocess
 import json
 import re
 import os
 import socket
 import collections
+try:
+    import pytz
+    utc = pytz.utc
+except ImportError:
+    pytz = None
 
 from .common import *
 from . import html
@@ -26,8 +30,6 @@ from . import logging
 from . import timers
 from . import nicepackets
 from .nsp import UnknownNode, WrongState, NSPException
-
-utc = pytz.utc
 
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
@@ -829,6 +831,8 @@ class Mapper (Element, statemachine.StateMachine):
         Element.__init__ (self, n)
         statemachine.StateMachine.__init__ (self)
         self.config = config
+        if not pytz:
+            raise ValueError ("Mapper requires pytz module")
         self.dbtz = pytz.timezone (config.nodedbtz)
         self.nodeid = n.routing.nodeid
         self.title = "{} map server on {}".format (config.mapper,
