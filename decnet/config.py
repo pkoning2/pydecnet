@@ -233,6 +233,8 @@ cp.add_argument ("--mapdb", default = "/var/db/decnet/mapdata.json",
                  help = argparse.SUPPRESS)
 cp.add_argument ("--nodedbserver", default = "mim.update.uu.se",
                  help = argparse.SUPPRESS)
+cp.add_argument ("--nodedbtz", default = "Europe/Stockholm",
+                 help = argparse.SUPPRESS)
 cp.add_argument ("--dbpassword", default = "", help = argparse.SUPPRESS)
 if ssl:
     cp.add_argument ("--https-port", metavar = "S", default = 8443,

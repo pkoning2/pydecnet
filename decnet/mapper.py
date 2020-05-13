@@ -9,8 +9,8 @@
 # Leaflet from https://github.com/Leaflet/Leaflet
 # Leaflet.Arc from https://github.com/MAD-GooZe/Leaflet.Arc
 
-import time
-from datetime import timedelta
+import datetime
+import pytz
 import subprocess
 import json
 import re
@@ -26,6 +26,8 @@ from . import logging
 from . import timers
 from . import nicepackets
 from .nsp import UnknownNode, WrongState, NSPException
+
+utc = pytz.utc
 
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
@@ -59,9 +61,18 @@ def east (l, l2 = ROCKALL):
     # Compare with longitude more significant.
     return (l[1], l[0]) > (l2[1], l2[0])
 
+notime = "&nbsp;" * 10
+def strflocaltime (utcts):
+    # Convert a Unix time value (UTC timestamp) to a date/time string
+    # representation of the local time, with zone name included.
+    if not utcts:
+        return notime
+    ret = datetime.datetime.fromtimestamp (utcts, utc)
+    return ret.astimezone ().strftime ("%d-%b-%Y %H:%M %Z")
+
 def page_title (title, tsscan = 0, tsdb = 0, links = ()):
-    tsscan = time.strftime ("%d-%b-%Y %H:%M %Z", time.localtime (tsscan))
-    tsdb = time.strftime ("%d-%b-%Y %H:%M %Z", time.localtime (tsdb))
+    tsscan = strflocaltime (tsscan)
+    tsdb = strflocaltime (tsdb)
     spaces = "&nbsp;" * 4
     ll = (("/", "Home"),) + links
     links = ''.join (spaces + '<a href="{}">{}</a>'.format (*l) for l in ll)
@@ -151,13 +162,6 @@ L.control.layers (basemaps, overlaymaps).addTo (map);
 </script></div>"""
 
 dtr_re = re.compile (r"(.+?): +(.+)")
-
-notime = "&nbsp;" * 10
-
-def timestr (t):
-    if t:
-        return time.strftime ("%d-%b-%Y %H:%M", time.gmtime (t))
-    return notime
 
 class mapcirctable (html.table):
     def __init__ (self, data):
@@ -825,6 +829,7 @@ class Mapper (Element, statemachine.StateMachine):
         Element.__init__ (self, n)
         statemachine.StateMachine.__init__ (self)
         self.config = config
+        self.dbtz = pytz.timezone (config.nodedbtz)
         self.nodeid = n.routing.nodeid
         self.title = "{} map server on {}".format (config.mapper,
                                                    n.routing.nodeinfo)
@@ -1004,8 +1009,8 @@ class Mapper (Element, statemachine.StateMachine):
                 ts = nicepackets.rvalues[t]
             except (TypeError, IndexError):
                 ts = "unknown"
-            ld = timestr (n.last_down)
-            lu = timestr (n.last_up)
+            ld = strflocaltime (n.last_down)
+            lu = strflocaltime (n.last_up)
             nh = n.health ()
             noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu ]
             circuits = list ()
@@ -1030,7 +1035,7 @@ class Mapper (Element, statemachine.StateMachine):
                 ch = a.health ()
                 crow = [ '<span class="hs{}">{}</span>'.format (ch, a.circ),
                          '<span class="hs{}">{}</span>'.format (ch, NiceNode (tonode.id, tonode.name)),
-                         ln, timestr (a.last_down), timestr (a.last_up) ]
+                         ln, strflocaltime (a.last_down), strflocaltime (a.last_up) ]
                 circuits.append (crow)
                 if l1 < l2:
                     k = (l1, l2)
@@ -1078,7 +1083,21 @@ class Mapper (Element, statemachine.StateMachine):
         self.top = page_title (self.title,
                                links = maplinks, tsdb = m.lastupdate,
                                tsscan = m.lastscan)
-        
+
+    def strfdbtime (self, utcts):
+        # Convert a Unix time value (UTC timestamp) to a date/time
+        # string representation of the local time of the node database
+        # server.
+        ret = datetime.datetime.fromtimestamp (utcts, utc)
+        return ret.astimezone (self.dbtz).strftime ("%d-%b-%Y %H:%M:%S")
+
+    def strpdbtime (self, s):
+        # Convert a time string in the local time of the database
+        # server to a Unix time value.
+        ret = datetime.datetime.strptime (s, "%d %b %Y %H:%M:%S")
+        ret = self.dbtz.localize (ret)
+        return ret.astimezone (utc).timestamp ()
+    
     def dbupdate (self, full = False):
         # This runs in a separate thread, to get updated records from
         # the node database server (MIM).  When done, it starts a
@@ -1100,8 +1119,7 @@ class Mapper (Element, statemachine.StateMachine):
                 logging.debug ("Requesting full database")
                 dtr.send (b"\n")
             else:
-                ts = time.strftime ("%d-%b-%Y %H:%M:%S",
-                                    time.localtime (m.lastupdate))
+                ts = self.strfdbtime (m.lastupdate)
                 logging.debug ("Requesting changes since {}", ts)
                 dtr.send (bytes ('TIME > "{}"\n'.format (ts),
                                  encoding = "latin1"))
@@ -1120,7 +1138,7 @@ class Mapper (Element, statemachine.StateMachine):
                 logging.trace ("database server: {}: {} ", k, v)
                 if k == "Current time":
                     logging.trace ("Server current time is {}", v)
-                    upd = time.mktime (time.strptime (v, "%d %b %Y %H:%M:%S"))
+                    upd = self.strpdbtime (v)
                 elif k == "Node":
                     # We expect "Node" to be the first field
                     if name and loc.lower () != "scrapped":
@@ -1142,7 +1160,7 @@ class Mapper (Element, statemachine.StateMachine):
                 elif k == "Owner":
                     owner = v
                 elif k == "Time" or k == "Modified":
-                    timestamp = time.mktime (time.strptime (v, "%d %b %Y %H:%M:%S"))
+                    timestamp = self.strpdbtime (v)
                 elif k == "Loc":
                     loc = v
                 elif k == "Coord":
