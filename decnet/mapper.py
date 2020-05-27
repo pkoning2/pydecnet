@@ -783,20 +783,23 @@ class NodePoller (Element, statemachine.StateMachine):
     def procactnode (self, ret):
         # Handle completion of read active nodes
         for r in ret:
+            # Pick up some attributes
             nodeid = Nodeid (r.entity.ename)
-            # Since it's reachable, we will mark it and plan to
-            # visit it
             nodename = getattr (r.entity.ename, "nodename", "")
-            n = self.parent.mapnode (nodeid, nodename)
-            n.update (True, self.pollts)
-            if n.id.area != self.nodeid.area:
-                # It is a reachable node in another area, that means
-                # both ends are area routers.
-                self.curnode.type = n.type = nicepackets.AREA
-                logging.trace ("Marking nodes as area routers")
-            # See if it's a neighbor and its type was given
             ntype = getattr (r, "adj_type", None)
             circ = getattr (r, "adj_circuit", None)
+            links = getattr (r, "active_links", 0)
+            hops = getattr (r, "hops", None)
+            # Some implementations will report "active" nodes when the
+            # node had a connection in the past.  Those don't have a
+            # neighbor type, or hops, or a non-zero link count.
+            if ntype is None and links == 0 and hops is None:
+                continue
+            # Since it's reachable, we will mark it and plan to
+            # visit it
+            n = self.parent.mapnode (nodeid, nodename)
+            n.update (True, self.pollts)
+            # See if it's a neighbor and its type was given
             if ntype is not None and circ:
                 # It's a neighbor, update its adjacency
                 a = self.parent.mapadj (self.curnode, circ, nodeid)
