@@ -237,7 +237,10 @@ class MapLocation:
             tip2 = list ()
             pop2 = list ()
             for k, v in d[h]:
-                s = '<span class="hs{}">{}&nbsp;({})</span>'.format (h, k, v)
+                if v:
+                    s = '<span class="hs{}">{}&nbsp;({})</span>'.format (h, k, v)
+                else:
+                    s = '<span class="hs{}">{}</span>'.format (h, k)
                 pop2.append (s)
                 if h != H_FADE:
                     tip2.append (s)
@@ -360,7 +363,11 @@ class MapPath:
             tip2 = list ()
             pop2 = list ()
             for i1, n1, i2, n2 in d[h]:
-                s = '<span class="hs{}">{}&nbsp;({})-{}&nbsp;({})</span>'.format (h, i1, n1, i2, n2)
+                if n1:
+                    i1 = "{}&nbsp;({})".format (i1, n1)
+                if n2:
+                    i2 = "{}&nbsp;({})".format (i2, n2)
+                s = '<span class="hs{}">{}-{}</span>'.format (h, i1, i2)
                 pop2.append (s)
                 if h != H_FADE:
                     tip2.append (s)
@@ -452,7 +459,7 @@ class MapNode (MapItem):
     def __init__ (self, name, num, ntype, loc = ""):
         super ().__init__ ()
         self.name = name
-        self.id = Nodeid (num)
+        self.id = NiceNode (num, name)
         self.adj = dict ()
         self.loc = loc
         self.type = ntype
@@ -460,6 +467,9 @@ class MapNode (MapItem):
     def __hash__ (self):
         return hash (self.id)
 
+    def __str__ (self):
+        return str (self.id)
+    
     def encode_json (self):
         ret = obj2dict (self)
         ret["adj"] = list (self.adj.values ())
@@ -612,8 +622,7 @@ class NodePoller (Element, statemachine.StateMachine):
         self.scport = session.InternalConnector (self.node.session,
                                                  self, "NETMAPPER")
         try:
-            logging.trace ("Connecting to NML at {} ({})",
-                           Nodeid (self.nodeid), self.curnode.name)
+            logging.trace ("Connecting to NML at {}", self.curnode)
             # We'll request proxy.  That doesn't seem to do anything
             # useful with VMS, so if default access is not enabled the
             # result will be an authentication failure.  I still don't
@@ -639,8 +648,8 @@ class NodePoller (Element, statemachine.StateMachine):
                 self.nmlversion = Version (item.message)
             except Exception:
                 self.nmlversion = None
-            logging.trace ("connection made to {} ({}), NML version {}",
-                           self.nodeid, self.curnode.name, self.nmlversion)
+            logging.trace ("connection made to {}, NML version {}",
+                           self.curnode, self.nmlversion)
             # Issue the read exec characteristics
             return self.next_request (execchar, self.procexec)
         elif isinstance (item, session.Reject):
