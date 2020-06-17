@@ -371,7 +371,7 @@ class NiceNode (Nodeid):
     def __new__ (cls, nodeid = 0, name = ""):
         n = Nodeid.__new__ (cls, nodeid)
         if not name:
-            name = getattr (nodeid, "nodename", None)
+            name = getattr (nodeid, "nodename", "")
         n.nodename = name
         n.executor = False
         return n
