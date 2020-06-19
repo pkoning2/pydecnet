@@ -363,6 +363,8 @@ class MapPath:
             tip2 = list ()
             pop2 = list ()
             for i1, n1, i2, n2 in d[h]:
+                i1 = Nodeid (i1)
+                i2 = Nodeid (i2)
                 if n1:
                     i1 = "{}&nbsp;({})".format (i1, n1)
                 if n2:
