@@ -515,6 +515,7 @@ class MapJsonEncoder (json.JSONEncoder):
 class Mapdata:
     def __init__ (self, fn):
         self.nodes = dict ()
+        self.nodenames = dict ()
         self.locnames = dict ()
         self.locations = dict ()
         self.fn = fn
@@ -533,12 +534,25 @@ class Mapdata:
     def addnode (self, node):
         try:
             old = self.nodes[node.id]
+            oldname = old.name
             for k, v in node.__dict__.items ():
                 if k != "id" and v is not None:
                     setattr (old, k, v)
+            if oldname != old.name:
+                # Name changed, update names dictionary
+                del self.nodenames[oldname]
+                self.nodenames[old.name] = old
         except KeyError:
             self.nodes[node.id] = node
             logging.trace ("added as new node")
+            try:
+                old = self.nodenames[node.name]
+                logging.trace ("deleting old entry {} for name {}",
+                               old.id, node.name)
+                del self.nodes[old.id]
+            except KeyError:
+                pass
+            self.nodenames[node.name] = node
         
     def save (self):
         enc = MapJsonEncoder ()
@@ -581,6 +595,7 @@ class Mapdata:
                 if k not in ("name", "id"):
                     setattr (nn, k, v)
             self.nodes[nn.id] = nn
+            self.nodenames[nn.name] = nn
         self.lastupdate = d.get ("lastupdate", 0)
         self.lastscan = d.get ("lastscan", 0)
 
@@ -888,6 +903,9 @@ class Mapper (Element, statemachine.StateMachine):
         return self.dbupdating
 
     def dbupdating (self, item):
+        # Update the map, that will refresh the map/data page with the
+        # current node information
+        self.update_map ()
         # Now go run the map scan, if it is time for that
         return self.checkmapscan ()
         
@@ -1123,6 +1141,7 @@ class Mapper (Element, statemachine.StateMachine):
         # main state machine, allowing that state machine to clean up
         # the thread and proceed with other work.
         try:
+            dtr = dtrf = None
             dtr = socket.create_connection ((self.config.nodedbserver, 1234))
             logging.debug ("Connected to database server at MIM")
             nodes = 0
@@ -1199,8 +1218,10 @@ class Mapper (Element, statemachine.StateMachine):
         except Exception:
             logging.exception ("Error during map database update")
         finally:
-            dtrf.close ()
-            dtr.close ()
+            if dtrf:
+                dtrf.close ()
+            if dtr:
+                dtr.close ()
             # Wake up the mapper in 5 seconds, that's plenty of time
             # for this thread to end.
             self.node.timers.start (self, 5)
