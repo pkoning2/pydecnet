@@ -3,7 +3,6 @@
 """NICE protocol encoding machinery
 """
 
-import time
 import struct
 
 from .common import *
@@ -11,9 +10,6 @@ from . import packet
 from . import logging
 
 SvnFileRev = "$LastChangedRevision$"
-
-# Base time for time code in event message
-jbase = time.mktime (time.strptime ("1977-01-01", "%Y-%m-%d"))
 
 class EventEntityBase (Field, packet.Indexed):
     classindex = { }

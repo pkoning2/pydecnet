@@ -108,7 +108,11 @@ class Monitor:
                                             certfile = config.certificate,
                                             server_side = True)
         httpd.serve_forever ()
-        
+
+    def handleEvent (self, evt):
+        if self.mapserver:
+            self.mapserver.handleEvent (evt)
+            
 class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
     def __init__ (self, addr, rclass, nodelist, config, resources,
                   mapserver, secure):

@@ -884,6 +884,9 @@ class Mapper (Element, statemachine.StateMachine):
         # All set, get the mapper going in one minute
         self.node.timers.start (self, STARTDELAY)
 
+    def handleEvent (self, evt):
+        logging.trace ("Mapper handling event {}", evt)
+        
     def s0 (self, item):
         now = Timestamp ()
         nowts = now.startts ()

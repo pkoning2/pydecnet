@@ -67,8 +67,8 @@ class Node (Entity):
     it's certainly possible to create multiple ones (to emulate an
     entire network within a single process).
     """
-    startlist = ( "event_logger", "datalink", "mop", "routing", "nsp",
-                  "session", "bridge" )
+    startlist = ( "datalink", "mop", "routing", "nsp",
+                  "session", "bridge", "event_logger" )
 
     def __init__ (self, config):
         self.node = self
