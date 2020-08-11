@@ -12,7 +12,7 @@ from .common import *
 from . import logging
 from . import pktlogging
 from .events import *
-from . import main
+#from . import main
 from . import nsp
 from . import session
 from . import timers
@@ -265,9 +265,9 @@ class LocalMonitor (EventSink):
         self.filter.setfilter ({ c.classindexkey () for c in monevents })
 
     def writeevent (self, evt, m):
-        h = main.httpserver
-        if h:
-            h.handleEvent (evt)
+        pass #h = main.httpserver
+        #if h:
+        #    h.handleEvent (evt)
             
 type2id = { "console" : 0, "file" : 1, "monitor" : 2 }
 localsinks = [ LocalConsole, LocalFile, LocalMonitor ]
