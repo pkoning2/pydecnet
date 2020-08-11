@@ -322,13 +322,23 @@ cp = config_cmd ("logging", "Event logging configuration",
                  collection = Loggers)
 cp.add_argument ("type", choices = ("console", "file", "monitor"),
                  help = "Sink type")
-cp.add_argument ("--sink-node", type = str,
+cp.add_argument ("--sink-node", type = str, metavar = "N",
                  help = "Remote sink node (default: local)")
+cp.add_argument ("--sink-username", type = str, metavar = "U",
+                 default = "",
+                 help = "Remote sink connection username")
+cp.add_argument ("--sink-password", type = str, metavar = "PW",
+                 default = "",
+                 help = "Remote sink connection password")
+cp.add_argument ("--sink-account", type = str, metavar = "A",
+                 default = "",
+                 help = "Remote sink connection account")
 cp.add_argument ("--sink-file", type = str, default = "events.dat",
+                 metavar = "FN",
                  help = "File name for File sink")
 cp.add_argument ("--events", type = str, default = "",
-                 help = "Events to enable (default: known events for"
-                 " local console, none otherwise")
+                 help = """Events to enable (default: known events for
+                        local console, none otherwise""")
 
 cp = config_cmd ("session", "Session Control layer configuration")
 cp.add_argument ("--default-user", metavar = "DEF",

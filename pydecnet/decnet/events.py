@@ -12,13 +12,16 @@ can be caught and then logged, resulting in the same output as for a simple
 "logevent" call.
 """
 
-import time
+import datetime
 import struct
 import collections
 
 from .common import *
 from . import logging
 from .nice_coding import *
+
+# Base date/time for time code in event message (1 Jan 1977)
+jbase = datetime.datetime (1977, 1, 1)
 
 class EventBase (packet.Packet):
     """Base class for DECnet events.  This defines the standard header
@@ -76,16 +79,28 @@ class EventBase (packet.Packet):
         if entity is not None:
             self.entity_type = entity
         self.source = source
-        # Set event creation time to current time
-        sec, self.milliseconds = divmod (int ((time.time () - jbase) * 1000), 1000)
-        self.halfday, self.seconds = divmod (sec, 12 * 60 * 60)
+        # Set event creation time to current time.  We use datetime
+        # objects because of the need for "naive" rather than "aware"
+        # timestamps.  These are timestamps that pay no attention to
+        # daylight savings time; that is the case for the time
+        # encoding used in events.  Earlier code used methods like
+        # time.localtime but these use daylight savings time rules and
+        # result in time stamps that are one hour off in the summer
+        # when compared to times shown by other implementations like
+        # RSTS/E.
+        delta = datetime.datetime.now () - jbase
+        hd, self.seconds = divmod (delta.seconds, 12 * 60 * 60)
+        self.halfday = delta.days * 2 + hd
+        self.milliseconds = int (delta.microseconds / 1000)
         self.ms_absent = 0
         self.console = self.file = self.monitor = 1
         self.setparams (**kwds)
         
     def __str__ (self):
-        ts = jbase + self.seconds + (self.halfday * 12 * 60 * 60)
-        ts = time.strftime("%d-%b-%Y %H:%M:%S", time.localtime (ts))
+        days, hd = divmod (self.halfday, 2)
+        delta = datetime.timedelta (days, self.seconds + hd * 12 * 60 * 60)
+        ts = jbase + delta
+        ts = ts.strftime ("%d-%b-%Y %H:%M:%S")
         if not self.ms_absent:
             ts = "{}.{:03d}".format (ts, self.milliseconds)
         if self.__doc__:

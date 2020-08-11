@@ -125,7 +125,7 @@ def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
     """
-    global nodes
+    global nodes, httpserver
     # Handle SIGTERM as a sign to quit
     signal.signal (signal.SIGTERM, sighandler)
     # Initialize DNFULLVERSION
