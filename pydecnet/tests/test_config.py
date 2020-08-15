@@ -42,7 +42,7 @@ class TestCircuit (Logchecker):
         c = self.ctest ("circuit test-0 Ethernet foo\n"
                         "circuit test-1 Multinet bar --cost 5")
         cc = c.circuit["TEST-0"]
-        self.assertEqual (cc.cost, 1)
+        self.assertEqual (cc.cost, 4)
         self.assertIsNone (cc.t1)
         self.assertIsNone (cc.t3)
         self.assertIsNone (cc.console)

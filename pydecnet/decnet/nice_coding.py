@@ -167,7 +167,9 @@ class CircuitEventEntity (EventEntityBase, StringEntityBase):
         if ret.enum != 3 and ret.enum != 1:
             raise WrongValue ("Unexpected entity number {}".format (ret.enum))
         return ret, buf
-    
+# Set the index entry
+EventEntityBase.classindex[3] = CircuitEventEntity
+
 class NiceType (Field, packet.Indexed):
     # Base type for all the NICE data type codes
     classindex = { }
