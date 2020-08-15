@@ -19,6 +19,7 @@ from . import timers
 
 SvnFileRev = "$LastChangedRevision$"
 
+EvlUser = session.EndUser1 (name = "EVENTLOGGER")
 MYVERSION = ( 4, 0, 0 )
 # "Known events" means all events this implementation can generate.  It
 # is the maximum set for a filter.  Note that filtering applies only to
@@ -259,18 +260,21 @@ class LocalFile (EventSink):
 class LocalMonitor (EventSink):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
-        # Default events
-        monevents = ( circ_down, circ_up, reach_chg, adj_up, adj_down,
-                      reach_chg, area_chg )
-        self.filter.setfilter ({ c.classindexkey () for c in monevents })
+        self.monitor = None
 
+    def register_monitor (self, mon, evt):
+        self.monitor = mon
+        self.filter.setfilter (evt)
+        evt = self.filter.format (width = 0).replace (" ", "")
+        logging.debug ("Logging monitor initialized, events {}".format (evt))
+        
     def writeevent (self, evt, m):
-        pass #h = main.httpserver
-        #if h:
-        #    h.handleEvent (evt)
+        if self.monitor:
+            self.monitor.handleEvent (evt)
             
 type2id = { "console" : 0, "file" : 1, "monitor" : 2 }
-localsinks = [ LocalConsole, LocalFile, LocalMonitor ]
+localsinktypes = [ LocalConsole, LocalFile, LocalMonitor ]
+localsinks = [ None, None, None ]
 
 class RemoteSink (EventSink, timers.Timer):
     def __init__ (self, parent, config):
@@ -329,13 +333,14 @@ class RemoteSink (EventSink, timers.Timer):
                            len (self.sinkqueue))
             try:
                 conn = self.scport.connect (self.sinknode, 26,
+                                            srcname = EvlUser,
                                             data = MYVERSION,
                                             username = self.sinkuser,
                                             password = self.sinkpw,
-                                            account = self.sinkacc)
+                                            account = self.sinkacc,
+                                            proxy = True)
                 # Flag value for "connection pending"
                 self.sinkconn = True
-                self.parent.sinkconns[conn] = self
             except nsp.UnknownNode:
                 logging.error ("Error opening logging connection to {}",
                                self.sinknode)
@@ -357,19 +362,11 @@ class RemoteSink (EventSink, timers.Timer):
             if isinstance (item, session.Disconnect):
                 logging.debug ("Event sender disconnect from {}",
                                conn.remotenode)
-                try:
-                    del self.parent.sinkconns[conn]
-                except KeyError:
-                    pass
                 self.sinkconn = None
                 self.node.timers.start (self, CONNRETRY)
             elif isinstance (item, session.Reject):
                 logging.debug ("Event sender connect reject from {}",
                                conn.remotenode)
-                try:
-                    del self.parent.sinkconns[conn]
-                except KeyError:
-                    pass
                 self.sinkconn = None
                 self.node.timers.start (self, CONNRETRY)
             elif isinstance (item, session.Accept):
@@ -381,7 +378,6 @@ class RemoteSink (EventSink, timers.Timer):
 class EventLogger (Element):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
-        self.sinkconns = dict ()
         if not config or not config.logging:
             self.sinks = { (None, "console") :  LocalConsole (self) }
         else:
@@ -389,7 +385,10 @@ class EventLogger (Element):
             for dest, c in config.logging.items ():
                 sn, st = dest
                 if sn:
-                    # Remote sink
+                    # Remote sink.  This is only legal on DECnet nodes
+                    # (not bridges).
+                    if not self.node.decnet:
+                        raise TypeError ("Remote sink not allowed on bridge")
                     try:
                         s = self.sinks[sn]
                     except KeyError:
@@ -397,11 +396,11 @@ class EventLogger (Element):
                     f = s.filter (st)
                 else:
                     stn = type2id[st]
-                    sc = localsinks[stn]
+                    sc = localsinktypes[stn]
                     try:
                         s = self.sinks[dest]
                     except KeyError:
-                        s = self.sinks[dest] = sc (self, c)
+                        s = self.sinks[dest] = localsinks[stn] = sc (self, c)
                         f = s.filter
                 if c.events:
                     # parse events string and set filters.
@@ -429,7 +428,19 @@ class EventLogger (Element):
     def logevent (self, evt):
         for s in self.sinks.values ():
             s.logevent (evt)
-            
+
+    def logremoteevent (self, evt):
+        for name, code in type2id.items ():
+            sink = localsinks[code]
+            if sink and getattr (evt, name):
+                sink.writeevent (evt, 1 << code)
+                
     def nice_read (self, req, resp):
         return   # TODO
 
+    def register_monitor (self, mon, evt):
+        try:
+            sink = self.sinks[(None, "monitor")]
+        except KeyError:
+            return
+        sink.register_monitor (mon, evt)

@@ -22,6 +22,11 @@ try:
 except ImportError:
     pytz = None
 
+# For some reason datetime.strptime does an import at runtime.  Make
+# that happen now so we have the resulting internal module imported
+# before any chroot is done.
+datetime.datetime.strptime("2020", "%Y")
+
 from .common import *
 from . import html
 from . import statemachine
@@ -29,7 +34,10 @@ from . import session
 from . import logging
 from . import timers
 from . import nicepackets
+from . import events
 from .nsp import UnknownNode, WrongState, NSPException
+
+maplogger = logging.getLogger ("decnet.mapper")
 
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
@@ -40,6 +48,8 @@ PHASE3 = (nicepackets.ROUTING3, nicepackets.ENDNODE3)
 STARTDELAY = 60
 NICETIMEOUT = 60
 MAXPARPOLL = 20
+MAXINCPOLL = MAXPARPOLL
+INCHOLDOFF = 15
 
 DAY = 86400
 SCANINTERVAL = 1 * DAY
@@ -72,13 +82,18 @@ def strflocaltime (utcts):
     ret = datetime.datetime.fromtimestamp (utcts, utc)
     return ret.astimezone ().strftime ("%d-%b-%Y %H:%M %Z")
 
-def page_title (title, tsscan = 0, tsdb = 0, links = ()):
+def page_title (title, tsscan = 0, tsdb = 0, tsinc = 0, links = ()):
     tsscan = strflocaltime (tsscan)
     tsdb = strflocaltime (tsdb)
     spaces = "&nbsp;" * 4
+    if tsinc:
+        tsinc = "Last incremental change {}{}".format (strflocaltime (tsinc),
+                                                       spaces)
+    else:
+        tsinc = ""
     ll = (("/", "Home"),) + links
     links = ''.join (spaces + '<a href="{}">{}</a>'.format (*l) for l in ll)
-    return html.top (title, "Node DB last updated {}{}Network data last updated {}{}".format (tsdb, spaces, tsscan, links))
+    return html.top (title, "Node DB last updated {}{}Network data last updated {}{}{}{}".format (tsdb, spaces, tsscan, spaces, tsinc, links))
     
 # DEF_LOC is the geographic coordinates we use for nodes for which the
 # database does not give a location.
@@ -417,13 +432,28 @@ class MapItem:
         self.last_seen = self.last_down = self.last_up = 0
 
     def update (self, up, ts):
+        """Update this map item to be up (True) or down (False) at the
+        supplied timestamp.  If it is already in that state, nothing
+        happens.  If the state is different, the last up or last down
+        timestamp is set.
+
+        For up (True), the last_seen value is updated whether this is a
+        change or not.
+
+        Return value is True if this item changed from down to up, False
+        in all other cases.
+        """
         if up:
             self.last_seen = ts
             if self.last_up <= self.last_down:
                 self.last_up = ts
+                maplogger.trace ("Setting {} to up at {}", self, ts)
+                return True
         else:
             if self.last_up > self.last_down:
                 self.last_down = ts
+                maplogger.trace ("Setting {} to down at {}", self, ts)
+        return False
 
     def health (self):
         # Return one of the H_* health code values
@@ -448,6 +478,9 @@ class MapAdj (MapItem):
         self.tonode = tonode
         self.last_seen = self.last_down = self.last_up = 0
 
+    def __str__ (self):
+        return "adj {} to {}".format (self.circ, self.tonode)
+    
 def decode_neighbors (l):
     ret = dict ()
     for n in l:
@@ -519,7 +552,7 @@ class Mapdata:
         self.locnames = dict ()
         self.locations = dict ()
         self.fn = fn
-        self.lastupdate = self.lastscan = 0
+        self.lastupdate = self.lastscan = self.lastinc = 0
 
     def addloc (self, loc):
         "Add a location, or return the one that's already there if name match"
@@ -544,10 +577,10 @@ class Mapdata:
                 self.nodenames[old.name] = old
         except KeyError:
             self.nodes[node.id] = node
-            logging.trace ("added as new node")
+            maplogger.trace ("added as new node")
             try:
                 old = self.nodenames[node.name]
-                logging.trace ("deleting old entry {} for name {}",
+                maplogger.trace ("deleting old entry {} for name {}",
                                old.id, node.name)
                 del self.nodes[old.id]
             except KeyError:
@@ -568,7 +601,7 @@ class Mapdata:
             with open (self.fn, "rt") as f:
                 s = f.read ()
         except OSError:
-            logging.info ("No map database found, using null data")
+            maplogger.info ("No map database found, using null data")
             return
         self.decode_json (s)
         if not self.lastupdate:
@@ -577,7 +610,8 @@ class Mapdata:
     def encode_json (self):
         return dict (nodes = [ v for k, v in sorted (self.nodes.items ()) ],
                      lastupdate = self.lastupdate,
-                     lastscan = self.lastscan)
+                     lastscan = self.lastscan,
+                     lastincremental = self.lastinc)
 
     def decode_json (self, s):
         d = json.loads (s)
@@ -598,6 +632,7 @@ class Mapdata:
             self.nodenames[nn.name] = nn
         self.lastupdate = d.get ("lastupdate", 0)
         self.lastscan = d.get ("lastscan", 0)
+        self.lastinc = d.get ("lastincremental", 0)
 
 # The request messages are global data since they never change.
 # Read exec characteristics
@@ -605,11 +640,13 @@ execchar = nicepackets.NiceReadNode ()
 # Entity: node number, executor (number 0)
 execchar.entity = nicepackets.NodeReqEntity (0, 0)
 execchar.info = 2    # Characteristics
-# Read active circuits.
-actcirc = nicepackets.NiceReadCircuit ()
-# Entity: active circuits
-actcirc.entity = nicepackets.CircuitReqEntity (-2)
-actcirc.info = 1    # Status
+# Read known circuits.  (Known, not active, so we can get the set of
+# configured circuits and remove any that are no longer defined on the
+# node.)
+knocirc = nicepackets.NiceReadCircuit ()
+# Entity: known circuits
+knocirc.entity = nicepackets.CircuitReqEntity (-1)
+knocirc.info = 1    # Status
 # Read active nodes
 actnode = nicepackets.NiceReadNode ()
 # Entity: active nodes
@@ -639,7 +676,7 @@ class NodePoller (Element, statemachine.StateMachine):
         self.scport = session.InternalConnector (self.node.session,
                                                  self, "NETMAPPER")
         try:
-            logging.trace ("Connecting to NML at {}", self.curnode)
+            maplogger.trace ("Connecting to NML at {}", self.curnode)
             # We'll request proxy.  That doesn't seem to do anything
             # useful with VMS, so if default access is not enabled the
             # result will be an authentication failure.  I still don't
@@ -653,7 +690,7 @@ class NodePoller (Element, statemachine.StateMachine):
             # reject message, if necessary).
             return self.connecting
         except UnknownNode:
-            logging.error ("Unknown node {}", nodeid)
+            maplogger.error ("Unknown node {}", nodeid)
         return self.finished ()
 
     def connecting (self, item):
@@ -665,12 +702,12 @@ class NodePoller (Element, statemachine.StateMachine):
                 self.nmlversion = Version (item.message)
             except Exception:
                 self.nmlversion = None
-            logging.trace ("connection made to {}, NML version {}",
+            maplogger.trace ("connection made to {}, NML version {}",
                            self.curnode, self.nmlversion)
             # Issue the read exec characteristics
             return self.next_request (execchar, self.procexec)
         elif isinstance (item, session.Reject):
-            logging.trace ("connection rejected, data {}", item.message)
+            maplogger.trace ("connection rejected, data {}", item.message)
             if item.reason != session.UNREACH:
                 # Node was reachable but the connection was not
                 # accepted, perhaps a Cisco node or NML disabled.
@@ -692,21 +729,27 @@ class NodePoller (Element, statemachine.StateMachine):
             if retcode > 127:
                 retcode -= 256
             if retcode == -128:
+                maplogger.trace ("Poll {} received end (-128)", self.nodeid)
                 ret = False
             elif retcode < 0:
                 # Error return, give up now
+                maplogger.trace ("Poll {} received error {}",
+                                 self.nodeid, retcode)
                 return self.finished ()
             elif retcode == 2:
                 # Indicator that multiple messages are coming
+                maplogger.trace ("Poll {} received multiple header (-2)",
+                                 self.nodeid)
                 assert not self.replies
                 self.mult = True
                 ret = True
             else:
                 try:
                     msg = self.replyclass (item.message)
-                    logging.trace ("Poll {} received {}", self.nodeid, msg)
+                    maplogger.trace ("Poll {} received code {} msg {}",
+                                     self.nodeid, retcode, msg)
                 except Exception:
-                    logging.exception ("Error parsing as {}: {}",
+                    maplogger.exception ("Error parsing as {}: {}",
                                        self.replyclass, item.message)
                     return self.finished ()
                 self.replies.append (msg)
@@ -725,9 +768,9 @@ class NodePoller (Element, statemachine.StateMachine):
             # now.  We might end up receiving a reply for a previous
             # request, and since the replies are not self-describing
             # we'd get all messed up in the parsing.
-            logging.debug ("Timeout waiting for reply")
+            maplogger.debug ("Timeout waiting for reply from {}", self.curnode)
         else:
-            logging.debug ("Unexpected item {}".format (item))
+            maplogger.debug ("Unexpected item {}".format (item))
         return self.finished ()
         
     def next_request (self, req, handler):
@@ -777,25 +820,28 @@ class NodePoller (Element, statemachine.StateMachine):
             if nt in ENDNODES:
                 return self.finished ()
         else:
-            logging.error ("{} replies to read exec char from {}",
+            maplogger.error ("{} replies to read exec char from {}",
                            len (ret), self.nodeid)
-        return self.next_request (actcirc, self.procactcirc)
+        return self.next_request (knocirc, self.procknocirc)
 
-    def procactcirc (self, ret):
-        # Handle completion of read active circuits
+    def procknocirc (self, ret):
+        # Handle completion of read known circuits
+        circuits = set ()
         for r in ret:
             circ = r.entity.ename
+            circuits.add (circ)
             nodeid = getattr (r, "adjacent_node", None)
             if nodeid:
                 # There is a neighbor
                 nodeid = Nodeid (nodeid[0])
                 a = self.parent.mapadj (self.curnode, circ, nodeid)
-                a.update (True, self.pollts)
+                nowup = a.update (True, self.pollts)
                 if a.tonode.area != self.nodeid.area:
                     # It is a cross-area adjacency, that means both
                     # ends are area routers.
                     self.curnode.type = a.tonode.type = 3    # Area router
-                    logging.trace ("Marking nodes as area routers")
+                    maplogger.trace ("Marking node {} as area router",
+                                     self.curnode)
                 # Unlike the active nodes status, we don't get the
                 # adjacent node type returned in circuit status,
                 # so we have to visit it.  But if it was seen as
@@ -803,7 +849,12 @@ class NodePoller (Element, statemachine.StateMachine):
                 # so in that case we won't talk to it.  We do have
                 # to talk to it if the type isn't reported in node
                 # status by the node we're talking to.
-                self.todo.add (nodeid)
+                if self.parent.fullscan or nowup:
+                    self.todo.add (nodeid)
+        # Now create a new adjacency dictionary containing only
+        # adjacencies for circuits that were "known" this time around.
+        self.curnode.adj = { k : v for (k, v) in self.curnode.adj.items ()
+                             if k[0] in circuits }
         return self.next_request (actnode, self.procactnode)
 
     def procactnode (self, ret):
@@ -832,21 +883,29 @@ class NodePoller (Element, statemachine.StateMachine):
                 a.update (True, self.pollts)
                 # And set the neighbor's type
                 n.type = ntype
-                # In some cases, there is no point in trying to
-                # poll the neighbor.  If it's Phase II or out of
-                # area Phase III, we can't talk to it.  If it's an
-                # endnode and we know its name, there is no need
-                # because we already have everything we want to
-                # know.
+                # In some cases, there is no point in trying to poll the
+                # neighbor.  If it's Phase II or out of area Phase III,
+                # we can't talk to it.  We do scan endnodes even though
+                # at this point we know its type and reachability, so we
+                # can get its circircuit state.  That's not for the map
+                # image but for the map data table.
                 if ntype in PHASE3 and nodeid.area != self.nodeid.area \
-                   or ntype == nicepackets.PHASE2 \
-                   or ntype in ENDNODES and n.name:
+                   or ntype == nicepackets.PHASE2:
                     self.parent.done.add (nodeid)
                     continue
             # Reachable node, we want to poll it
-            self.todo.add (nodeid)
+            if self.parent.fullscan:
+                self.todo.add (nodeid)
         # No more requests
         return self.finished ()
+
+# Decorator for Mapper methods that handle DECnet event messages.
+handlers = dict ()
+def handler (evt):
+    def h (f):
+        handlers[evt] = f
+        return f
+    return h
 
 class Mapper (Element, statemachine.StateMachine):
     def __init__ (self, config, nodelist):
@@ -860,10 +919,17 @@ class Mapper (Element, statemachine.StateMachine):
         Element.__init__ (self, n)
         statemachine.StateMachine.__init__ (self)
         self.config = config
+        self.nodelist = nodelist
         if not pytz:
             raise ValueError ("Mapper requires pytz module")
         self.dbtz = pytz.timezone (config.nodedbtz)
         self.nodeid = n.routing.nodeid
+        self.todo = set ()
+        self.done = set ()
+        self.polls = set ()
+        self.started = None
+        self.fullscan = False
+        self.incremental = False
         self.title = "{} map server on {}".format (config.mapper,
                                                    n.routing.nodeinfo)
         self.datatitle = "{} map data on {}".format (config.mapper,
@@ -877,16 +943,109 @@ class Mapper (Element, statemachine.StateMachine):
         global m
         m = Mapdata (self.config.mapdb)
         m.load ()
-        logging.info ("Starting network mapper service")
+        maplogger.info ("Starting network mapper service")
         # Build the map HTML based on what we just loaded from the
         # saved data.
         self.update_map ()
+        # Register as a logging monitor
+        monevt = set (evt.classindexkey () for evt in handlers)
+        for n in self.nodelist:
+            n.register_monitor (self, monevt)
         # All set, get the mapper going in one minute
         self.node.timers.start (self, STARTDELAY)
 
     def handleEvent (self, evt):
-        logging.trace ("Mapper handling event {}", evt)
-        
+        if self.fullscan:
+            # Ignore events while a full scan is underway
+            return
+        try:
+            h = handlers[type (evt)]
+            nowts = Timestamp ().startts ()
+            h (self, evt, nowts)
+        except KeyError:
+            pass
+
+    @staticmethod
+    def getadjnode (evt):
+        try:
+            adj = evt.adjacent_node
+        except AttributeError:
+            # Some implementations send a "node" attribute instead
+            adj = evt.node
+        # If it's a local event, we get a node object.  For one received
+        # from a remote sender, it's a CMNode field which is a tuple
+        # with the node ID in the first element.
+        if isinstance (adj, nicepackets.CMNode):
+            adj = adj[0]
+        return Nodeid (adj)
+
+    @handler (events.circ_down)
+    @handler (events.circ_fault)
+    @handler (events.circ_off)
+    @handler (events.adj_down)
+    @handler (events.adj_oper)
+    def circ_down (self, evt, nowts):
+        # Circuit down and adjacency down type events all have circuit
+        # and adjacent node information, so we treat them as equivalent.
+        src = evt.source
+        node = self.mapnode (src)
+        circ = str (evt.entity_type.ename)
+        adj = self.getadjnode (evt)
+        adjnode = self.mapnode (adj)
+        maplogger.trace ("circuit {} to {} down on {}", circ, adjnode, node)
+        try:
+            aent = self.mapadj (node, circ, adj)
+            aent.update (False, nowts)
+        except KeyError:
+            print (str (node.adj))
+            maplogger.trace ("no map entry for {} {}", circ, adj)
+        # Try to scan both endpoints of the circuit/adj that came up
+        self.todo.add (src)
+        self.todo.add (adj)
+        # Do an incremental update
+        self.incremental = True
+        self.node.timers.start (self, INCHOLDOFF)
+
+    @handler (events.circ_up)
+    @handler (events.adj_up)
+    def circ_up (self, evt, nowts):
+        src = evt.source
+        node = self.mapnode (src)
+        circ = str (evt.entity_type.ename)
+        adj = self.getadjnode (evt)
+        adjnode = self.mapnode (adj)
+        maplogger.trace ("circuit {} to {} up on {}", circ, adjnode, node)
+        try:
+            aent = self.mapadj (node, circ, adj)
+            aent.update (True, nowts)
+        except KeyError:
+            maplogger.trace ("no map entry for {} {}", circ, adj)
+        # Scan both endpoints of the circuit/adj that came up
+        self.todo.add (src)
+        self.todo.add (adj)
+        # Do an incremental update
+        self.incremental = True
+        self.node.timers.start (self, INCHOLDOFF)
+
+    @handler (events.reach_chg)
+    def reach_chg (self, evt, nowts):
+        nodeid = evt.entity_type.ename
+        node = self.mapnode (nodeid)
+        if evt.status == 0:
+            # Reachable.  Poll this node to get its data
+            maplogger.trace ("Node {} reachable", node)
+            self.todo.add (nodeid)
+        else:
+            # Unreachable
+            maplogger.trace ("Node {} unreachable", node)
+            node.update (False, nowts)
+        # Either way we'll do an incremental update
+        self.incremental = True
+        self.node.timers.start (self, INCHOLDOFF)
+
+    # Since the mapper does not track areas, we do not look for area
+    # reachability change events.
+
     def s0 (self, item):
         now = Timestamp ()
         nowts = now.startts ()
@@ -896,7 +1055,7 @@ class Mapper (Element, statemachine.StateMachine):
         return self.checkmapscan ()
 
     def startdbupdate (self):
-        logging.info ("Starting mapping database update")
+        maplogger.info ("Starting mapping database update")
         # Update defaults to incremental.  As of 5/1/2020, the
         # timestamp is the last-modified timestamp (originally it was
         # the creation timestamp).
@@ -916,7 +1075,7 @@ class Mapper (Element, statemachine.StateMachine):
         now = Timestamp ()
         nowts = now.startts ()
         if m.lastscan + SCANINTERVAL < nowts:
-            logging.info ("Starting mapper network scan")
+            maplogger.info ("Starting mapper full network scan")
             # Initialize the traversal data.  Begin with all currently
             # known nodes that are not (a) phase III nodes in another
             # area, or recorded as endnodes or Phase II nodes.  But
@@ -929,13 +1088,26 @@ class Mapper (Element, statemachine.StateMachine):
                 if not (nt in (0, 1) and n.id.area != self.nodeid.area 
                         or nt in (1, 2, 5)):
                     self.todo.add (k)
-            self.done = set ()
-            self.polls = set ()
             # Record the poll start time.  We use this for every
             # updated time stamp, rather than the actual time we visit
             # a particular entity.
             self.started = now
+            self.fullscan = True
+            self.incremental = False
             m.lastscan = self.pollts = nowts
+            return self.nextnode ()
+        elif self.incremental:
+            # Incremental scan requested.  The "todo" set has been
+            # filled by event handlers with the set of nodes to be
+            # polled (if any).  Sometimes no polling is needed; that
+            # happens if all the changes are loss of connectivity.
+            # But we still want to start the state machine so we'll
+            # end up at finish_poll where the map is updated.
+            maplogger.info ("Starting mapper incremental update, {} nodes",
+                          len (self.todo))
+            self.first_poll = False
+            self.started = now
+            m.lastinc = self.pollts = nowts
             return self.nextnode ()
         # Nothing to do, wait and check again in a while
         self.node.timers.start (self, CHECKINTERVAL)
@@ -943,6 +1115,8 @@ class Mapper (Element, statemachine.StateMachine):
         
     def polling (self, item):
         # Waiting for a node poll to complete
+        if not isinstance (item, PollDone):
+            return
         nodeid = item.nodeid
         todo = item.todo
         self.polls.remove (nodeid)
@@ -953,8 +1127,12 @@ class Mapper (Element, statemachine.StateMachine):
     
     def nextnode (self):
         # Find the next not yet processed node to query, and start a
-        # poll on it
-        while self.todo and len (self.polls) < MAXPARPOLL:
+        # poll on it.
+        if self.fullscan:
+            limit = MAXPARPOLL
+        else:
+            limit = MAXINCPOLL
+        while self.todo and len (self.polls) < limit:
             nodeid = self.todo.pop ()
             if nodeid in self.done:
                 # We already visited this one, look for another
@@ -987,19 +1165,33 @@ class Mapper (Element, statemachine.StateMachine):
         return self.s0
 
     def finish_poll (self):
-        # Finish up the poll.  Mark anything as down that wasn't seen
-        # in the scan.  Save the data.  Report a summary of what was
-        # found.
+        # Finish up the poll.
+        # Reset the poll state back to the initial values
+        if self.fullscan:
+            what = "full"
+            how = maplogger.info
+        else:
+            what = "incremental"
+            how = maplogger.debug
+        self.todo = set ()
+        self.done = set ()
+        self.polls = set ()
+        # If we did a full scan, mark anything as down that wasn't
+        # seen in the scan.  Save the data.  Report a summary of what
+        # was found.
         up = down = 0
         for n in m.nodes.values ():
-            n.testdown (self.pollts)
+            if self.fullscan:
+                n.testdown (self.pollts)
             if n.health () == H_UP:
                 up += 1
             else:
                 down += 1
+        self.fullscan = False
+        self.incremental = False
         m.save ()
-        logging.info ("Network scan took {}, found {} total nodes, {} up, {} down",
-                      self.started, up + down, up, down)
+        how ("Network {} scan took {}, map has {} total nodes, {} up, {} down",
+             what, self.started, up + down, up, down)
             
     def mapnode (self, nodeid, name = "", ntype = None):
         try:
@@ -1053,7 +1245,7 @@ class Mapper (Element, statemachine.StateMachine):
             nh = n.health ()
             noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu ]
             circuits = list ()
-            for a in n.adj.values ():
+            for k, a in sorted (n.adj.items ()):
                 try:
                     n2 = m.nodes[a.tonode]
                     l2 = n2.latlong
@@ -1063,6 +1255,12 @@ class Mapper (Element, statemachine.StateMachine):
                     # lat/long, skip it
                     l2 = DEF_LOC
                     ln = ""
+                ch = a.health ()
+                tonode = self.mapnode (a.tonode)
+                crow = [ '<span class="hs{}">{}</span>'.format (ch, a.circ),
+                         '<span class="hs{}">{}</span>'.format (ch, NiceNode (tonode.id, tonode.name)),
+                         ln, strflocaltime (a.last_down), strflocaltime (a.last_up) ]
+                circuits.append (crow)
                 if l1 == l2:
                     # Endpoints match, nothing to draw
                     continue
@@ -1071,11 +1269,6 @@ class Mapper (Element, statemachine.StateMachine):
                     ll = locations[l2]
                 except KeyError:
                     locations[l2] = ll = MapLocation (tonode.loc or NOLOC, l2)
-                ch = a.health ()
-                crow = [ '<span class="hs{}">{}</span>'.format (ch, a.circ),
-                         '<span class="hs{}">{}</span>'.format (ch, NiceNode (tonode.id, tonode.name)),
-                         ln, strflocaltime (a.last_down), strflocaltime (a.last_up) ]
-                circuits.append (crow)
                 if l1 < l2:
                     k = (l1, l2)
                 else:
@@ -1119,9 +1312,13 @@ class Mapper (Element, statemachine.StateMachine):
         self.databody = html.section (self.datatitle,
                                       mapdatatable (nodehdr, nodedata))
         maplinks = (("/map", "Network map"), ("/map/data", "Map data table"))
+        if m.lastinc > m.lastscan:
+            inc = m.lastinc
+        else:
+            inc = 0
         self.top = page_title (self.title,
                                links = maplinks, tsdb = m.lastupdate,
-                               tsscan = m.lastscan)
+                               tsscan = m.lastscan, tsinc = inc)
 
     def strfdbtime (self, utcts):
         # Convert a Unix time value (UTC timestamp) to a date/time
@@ -1146,21 +1343,21 @@ class Mapper (Element, statemachine.StateMachine):
         try:
             dtr = dtrf = None
             dtr = socket.create_connection ((self.config.nodedbserver, 1234))
-            logging.debug ("Connected to database server at MIM")
+            maplogger.debug ("Connected to database server at MIM")
             nodes = 0
             dtrf = dtr.makefile (mode = "r", encoding = "latin1")
             dtr.send (bytes (self.config.dbpassword + "\n", encoding = "latin1"))
             l = dtrf.readline ()
             l = l.rstrip ("\n")
             if l != "Ready":
-                logging.warning ("Unexpected prompt: {}", l)
+                maplogger.warning ("Unexpected prompt: {}", l)
                 return
             if full or m.lastupdate == 0:
-                logging.debug ("Requesting full database")
+                maplogger.debug ("Requesting full database")
                 dtr.send (b"\n")
             else:
                 ts = self.strfdbtime (m.lastupdate)
-                logging.debug ("Requesting changes since {}", ts)
+                maplogger.debug ("Requesting changes since {}", ts)
                 dtr.send (bytes ('TIME > "{}"\n'.format (ts),
                                  encoding = "latin1"))
             name = addr = owner = timestamp = loc = None
@@ -1171,13 +1368,13 @@ class Mapper (Element, statemachine.StateMachine):
                     break
                 rm = dtr_re.match (l)
                 if not rm:
-                    logging.warning ("Unexpected record in reply: {}", l)
+                    maplogger.warning ("Unexpected record in reply: {}", l)
                     continue
                 k, v = rm.groups ()
                 v = v.strip ()
-                logging.trace ("database server: {}: {} ", k, v)
+                maplogger.trace ("database server: {}: {} ", k, v)
                 if k == "Current time":
-                    logging.trace ("Server current time is {}", v)
+                    maplogger.trace ("Server current time is {}", v)
                     upd = self.strpdbtime (v)
                 elif k == "Node":
                     # We expect "Node" to be the first field
@@ -1217,9 +1414,9 @@ class Mapper (Element, statemachine.StateMachine):
                     curnode.latlong = coord
                 m.addnode (curnode)
             m.lastupdate = upd
-            logging.debug ("{} node database entries updated", nodes)
+            maplogger.debug ("{} node database entries updated", nodes)
         except Exception:
-            logging.exception ("Error during map database update")
+            maplogger.exception ("Error during map database update")
         finally:
             if dtrf:
                 dtrf.close ()

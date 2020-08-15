@@ -52,3 +52,10 @@ handlers:
 root:
   level: INFO
   handlers: [ dnhandler ]
+loggers:
+  # DECnet does all its logging to the "decnet" logger, which by
+  # default simply passes everthing to the root logger.
+  decnet:
+     passthrough: true
+  decnet.mapper:
+     passthrough: true
