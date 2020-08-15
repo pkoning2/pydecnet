@@ -37,8 +37,6 @@ from . import nicepackets
 from . import events
 from .nsp import UnknownNode, WrongState, NSPException
 
-maplogger = logging.getLogger ("decnet.mapper")
-
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
 
@@ -815,10 +813,6 @@ class NodePoller (Element, statemachine.StateMachine):
                     self.curnode.name = ret.entity.ename.nodename
                 except Exception:
                     pass
-            # If this is an endnode, we're done.  Otherwise, start a read
-            # active circuits request.
-            if nt in ENDNODES:
-                return self.finished ()
         else:
             maplogger.error ("{} replies to read exec char from {}",
                            len (ret), self.nodeid)
@@ -939,8 +933,11 @@ class Mapper (Element, statemachine.StateMachine):
         socket.getaddrinfo ("google.com", 80)
 
     def start (self):
+        global m, maplogger
+        # Create our logger.  We do that here rather than earlier to
+        # make sure it happens after any chroot.
+        maplogger = logging.getLogger ("decnet.mapper")
         # Load the map database
-        global m
         m = Mapdata (self.config.mapdb)
         m.load ()
         maplogger.info ("Starting network mapper service")
@@ -1086,7 +1083,7 @@ class Mapper (Element, statemachine.StateMachine):
             for k, n in m.nodes.items ():
                 nt = getattr (n, "type", None)
                 if not (nt in (0, 1) and n.id.area != self.nodeid.area 
-                        or nt in (1, 2, 5)):
+                        or nt == 2):
                     self.todo.add (k)
             # Record the poll start time.  We use this for every
             # updated time stamp, rather than the actual time we visit
@@ -1286,10 +1283,10 @@ class Mapper (Element, statemachine.StateMachine):
                 except KeyError:
                     paths[k] = c = MapPath (l1, l2, bb = paths is l2paths)
                 c.add (n.id, a.tonode, a)
-            if t in ENDNODES:
-                noderow.append (None)
-            else:
+            if circuits:
                 noderow.append (circuits)
+            else:
+                noderow.append (None)
             nodedata.append (noderow)
         l1markers = [ l.marker () for l in locations.values () if not l.bb ]
         l2markers = [ l.marker () for l in locations.values () if l.bb ]
