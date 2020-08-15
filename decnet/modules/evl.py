@@ -38,9 +38,15 @@ class Application (Element):
         if isinstance (item, session.Data):
             try:
                 # All we have to do is decode the event message into
-                # an Event object, then send that to our logger.
+                # an Event object, then send it to the local log sinks
+                # selected by the sink flags in the message.  If
+                # console is selected, send it directly to the Python
+                # logging subsystem.
                 e, x = events.EventBase.decode (msg)
-                logging.log (e.loglevel, e)
+                if e.console:
+                    logging.log (e.loglevel, e)
+                e.console = 0
+                self.node.logremoteevent (e)
             except DecodeError:
                 logging.exception ("Error parsing event {}", msg)
         elif isinstance (item, session.ConnectInit):

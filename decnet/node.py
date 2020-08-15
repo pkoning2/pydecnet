@@ -117,6 +117,11 @@ class Node (Entity):
         else:
             self.bridge = bridge.Bridge (self, config)
 
+    def register_monitor (self, mon, evt):
+        # Register the caller as an event monitor sink
+        if self.decnet:
+            self.event_logger.register_monitor (mon, evt)
+            
     def get_api (self):
         ##### TEMP
         return [ n.get_api () for n in self.nodeinfo_byid.values () ]
@@ -213,6 +218,9 @@ class Node (Entity):
         else:
             event = event (entity, source = self.nicenode, **kwds)
         self.event_logger.logevent (event)
+        
+    def logremoteevent (self, event):
+        self.event_logger.logremoteevent (event)
         
     def description (self, mobile):
         try:

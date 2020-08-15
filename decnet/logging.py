@@ -34,8 +34,10 @@ WARNING = logging.WARNING
 INFO = logging.INFO
 DEBUG = logging.DEBUG
 
-# Some more names which will be replaced later, but are used when the
-# log machinery isn't actually started -- in the test suite.
+# All the code refers to "logging" which doesn't go to the standard
+# logging module methods, but rather to methods of the "decnet"
+# logger.  Initially we'll use the module methods, though; they are
+# replaced by references to the decnet logger at startup.
 critical = logging.critical
 error = logging.error
 warning = logging.warning
@@ -44,6 +46,13 @@ debug = logging.debug
 exception = logging.exception
 trace = functools.partial (logging.log, TRACE)
 log = logging.log
+
+# Like the standard getLogger but it also adds a trace method
+def getLogger (name):
+    ret = logging.getLogger (name)
+    if not hasattr (ret, "trace"):
+        ret.trace = functools.partial (ret.log, TRACE)
+    return ret
 
 stdlog =  {
     "version": 1,
@@ -66,6 +75,9 @@ stdlog =  {
         },
     "loggers" : {
         "decnet": {
+            "propagate" : True
+            },
+        "decnet.mapper": {
             "propagate" : True
             }
         }
@@ -213,7 +225,7 @@ def setdecnetlogger ():
     info = decnetLogger.info
     debug = decnetLogger.debug
     exception = decnetLogger.exception
-    # Handle TRACE as a call to the "log" method with the level
+    # Handle "trace" as a call to the "log" method with the level
     # supplied ahead of time.  Doing it this way, rather than via a
     # simple "trace" function in this module, results in the correct
     # caller info in the message (the place where the "trace" call is
@@ -224,6 +236,6 @@ def stop (exiting = True):
     if exiting:
         info ("DECnet/Python shut down")
     else:
-        trace ("DECnet/Python logging stopped")
+        debug ("DECnet/Python logging stopped")
     logging.shutdown ()
     

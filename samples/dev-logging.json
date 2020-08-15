@@ -20,6 +20,13 @@
       "maxBytes" : 20000000,
       "backupCount" : 10
     },
+    "maphandler" : {
+      "class" : "logging.handlers.RotatingFileHandler",
+      "formatter" : "traceformatter",
+      "filename" : "map-trace.log",
+      "maxBytes" : 20000000,
+      "backupCount" : 5
+    },
     "consolehandler" : {
       "class" : "logging.StreamHandler",
       "formatter" : "dnformatter",
@@ -29,5 +36,12 @@
   "root" : {
     "level" : "TRACE",
     "handlers" : [ "tracehandler", "consolehandler" ]
+  },
+  "loggers" : {
+    "decnet.mapper" : {
+      "level" : "TRACE",
+      "handlers" : [ "maphandler" ],
+      "propagate" : true
+    }
   }
 }
