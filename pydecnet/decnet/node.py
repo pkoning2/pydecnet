@@ -141,7 +141,14 @@ class Node (Entity):
         This implements what we need for the NSP node database.
         """
         if isinstance (n, str):
-            return self.nodeinfo_byname[n.upper ()]
+            try:
+                # See if the supplied string is a valid node ID
+                # (num.num2 or somply num).  If yes, we'll look it up
+                # that way.  If we get an error, it's not a valid ID
+                # so assume it is a name.
+                n = Nodeid (n)
+            except ValueError:
+                return self.nodeinfo_byname[n.upper ()]
         try:
             return self.nodeinfo_byid[n]
         except KeyError:
