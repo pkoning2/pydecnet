@@ -1298,10 +1298,9 @@ class Connection (Element, statemachine.StateMachine):
         self.srcaddr = srcaddr = self.parent.get_id ()
         if srcaddr is None:
             raise ConnectionLimit
-        # Add this connection to the dictionary of connections known
-        # to NSP.
-        self.parent.connections[srcaddr] = self
-        ccount = len (self.parent.connections)
+        # We will add this connection to the dictionary of connections
+        # known to NSP.  Don't do that yet, but check the max count.
+        ccount = len (self.parent.connections) + 1
         if ccount > self.parent.ectr.peak_conns:
             self.parent.ectr.peak_conns = ccount
         self.dstaddr = 0
@@ -1324,10 +1323,7 @@ class Connection (Element, statemachine.StateMachine):
         self.data.cross = self.other
         # Now do the correct action for this new connection, depending
         # on whether it was an arriving one (CI packet) or originating
-        # (session layer "connect" call).  But either way we start a
-        # timeout to reject the connection if the other end (outbound)
-        # or the local application (inbound) takes too long.
-        self.node.timers.start (self, self.conn_timeout)
+        # (session layer "connect" call). 
         if inbound:
             pkt = inbound.packet
             # Inbound connection.  Save relevant state about the remote
@@ -1358,7 +1354,7 @@ class Connection (Element, statemachine.StateMachine):
                 self.destnode = self.parent.node.nodeinfo (dest)
             except KeyError:
                 raise UnknownNode from None
-            dest = self.dest = Nodeid (self.destnode) # TEMP is this ok?
+            dest = self.dest = Nodeid (self.destnode)
             self.destnode.counters.con_xmt += 1
             ci = self.makepacket (ConnInit, payload = payload,
                                   fcopt = ConnMsg.SVC_NONE,
@@ -1372,6 +1368,12 @@ class Connection (Element, statemachine.StateMachine):
             self.data.send (ci)
         else:
             raise ValueError ("missing inbound or outbound argument")
+        # Either way we start a timeout to reject the connection if
+        # the other end (outbound) or the local application (inbound)
+        # takes too long.  Also now add the connection to the
+        # dictionary of ones we know.
+        self.parent.connections[srcaddr] = self
+        self.node.timers.start (self, self.conn_timeout)
 
     def setphase (self, pkt):
         # Remember the connection version (lower of the local and remote
