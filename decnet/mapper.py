@@ -957,6 +957,7 @@ class Mapper (Element, statemachine.StateMachine):
             return
         try:
             h = handlers[type (evt)]
+            maplogger.trace ("Dispatching monitor event {}", evt)
             nowts = Timestamp ().startts ()
             h (self, evt, nowts)
         except KeyError:
