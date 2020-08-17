@@ -830,19 +830,19 @@ class NodePoller (Element, statemachine.StateMachine):
                 nodeid = Nodeid (nodeid[0])
                 a = self.parent.mapadj (self.curnode, circ, nodeid)
                 nowup = a.update (True, self.pollts)
-                if a.tonode.area != self.nodeid.area:
+                if a.tonode.area != self.nodeid.area and \
+                   self.curnode.type != 3:
                     # It is a cross-area adjacency, that means both
-                    # ends are area routers.
-                    self.curnode.type = a.tonode.type = 3    # Area router
+                    # ends are area routers.  Force that and log it,
+                    # but only if we hadn't done so already.
+                    self.curnode.type = 3    # Area router
                     maplogger.trace ("Marking node {} as area router",
                                      self.curnode)
                 # Unlike the active nodes status, we don't get the
-                # adjacent node type returned in circuit status,
-                # so we have to visit it.  But if it was seen as
-                # an endnode above, it's already in the "done" set
-                # so in that case we won't talk to it.  We do have
-                # to talk to it if the type isn't reported in node
-                # status by the node we're talking to.
+                # adjacent node type returned in circuit status, so we
+                # have to visit it.  Do so for a full network scan, or
+                # if this circuit/adj up event actually changed the
+                # state from down to up.
                 if self.parent.fullscan or nowup:
                     self.todo.add (nodeid)
         # Now create a new adjacency dictionary containing only
@@ -870,12 +870,23 @@ class NodePoller (Element, statemachine.StateMachine):
             # visit it
             n = self.parent.mapnode (nodeid, nodename)
             n.update (True, self.pollts)
-            # See if it's a neighbor and its type was given
-            if ntype is not None and circ:
+            # See if it's a neighbor and its type was given.
+            #### Bug workaround: we'd like to use the type, if this
+            #### node is a neighbor node.  Unfortunately RSTS include
+            #### the type even if the node is not adjacent.  To make
+            #### matters worse, it has the wrong value, at least some
+            #### of the time, for example showing an area router as L1
+            #### and vice versa.  Until this is understood and fixed
+            #### the best option is to ignore the adjacent node type
+            #### field.
+            if False: # ntype is not None and circ:
                 # It's a neighbor, update its adjacency
                 a = self.parent.mapadj (self.curnode, circ, nodeid)
                 a.update (True, self.pollts)
                 # And set the neighbor's type
+                if n.type != ntype:
+                    maplogger.trace ("Updating node {} type from {} to {}",
+                                     n, n.type, ntype)
                 n.type = ntype
                 # In some cases, there is no point in trying to poll the
                 # neighbor.  If it's Phase II or out of area Phase III,

@@ -239,8 +239,6 @@ class LocalConsole (EventSink):
 class LocalFile (EventSink):
     def __init__ (self, parent, config):
         super ().__init__ (parent)
-        ## TEMP
-        self.filter.setfilter (set (Event.classindex))
         self.fn = config.sink_file
         self.f = open (self.fn, "ab")
 
