@@ -1340,6 +1340,10 @@ class Connection (Element, statemachine.StateMachine):
                 # If phase 3 or later, send CA
                 ca = self.makepacket (AckConn)
                 self.sendmsg (ca)
+            # Now add the connection to the dictionary of ones we
+            # know.  This needs to happen before we send it up to
+            # session control.
+            self.parent.connections[srcaddr] = self
             # Set the new state, and send the packet up to Session Control
             self.state = self.cr
             self.to_sc (inbound)
@@ -1362,17 +1366,19 @@ class Connection (Element, statemachine.StateMachine):
                                   segsize = MSS)
             logging.trace ("Connecting to {}: {}", dest, payload)
             # Do this first otherwise that packet is processed in the
-            # wrong state if it is address to ourselves.
+            # wrong state if it is addressed to ourselves.
             self.state = self.ci
+            # Now add the connection to the dictionary of ones we
+            # know.  That too happens before the message is sent, for
+            # the same reason.
+            self.parent.connections[srcaddr] = self
             # Send it on the data subchannel
             self.data.send (ci)
         else:
             raise ValueError ("missing inbound or outbound argument")
         # Either way we start a timeout to reject the connection if
         # the other end (outbound) or the local application (inbound)
-        # takes too long.  Also now add the connection to the
-        # dictionary of ones we know.
-        self.parent.connections[srcaddr] = self
+        # takes too long.  
         self.node.timers.start (self, self.conn_timeout)
 
     def setphase (self, pkt):
