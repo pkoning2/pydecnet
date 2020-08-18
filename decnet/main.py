@@ -164,6 +164,8 @@ def main ():
     # First start up the logging machinery
     logging.start (p)
 
+    logging.info ("Starting PyDECnet with command line: {}".format (" ".join (sys.argv)))
+    
     # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
     
