@@ -180,7 +180,8 @@ class Multinet (datalink.PtpDatalink):
             while True:
                 try:
                     r, w, e = select.select ([], sellist, sellist, 1)
-                except select.error:
+                except select.error as exc:
+                    logging.trace ("Select error {}", exc)
                     e = True
                 if (self.rthread and self.rthread.stopnow) or e:
                     self.disconnected ()
@@ -212,6 +213,7 @@ class Multinet (datalink.PtpDatalink):
                     try:
                         r, w, e = select.select (sellist, [], sellist, 1)
                     except select.error:
+                        logging.trace ("Select error {}", e)
                         e = True
                     if (self.rthread and self.rthread.stopnow) or e:
                         self.disconnected ()
@@ -229,7 +231,8 @@ class Multinet (datalink.PtpDatalink):
                                        "unexpected address {}",
                                        self.name, host)
                         sock.close ()
-                    except (AttributeError, OSError, socket.error):
+                    except (AttributeError, OSError, socket.error) as exc:
+                        logging.trace ("Close error {}", exc)
                         self.disconnected ()
                         return
                 logging.trace ("Multinet {} connected", self.name)
@@ -251,7 +254,8 @@ class Multinet (datalink.PtpDatalink):
             # Look for traffic
             try:
                 r, w, e = select.select (sellist, [], sellist, 1)
-            except select.error:
+            except select.error as exc:
+                logging.trace ("Select error {}", exc)
                 e = True
             if (self.rthread and self.rthread.stopnow) or e:
                 self.disconnected ()                
@@ -263,9 +267,11 @@ class Multinet (datalink.PtpDatalink):
                     while len (bc) < 4:
                         try:
                             m = sock.recv (4 - len (bc))
-                        except (AttributeError, OSError, socket.error):
+                        except (AttributeError, OSError, socket.error) as exc:
+                            logging.trace ("Receive header error {}", exc)
                             m = None
                         if not m:
+                            logging.trace ("Receive header disconnect")
                             self.disconnected ()
                             return
                         bc += m
@@ -275,9 +281,11 @@ class Multinet (datalink.PtpDatalink):
                     while len (msg) < bc:
                         try:
                             m = sock.recv (bc - len (msg))
-                        except (AttributeError, OSError, socket.error):
+                        except (AttributeError, OSError, socket.error) as exc:
+                            logging.trace ("Receive error {}", exc)
                             m = None
                         if not m:
+                            loggig.trace ("Receive disconnect")
                             self.disconnected ()
                             return
                         msg += m
@@ -288,6 +296,7 @@ class Multinet (datalink.PtpDatalink):
                     except (AttributeError, OSError, socket.error):
                         msg = None
                     if not msg or len (msg) <= 4:
+                        logging.trace ("Receive runt packet {!r}", msg)
                         self.disconnected ()
                         return
                     host, port = addr
@@ -321,9 +330,10 @@ class Multinet (datalink.PtpDatalink):
                 hdr = mlen.to_bytes (2, "little") + b"\000\000"
                 try:
                     self.socket.send (hdr + msg)
-                except (socket.error, AttributeError, OSError):
+                except (socket.error, AttributeError, OSError) as exc:
                     # AttributeError happens if socket has been
                     # changed to "None"
+                    logging.trace ("send error {}", exc)
                     self.disconnected ()
             else:
                 # UDP mode
@@ -331,8 +341,9 @@ class Multinet (datalink.PtpDatalink):
                 self.seq = (self.seq + 1) & 0xffff
                 try:
                     sock.sendto (hdr + msg, (self.host.addr, self.portnum))
-                except (socket.error, AttributeError, OSError):
+                except (socket.error, AttributeError, OSError) as exc:
                     # AttributeError happens if socket has been
                     # changed to "None"
+                    logging.trace ("send error {}", exc)
                     self.disconnected ()
             
