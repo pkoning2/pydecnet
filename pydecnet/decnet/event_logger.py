@@ -322,7 +322,18 @@ class RemoteSink (EventSink, timers.Timer):
                 except IndexError:
                     break
                 b = evt.encode ()
-                self.sinkconn.send_data (b)
+                try:
+                    self.sinkconn.send_data (b)
+                except Exception:
+                    # Send failed, try to close the connection
+                    try:
+                        self.sinkconn.close ()
+                    except Exception:
+                        pass
+                    self.sinkconn = None
+                    # Put the event we could not send back onto the
+                    # queue.
+                    self.sinkqueue.appendleft (evt)
         elif self.sinknode:
             # try to open a connection
             if not self.scport:
