@@ -331,8 +331,9 @@ class RemoteSink (EventSink, timers.Timer):
                     except Exception:
                         pass
                     self.sinkconn = None
-                    # Restart it soon
-                    self.node.timers.start (self, CONNRETRY)
+                    # Restart it soon, if the timer isn't already active
+                    if not self.islinked ():
+                        self.node.timers.start (self, CONNRETRY)
                     # Put the event we could not send back onto the
                     # queue.
                     self.sinkqueue.appendleft (evt)
