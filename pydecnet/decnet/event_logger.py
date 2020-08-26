@@ -372,17 +372,17 @@ class RemoteSink (EventSink, timers.Timer):
             msg = item.message
             pktlogging.tracepkt ("Event sender received {} message".format (item.name), msg)
             if isinstance (item, session.Disconnect):
-                logging.debug ("Event sender disconnect from {}",
+                logging.trace ("Event sender disconnect from {}",
                                conn.remotenode)
                 self.sinkconn = None
                 self.node.timers.start (self, CONNRETRY)
             elif isinstance (item, session.Reject):
-                logging.debug ("Event sender connect reject from {}",
+                logging.trace ("Event sender connect reject from {}",
                                conn.remotenode)
                 self.sinkconn = None
                 self.node.timers.start (self, CONNRETRY)
             elif isinstance (item, session.Accept):
-                logging.debug ("Event sender connected to {}",
+                logging.trace ("Event sender connected to {}",
                                conn.remotenode)
                 self.sinkconn = conn
                 self.send_events ()

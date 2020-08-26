@@ -234,7 +234,7 @@ def setdecnetlogger ():
 
 def stop (exiting = True):
     if exiting:
-        info ("DECnet/Python shut down")
+        log (99, "DECnet/Python shut down")
     else:
         debug ("DECnet/Python logging stopped")
     logging.shutdown ()
