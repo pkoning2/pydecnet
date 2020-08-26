@@ -164,7 +164,9 @@ def main ():
     # First start up the logging machinery
     logging.start (p)
 
-    logging.info ("Starting PyDECnet with command line: {}".format (" ".join (sys.argv)))
+    logging.log (99, "Starting DECnet/Python {}-{}",
+                 http.DNVERSION, http.DNREV)
+    logging.info (" command line: {}".format (" ".join (sys.argv)))
     
     # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
@@ -187,8 +189,6 @@ def main ():
     if httpserver:
         httpserver = http.Monitor (httpserver, nodes)
         
-    logging.info ("Starting DECnet/Python {}-{}", http.DNVERSION, http.DNREV)
-
     # Before starting the various layers and elements, become daemon
     # if requested.  This means we don't have to worry about file
     #  descriptors used by DECnet -- none are open yet.  The exception
