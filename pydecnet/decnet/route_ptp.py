@@ -56,6 +56,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.t3 = config.t3 or 60
         self.timer = 0
         self.tiver = self.adj = None
+        self.ntype = UNKNOWN
         # Use MTU as the blocksize until we learn otherwise
         self.blksize = self.minrouterblk = MTU
         self.id = self.rphase = 0
@@ -109,15 +110,14 @@ class PtpCircuit (statemachine.StateMachine):
             logging.trace ("{} restart due to {}", self.name, msg)
         if event:
             self.node.logevent (event, entity = entity, **kwargs)
-        self.datalink.close ()
         self.state = self.ha
-        self.start ()
+        # Tell the datalink to halt.  When that is finished the
+        # datalink will send a DlStatus work item with status ==
+        # HALTED.
+        self.datalink.close ()
         return self.ha
 
     def start (self):
-        # Put in some dummy values until we hear from the neighbor
-        self.ntype = UNKNOWN
-        self.id = 0
         self.node.addwork (Start (self))
 
     def stop (self):
@@ -419,12 +419,20 @@ class PtpCircuit (statemachine.StateMachine):
     @setlabel ("Halted")
     def ha (self, item):
         """Initial state: "Halted".
+
+        We look for a Start work item, that is a request from above to
+        start this circuit.  Alternatively, a DlStatus (Halted) work
+        item indicates the datalink port finished shutting down after an
+        error and we can now restart it.
         """
-        if isinstance (item, Start):
+        if isinstance (item, Start) or \
+           isinstance (item, datalink.DlStatus) and item.status == item.HALTED:
             self.datalink.open ()
             self.tiver = self.adj = None
             self.timer = 0     # No remote hello timer value received
             self.rphase = 0    # Don't know the neighbor's phase yet
+            self.ntype = UNKNOWN # Nor his type
+            self.id = 0        # Nor his node address
             self.node.timers.start (self, self.t3)
             return self.ds
 
@@ -440,12 +448,14 @@ class PtpCircuit (statemachine.StateMachine):
             # Process timeout -- restart the datalink (no event)
             return self.restart (msg = "timeout")
         elif isinstance (item, datalink.DlStatus):
-            # Process datalink status.  The status attribute is True
-            # for up, False for down.
-            if item.status:
+            # Process datalink status.  The status attribute is UP,
+            # DOWN, or HALTED.
+            if item.status == item.UP:
                 self.datalink.send (self.initmsg)
                 self.node.timers.start (self, self.t3)
                 return self.ri
+            elif item.status == item.HALTED:
+                pass ###### TODO
             return self.restart (events.init_fault,
                                  entity = events.CircuitEventEntity (self),
                                  msg = "datalink down",
@@ -696,6 +706,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
+            ### Check item.status??
             self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
@@ -785,6 +796,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
+            ## Check item.status???
             self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
@@ -912,7 +924,8 @@ class PtpCircuit (statemachine.StateMachine):
                     # Next 3 lines lifted from "HA" state handler
                     self.tiver = None
                     # Fake a datalink up notification to generate init packet
-                    self.node.addwork (datalink.DlStatus (self, status = True))
+                    self.node.addwork (datalink.DlStatus (self,
+                                                          status = datalink.DlStatus.UP))
                     self.node.addwork (Received (self, packet = pkt))
                     return self.ds
                 return self.restart (events.init_swerr,
@@ -923,6 +936,7 @@ class PtpCircuit (statemachine.StateMachine):
                                      **evtpackethdr (pkt))
         elif isinstance (item, datalink.DlStatus):
             # Process datalink status.  Restart the datalink.
+            ## Check item.status?
             return self.restart (events.circ_fault,
                                  "datalink status",
                                  entity = events.CircuitEventEntity (self),

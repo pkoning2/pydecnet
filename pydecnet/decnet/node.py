@@ -7,6 +7,7 @@
 import os
 import queue
 import threading
+import collections
 
 from .common import *
 from . import events
@@ -26,6 +27,30 @@ from . import nicepackets
 
 SvnFileRev = "$LastChangedRevision$"
 
+class WorkStats:
+    "A collection of time histograms for work items"
+    header = ( "Owner", "Work" ) + Histogram.header
+
+    def __init__ (self):
+        self.hdict = collections.defaultdict (Histogram)
+        
+    def add (self, w, dt):
+        "Record a delta-time for work item w"
+        owner = w.owner.__class__.__name__
+        what = w.__class__.__name__
+        self.hdict[(owner, what)].count (dt)
+
+    def stats (self):
+        "Return a sequence of stats rows"
+        ret = list ()
+        for k, v in sorted (self.hdict.items ()):
+            v.calc_stats ()
+            ret.append (k + v.stats ())
+        return ret
+
+    def encode_json (self):
+        return { k[0] : { k[1] : v } for (k, v) in self.hdict.items () }
+    
 class Nodeinfo (nsp.NSPNode, NiceNode):
     """A container for node database entries.  This contains the attributes
     needed by the various layers for remote node items -- for example, the
@@ -105,6 +130,7 @@ class Node (Entity):
         logging.debug ("Initializing node {}", self.nodename)
         self.timers = timers.TimerWheel (self, JIFFY, 3600)
         self.workqueue = queue.Queue ()
+        self.stats = WorkStats ()
         # We now have a node.
         # Create its child entities in the appropriate order.
         self.event_logger = event_logger.EventLogger (self, config)
@@ -165,6 +191,7 @@ class Node (Entity):
         """
         if handler is not None:
             work.owner = handler
+        #logging.trace ("Add work {} of {}", work, work.owner)
         self.workqueue.put (work)
         
     def start (self, mainthread = False):
@@ -194,6 +221,7 @@ class Node (Entity):
         until told to shut down.
         """
         q = self.workqueue
+        s = self.stats
         try:
             while True:
                 try:
@@ -202,7 +230,15 @@ class Node (Entity):
                     break
                 if isinstance (work, Shutdown):
                     break
+                started = time.time ()
+                #logging.trace ("Dispatching {} of {}",
+                #               work, work.owner)
                 work.dispatch ()
+                dt = time.time () - started
+                self.stats.add (work, dt)
+                if dt > 0.5:
+                    logging.trace ("Excessive run time {} for work item", dt)
+                logging.trace ("Finished with {} of {}", work, work.owner)
         except Exception:
             logging.exception ("Exception caught in mainloop")
         finally:
@@ -268,9 +304,14 @@ class Node (Entity):
                                                 "Routing layer", qs),
                                  html.sbbutton (mobile, "nsp",
                                                 "NSP and above", qs),
-                                 html.sbbutton (mobile, "mop", "MOP", qs))
+                                 html.sbbutton (mobile, "mop", "MOP", qs),
+                                 html.sbbutton (mobile, "stats",
+                                                "Statistics", qs))
             if parts == ['']:
                 active = 1
+                # TODO: at some point this should become an actual
+                # "overall summary" as the description claims, rather
+                # than simply a synonym for routing layer summary.
                 sb2, body = self.routing.http_get (mobile, parts, qs)
             elif parts[0] == "routing":
                 active = 2
@@ -281,12 +322,42 @@ class Node (Entity):
             elif parts[0] == "mop":
                 active = 4
                 sb2, body = self.mop.http_get (mobile, parts[1:], qs)
+            elif parts[0] == "stats":
+                active = 5
+                sb2, body = self.http_stats (mobile, parts[1:], qs)
             else:
                 return None
         if not body:
             return None
         sb.contents[active].__class__ = html.sbbutton_active
         return title, [ sb, sb2 ], body
+
+    def http_stats (self, mobile, parts, qs):
+        infos = ( "statistics", "raw" )
+        if not parts or parts == ['']:
+            what = infos[0]
+        elif parts[0] in infos:
+            what = parts[0]
+        else:
+            return None, None
+        active = infos.index (what) + 1
+        sb = html.sbelement (html.sblabel ("Information"),
+                             html.sbbutton (mobile, "stats", "Statistics", qs),
+                             html.sbbutton (mobile, "stats/raw",
+                                            "Raw data", qs))
+        sb.contents[active].__class__ = html.sbbutton_active
+        ret = [ "<h3>System timing statistics, rounded to nearest 0.1 s</h3>" ]
+        if what == "raw":
+            statsEncoder = DNJsonEncoder (indent = 2,
+                                          separators = (',', ' : '))
+            retd = { "timers" : self.timers.stats,
+                     "work" : self.stats }
+            ret.append (html.pre (statsEncoder.encode (retd)))
+        else:
+            ret.append (self.timers.html ())
+            ret.append (html.tbsection ("Work queue statistics",
+                                        self.stats.header, self.stats.stats ()))
+        return sb, html.main (*ret)
 
     def nice_read (self, req):
         if isinstance (req, (nicepackets.NiceReadNode,

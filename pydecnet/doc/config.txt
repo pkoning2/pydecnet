@@ -188,16 +188,12 @@ is converted to upper case.  There is a DECnet convention that circuit
 names consist of a device name, hyphen, and unit number, for example
 ETH-0.  
 
-Argument: Circuit type.  One of "DDCMP", "Ethernet", "SimhDMC",
-"Multinet", "GRE".  Default is Ethernet.  Ethernet and GRE are "LAN"
-type circuits; DDCMP, SimhDMC and Multinet are point to point type
-circuits.  Note that Multinet over UDP does not work well (defective
-protocol design, there's nothing the implementation can do about that)
-and is not recommended -- Multinet over TCP is ok.  SimhDMC implements
-the payload-only original DMC-11 emulation that existed in some
-prerelease versions of SimH V3.9.  It is still part of PyDECnet but is
-deprecated.  It no longer exist in SIMH, it was replaced with DDCMP
-emulation which PyDECnet support as the "DDCMP" circuit type.
+Argument: Circuit type.  One of "DDCMP", "Ethernet", "Multinet",
+"GRE".  Default is Ethernet.  Ethernet and GRE are "LAN" type
+circuits; DDCMP and Multinet are point to point type circuits.  Note
+that Multinet over UDP does not work well (defective protocol design,
+there's nothing the implementation can do about that) and is not
+recommended -- Multinet over TCP is ok.
 
 Argument: Device name or connection data.  The meaning of this string
 depends on the circuit type:
@@ -213,16 +209,6 @@ depends on the circuit type:
             sending from and receiving on the specific localport.
 	    For those used to SIMH notation, "udp" is a synonym for 
 	    "bridge".  
-
-    SimhDMC: either host:port or host:port:secondary.  The first form
-    defines a primary mode DMC-11 emulation connection: the host and
-    port are the TCP endpoint address for the remote end.  The second
-    form defines a secondary mode connection: the port number is the
-    TCP port on which to listen for connections, and the host is the
-    remote endpoint from which the connection must come.  Refer to the
-    SIMH user manual for more details on DMC-11 emulation.  (Note that
-    the way the addresses are specified is different and somewhat
-    simplere here than it is in the SIMH configuration file.)
 
     Multinet: this can use UDP or TCP.  For UDP, the device argument
     is host or host:port.  In the first form, the port number is 700

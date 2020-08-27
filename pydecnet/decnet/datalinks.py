@@ -5,7 +5,6 @@
 """
 
 # Point to point
-from . import simdmc
 from . import multinet
 from . import ddcmp
 

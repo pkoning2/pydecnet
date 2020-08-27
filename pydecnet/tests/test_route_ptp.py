@@ -79,11 +79,12 @@ class rtest (DnTest):
         self.c = cls (self.r, "ptp-0", self.dl, self.config)
         self.c.routing = self.r
         self.c.t3 = 15
-        self.c.start ()
         self.assertState ("ha")
-        self.dispatch ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = True))
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.UP))
         self.assertState ("ri")        
 
     def tearDown (self):
@@ -114,10 +115,11 @@ class rtest (DnTest):
                                        packet = pkt[:l]))
             self.assertIn (self.c.state.__name__, {"ha", "ri"}, "Circuit state")
             if self.c.state == self.c.ha:
-                self.dispatch ()
+                self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                                    status = datalink.DlStatus.HALTED))
                 self.assertState ("ds")
                 self.c.dispatch (datalink.DlStatus (owner = self.c,
-                                                    status = True))
+                                                    status = datalink.DlStatus.UP))
             self.assertState ("ri")
 
 class test_ph2 (rtest):
@@ -588,7 +590,8 @@ class test_ph4 (rtest):
         self.assertEvent (events.circ_down, reason = "listener_timeout",
                           adjacent_node = NiceNode (1026))
         # test restart after circuit down
-        self.dispatch ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
         
     def test_verify (self):
@@ -949,7 +952,8 @@ class test_ph4verify (rtest):
         self.assertState ("ha")
         self.assertEvent (events.ver_rej, reason = "invalid_verification",
                           adjacent_node = NiceNode (1026))
-        self.dispatch ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
         
     def test_verify_timeout (self):
@@ -967,7 +971,8 @@ class test_ph4verify (rtest):
         self.assertState ("ha")
         self.assertEvent (events.init_fault, reason = "verification_timeout",
                           adjacent_node = NiceNode (1026))
-        self.dispatch ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
 
     def test_verify (self):
@@ -1221,12 +1226,14 @@ class test_ph4restart (rtest):
 
     def test_dlrestart (self):
         self.startup ()
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = False))
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.DOWN))
         self.assertState ("ha")
-        self.dispatch ()
         self.assertEvent (events.circ_fault, reason = "sync_lost",
                           adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
         
     def test_init (self):
@@ -1346,12 +1353,14 @@ class test_ph4restart_rv (rtest):
 
     def test_dlrestart (self):
         self.startup ()
-        self.c.dispatch (datalink.DlStatus (owner = self.c, status = False))
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.DOWN))
         self.assertEvent (events.init_fault, reason = "sync_lost",
                           adjacent_node = NiceNode (Nodeid (1, 2)))
         self.assertEqual (self.c.datalink.counters.init_fail, 1)
         self.assertState ("ha")
-        self.dispatch ()
+        self.c.dispatch (datalink.DlStatus (owner = self.c,
+                                            status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
         
     def test_init (self):

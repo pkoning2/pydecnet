@@ -248,8 +248,15 @@ class Port (Element, metaclass = ABCMeta):
             
 class DlStatus (Work):
     """Notification of some sort of datalink event.  Attribute is
-    "status".  The status attribute is True for up, False for down.
+    "status".  The status attribute is one of HALTED, UP, or DOWN.
+    HALTED means the datalink is closed down.  DOWN means it stopped
+    functioning but has not yet fully stopped (the owner is expected to
+    call the close method).  UP means it is operational.
     """
+    HALTED = "Halted"
+    UP = "Up"
+    DOWN = "Down"
+    
     def __str__ (self):
         return "DLStatus: {}".format (self.status)
     

@@ -58,7 +58,7 @@ class MultinetBase (DnTest):
     def assertUp (self):
         w = self.lastwork (1)
         self.assertIsInstance (w, datalink.DlStatus)
-        self.assertTrue (w.status)
+        self.assertEqual (w.status, w.UP)
         
     def test_rcv1 (self):
         pdu = self.pdu (0, self.testsdu)
@@ -126,9 +126,9 @@ class MultinetTCPbase (MultinetBase):
     def test_disconnect (self):
         self.socket.close ()
         time.sleep (0.1)
-        w = self.lastwork (2)
+        w = self.lastwork (3)
         self.assertIsInstance (w, datalink.DlStatus)
-        self.assertFalse (w.status)
+        self.assertEqual (w.status, w.HALTED)
         
 class TestMultinetTCPconnect (MultinetTCPbase):
     def setUp (self):
