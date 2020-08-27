@@ -467,14 +467,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     def port_close (self):
         if self.state != self.s0:
             self.rthread.stop ()
-            self.rthread.join (5)
-            self.rthread = None
-            self.close_sockets ()
-
+            # Thread exit will queue a HALTED work item
+            
     def disconnected (self):
         if self.state == self.running and self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = False))
+                                                  status = datalink.DlStatus.DOWN))
         self.close_sockets ()
 
     def recvall (self, sz):
@@ -520,7 +518,11 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.run_tcp ()
             else:
                 self.run_udp ()
+        # We come here when told to stop
+        self.close_sockets ()
         logging.trace ("DDCMP datalink {} receive thread stopped", self.name)
+        self.node.addwork (datalink.DlStatus (self,
+                                              status = datalink.DlStatus.HALTED))
 
     def handle_pkt (self, pkt, c):
         # Handle a parsed packet
@@ -570,8 +572,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         connected = False
         while not connected:
             plist = poll.poll (1)
-            if (self.rthread and self.rthread.stopnow):
-                self.disconnected ()
+            if self.rthread and self.rthread.stopnow:
                 return
             for fd, event in plist:
                 if event & select.POLLERR:
@@ -634,8 +635,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # Start looking for messages.
         while True:
             plist = poll.poll (1)
-            if (self.rthread and self.rthread.stopnow):
-                self.disconnected ()
+            if self.rthread and self.rthread.stopnow:
                 return
             for fd, event in plist:
                 if event & select.POLLERR:
@@ -706,8 +706,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # Start looking for messages.
         while True:
             plist = poll.poll (1)
-            if (self.rthread and self.rthread.stopnow):
-                self.disconnected ()
+            if self.rthread and self.rthread.stopnow:
                 return
             for fd, event in plist:
                 if event & select.POLLERR:
@@ -764,8 +763,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         self.send_start ()
         # Start looking for messages.
         while True:
-            if (self.rthread and self.rthread.stopnow):
-                self.disconnected ()
+            if self.rthread and self.rthread.stopnow:
                 return
             # Get the first byte.
             try:
@@ -866,8 +864,17 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     @setlabel ("Halted")
     def s0 (self, data):
-        """State machine for the Halted state -- ignore all received messages.
+        """State machine for the Halted state -- ignore all received
+        messages.  But handled HALTED status (completion of shutdown) by
+        cleaning up some state.  We stay in halted state for that, the
+        layer above will restart the circuit when it wants to.
         """
+        if isinstance (data, datalink.DlStatus):
+            if self.rthread:
+                self.rthread.join (1)
+            self.rthread = None
+            # Pass this work item up to the routing layer
+            self.node.addwork (data, self.port.owner)
         return None
 
     def reconnect (self, data):
@@ -959,7 +966,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # Tell the routing init layer that this datalink is running
         if self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = True))
+                                                  status = datalink.DlStatus.UP))
         logging.trace ("Enter DDCMP running state on {}", self.name)
         self.node.timers.stop (self)
         # Send an ack to tell the other end

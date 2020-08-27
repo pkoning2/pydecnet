@@ -246,10 +246,11 @@ class test_ptpend (rtest):
     def setUp (self):
         super ().setUp ()
         self.assertState ("ha")
-        w = self.lastwork (1, itype = route_ptp.Start)
-        self.c1.dispatch (w)
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1,
+                                             status = datalink.DlStatus.HALTED))
         self.assertState ("ds")
-        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = True))
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1,
+                                             status = datalink.DlStatus.UP))
         self.assertState ("ri")        
         
     def assertState (self, name):
@@ -500,15 +501,15 @@ class test_ph2 (rtest):
         super ().setUp ()
         self.assertState (self.c1, "ha")
         self.assertState (self.c2, "ha")
-        w1 = self.lastwork (2, back = 1, itype = route_ptp.Start)
-        w2 = self.lastwork (2, itype = route_ptp.Start)
-        self.c1.dispatch (w1)
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1,
+                                             status = datalink.DlStatus.HALTED))
         self.assertState (self.c1, "ds")
-        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = True))
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = datalink.DlStatus.UP))
         self.assertState (self.c1, "ri")        
-        self.c2.dispatch (w2)
+        self.c2.dispatch (datalink.DlStatus (owner = self.c2,
+                                             status = datalink.DlStatus.HALTED))
         self.assertState (self.c2, "ds")
-        self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = True))
+        self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = datalink.DlStatus.UP))
         self.assertState (self.c2, "ri")        
         
     def assertState (self, c, name):
@@ -622,15 +623,15 @@ class test_ph4l1a (rtest):
         super ().setUp ()
         self.assertState (self.c1, "ha")
         self.assertState (self.c2, "ha")
-        w1 = self.lastwork (2, back = 1, itype = route_ptp.Start)
-        w2 = self.lastwork (2, itype = route_ptp.Start)
-        self.c1.dispatch (w1)
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1,
+                                             status = datalink.DlStatus.HALTED))
         self.assertState (self.c1, "ds")
-        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = True))
+        self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = datalink.DlStatus.UP))
         self.assertState (self.c1, "ri")        
-        self.c2.dispatch (w2)
+        self.c2.dispatch (datalink.DlStatus (owner = self.c2,
+                                             status = datalink.DlStatus.HALTED))
         self.assertState (self.c2, "ds")
-        self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = True))
+        self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = datalink.DlStatus.UP))
         self.assertState (self.c2, "ri")        
         
     def assertState (self, c, name):

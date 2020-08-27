@@ -77,6 +77,10 @@ class table (wraphtml):
     rclass = trow
 
     def __init__ (self, header, data):
+        """Create an HTML table.  Arguments are the header and data.
+        Header is a row of items, the column headers.  Data is a
+        sequence of data rows.
+        """
         super ().__init__ (wrap (header, thdr),
                            *[ wrap (i, self.rclass) for i in data])
 
@@ -120,6 +124,11 @@ class div (wraphtml):
     open = "<div>"
     close = "</div>"
 
+class pre (wraphtml):
+    open = "<pre>"
+    close = "</pre>"
+    sep = "\n"
+    
 # Subclasses of div to change the class attribute (CSS style)
 class middle (div): open = '<div class="middle">'
 class sidebar (div): open = '<div class="sidebar">'
@@ -155,6 +164,9 @@ class firstsection (section): hdr = "h2"
     
 class tbsection (section):
     def __init__ (self, title, header, data):
+        """Return an HTML section with the supplied section title,
+        followed by a table made from the header and data.
+        """
         super ().__init__ (title, table (header, data))
         
 class detail_section (section):
@@ -167,6 +179,10 @@ class textsection (section):
 
 class firsttextsection (textsection): hdr = "h2"
     
+class presection (section):
+    def __init__ (self, title, body):
+        super ().__init__ (title, pre (*body))
+
 class top (div):
     open = '<div class="top">'
     

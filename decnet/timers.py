@@ -10,6 +10,7 @@ import time
 
 from .common import *
 from . import logging
+from . import html
 
 class Cque (object):
     """Base class for objects that can be put on a circular queue.
@@ -138,6 +139,7 @@ class TimerWheel (Element, StopThread):
         self.maxtime = maxtime
         self.tick = tick
         self.lock = threading.Lock ()
+        self.stats = Histogram ()
 
     def startup (self):
         logging.debug ("Starting timer subsystem")
@@ -167,8 +169,16 @@ class TimerWheel (Element, StopThread):
     def run (self):
         """Tick handler.
         """
+        maxdt = self.tick * 2
+        prev = time.time ()
         while not self.stopnow:
             time.sleep (self.tick)
+            cur = time.time ()
+            dt = cur - prev
+            self.stats.count (dt)
+            if dt > maxdt:
+                logging.trace ("timer thread excessive tick latency {}", dt)
+            prev = cur
             self.pos = (self.pos + 1) % self.maxtime
             self.expirations ()
             
@@ -205,3 +215,9 @@ class TimerWheel (Element, StopThread):
         with self.lock:
             item.remove ()
 
+    def html (self):
+        """Return an HTML section with timer statistics.
+        """
+        self.stats.calc_stats ()
+        return html.tbsection ("Timer statistics", self.stats.header,
+                               [ self.stats.stats () ])

@@ -15,6 +15,7 @@ import abc
 import datetime
 import os.path
 import json
+import collections
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
@@ -772,8 +773,9 @@ class DNJsonDecoder (json.JSONDecoder):
         return super ().decode (s)
     
 class DNJsonEncoder (json.JSONEncoder):
-    def __init__ (self):
-        super ().__init__ (allow_nan = False, separators = (',', ':'))
+    def __init__ (self, allow_nan = False, separators = (',', ':'), **kwargs):
+        super ().__init__ (allow_nan = allow_nan, separators = separators,
+                           **kwargs)
         
     def default (self, o):
         # Encode bytes and bytearray as latin-1 strings -- but not
@@ -781,6 +783,13 @@ class DNJsonEncoder (json.JSONEncoder):
         # formatting mechanisms.  Macaddr is an example.
         if type (o) in { bytes, bytearray }:
             return str (o, encoding = "latin1")
+        # If it's not something we know, see if the class supplies an
+        # encoding method.
+        try:
+            return o.encode_json ()
+        except AttributeError:
+            pass
+        # That didn't work, format it as a string if possible.
         try:
             return str (o)
         except Exception:
@@ -790,3 +799,39 @@ class DNJsonEncoder (json.JSONEncoder):
 dnDecoder = DNJsonDecoder ()
 dnEncoder = DNJsonEncoder ()
 
+class Histogram (collections.Counter):
+    "A histogram: buckets of counters supporting statistics"
+    header = ( "Min", "Mean", "Median", "Max", "Samples" )
+    
+    def calc_stats (self):
+        "Capture the current statistics"
+        data = list (self.items ())
+        data.sort ()
+        self.min = data[0][0]
+        self.max = data[-1][0]
+        count = sum = 0
+        for k, v in data:
+            count += v
+            sum += k * v
+        self.mean = sum / count
+        self.total = count
+        h = count // 2
+        count = 0
+        for k, v in data:
+            count += v
+            if count >= h:
+                self.median = k
+                return
+
+    def stats (self):
+        "Return current statistics scaled by 0.1"
+        return ( "{:.1f}".format (self.min / 10),
+                 "{:.2f}".format (self.mean / 10),
+                 "{:.1f}".format (self.median / 10),
+                 "{:.1f}".format (self.max / 10),
+                 "{}".format (self.total))
+
+    def count (self, dt):
+        "Count a delta-t value in 0.1 second increments"
+        self[round (dt * 10)] += 1
+        

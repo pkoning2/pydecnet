@@ -142,7 +142,7 @@ class Multinet (datalink.PtpDatalink):
     def disconnected (self):
         if self.status == RUN and self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = False))
+                                                  status = datalink.DlStatus.DOWN))
         if self.status != OFF:
             try:
                 self.socket.close ()
@@ -152,8 +152,7 @@ class Multinet (datalink.PtpDatalink):
             self.socket = None
         self.status = OFF
 
-    def run (self):
-        logging.trace ("Multinet datalink {} receive thread started", self.name)
+    def run_tcp (self):
         sock = self.socket
         if not sock:
             return
@@ -183,14 +182,16 @@ class Multinet (datalink.PtpDatalink):
                 except select.error as exc:
                     logging.trace ("Select error {}", exc)
                     e = True
-                if (self.rthread and self.rthread.stopnow) or e:
+                if self.rthread and self.rthread.stopnow:
+                    return
+                if e:
                     self.disconnected ()
                     return
                 if w:
                     logging.trace ("Multinet {} connected", self.name)
                     break
         else:
-            # Listen or UDP mode
+            # Listen mode
             try:
                 self.socket.bind ((self.source, self.lport))
                 logging.trace ("Multinet {} bind {} done", self.name, self.lport)
@@ -198,58 +199,56 @@ class Multinet (datalink.PtpDatalink):
                 logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
                 self.disconnected ()
                 return
-            if self.mode:
-                # Listen mode, Wait for an incoming connection.
-                self.status = LISTEN
+            # Wait for an incoming connection.
+            self.status = LISTEN
+            try:
+                self.socket.listen (1)
+            except (AttributeError, OSError, socket.error):
+                logging.trace ("Multinet {} listen failed", self.name)
+                self.disconnected ()
+                return
+            logging.trace ("Multinet {} listen to {} active",
+                           self.name, self.lport)
+            while True:
                 try:
-                    self.socket.listen (1)
-                except (AttributeError, OSError, socket.error):
-                    logging.trace ("Multinet {} listen failed", self.name)
+                    r, w, e = select.select (sellist, [], sellist, 1)
+                except select.error:
+                    logging.trace ("Select error {}", e)
+                    e = True
+                if self.rthread and self.rthread.stopnow:
+                    return
+                if e:
                     self.disconnected ()
                     return
-                logging.trace ("Multinet {} listen to {} active",
-                               self.name, self.lport)
-                while True:
-                    try:
-                        r, w, e = select.select (sellist, [], sellist, 1)
-                    except select.error:
-                        logging.trace ("Select error {}", e)
-                        e = True
-                    if (self.rthread and self.rthread.stopnow) or e:
-                        self.disconnected ()
-                        return
-                    if not r:
-                        continue
-                    try:
-                        sock, ainfo = sock.accept ()
-                        host, port = ainfo
-                        if self.host.valid (host):
-                            # Good connection, stop looking
-                            break
-                        # If the connect is from someplace we don't want
-                        logging.trace ("Multinet {} connect received from " \
-                                       "unexpected address {}",
-                                       self.name, host)
-                        sock.close ()
-                    except (AttributeError, OSError, socket.error) as exc:
-                        logging.trace ("Close error {}", exc)
-                        self.disconnected ()
-                        return
-                logging.trace ("Multinet {} connected", self.name)
-                # Stop listening:
-                self.socket.close ()
-                # The socket we care about now is the data socket
-                sellist = [ sock.fileno () ]
-                self.socket.close ()
-                self.socket = sock
-            else:
-                logging.trace ("Multinet {} (UDP) bound to {}",
-                               self.name, self.lport)
+                if not r:
+                    continue
+                try:
+                    sock, ainfo = sock.accept ()
+                    host, port = ainfo
+                    if self.host.valid (host):
+                        # Good connection, stop looking
+                        break
+                    # If the connect is from someplace we don't want
+                    logging.trace ("Multinet {} connect received from " \
+                                   "unexpected address {}",
+                                   self.name, host)
+                    sock.close ()
+                except (AttributeError, OSError, socket.error) as exc:
+                    logging.trace ("Close error {}", exc)
+                    self.disconnected ()
+                    return
+            logging.trace ("Multinet {} connected", self.name)
+            # Stop listening:
+            self.socket.close ()
+            # The socket we care about now is the data socket
+            sellist = [ sock.fileno () ]
+            self.socket.close ()
+            self.socket = sock
         # Tell the routing init layer that this datalink is running
         self.status = RUN
         if self.port:
             self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = True))
+                                                  status = datalink.DlStatus.UP))
         while True:
             # Look for traffic
             try:
@@ -257,54 +256,39 @@ class Multinet (datalink.PtpDatalink):
             except select.error as exc:
                 logging.trace ("Select error {}", exc)
                 e = True
-            if (self.rthread and self.rthread.stopnow) or e:
+            if self.rthread and self.rthread.stopnow:
+                return
+            if e:
                 self.disconnected ()                
                 return
             if r:
-                if self.mode:
-                    # TCP mode, look for header first
-                    bc = b''
-                    while len (bc) < 4:
-                        try:
-                            m = sock.recv (4 - len (bc))
-                        except (AttributeError, OSError, socket.error) as exc:
-                            logging.trace ("Receive header error {}", exc)
-                            m = None
-                        if not m:
-                            logging.trace ("Receive header disconnect")
-                            self.disconnected ()
-                            return
-                        bc += m
-                    bc = int.from_bytes (bc[:2], "little")
-                    msg = b''
-                    # Now receive exactly the byte count mentioned
-                    while len (msg) < bc:
-                        try:
-                            m = sock.recv (bc - len (msg))
-                        except (AttributeError, OSError, socket.error) as exc:
-                            logging.trace ("Receive error {}", exc)
-                            m = None
-                        if not m:
-                            loggig.trace ("Receive disconnect")
-                            self.disconnected ()
-                            return
-                        msg += m
-                else:
-                    # UDP mode, receive a packet
+                # TCP mode, look for header first
+                bc = b''
+                while len (bc) < 4:
                     try:
-                        msg, addr = sock.recvfrom (1500)
-                    except (AttributeError, OSError, socket.error):
-                        msg = None
-                    if not msg or len (msg) <= 4:
-                        logging.trace ("Receive runt packet {!r}", msg)
+                        m = sock.recv (4 - len (bc))
+                    except (AttributeError, OSError, socket.error) as exc:
+                        logging.trace ("Receive header error {}", exc)
+                        m = None
+                    if not m:
+                        logging.trace ("Receive header disconnect")
                         self.disconnected ()
                         return
-                    host, port = addr
-                    if not self.host.valid (host):
-                        # Not from peer, ignore
-                        continue
-                    # Check header?  For now just skip it.
-                    msg = msg[4:]
+                    bc += m
+                bc = int.from_bytes (bc[:2], "little")
+                msg = b''
+                # Now receive exactly the byte count mentioned
+                while len (msg) < bc:
+                    try:
+                        m = sock.recv (bc - len (msg))
+                    except (AttributeError, OSError, socket.error) as exc:
+                        logging.trace ("Receive error {}", exc)
+                        m = None
+                    if not m:
+                        loggig.trace ("Receive disconnect")
+                        self.disconnected ()
+                        return
+                    msg += m
                 if logging.tracing:
                     pktlogging.tracepkt ("Received Multinet message on {}"
                                              .format (self.name), msg)
@@ -315,6 +299,74 @@ class Multinet (datalink.PtpDatalink):
                 else:
                     logging.trace ("Message discarded, no port open")
                     
+    def run_udp (self):
+        sock = self.socket
+        if not sock:
+            return
+        sellist = [ sock.fileno () ]
+        try:
+            self.socket.bind ((self.source, self.lport))
+            logging.trace ("Multinet {} bind {} done", self.name, self.lport)
+        except (AttributeError, OSError, socket.error):
+            logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
+            self.disconnected ()
+            return
+        logging.trace ("Multinet {} (UDP) bound to {}",
+                       self.name, self.lport)
+        # Tell the routing init layer that this datalink is running
+        self.status = RUN
+        if self.port:
+            self.node.addwork (datalink.DlStatus (self.port.owner,
+                                                  status = datalink.DlStatus.UP))
+        while True:
+            # Look for traffic
+            try:
+                r, w, e = select.select (sellist, [], sellist, 1)
+            except select.error as exc:
+                logging.trace ("Select error {}", exc)
+                e = True
+            if self.rthread and self.rthread.stopnow:
+                return
+            if e:
+                self.disconnected ()                
+                return
+            if r:
+                # Receive a packet
+                try:
+                    msg, addr = sock.recvfrom (1500)
+                except (AttributeError, OSError, socket.error):
+                    msg = None
+                if not msg or len (msg) <= 4:
+                    logging.trace ("Receive runt packet {!r}", msg)
+                    self.disconnected ()
+                    return
+                host, port = addr
+                if not self.host.valid (host):
+                    # Not from peer, ignore
+                    continue
+                # Check header?  For now just skip it.
+                msg = msg[4:]
+                if logging.tracing:
+                    pktlogging.tracepkt ("Received Multinet message on {}"
+                                             .format (self.name), msg)
+                if self.port:
+                    self.counters.bytes_recv += len (msg)
+                    self.counters.pkts_recv += 1
+                    self.node.addwork (Received (self.port.owner, packet = msg))
+                else:
+                    logging.trace ("Message discarded, no port open")
+                    
+    def run (self):
+        logging.trace ("Multinet datalink {} receive thread started", self.name)
+        if self.mode:
+            # TCP mode
+            self.run_tcp ()
+        else:
+            self.run_udp ()
+        logging.trace ("Receive thread stopped")
+        self.node.addwork (datalink.DlStatus (self.port.owner,
+                                              status = datalink.DlStatus.HALTED))
+
     def send (self, msg, dest = None):
         sock = self.socket
         if sock and self.status == RUN:

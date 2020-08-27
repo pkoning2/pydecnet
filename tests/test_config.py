@@ -86,10 +86,9 @@ class TestCircuit (Logchecker):
         c = self.ctest ("""circuit eth-0 Ethernet dev
         circuit gre-0 GRE dev
         circuit mul-0 Multinet dev
-        circuit dmc-0 SimhDMC dev
-        circuit dmc-1 DDCMP dev""")
+        circuit dmc-0 DDCMP dev""")
         self.assertEqual (set (c.circuit), { "ETH-0", "GRE-0",
-                                             "MUL-0", "DMC-0", "DMC-1" })
+                                             "MUL-0", "DMC-0" })
 
 class TestCircuit_err (Logchecker):
     req = """routing 1.1
