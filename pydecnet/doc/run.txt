@@ -96,11 +96,14 @@ library module python-daemon (see install.txt for more).
 
 By default, PyDECnet runs with the root, uid, and gid of its parent
 process.  The --chroot, --uid, and/or --gid arguments can be used to
-override those values; this only works if PyDECnet is involved as a
+override those values; this only works if PyDECnet is invoked as a
 root (super-user) process.  These options are typically used when
 running the program as a daemon, as an extra measure of protection
 against security issues.  --chroot requires some care because of how
-file references are handled; see below for details.
+file references are handled; see below for details.  Note that there
+are no known security issues in PyDECnet that require the use of these
+options for adequate security; they were added partly "for paranoia"
+and partly "to see if it can be done".
 
 Logging uses the standard Python "logging" module.  By default
 messages of level INFO and higher are logged to the console (stderr).
@@ -148,10 +151,10 @@ is read.  This means that some file accesses are affected by the
 important to understand the details.
 
 All configuration files mentioned in the command line, any indirect
-files they reference, the file name argument of --log-config, and all
-Python module code including module type session objects are loaded
-before the change of root.  This means they need not be visible from
-the chroot "jail" file system subtree.
+files they reference, the file referenced by the --log-config
+argument, and all Python module code including module type session
+objects are loaded before the change of root.  This means they need
+not be visible from the chroot "jail" file system subtree.
 
 Other file references are relative to the chroot argument.  In
 particular, they are:
@@ -172,13 +175,17 @@ present.  This means file and directory permissions have to be
 appropriate for those accesses to be allowed.  You need to make sure
 the directories where log and map database files are written allows
 file creation for that UID and GID, and that devices used for DECnet
-circuits allow access.
+circuits allow read/write access.
 
 Similarly, host network resources accesses made by PyDECnet, such as
 for TCP or UDP sockets, will use the supplied UID and GID if present.
 If you specify a UID, "privileged" port numbers will be rejected by
 the OS, and privileged services such as PCAP will most likely not
 work.
+
+(TODO: in the future this may be changed by using the "effective UID"
+mechanism to allow privileges to be regained temporarily when network
+resources are opened.)
 
 On Linux, the thread machinery at run time needs to access library
 libgcc_s.so, which means that it has to exist in the chroot tree with
@@ -187,7 +194,3 @@ the expected path name.  For example, suppose pydecnet was run with
 
    mkdir /home/decnet/lib64
    ln /lib64/libgcc_s* /home/decnet/lib64/
-
-(TODO: in the future this may be changed by using the "effective UID"
-mechanism to allow privileges to be regained temporarily when network
-resources are opened.)
