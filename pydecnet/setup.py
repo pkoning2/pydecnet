@@ -16,12 +16,17 @@ setup (author = "Paul Koning",
        name = "decnet",
        #url = ""
        version = "1.0",
+       python_requires = ">=3.3",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
                     "decnet.resources.images" ],
        package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.svg", "*.js" ],
                         "decnet.resources.images" : [ "*.png" ]},
-       scripts = [ "pydecnet" ],
+       entry_points  = {
+           "console_scripts" : [
+               "pydecnet = decnet.main:main"
+            ]
+        },
        py_modules = [ "crc" ],
        extras_require = {
            "daemon" : "python-daemon",
