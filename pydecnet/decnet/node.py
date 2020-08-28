@@ -49,7 +49,15 @@ class WorkStats:
         return ret
 
     def encode_json (self):
-        return { k[0] : { k[1] : v } for (k, v) in self.hdict.items () }
+        ret = dict ()
+        for k, v in self.hdict.items ():
+            owner, what = k
+            try:
+                r = ret[owner]
+            except KeyError:
+                ret[owner] = r = dict ()
+            r[what] = v
+        return ret
     
 class Nodeinfo (nsp.NSPNode, NiceNode):
     """A container for node database entries.  This contains the attributes
