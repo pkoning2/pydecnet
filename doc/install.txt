@@ -33,6 +33,17 @@ You can then install from the resulting working directory:
    cd pydecnet
    python3 setup.py install
 
+Note: if you have done this before, depending on tool versions you may
+end up with a broken "pydecnet" command, one that reports "Entry point
+... not found" at startup.  If so, remove the decnet.egg-info
+directory and repeat the operation.
+
+If you still have problems, you can create a source kit and install
+from that:
+
+     python3 setup.py sdist
+     pip3 install dist/decnet-1.0.tar.gz
+
 Installation from the kit
 
 TODO: right now kits are not yet distributed.  
