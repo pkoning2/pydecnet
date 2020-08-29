@@ -140,9 +140,8 @@ class Multinet (datalink.PtpDatalink):
             self.socket = None
 
     def disconnected (self):
-        if self.status == RUN and self.port:
-            self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = datalink.DlStatus.DOWN))
+        self.node.addwork (datalink.DlStatus (self.port.owner,
+                                              status = datalink.DlStatus.DOWN))
         if self.status != OFF:
             try:
                 self.socket.close ()
