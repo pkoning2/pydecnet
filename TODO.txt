@@ -1,7 +1,0 @@
-Things to be done:
-
-1. Redo API with JSON: console carrier, ethernet loop, request counters
-2. API for routing, others?
-3. NSP, Session layer, including API
-4. Built in applications: Mirror, NICE, EVTLOG
-5. Don't time out when datalinks are listening (TCP mode)
