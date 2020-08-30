@@ -1,11 +1,11 @@
 ****************************************************************
 
-This is a work in progress, rather imcomplete at present.
+This is a work in progress, somewhat incomplete at present.
 
 Please feel free to use it.  Don't be surprised about problems.  If
 you use this, please let me know; in particular bug reports would be
-appreciated, but if it happens to work well I'd like to hear about
-that as well.
+appreciated, but if works well for you, I'd like to hear about that as
+well.
 
 		Paul Koning, paulkoning@comcast.net
 
@@ -73,9 +73,9 @@ tested:
 - Data links: LAN and point to point frameworks, Ethernet (via the
 Johnny Bilquist bridge; via pcap; on Mac OS, via TAP); GRE
 encapsulation of Ethernet; DDCMP (point to point only, over TCP, UDP,
-or an actual UART); SIMH 3.9 payload-only DMC-11 emulation; Multinet
-over UDP (not recommended due to the fact that this protocol grossly
-violates the DECnet specifications) and over TCP.
+or an actual UART); Multinet over UDP (not recommended due to the fact
+that this protocol grossly violates the DECnet specifications) and
+over TCP.
 
 - MOP on Ethernet, including console carrier and counters request.
 
@@ -101,9 +101,11 @@ status queries (accessing about the same data as the HTTP monitoring
 does) as well as a MOP Console Carrier client and MOP Counters Request
 client. 
 
-- Other infrastructure: simple event logging tied into the Python
-logging module.  Configuration file handling somewhat like the DECnet
-"permanent database" but with syntax similar to Unix commands.
+- Other infrastructure: event logging tied into the Python logging
+module, with event filtering, as well as support for the standard
+three types of sinks to remote sink nodes.  Configuration file
+handling somewhat like the DECnet "permanent database" but with syntax
+similar to Unix commands.
 
 - An implementation in Python of Johnny Bilquist's bridge, ported from
 his C program.  While this is not actually DECnet it is supporting
