@@ -138,6 +138,11 @@ class Multinet (datalink.PtpDatalink):
             except Exception:
                 logging.trace ("Multinet {} socket close exception", self.name)
             self.socket = None
+        else:
+            # We aren't currently running, so send a HALTED work item
+            # back up to get things moving again.
+            self.node.addwork (datalink.DlStatus (self.port.owner,
+                                                  status = datalink.DlStatus.HALTED))
 
     def disconnected (self):
         self.node.addwork (datalink.DlStatus (self.port.owner,
