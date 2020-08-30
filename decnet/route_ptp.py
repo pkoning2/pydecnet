@@ -48,6 +48,7 @@ class PtpCircuit (statemachine.StateMachine):
     """
     prio = 0    # For commonality with BC circuit hello processing
     T3MULT = PTP_T3MULT
+    RETRY_MAXDELAY = 128
     
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ ()
@@ -57,6 +58,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.timer = 0
         self.tiver = self.adj = None
         self.ntype = UNKNOWN
+        self.retry_delay = 1
         # Use MTU as the blocksize until we learn otherwise
         self.blksize = self.minrouterblk = MTU
         self.id = self.rphase = 0
@@ -421,12 +423,14 @@ class PtpCircuit (statemachine.StateMachine):
         """Initial state: "Halted".
 
         We look for a Start work item, that is a request from above to
-        start this circuit.  Alternatively, a DlStatus (Halted) work
-        item indicates the datalink port finished shutting down after an
-        error and we can now restart it.
+        start this circuit.  The same applies for a Timeout.
+
+        Alternatively, a DlStatus (Halted) work item indicates the
+        datalink port finished shutting down after an error and we can
+        now restart it, but only after a delay.
         """
-        if isinstance (item, Start) or \
-           isinstance (item, datalink.DlStatus) and item.status == item.HALTED:
+        if isinstance (item, (Start, timers.Timeout)):
+            logging.trace ("Restarting {}", self)
             self.datalink.open ()
             self.tiver = self.adj = None
             self.timer = 0     # No remote hello timer value received
@@ -435,6 +439,10 @@ class PtpCircuit (statemachine.StateMachine):
             self.id = 0        # Nor his node address
             self.node.timers.start (self, self.t3)
             return self.ds
+        elif isinstance (item, datalink.DlStatus) and \
+             item.status == item.HALTED and not self.islinked ():
+            self.node.timers.start (self, self.retry_delay)
+            self.retry_delay = min (self.retry_delay * 2, self.RETRY_MAXDELAY)
 
     s0 = ha    # "halted" is the initial state
     
