@@ -437,7 +437,11 @@ class PtpCircuit (statemachine.StateMachine):
             self.rphase = 0    # Don't know the neighbor's phase yet
             self.ntype = UNKNOWN # Nor his type
             self.id = 0        # Nor his node address
-            self.node.timers.start (self, self.t3)
+            if self.datalink.start_works:
+                tmo = min (5, self.retry_delay)
+            else:
+                tmo = self.t3
+            self.node.timers.start (self, tmo)
             return self.ds
         elif isinstance (item, datalink.DlStatus) and \
              item.status == item.HALTED and not self.islinked ():
