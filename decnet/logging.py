@@ -140,9 +140,9 @@ class DnMemoryHandler (logging.Handler):
         self.target = target
         self.bypassing = False
         if isinstance (flushLevel, str):
-            # Counterintuitively, getLevelName does the inverse (name to
-            # number) if a string is passed in.
-            flushLevel = logging.getLevelName (flushLevel)
+            # This can be done (counterintuitively) with getLevelName,
+            # except in Python 3.4.  So do it the not so elegant way.
+            flushLevel = logging._nameToLevel[flushLevel]
         self.flushLevel = flushLevel
         
     def _check (self):
