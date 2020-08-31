@@ -82,6 +82,7 @@ class rtest (DnTest):
         self.assertState ("ha")
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.UP))
@@ -117,6 +118,7 @@ class rtest (DnTest):
             if self.c.state == self.c.ha:
                 self.c.dispatch (datalink.DlStatus (owner = self.c,
                                                     status = datalink.DlStatus.HALTED))
+                DnTimeout (self.c)
                 self.assertState ("ds")
                 self.c.dispatch (datalink.DlStatus (owner = self.c,
                                                     status = datalink.DlStatus.UP))
@@ -592,6 +594,7 @@ class test_ph4 (rtest):
         # test restart after circuit down
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
         
     def test_verify (self):
@@ -954,6 +957,7 @@ class test_ph4verify (rtest):
                           adjacent_node = NiceNode (1026))
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
         
     def test_verify_timeout (self):
@@ -973,6 +977,7 @@ class test_ph4verify (rtest):
                           adjacent_node = NiceNode (1026))
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
 
     def test_verify (self):
@@ -1234,6 +1239,7 @@ class test_ph4restart (rtest):
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
         
     def test_init (self):
@@ -1361,6 +1367,7 @@ class test_ph4restart_rv (rtest):
         self.assertState ("ha")
         self.c.dispatch (datalink.DlStatus (owner = self.c,
                                             status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c)
         self.assertState ("ds")
         
     def test_init (self):
