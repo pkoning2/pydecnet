@@ -379,10 +379,12 @@ class ver_rej (RoutingEvent):
 class circ_fault (RoutingEvent):
     "Circuit down, circuit fault"
     event_code = 7
+    loglevel = logging.WARNING
 
 class circ_down (RoutingEvent):
     "Circuit down"
     event_code = 8
+    loglevel = logging.WARNING
 
 class circ_off (RoutingEvent):
     "Circuit down, operator initiated"
@@ -433,6 +435,7 @@ class area_chg (Event):
 class adj_down (RoutingEvent):
     "Adjacency down"
     event_code = 18
+    loglevel = logging.WARNING
 
 class adj_oper (RoutingEvent):
     "Adjacency down, operator initiated"

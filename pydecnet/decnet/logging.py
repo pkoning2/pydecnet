@@ -14,6 +14,7 @@ import json
 import time
 import functools
 import copy
+import collections
 
 try:
     from yaml import load, Loader
@@ -92,6 +93,92 @@ class DnSysLogHandler (logging.handlers.SysLogHandler):
             levelname = "DEBUG"
         return super ().mapPriority (levelname)
 
+
+def flush ():
+    "Flush all handlers"
+    for h in logging._handlers.values ():
+        h.flush ()
+
+def bypass (bypass = True):
+    "Configure the bypass setting of all handlers"
+    for h in logging._handlers.values ():
+        try:
+            h.set_bypass (bypass)
+        except AttributeError:
+            pass
+
+def check_handlers ():
+    "Tell all the handlers to check if they are set up right"
+    for h in logging._handlers.values ():
+        try:
+            h._check ()
+        except AttributeError:
+            pass
+        
+class DnMemoryHandler (logging.Handler):
+    """A buffering handler somewhat like the standard
+    handlers.MemoryHandler.  But instead of flushing the buffered
+    entries when the limit is reached, discard the oldest.  
+
+    Entries are flushed to the attached destination handler when flush()
+    is called, when a message with level >= flushLevel is logged, or
+    when a message with exception information attached is logged.  The
+    defaut flush level is WARNING, which is the level used for logging
+    DECnet circuit down events.
+
+    This handler is intended for efficient capture of trace
+    level log items without the cost of formatting all of them and
+    writing them to a file.  The assumption is that other components
+    will call flush() when "something sufficiently interesting" happened
+    (after logging that); the output log will then reflect that
+    occurrence as well as some amount of history leading up to it.
+    """
+    def __init__ (self, capacity = 100, target = None,
+                  flushLevel = logging.WARNING):
+        super ().__init__ ()
+        self.buffer = collections.deque (maxlen = capacity)
+        self.target = target
+        self.bypassing = False
+        if isinstance (flushLevel, str):
+            # Counterintuitively, getLevelName does the inverse (name to
+            # number) if a string is passed in.
+            flushLevel = logging.getLevelName (flushLevel)
+        self.flushLevel = flushLevel
+        
+    def _check (self):
+        "Check the target handler for this handler."
+        if isinstance (self.target, str):
+            # It's a string, convert to a handler
+            self.target = logging._handlers[self.target]
+
+    def set_bypass (self, bypass):
+        if bypass:
+            self.buffer.clear ()
+        self.bypassing = bypass
+        
+    def emit (self, record):
+        if self.bypassing:
+            if self.target:
+                self.target.handle (record)
+        else:
+            self.buffer.append (record)
+            # Now flush if it's time to do that
+            if self.flush_needed (record):
+                self.flush ()
+
+    def flush_needed (self, record):
+        return record.levelno >= self.flushLevel or \
+               getattr (record, "exc_info", None)
+        
+    def flush (self):
+        if self.target:
+            try:
+                while True:
+                    self.target.handle (self.buffer.popleft ())
+            except IndexError:
+                pass
+            self.target.flush ()
+            
 # We want not just overall log record formatting, but also message
 # string formatting to be done with "format".  The "style" argument of
 # Formatter doesn't do that, instead we have to override getMessage in
@@ -231,9 +318,12 @@ def setdecnetlogger ():
     # caller info in the message (the place where the "trace" call is
     # made, rather than a trace function here calling "log").
     trace = functools.partial (decnetLogger.log, TRACE)
+    # Make sure the handlers are set up properly
+    check_handlers ()
 
 def stop (exiting = True):
     if exiting:
+        bypass ()
         log (99, "DECnet/Python shut down")
     else:
         debug ("DECnet/Python logging stopped")

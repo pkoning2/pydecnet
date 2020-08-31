@@ -523,6 +523,6 @@ For the local file sink, this specifies the name of the file that will
 receive events logged by this sink. 
 
 Most DECnet events are logged as log level INFO.  A few have other
-levels: events 2.1, 4.6, and 34.1 are level WARNING, and events 3.0,
-3.1, 4.0, 4.1, and 4.4 are level DEBUG.  These levels are currently
-fixed in the source code.
+levels: events 2.1, 4.6, 4.7, 4.8, 4.18 and 34.1 are level WARNING,
+and events 3.0, 3.1, 4.0, 4.1, and 4.4 are level DEBUG.  These levels
+are currently fixed in the source code.

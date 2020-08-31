@@ -167,7 +167,8 @@ def main ():
     logging.log (99, "Starting DECnet/Python {}-{}",
                  http.DNVERSION, http.DNREV)
     logging.info (" command line: {}".format (" ".join (sys.argv)))
-    
+    logging.flush ()
+
     # Read all the configs
     configs = [ config.Config (c) for c in p.configfile ]
     
@@ -227,6 +228,7 @@ def main ():
     # Start all the nodes, each in a thread of its own.
     for n in nodes:
         n.start ()
+    logging.flush ()
     try:
         if httpserver:
             httpserver.start ()
@@ -235,10 +237,13 @@ def main ():
             while True:
                 time.sleep (100)
     except SystemExit as exc:
+        logging.bypass ()
         logging.info ("Exiting: {}", exc)
     except Exception:
+        logging.bypass ()
         logging.exception ("Exception caught in main")
     except KeyboardInterrupt:
+        logging.bypass ()
         if signalled:
             logging.info ("Exiting due to SIGTERM")
         else:
