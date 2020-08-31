@@ -337,6 +337,7 @@ class RemoteSink (EventSink, timers.Timer):
                     # Put the event we could not send back onto the
                     # queue.
                     self.sinkqueue.appendleft (evt)
+                    return
         elif self.sinknode:
             # try to open a connection
             if not self.scport:
