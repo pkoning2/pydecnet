@@ -239,14 +239,17 @@ class Node (Entity):
                 if isinstance (work, Shutdown):
                     break
                 started = time.time ()
-                #logging.trace ("Dispatching {} of {}",
-                #               work, work.owner)
+                logging.trace ("Dispatching {} of {}",
+                               work, work.owner)
                 work.dispatch ()
                 dt = time.time () - started
                 self.stats.add (work, dt)
+                logging.trace ("Finished with {} of {}", work, work.owner)
                 if dt > 0.5:
                     logging.trace ("Excessive run time {} for work item", dt)
-                logging.trace ("Finished with {} of {}", work, work.owner)
+                    # This is an "interesting event", capture what led
+                    # up to it.
+                    logging.flush ()
         except Exception:
             logging.exception ("Exception caught in mainloop")
         finally:
