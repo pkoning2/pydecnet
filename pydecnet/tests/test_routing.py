@@ -248,6 +248,9 @@ class test_ptpend (rtest):
         self.assertState ("ha")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1,
                                              status = datalink.DlStatus.HALTED))
+        # The HALTED report will start a restart timer, so deliver
+        # that timeout now.
+        DnTimeout (self.c1)
         self.assertState ("ds")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1,
                                              status = datalink.DlStatus.UP))
@@ -503,11 +506,15 @@ class test_ph2 (rtest):
         self.assertState (self.c2, "ha")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1,
                                              status = datalink.DlStatus.HALTED))
+        # The HALTED report will start a restart timer, so deliver
+        # that timeout now.
+        DnTimeout (self.c1)
         self.assertState (self.c1, "ds")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = datalink.DlStatus.UP))
         self.assertState (self.c1, "ri")        
         self.c2.dispatch (datalink.DlStatus (owner = self.c2,
                                              status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c2)
         self.assertState (self.c2, "ds")
         self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = datalink.DlStatus.UP))
         self.assertState (self.c2, "ri")        
@@ -625,11 +632,15 @@ class test_ph4l1a (rtest):
         self.assertState (self.c2, "ha")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1,
                                              status = datalink.DlStatus.HALTED))
+        # The HALTED report will start a restart timer, so deliver
+        # that timeout now.
+        DnTimeout (self.c1)
         self.assertState (self.c1, "ds")
         self.c1.dispatch (datalink.DlStatus (owner = self.c1, status = datalink.DlStatus.UP))
         self.assertState (self.c1, "ri")        
         self.c2.dispatch (datalink.DlStatus (owner = self.c2,
                                              status = datalink.DlStatus.HALTED))
+        DnTimeout (self.c2)
         self.assertState (self.c2, "ds")
         self.c2.dispatch (datalink.DlStatus (owner = self.c2, status = datalink.DlStatus.UP))
         self.assertState (self.c2, "ri")        
