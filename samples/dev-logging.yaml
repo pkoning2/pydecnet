@@ -15,13 +15,24 @@ formatters:
     format: "{asctime}: {threadName} {filename}.{lineno}: {message}"
     style: "{"
 handlers:
-  tracehandler:
-    # 10 files, 20 MB per file max
+  tracefilehandler:
+    # 10 files, 2 MB per file max
     class: logging.handlers.RotatingFileHandler
     formatter: traceformatter
     filename: /var/log/decnet/decnet-trace.log
-    maxBytes: 20000000
+    maxBytes: 2000000
     backupCount: 10
+  tracehandler:
+    # Handler to buffer up to 100 events and flush those when
+    # something interesting happens.  This reduces trace overhead
+    # and trace log size.
+    class: decnet.logging.DnMemoryHandler
+    # Entries that are actually logged go to this handler:
+    target: tracefilehandler
+    # Queue size and log level that causes a flush
+    # (these are the default values for this handler)
+    capacity: 100
+    flushLevel: WARNING
   dnhandler:
     # File handler.
     class: logging.FileHandler
