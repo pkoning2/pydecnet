@@ -732,11 +732,11 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                     # Something else, error
                     i = len (msg)
                     break
-                else:
-                    # Nothing but fillers, ignore this.
-                    continue
                 try:
                     c = msg[i:]
+                    if not c:
+                        # No valid header found, ignore whatever this is.
+                        continue
                     pkt, x = DMHdr.decode (c)
                 except HdrCrcError:
                     # Header CRC is bad.  Report it.
@@ -859,6 +859,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         except (OSError, AttributeError):
             # AttributeError happens if socket has been changed to "None"
             self.disconnected ()
+            return
         if timeout:
             self.node.timers.start (self, timeout)
 
@@ -1023,6 +1024,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             elif isinstance (data, StartMsg):
                 # Start while running, halt the circuit
                 self.disconnected ()
+                return
             elif isinstance (data, StackMsg):
                 # Send another ACK
                 self.ackflag = True
