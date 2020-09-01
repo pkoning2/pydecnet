@@ -200,7 +200,10 @@ if fcntl:
             """
             try:
                 os.write (self.tap, buf)
-            except IOError:
+            except (IOError, TypeError):
+                # TypeError will appear if a message is sent while the
+                # circuit is being closed, because at that point
+                # self.tap has been changed to None.
                 pass
 
         def run (self):
