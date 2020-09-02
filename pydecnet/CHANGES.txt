@@ -1,0 +1,10 @@
+This document summarizes significant changes in the code, newest
+change at the top.  "Significant" means a non-trivial functional
+change or a change that affects how you use or install the
+application.
+
+1.0-552: Allow configuration records to override (supplement) earlier
+ones with certain restrictions.  See doc/config.txt for details.
+
+1.0-539: Remove the pydecnet script.  This is now created by the
+installation procedure.  See doc/install.txt for details.

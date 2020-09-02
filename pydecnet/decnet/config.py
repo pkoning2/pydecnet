@@ -91,7 +91,13 @@ class checkdict (dict):
             prev = self[key]
             if prev == val:
                 return
-            raise ConflictingEntry ("Conflicting value for {}".format (self.keyname),
+            for k in dir (prev):
+                if k.startswith ("_"):
+                    continue
+                ov = getattr (prev, k)
+                nv = getattr (val, k, None)
+                if ov != nv and ov is not None:
+                    raise ConflictingEntry ('Conflicting value for {}'.format (self.keyname),
                                    prev, val)
         except KeyError:
             super ().__setitem__ (key, val)
