@@ -72,20 +72,23 @@ class Nodeinfo (nsp.NSPNode, NiceNode):
 
     def __init__ (self, c, nodeid = None):
         nsp.NSPNode.__init__ (self)
+        self.overif = None
+        self.iverif = None
         if c:
-            self.overif = c.outbound_verification
-            self.iverif = c.inbound_verification
-        else:
-            self.overif = None
-            self.iverif = None
+            if c.outbound_verification:
+                self.overif = bytes (c.outbound_verification,
+                                     encoding = "latin1")
+            if c.inbound_verification:
+                self.iverif = bytes (c.inbound_verification,
+                                     encoding = "latin1")
 
     def get_api (self):
         ret = NiceNode.get_api (self)
         ret.update (nsp.NSPNode.get_api (self))
         if self.overif:
-            ret["outbound_verification"] = self.overif
+            ret["outbound_verification"] = str (self.overif, encoding = "latin1")
         if self.iverif:
-            ret["inbound_verification"] = self.iverif
+            ret["inbound_verification"] = str (self.iverif, encoding = "latin1")
         return ret
     
 # A mapping from router node type to DECnet Phase number.  We need this
