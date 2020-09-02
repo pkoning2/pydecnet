@@ -50,9 +50,26 @@ required or optional, as described below.
 Components circuit, node, and object may occur more than once, where
 each occurrence describes a particular circuit, node, or object
 distinguished by name and/or address or number.  A given name or
-number may occur more than once provided the parameters match.  If a
-name occurs more than once and the parameters differ, a "Conflicting
-entry" error results.
+number may occur more than once, so long as any attribute values in
+the earlier occurrence are matched in the later one.  So a later
+occurrence can simply be a duplicate, or it can add a parameter value
+that was omitted in the earlier occurrence.  If these rules are
+violated, a "Conflicting entry" error results.  A typical case is the
+use of a common node name definition file that only specified address
+and name for each node, followed by a specific override for some of
+these nodes to add verification strings.
+
+For example, the following is legal
+    node 1.2 test
+    node 1.2 test --inbound-verification password
+but this is not:
+    node 1.2 test
+    node 1.2 other
+nor this:
+    node 1.2 test --inbound-verification password
+    node 1.2 test --outbound-verification mystring
+(since the inbound-verification parameter was not present in the
+second occurrence)
 
 Component "http"
 
@@ -165,13 +182,17 @@ converted to upper case.
 
 --inbound-verification: Verification value required from this node, if
 it is the neighbor on a point to point circuit which has --verify
-specified to require inbound verification.
+specified to require inbound verification.  Maximum length is 64
+characters except when communicating with Phase II nodes, in which
+case the limit is 8 characters.
 
 --outbound-verification: Verification value to send to this node, if
 it is the neighbor on a point to point circuit and requests
 verification.  The value is a string.  If this argument is omitted and
 the node requests verification, a null string is sent (which may or
-may not be accepted by the remote node).
+may not be accepted by the remote node).  Maximum length is 64
+characters except when communicating with Phase II nodes, in which
+case the limit is 8 characters.
 
 Component "circuit":
 

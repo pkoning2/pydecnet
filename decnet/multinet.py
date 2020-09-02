@@ -243,10 +243,13 @@ class Multinet (datalink.PtpDatalink):
                     return
             logging.trace ("Multinet {} connected", self.name)
             # Stop listening:
-            self.socket.close ()
+            try:
+                self.socket.close ()
+            except AttributeError:
+                # In case it was set to None
+                pass
             # The socket we care about now is the data socket
             sellist = [ sock.fileno () ]
-            self.socket.close ()
             self.socket = sock
         # Tell the routing init layer that this datalink is running
         self.status = RUN
