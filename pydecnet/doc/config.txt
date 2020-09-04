@@ -232,19 +232,20 @@ depends on the circuit type:
 	    "bridge".  
 
     Multinet: this can use UDP or TCP.  For UDP, the device argument
-    is host or host:port.  In the first form, the port number is 700
-    (the default); in the second, the port number is the specified
-    value.  For TCP, the device argument is host::mode or
-    host:port:mode, with the port number interpreted as above, and
-    mode is either "listen" to expect an incoming TCP connection, or
-    "connect" to initiate an outgoing connection.  For the listen
-    case, omitting the host address or specifying 0.0.0.0 means
-    connections are accepted from any address.  One of the two sides
-    must be configured to connect, the other to listen.  Note: as
-    stated above, Multinet over UDP is discouraged because its
-    operation violates the requirements in the DECnet Routing
-    Architecture specification (and does so in a way that seriously
-    impairs reliability).
+    is host, host:port, or host:rport:lport.  In the first form, the
+    port number is 700 (the default); in the second, the port number
+    is the specified value for both endpoints; in the third, the two
+    numbers are remote and local port numbers respectively.  For TCP,
+    the device argument is host::mode or host:port:mode, with the port
+    number interpreted as above, and mode is either "listen" to expect
+    an incoming TCP connection, or "connect" to initiate an outgoing
+    connection.  For the listen case, omitting the host address or
+    specifying 0.0.0.0 means connections are accepted from any
+    address.  One of the two sides must be configured to connect, the
+    other to listen.  Note: as stated above, Multinet over UDP is
+    discouraged because its operation violates the requirements in the
+    DECnet Routing Architecture specification (and does so in a way
+    that seriously impairs reliability).
 
     GRE: host.  This specifies GRE encapsulation to the specified
     host.  The IP protocol type is always 47 (the assigned value for
