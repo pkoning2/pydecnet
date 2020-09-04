@@ -3,6 +3,9 @@ change at the top.  "Significant" means a non-trivial functional
 change or a change that affects how you use or install the
 application.
 
+1.0-556: Ethernet "tap" support for Linux is now included, thanks to
+Keith Halewood for supplying the patch.  
+
 1.0-552: Allow configuration records to override (supplement) earlier
 ones with certain restrictions.  See doc/config.txt for details.
 

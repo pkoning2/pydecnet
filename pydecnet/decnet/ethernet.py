@@ -23,6 +23,8 @@ from . import pcap
 SvnFileRev = "$LastChangedRevision$"
 
 FILL = b'\x42' * 60
+ETH_MTU = 1518
+ETH_TMO = 100    # ms
 
 class EthPort (datalink.BcPort):
     """DEC Ethernet port class.
@@ -39,9 +41,6 @@ class EthPort (datalink.BcPort):
             raise ValueError ("Invalid destination address length")
         msg = makebytes (msg)
         l = len (msg)
-        if logging.tracing:
-            pktlogging.tracepkt ("Sending packet on {} to {}"
-                                 .format (self.parent.name, dest), msg)
         f = self.frame
         f[0:6] = destb
         f[6:12] = self.macaddr
@@ -64,15 +63,11 @@ class EthPort (datalink.BcPort):
         if l < 60:
             f[l:60] = FILL[l:60]
         l = max (l, 60)
-        self.parent.send_frame (memoryview (f)[:l])
-
-# ifr_name, ifru_flags
-ifreq = struct.Struct ("=16sH")
-sizeof_ifreq = 32
-SIOCSIFFLAGS = 0x80000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 16
-SIOCGIFFLAGS = 0xc0000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 17
-ETH_MTU = 1518
-ETH_TMO = 100    # ms
+        f = memoryview (f)[:l]
+        if logging.tracing:
+            pktlogging.tracepkt ("Sending packet on {} to {}"
+                                 .format (self.parent.name, dest), f)
+        self.parent.send_frame (f)
 
 class _Ethernet (datalink.BcDatalink, StopThread):
     """DEC Ethernet datalink.
@@ -167,11 +162,48 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         if req.info == 2:
             r.hardware_address = self.hwaddr
 
+# Some definitions for Linux TAP:
+TUNSETIFF = 0x400454ca
+IFF_TUN = 0x0001
+IFF_TAP = 0x0002
+IFF_NO_PI = 0x1000
+# sizeof (struct ifreq) is 32 or 40 depending on whether we're on a 32
+# bit or 64 bit system.  So we need 32 - 18 = 14 or 40 - 18 = 22 bytes
+# of padding respectively to make the ifreq struct come out the right
+# size.
+if sys.maxsize >> 31:
+    # 64 bit system
+    ifr_layout = "16sH22x"
+else:
+    # 32 bit system
+    ifr_layout = "16sH14x"
+
+# And for Mac (Darwin) TAP:
+# ifr_name, ifru_flags
+ifreq = struct.Struct ("=16sH")
+sizeof_ifreq = 32
+SIOCSIFFLAGS = 0x80000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 16
+SIOCGIFFLAGS = 0xc0000000 + (sizeof_ifreq << 16) + (ord ('i') << 8) + 17
+
 # API specific classes
 if fcntl:
     class _TapEth (_Ethernet):
         def open (self):
-            fd = os.open (self.dev, os.O_RDWR)
+            # Set a dummy value in case we get an error
+            self.tap = None
+            if sys.platform == "linux":
+                # Linux-specific preparation
+                fd = os.open ("/dev/net/tun", os.O_RDWR)
+                # We need 40 - 18 = 22 bytes of padding to make the
+                # ifreq struct come out the right size; Linux says
+                # it's 40 but what we fill in here only gets us to 18.
+                ifr = struct.pack (ifr_layout, self.dev.encode("ascii"),
+                                   IFF_TAP | IFF_NO_PI)
+                ioctl (fd, TUNSETIFF, ifr)
+            else:
+                if os.path.sep not in self.dev:
+                    self.dev = os.path.join ("/dev", self.dev)
+                fd = os.open (self.dev, os.O_RDWR)
             oldflags = fcntl (fd, F_GETFL, 0)
             fcntl (fd, F_SETFL, oldflags | os.O_NONBLOCK)
             self.tap = fd
@@ -191,7 +223,10 @@ if fcntl:
 
         def close (self):
             super ().close ()
-            os.close (self.tap)
+            try:
+                os.close (self.tap)
+            except Exception:
+                pass
             self.tap = None
 
         def send_frame (self, buf, skip = None):
@@ -208,7 +243,7 @@ if fcntl:
 
         def run (self):
             while True:
-                if self.stopnow:
+                if self.stopnow or not self.tap:
                     break
                 try:
                     try:
