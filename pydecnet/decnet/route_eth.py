@@ -225,8 +225,7 @@ class LanCircuit (timers.Timer):
             elif req.char ():
                 r.hello_timer = self.t3
                 r.cost = self.config.cost
-                r.router_priority = self.prio
-                r.maximum_routers = self.nr
+                self.extrachar (r)
                 # The spec says DR is a status, but RSX and VMS
                 # implement it as characteristic.  Doing it as status
                 # makes the status display come out strange.
@@ -289,6 +288,11 @@ class EndnodeLanCircuit (LanCircuit):
         # circuit, so we'll give it that much.
         self.dadj = self.DummyAdj (self)
 
+    def extrachar (self, r):
+        "Add any node type dependent characteristics"
+        # None for endnodes
+        pass
+    
     def adj_timeout (self, adj):
         # Called from the common routing code when an adjacency down
         # occurs (e.g., adjacency listen timeout).
@@ -423,6 +427,11 @@ class RoutingLanCircuit (LanCircuit):
                                   timer = self.t3)
         self.minrouterblk = ETHMTU
 
+    def extrachar (self, r):
+        "Add any node type dependent characteristics"
+        r.router_priority = self.prio
+        r.maximum_routers = self.nr
+    
     def stop (self):
         self.node.timers.stop (self.drtimer)
         self.sendhello (empty = True)
