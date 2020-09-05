@@ -100,7 +100,8 @@ class checkdict (dict):
                     raise ConflictingEntry ('Conflicting value for {}'.format (self.keyname),
                                    prev, val)
         except KeyError:
-            super ().__setitem__ (key, val)
+            pass
+        super ().__setitem__ (key, val)
 
 
 class Circuits (checkdict):

@@ -262,6 +262,14 @@ class TestNode (Logchecker):
         self.assertIsNone (cc.outbound_verification)
         self.assertEqual (set (c.node), { "FOO" })
         
+    def test_moreargs (self):
+        c = self.ctest ("node 1.3 foo\nnode 1.3 foo --inboun bar")
+        cc = c.node["FOO"]
+        self.assertEqual (cc.id, Nodeid (1, 3))
+        self.assertEqual (cc.inbound_verification, "bar")
+        self.assertIsNone (cc.outbound_verification)
+        self.assertEqual (set (c.node), { "FOO" })
+        
 
 class TestNode_err (Logchecker):
     req = """routing 1.1
