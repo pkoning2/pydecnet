@@ -99,6 +99,15 @@ class LanCircuit (timers.Timer):
             if work.src == self.parent.nodemacaddr:
                 # Ignore packets from self.
                 return
+            # Validate the source address.  Note: if we ever do IV
+            # Prime this will need to change.
+            try:
+                if work.src:
+                    srcnodeid = Nodeid (work.src)
+            except ValueError:
+                logging.trace ("DECnet packet with invalid source address {}",
+                               work.src)
+                return
             buf = work.packet
             if not buf:
                 logging.debug ("Null routing layer packet received on {}",

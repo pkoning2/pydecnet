@@ -19,7 +19,6 @@ whatever destinations are specified in the logging configuration.
 
 from decnet.common import *
 from decnet import session
-from decnet import pktlogging
 from decnet import events
 
 SvnFileRev = "$LastChangedRevision$"
@@ -34,7 +33,7 @@ class Application (Element):
         # Process work sent up from the Session Control layer. 
         conn = item.connection
         msg = item.message
-        pktlogging.tracepkt ("Event {} message".format (item.name), msg)
+        logging.tracepkt ("Event {} message", item.name, pkt = msg)
         if isinstance (item, session.Data):
             try:
                 # All we have to do is decode the event message into

@@ -30,7 +30,6 @@ class stest (DnTest):
         if self.process:
             self.config.object[0].module = None
             self.config.object[0].file = "tests/file_app_exerciser.py"
-            self.node.enable_dispatcher ()
         else:
             self.config.object[0].file = None
             self.config.object[0].module = "tests.module_app_exerciser"
@@ -54,7 +53,7 @@ class test_inbound_noconn (stest):
         m = unittest.mock.Mock ()
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.reject.call_count, 1)
         self.assertEqual (m.reject.call_args,
@@ -67,7 +66,7 @@ class test_inbound_noconn (stest):
         m = unittest.mock.Mock ()
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.reject.call_count, 1)
         self.assertEqual (m.reject.call_args,
@@ -83,7 +82,7 @@ class test_inbound_noconn (stest):
         m.abort.side_effect = nsp.WrongState
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.reject.call_count, 1)
         self.assertEqual (m.reject.call_args,
@@ -100,7 +99,7 @@ class test_inbound (stest):
         m = unittest.mock.Mock ()
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.accept.call_count, 1)
         self.assertEqual (m.accept.call_args, unittest.mock.call (b"accepted"))
@@ -114,7 +113,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.send_data.call_count, 1)
         self.assertEqual (m.send_data.call_args,
@@ -123,7 +122,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
         self.assertEqual (logging.log.call_count, 1)
@@ -136,7 +135,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.disconnect.call_count, 1)
         self.assertEqual (m.disconnect.call_args,
@@ -149,7 +148,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.abort.call_count, 1)
         self.assertEqual (m.abort.call_args,
@@ -162,7 +161,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.send_data.call_count, 1)
         self.assertEqual (m.send_data.call_args,
@@ -171,7 +170,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
         
@@ -181,7 +180,7 @@ class test_inbound (stest):
         d = nsp.IntMsg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.interrupt.call_count, 1)
         self.assertEqual (m.interrupt.call_args,
@@ -190,7 +189,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
         
@@ -200,7 +199,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.send_data.call_count, 1)
         self.assertEqual (m.send_data.call_args,
@@ -209,7 +208,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
         
@@ -220,7 +219,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         # Confirm the second (outbound) connection exists in the
         # session state
@@ -243,7 +242,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.abort.call_count, 1)
         self.assertEqual (m.abort.call_args,
@@ -261,7 +260,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         # Confirm the second (outbound) connection exists in the
         # session state
@@ -272,7 +271,7 @@ class test_inbound (stest):
         conf = nsp.ConnConf (data_ctl = b"")
         w = Received (owner = self.s, connection = c2,
                       packet = conf, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         # Check the reply from the tester
         self.assertEqual (c2.send_data.call_count, 1)
@@ -283,7 +282,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.send_data.call_count, 2)
         self.assertEqual (m.send_data.call_args,
@@ -293,7 +292,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = c2,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (c2.send_data.call_count, 2)
         self.assertEqual (c2.send_data.call_args,
@@ -302,7 +301,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 1)
         self.assertEqual (logging.log.call_count, 1)
@@ -313,7 +312,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = c2,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (c2.disconnect.call_count, 1)
         self.assertEqual (c2.disconnect.call_args,
@@ -327,7 +326,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         # Confirm the second (outbound) connection exists in the
         # session state
@@ -338,7 +337,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = c2,
                       packet = disc, reject = True)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         # Check the reply from the tester
         self.assertEqual (m.send_data.call_count, 2)
@@ -348,7 +347,7 @@ class test_inbound (stest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
 
@@ -358,7 +357,7 @@ class test_inbound (stest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.abort.call_count, 1)
         self.assertEqual (m.abort.call_args,
@@ -376,7 +375,7 @@ class test_file (test_inbound):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.abort.call_count, 1)
         self.assertEqual (m.abort.call_args,
@@ -427,7 +426,7 @@ class test_outbound (stest):
         pkt = nsp.NoRes ()
         w = Received (owner = self.s, connection = conn,
                       packet = pkt, reject = True)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.assertEqual (len (self.s.conns), 0)
         self.assertEqual (sc.client.dispatch.call_count, 1)
         w2 = sc.client.dispatch.call_args[0][0]
@@ -443,7 +442,7 @@ class test_random (stest):
             pkt = nsp.ConnInit (payload = randpkt (8, 64))
             w = Received (owner = self.s, connection = m,
                           packet = pkt, reject = False)
-            self.s.dispatch (w)
+            self.node.addwork (w)
         
 if __name__ == "__main__":
     unittest.main ()

@@ -144,8 +144,8 @@ class CRC (metaclass = _CRCMeta):
         data buffer to process (defaults to empty buffer).
         """
         # If this is the CRC base class, complain that we can't
-        # instantiate that. 
-        if self.__class__.__bases__ == (object,):
+        # instantiate that.
+        if self.__class__ == __class__:
             raise TypeError ("Can't instantiate object of " \
                              "class %s" % self.__class__.__name__)
         self._value = self.initial

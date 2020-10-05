@@ -185,7 +185,33 @@ class DnMemoryHandler (logging.Handler):
 # the LogRecord class to make that work.
 class DecnetLogRecord (logging.LogRecord):
     def getMessage (self):
-        return str (self.msg).format (*self.args)
+        ret = [ str (self.msg).format (*self.args) ]
+        pkt = getattr (self, "packetdata", None)
+        if pkt:
+            if isinstance (pkt, (list, tuple)):
+                pkt = b"".join (makebytes (p) for p in pkt)
+            else:
+                pkt = makebytes (pkt)
+            for ln in range (0, len (pkt), 16):
+                n = list ()
+                c = list ()
+                for o in range (16):
+                    try:
+                        b = pkt[ln + o]
+                        n.append ("{:02x}".format (b))
+                        ch = chr (b)
+                        if ch.isprintable ():
+                            c.append (ch)
+                        else:
+                            c.append (".")
+                    except IndexError:
+                        n.append ("  ")
+                    if o == 8:
+                        n.append ("")
+                ret.append ("{:04x}/ {} {}".format (ln,
+                                                    " ".join (n),
+                                                    "".join (c)))
+        return "\n  ".join (ret)
 
 logging.setLogRecordFactory (DecnetLogRecord)
 
@@ -329,3 +355,20 @@ def stop (exiting = True):
         debug ("DECnet/Python logging stopped")
     logging.shutdown ()
     
+def tracepkt (msg, *args, pkt = None, level = TRACE):
+    """Log a TRACE message with attached formatted dump of the packet
+    contents.  The same call may be used to log at a different level,
+    using the "level" argument.
+
+    The "pkt" argument specifies the packet to be logged, which is
+    converted to bytes if it isn't already.  Alternatively, it can be a
+    list or tuple of packet fragments which will be concatenated.  This
+    case is helpful if the packet is received a part at a time.
+
+    Formatting is not done until the log message is actually written to
+    a formatted output stream, if it is.  Thus the considerable
+    formatting cost is avoided for calls that don't actually result in
+    the data being logged to an output stream.
+    """
+    if tracing or level != TRACE:
+        log (level, msg, *args, extra = { "packetdata" : pkt })

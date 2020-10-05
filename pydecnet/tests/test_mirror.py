@@ -30,7 +30,6 @@ class test_mirror (DnTest):
             self.config.object[0].module = None
             self.config.object[0].argument = [ ]
             self.config.object[0].authentication = "off"
-            self.node.enable_dispatcher ()
         else:
             self.config.object = [ ]
         self.node.nsp = unittest.mock.Mock ()
@@ -48,7 +47,7 @@ class test_mirror (DnTest):
         m = unittest.mock.Mock ()
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.accept.call_count, 1)
         self.assertEqual (m.accept.call_args, unittest.mock.call (b"\xff\xff"))
@@ -58,7 +57,7 @@ class test_mirror (DnTest):
         d = nsp.DataSeg (payload = p)
         w = Received (owner = self.s, connection = m,
                       packet = d, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (m.send_data.call_count, 1)
         self.assertEqual (m.send_data.call_args,
@@ -67,7 +66,7 @@ class test_mirror (DnTest):
         disc = nsp.DiscInit (data_ctl = b"", reason = 0)
         w = Received (owner = self.s, connection = m,
                       packet = disc, reject = False)
-        self.s.dispatch (w)
+        self.node.addwork (w)
         self.pp ()
         self.assertEqual (len (self.s.conns), 0)
 

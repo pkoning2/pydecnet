@@ -14,7 +14,6 @@ event messages from another node to process requests from NCP.
 
 from decnet.common import *
 from decnet import session
-from decnet import pktlogging
 from decnet import nicepackets
 from decnet.nsp import UnknownNode, WrongState
 
@@ -52,7 +51,7 @@ class Application (Element):
         if conn is self.loop_conn:
             return self.loop_work (item)
         msg = item.message
-        pktlogging.tracepkt ("NICE {} message".format (item.name), msg)
+        logging.tracepkt ("NICE {} message", item.name, pkt = msg)
         if isinstance (item, session.Data):
             try:
                 fun = msg[0]
@@ -87,8 +86,8 @@ class Application (Element):
                     req = cls (msg)
                     detail = req.entity_class.e_type
                 except DecodeError:
-                    pktlogging.tracepkt ("Invalid NICE request packet", msg,
-                                         logging.DEBUG)
+                    logging.tracepkt ("Invalid NICE request packet", pkt = msg,
+                                      level = logging.DEBUG)
                     resp = -1
                 if not resp:
                     if isinstance (req, nicepackets.NiceReadInfoHdr) \
@@ -136,8 +135,8 @@ class Application (Element):
                     resp.retcode = -128   # end of multiple items
                     conn.send_data (resp)
             except DecodeError:
-                pktlogging.tracepkt ("Error parsing NICE request", msg,
-                                     logging.DEBUG)
+                logging.tracepkt ("Error parsing NICE request", pkt = msg,
+                                  level = logging.DEBUG)
         elif isinstance (item, session.ConnectInit):
             # Check the connect data (in "msg") which carries the
             # protocol version number.  Here we save it in case it's
@@ -223,7 +222,7 @@ class Application (Element):
         # Work item handler for LOOP NODE (for the traffic relating to
         # the connection to the mirror object).
         msg = item.message
-        pktlogging.tracepkt ("LOOP {} message".format (item.name), msg)
+        logging.tracepkt ("LOOP {} message", item.name, pkt = msg)
         if isinstance (item, session.Data):
             f = msg[0]
             if f == 1:

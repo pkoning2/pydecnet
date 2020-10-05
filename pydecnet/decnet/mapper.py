@@ -1128,7 +1128,13 @@ class Mapper (Element, statemachine.StateMachine):
             return
         nodeid = item.nodeid
         todo = item.todo
-        self.polls.remove (nodeid)
+        try:
+            self.polls.remove (nodeid)
+        except KeyError:
+            # In case it has already been removed.  Not sure why that
+            # might happen but it's been seen once, and it does no
+            # harm to ignore it.
+            pass
         # Add to the to-be-visited list whatever the poller found
         self.todo |= todo
         # Look for another node to poll

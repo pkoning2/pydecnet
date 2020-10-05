@@ -24,21 +24,36 @@ class Start (Work):
     """A work item that says "start the circuit".
     """
 
+class Stop (Work):
+    """A work item that says "stop the circuit".
+    """
+
 class CircuitDown (Work):
     """A work item that says "restart the circuit because of invalid packet".
     """
     
 class PtpCircuit (statemachine.StateMachine):
     """A point to point circuit, i.e., the datalink dependent
+
     routing sublayer instance for a non-Ethernet type circuit.
 
     Arguments are "parent" (Routing instance), "name" (user visible name)
     and "datalink" (the datalink layer object for this circuit).
 
     The state machine implemented here matches the one in the
-    Phase IV Routing layer spec (route20.txt), except that circuit
-    up/down notification to the control sublayer is synchronous, so
-    the states corresponding to delivery of notifications are omitted.
+    Phase IV Routing layer spec (route20.txt) with minor exceptions:
+
+    1. Circuit up/down notification to the control sublayer is
+    synchronous, so the states corresponding to delivery of
+    notifications are omitted.
+
+    2. Datalinks don't fail separately, so there is no timeout on the DS
+    state.  The datalink will report when it's ready to do so, and we'll
+    wait however long that takes.
+
+    3. Workarounds were added for Multinet, which isn't a real datalink
+    and in the UDP case has no way to comply with the "report remote
+    restart" requirement.
 
     Note also that this code implements not just Phase III compatibility,
     as usual, but also Phase II compatibility.  This isn't specified in
@@ -103,28 +118,34 @@ class PtpCircuit (statemachine.StateMachine):
             return self.node.nodeinfo (nodeid)
         return None
         
-    def restart (self, event = None, msg = None, entity = None, **kwargs):
+    def restart (self, event = None, msg = "(none given)",
+                 entity = None, **kwargs):
         if self.state == self.ru:
             self.datalink.counters.cir_down += 1
             if self.adj:
                 self.adj.down ()
-        if msg:
-            logging.trace ("{} restart due to {}", self.name, msg)
+        logging.trace ("{} restart due to {}", self.name, msg)
         if event:
             self.node.logevent (event, entity = entity, **kwargs)
-        self.state = self.ha
-        # Tell the datalink to halt.  When that is finished the
-        # datalink will send a DlStatus work item with status ==
-        # HALTED.
-        self.datalink.close ()
-        return self.ha
+        if self.datalink.start_works:
+            # Tell the datalink to restart.  It will send a DlStatus
+            # (UP) when it is running again.
+            self.datalink.restart ()
+        else:
+            self.node.addwork (datalink.DlStatus (self, status = datalink.DlStatus.UP))
+        return self.ds
 
     def start (self):
         self.node.addwork (Start (self))
 
     def stop (self):
-        self.node.addwork (Shutdown (self))
+        self.node.addwork (Stop (self))
 
+    def dlsend (self, pkt):
+        "Send a packet to the data link"
+        self.lastsend = pkt
+        self.datalink.send (pkt)
+        
     def send (self, pkt, nexthop = None, tryhard = False):
         """Send packet. "nexthop" is not used here. Returns True
         if it worked.  "Worked" means the circuit is up and the
@@ -174,7 +195,7 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt = pkt.payload
             elif isinstance (pkt, LongData):
                 pkt = ShortData (copy = pkt, payload = pkt.payload)
-            self.datalink.send (pkt)
+            self.dlsend (pkt)
             return True
         return False
 
@@ -187,7 +208,7 @@ class PtpCircuit (statemachine.StateMachine):
         or return False which will simply ignore the offending packet.
         """
         if logging.tracing:
-            logging.trace ("Ptp circuit {}, work item {!r}", self.name, work)
+            logging.trace ("{}, work item {!r}", self.statename (), work)
         if isinstance (work, datalink.Received):
             buf = work.packet
             if not buf:
@@ -424,29 +445,16 @@ class PtpCircuit (statemachine.StateMachine):
 
         We look for a Start work item, that is a request from above to
         start this circuit.  The same applies for a Timeout.
-
-        Alternatively, a DlStatus (Halted) work item indicates the
-        datalink port finished shutting down after an error and we can
-        now restart it, but only after a delay.
         """
         if isinstance (item, (Start, timers.Timeout)):
-            logging.trace ("Restarting {}", self)
+            logging.trace ("Starting {}", self)
             self.datalink.open ()
             self.tiver = self.adj = None
             self.timer = 0     # No remote hello timer value received
             self.rphase = 0    # Don't know the neighbor's phase yet
             self.ntype = UNKNOWN # Nor his type
             self.id = 0        # Nor his node address
-            if self.datalink.start_works:
-                tmo = min (5, self.retry_delay)
-            else:
-                tmo = self.t3
-            self.node.timers.start (self, tmo)
             return self.ds
-        elif isinstance (item, datalink.DlStatus) and \
-             item.status == item.HALTED and not self.islinked ():
-            self.node.timers.start (self, self.retry_delay)
-            self.retry_delay = min (self.retry_delay * 2, self.RETRY_MAXDELAY)
 
     s0 = ha    # "halted" is the initial state
     
@@ -456,25 +464,22 @@ class PtpCircuit (statemachine.StateMachine):
         """Datalink start state.  Wait for a point to point datalink
         startup complete notification.
         """
-        if isinstance (item, timers.Timeout):
-            # Process timeout -- restart the datalink (no event)
-            return self.restart (msg = "timeout")
-        elif isinstance (item, datalink.DlStatus):
-            # Process datalink status.  The status attribute is UP,
-            # DOWN, or HALTED.
+        if isinstance (item, datalink.DlStatus):
+            # Process datalink status.  The status attribute is UP or
+            # DOWN.  We ignore DOWN, since we know that already, but
+            # sometimes the data link will send one due to common
+            # machinery.
             if item.status == item.UP:
-                self.datalink.send (self.initmsg)
+                self.dlsend (self.initmsg)
                 self.node.timers.start (self, self.t3)
                 return self.ri
-            elif item.status == item.HALTED:
-                pass ###### TODO
             return self.restart (events.init_fault,
                                  entity = events.CircuitEventEntity (self),
                                  msg = "datalink down",
                                  reason = "sync_lost")
         elif isinstance (item, CircuitDown):
             return self.restart ()
-        elif isinstance (item, Shutdown):
+        elif isinstance (item, Stop):
             # operator "stop" command
             self.node.logevent (events.circ_off,
                                 entity = events.CircuitEventEntity (self),
@@ -543,7 +548,7 @@ class PtpCircuit (statemachine.StateMachine):
                                         int = 7,   # Offer intercept services
                                         sysver = "DECnet/Python")
                     self.initmsg = initmsg
-                    self.datalink.send (initmsg)
+                    self.dlsend (initmsg)
                 self.rphase = 2
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
                 self.ntype = PHASE2
@@ -576,7 +581,7 @@ class PtpCircuit (statemachine.StateMachine):
                                        " attempting null string", self.name)
                         verif = b""
                     vpkt = NodeVerify (password = verif)
-                    self.datalink.send (vpkt)
+                    self.dlsend (vpkt)
                 # If we requested verification, wait for that.
                 if self.initmsg.verif:
                     self.node.timers.start (self, self.t3)
@@ -676,7 +681,7 @@ class PtpCircuit (statemachine.StateMachine):
                                             ntype = ntype,
                                             verif = self.initmsg.verif,
                                             blksize = MTU)
-                        self.datalink.send (initmsg)
+                        self.dlsend (initmsg)
                     if self.node.phase == 4:
                         self.id = Nodeid (self.parent.homearea,
                                               pkt.srcnode.tid)
@@ -697,7 +702,7 @@ class PtpCircuit (statemachine.StateMachine):
                         verif = b""
                     vpkt = PtpVerify (fcnval = verif)
                     self.setsrc (vpkt)
-                    self.datalink.send (vpkt)
+                    self.dlsend (vpkt)
                 # Create the adjacency.  Note that it is not set to "up"
                 # yet, that happens on transition to RU state.
                 self.adj = adjacency.Adjacency (self, self)
@@ -716,9 +721,8 @@ class PtpCircuit (statemachine.StateMachine):
                                      adjacent_node = self.optnode (),
                                      reason = "unexpected_packet_type",
                                      **evtpackethdr (pkt))
-        elif isinstance (item, datalink.DlStatus):
-            # Process datalink status.  Restart the datalink.
-            ### Check item.status??
+        elif isinstance (item, datalink.DlStatus) and item.status == item.DOWN:
+            # Process datalink status Down.  Restart the datalink.
             self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
@@ -727,7 +731,7 @@ class PtpCircuit (statemachine.StateMachine):
                                  reason = "sync_lost")
         elif isinstance (item, CircuitDown):
             return self.restart ()
-        elif isinstance (item, Shutdown):
+        elif isinstance (item, Stop):
             # operator "stop" command
             self.node.logevent (events.circ_off,
                                 entity = events.CircuitEventEntity (self),
@@ -806,9 +810,8 @@ class PtpCircuit (statemachine.StateMachine):
                                      adjacent_node = self.optnode (),
                                      reason = "unexpected_packet_type",
                                      **evtpackethdr (pkt))
-        elif isinstance (item, datalink.DlStatus):
-            # Process datalink status.  Restart the datalink.
-            ## Check item.status???
+        elif isinstance (item, datalink.DlStatus) and item.status == item.DOWN:
+            # Process datalink status Down.  Restart the datalink.
             self.datalink.counters.init_fail += 1
             return self.restart (events.init_fault,
                                  "datalink status",
@@ -817,7 +820,7 @@ class PtpCircuit (statemachine.StateMachine):
                                  reason = "sync_lost")
         elif isinstance (item, CircuitDown):
             return self.restart ()
-        elif isinstance (item, Shutdown):
+        elif isinstance (item, Stop):
             # operator "stop" command
             self.node.logevent (events.circ_off,
                                 entity = events.CircuitEventEntity (self),
@@ -835,6 +838,7 @@ class PtpCircuit (statemachine.StateMachine):
             self.sendhello ()
             return
         elif isinstance (item, Received):
+            self.nrec += 1
             if self.rphase == 2:
                 # Process received packet from Phase II node.
                 payload = item.packet
@@ -872,7 +876,8 @@ class PtpCircuit (statemachine.StateMachine):
                                        pkt)
                     self.parent.dispatch (pkt)
                     return
-            # Process received packet.  Restart the listen timer if not phase 2.
+            # Process received packet.  Restart the listen timer if not
+            # phase 2.
             self.adj.alive ()
             pkt = item.packet
             # Check source address
@@ -922,33 +927,42 @@ class PtpCircuit (statemachine.StateMachine):
                     # Unexpected init message from the other end, on a
                     # datalink that doesn't implement remote start
                     # detection.  That most likely means the other end
-                    # restarted for some reason.  If we do the
-                    # normal restart sequence, we'd be expecting (another)
-                    # init message, and we won't be getting one.  That
-                    # eventually gets sorted out but it takes quite a while.
-                    # So for this case, as a workaround, we declare the
-                    # circuit down, set the next state to DI, and
+                    # restarted for some reason.  If we do the normal
+                    # restart sequence, we'd be expecting (another) init
+                    # message, and we won't be getting one.  That
+                    # eventually gets sorted out but it takes quite a
+                    # while.  So for this case, as a workaround, we ask
+                    # for a restart, which will set the circuit state to
+                    # DS but also queue a datalink UP item because of
+                    # the workaround for the missing restart mechanism.
+                    # After that, we queue another work item to
                     # reprocess the message we just received.
-                    self.down ()
-                    if logging.tracing:
-                        logging.trace ("{} restart due to init message, using init workaround",
-                                       self.name)
-                    # Next 3 lines lifted from "HA" state handler
-                    self.tiver = None
-                    # Fake a datalink up notification to generate init packet
-                    self.node.addwork (datalink.DlStatus (self,
-                                                          status = datalink.DlStatus.UP))
-                    self.node.addwork (Received (self, packet = pkt))
-                    return self.ds
+                    #
+                    # However, if the most recent message we sent was
+                    # an init message, and we haven't received
+                    # anything else yet, just ignore this, otherwise
+                    # we may get into a cycle sending inits at each
+                    # other.  Forget what we last sent, though.  If
+                    # the other end retries the init, then we will
+                    # reply.
+                    if isinstance (self.lastsend,
+                                   (NodeInit, PtpInit3, PtpInit)) and \
+                       self.nrec == 1:
+                        self.lastsend = None
+                        # Don't change the state 
+                        return None
+                    else:
+                        self.restart (msg = "init message, using init workaround")
+                        self.node.addwork (Received (self, packet = pkt))
+                        return self.ds
                 return self.restart (events.init_swerr,
                                      "unexpected packet",
                                      entity = events.CircuitEventEntity (self),
                                      adjacent_node = self.optnode (),
                                      reason = "unexpected_packet_type",
                                      **evtpackethdr (pkt))
-        elif isinstance (item, datalink.DlStatus):
-            # Process datalink status.  Restart the datalink.
-            ## Check item.status?
+        elif isinstance (item, datalink.DlStatus) and item.status == item.DOWN:
+            # Process datalink status Down.  Restart the datalink.
             return self.restart (events.circ_fault,
                                  "datalink status",
                                  entity = events.CircuitEventEntity (self),
@@ -956,7 +970,7 @@ class PtpCircuit (statemachine.StateMachine):
                                  reason = "sync_lost")
         elif isinstance (item, CircuitDown):
             return self.restart ()
-        elif isinstance (item, Shutdown):
+        elif isinstance (item, Stop):
             # operator "stop" command
             self.node.logevent (events.circ_off,
                                 entity = events.CircuitEventEntity (self),
@@ -969,7 +983,7 @@ class PtpCircuit (statemachine.StateMachine):
         """Handler to send periodic hello messages.
         """
         if self.state == self.ru:
-            self.datalink.send (self.hellomsg)
+            self.dlsend (self.hellomsg)
             self.node.timers.start (self, self.t3)
 
     def up (self):
@@ -977,6 +991,7 @@ class PtpCircuit (statemachine.StateMachine):
         to "up", and start the hello timer.
         """
         self.adj.up ()
+        self.nrec = 0
         self.datalink.counters.last_up = Timestamp ()
         self.node.logevent (events.circ_up, events.CircuitEventEntity (self),
                             adjacent_node = self.optnode ())
@@ -985,7 +1000,8 @@ class PtpCircuit (statemachine.StateMachine):
     def down (self):
         """Take the adjacency down. 
         """
-        self.adj.down ()
+        if self.adj:
+            self.adj.down ()
         self.adj = None
 
     def adj_timeout (self, adj):
@@ -998,6 +1014,7 @@ class PtpCircuit (statemachine.StateMachine):
                       entity = events.CircuitEventEntity (self),
                       adjacent_node = self.optnode (),
                       reason = "listener_timeout")
+        self.set_state (self.ds)
         
     @staticmethod
     def html_header ():

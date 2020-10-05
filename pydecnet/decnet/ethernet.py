@@ -16,7 +16,6 @@ import sys
 
 from .common import *
 from . import logging
-from . import pktlogging
 from . import datalink
 from . import pcap
 
@@ -65,8 +64,8 @@ class EthPort (datalink.BcPort):
         l = max (l, 60)
         f = memoryview (f)[:l]
         if logging.tracing:
-            pktlogging.tracepkt ("Sending packet on {} to {}"
-                                 .format (self.parent.name, dest), f)
+            logging.tracepkt ("Sending packet on {} to {}",
+                              self.parent.name, dest, pkt = f)
         self.parent.send_frame (f)
 
 class _Ethernet (datalink.BcDatalink, StopThread):
@@ -131,8 +130,8 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             # We only log packets that make it past the address and
             # protocol type filters.
             if logging.tracing:
-                pktlogging.tracepkt ("Received packet on {}"
-                                     .format (self.name), packet)
+                logging.tracepkt ("Received packet on {}",
+                                  self.name, pkt = packet)
             if dest[0] & 1:
                 self.counters.mcbytes_recv += plen
                 self.counters.mcpkts_recv += 1
@@ -155,7 +154,14 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             self.node.addwork (Received (port.owner,
                                          src = src, packet = payload,
                                          pdu = packet, extra = ts))
-
+        else:
+            # No address match, count that.  Strictly speaking this is
+            # probably only correct for multicast mismatch, but we'll
+            # count it for anything to get a sense of the
+            # effectiveness of any lower layer (e.g., PCAP) filtering
+            # mechanisms.
+            self.counters.unk_dest += 1
+            
     def nice_read_line (self, req, resp):
         super ().nice_read_line (req, resp)
         r = resp[str (self.name)]
@@ -267,12 +273,27 @@ class _PcapEth (_Ethernet):
     def __init__ (self, owner, name, dev, config):
         super ().__init__ (owner, name, dev, config)
         self.pcap = pcap.pcapObject ()
+        self.opened = False
+        self.filter_str = None
 
+    def update_filter (self, fs):
+        """This method is called whenever the set of enabled addresses
+        and/or protocol types and/or promiscuous mode changes.  The
+        argument is the new PCAP filter string. 
+        """
+        self.filter_str = fs
+        if self.opened:
+            self.pcap.setfilter (fs)
+        
     def open (self):
         # Always set promiscuous mode
         self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
         super ().open ()
-
+        self.opened = True
+        logging.trace ("pcap handle {}", self.pcap.pcap)
+        if self.filter_str:
+            self.pcap.setfilter (self.filter_str)
+            
     def close (self):
         super ().close ()
         # Don't do the close yet, it crashes for reasons yet unknown

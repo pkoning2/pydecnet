@@ -50,7 +50,7 @@ class test_bridge (brtest):
         d = self.node.datalink
         p = pad (b"bcdefgBCDEFG\x90\x00test data")
         w = Received (owner = self.c1, pdu = p, src = self.c1, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was flooded
         self.assertEqual (self.d1.parent.send_frame.call_count, 0)
         self.assertEqual (self.d2.parent.send_frame.call_count, 1)
@@ -65,7 +65,7 @@ class test_bridge (brtest):
         # Directed reply
         p2 = pad (b"BCDEFGbcdefg\x90\x00test reply")
         w = Received (owner = self.c2, pdu = p2, src = self.c2, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was sent only to port 1
         self.assertEqual (self.d1.parent.send_frame.call_count, 1)
         self.assertEqual (self.d1.parent.send_frame.call_args[0], (p2, None))
@@ -78,7 +78,7 @@ class test_bridge (brtest):
         self.assertIs (ent.circuit, self.c2)
         # Move the first station to another port
         w = Received (owner = self.c3, pdu = p, src = self.c3, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was sent to port 2
         self.assertEqual (self.d1.parent.send_frame.call_count, 1)
         self.assertEqual (self.d2.parent.send_frame.call_count, 2)
@@ -92,7 +92,7 @@ class test_bridge (brtest):
         # Send to station on this port
         p3 = pad (b"BCDEFG012345\x90\x00test data")
         w = Received (owner = self.c3, pdu = p3, src = self.c3, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was not sent
         self.assertEqual (self.d1.parent.send_frame.call_count, 1)
         self.assertEqual (self.d2.parent.send_frame.call_count, 2)
@@ -109,7 +109,7 @@ class test_bridge (brtest):
         self.assertNotIn (src, self.bridge.addrdb)
         p4 = pad (b"012345bcdefg\x90\x00test reply")
         w = Received (owner = self.c2, pdu = p4, src = self.c2, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was flooded
         self.assertEqual (self.d1.parent.send_frame.call_count, 2)
         self.assertEqual (self.d1.parent.send_frame.call_args[0], (p4, None))
@@ -121,7 +121,7 @@ class test_bridge (brtest):
         d = self.node.datalink
         p = pad (b"aaaaaaBCDEFG\x90\x00test data")
         w = Received (owner = self.c1, pdu = p, src = self.c1, extra = None)
-        self.bridge.dispatch (w)
+        self.node.addwork (w)
         # Check that it was flooded
         self.assertEqual (self.d1.parent.send_frame.call_count, 0)
         self.assertEqual (self.d2.parent.send_frame.call_count, 1)
