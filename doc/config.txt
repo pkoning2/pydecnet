@@ -333,7 +333,13 @@ feature is not available on Windows.
 yet acknowledged frames to the supplied value.  Valid range is 1 to
 255; default is 7 to match DMC-11 and similar hardware.  If the other
 end gets overrun because it can't supply buffers fast enough, reducing
-this limit may be helpful.
+this limit may be helpful.  Note that DDCMP retransmits from the point
+of loss if a packet is lost, and does not have out of order packet
+handling as NSP does.  TCP should not see packet loss, but UDP may,
+including apparent loss due to reordering in the Internet.  The use of
+qmax values larger than what is needed to deal with the transmission
+latency will result in lots of packets being retransmitted in a burst
+if any loss occurs, which may be undesirable.
 
 Ethernet circuit addressing:
 

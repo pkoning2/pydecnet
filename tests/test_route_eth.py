@@ -21,7 +21,6 @@ class lantest (DnTest):
         self.r.nodemacaddr = Macaddr (self.r.nodeid)
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
         self.r.nodename = "testnd"
-        self.node.addwork.side_effect = self.t_addwork
         self.dl = unittest.mock.Mock ()
         self.cp = unittest.mock.Mock ()
         self.dl.create_port.return_value = self.cp
@@ -50,11 +49,6 @@ class lantest (DnTest):
     def assertState (self, name):
         self.assertEqual (self.c.state.__name__, name, "Circuit state")
     
-    def t_addwork (self, work, handler = None):
-        if handler is not None:
-            work.owner = handler
-        work.dispatch ()
-
     def last2sent (self, count, dest1, dest2):
         p1, d1 = self.lastsent (self.cp, count)
         p2, d2 = self.lastsent (self.cp, count, back = 1)
@@ -65,7 +59,7 @@ class lantest (DnTest):
     
     def shortpackets (self, pkt, src):
         for l in range (len (pkt) - 1):
-            self.c.dispatch (Received (owner = self.c, src = src,
+            self.node.addwork (Received (owner = self.c, src = src,
                                        packet = pkt[:l]))
 
 class test_end (lantest):
@@ -92,7 +86,7 @@ class test_end (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertIsNone (self.c.dr)
@@ -100,7 +94,7 @@ class test_end (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (self.c.dr.macid, Macaddr ("aa:00:04:00:02:04"))
@@ -126,7 +120,7 @@ class test_end (lantest):
         
     def test_shortdata (self):
         pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (1, element = self.r)
@@ -140,7 +134,7 @@ class test_end (lantest):
                           Macaddr (Nodeid (1, 2)))
         # ditto but with padding
         pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (2, element = self.r)
@@ -158,9 +152,15 @@ class test_end (lantest):
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
-                                   src = Macaddr ("aa:00:04:00:02:04"),
-                                   packet = pkt))
+        # Verify checking of bad source MAC address
+        self.node.addwork (Received (owner = self.c,
+                                     src = Macaddr ("02:42:22:73:02:04"),
+                                     packet = pkt))
+        spkt = self.lastdispatch (0)
+        # Now a good packet
+        self.node.addwork (Received (owner = self.c,
+                                     src = Macaddr ("aa:00:04:00:02:04"),
+                                     packet = pkt))
         spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -174,7 +174,7 @@ class test_end (lantest):
         pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x02\x08\x00\x11\x00\x00" \
               b"abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:07:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (2, element = self.r)
@@ -221,7 +221,7 @@ class test_end (lantest):
         self.assertIs (s, p)
         # Deliver a packet from that destination
         incoming = b"\x02\x05\x04\x11\x04\x11abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:01:04"),
                                    packet = incoming))
         self.assertEqual (len (self.c.prevhops), 1)
@@ -236,7 +236,7 @@ class test_end (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = rhi))
         self.assertEqual (self.c.dr.macid, Macaddr (Nodeid (1, 2)))
@@ -255,7 +255,7 @@ class test_end (lantest):
     def test_rnd (self):
         for i in range (rcount):
             pkt = randpkt (rmin, rmax)
-            self.c.dispatch (Received (owner = self.c,
+            self.node.addwork (Received (owner = self.c,
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
 
@@ -292,7 +292,7 @@ class test_routing (lantest):
         p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x08\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = p1))
         self.assertEqual (len (self.c.adjacencies), 0)
@@ -300,7 +300,13 @@ class test_routing (lantest):
         p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        # Verify checking of bad source MAC address
+        self.node.addwork (Received (owner = self.c,
+                                     src = Macaddr ("02:42:22:73:02:04"),
+                                     packet = p1))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        # Now with a good source address
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = p1))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -313,7 +319,7 @@ class test_routing (lantest):
         p2 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x03\x04\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:03:04"),
                                    packet = p2))
         self.assertEvent (events.adj_up,
@@ -332,7 +338,7 @@ class test_routing (lantest):
         self.assertEqual (len (self.c.adjacencies), 1)
         # Test bad hello
         pb = p1[:-1] + b"\251"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pb))
         self.assertEqual (len (self.c.adjacencies), 0)
@@ -346,14 +352,19 @@ class test_routing (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x07\x04\x9f"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = pkt))
-        self.assertFalse (self.c.adjacencies)
+        self.assertEqual (len (self.c.adjacencies), 0)
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        # Verify checking of bad source MAC address
+        self.node.addwork (Received (owner = self.c,
+                                     src = Macaddr ("02:42:22:73:02:04"),
+                                     packet = pkt))
+        self.assertEqual (len (self.c.adjacencies), 0)
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -384,7 +395,7 @@ class test_routing (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Now adjacency should be up
@@ -418,7 +429,7 @@ class test_routing (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Adjacency will disappear the first time around
@@ -442,7 +453,7 @@ class test_routing (lantest):
         rslist = Elist (p1.elist).rslist
         self.assertFalse (rslist)
         # The second hello will bring it back as L2 router
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -461,7 +472,7 @@ class test_routing (lantest):
               b"\x10\x02\x41\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Adjacency will disappear the first time around
@@ -485,7 +496,7 @@ class test_routing (lantest):
         rslist = Elist (p1.elist).rslist
         self.assertFalse (rslist)
         # The second hello will bring it back with different priority
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -503,7 +514,7 @@ class test_routing (lantest):
         pkt = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
               b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
               b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Adjacency will disappear the first time around
@@ -527,7 +538,7 @@ class test_routing (lantest):
         rslist = Elist (p1.elist).rslist
         self.assertFalse (rslist)
         # The second hello will bring it back as endnode
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -544,7 +555,7 @@ class test_routing (lantest):
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x06\x04\x01" \
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:06:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 2)
@@ -562,7 +573,7 @@ class test_routing (lantest):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:06:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 2)
@@ -576,7 +587,7 @@ class test_routing (lantest):
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x01\x04\x01" \
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:01:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 2)
@@ -591,7 +602,7 @@ class test_routing (lantest):
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x01\x04\x01" \
               b"\x10\x02\x41\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:01:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 2)
@@ -610,7 +621,7 @@ class test_routing (lantest):
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
               b"\x10\x02\x1f\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -644,7 +655,7 @@ class test_routing (lantest):
               b"\x10\x02\x1f\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         # Now adjacency should be up
@@ -672,7 +683,7 @@ class test_routing (lantest):
         pkt = b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02" \
               b"\x10\x02\x1f\x00\x80\x00\x00" \
               b"\x08\x00\x00\x00\x00\x00\x00\x00\x00"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -690,7 +701,7 @@ class test_routing (lantest):
         p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = p1))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -698,7 +709,7 @@ class test_routing (lantest):
         self.assertEqual (a.state, route_eth.UP)
         self.assertEqual (a.ntype, ENDNODE)
         pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (1, element = self.r)
@@ -709,7 +720,7 @@ class test_routing (lantest):
         self.assertEqual (spkt.visit, 17)
         # ditto but with padding
         pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (2, element = self.r)
@@ -724,7 +735,7 @@ class test_routing (lantest):
         p1 = b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x02\x04\x03\x04\x02" \
              b"\x00\x00\x00\x00\x00\x00\x00\x00\x00" \
              b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x02\252\252"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = p1))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -734,7 +745,7 @@ class test_routing (lantest):
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (1, element = self.r)
@@ -747,7 +758,7 @@ class test_routing (lantest):
         pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x02\x08\x00\x11\x00\x00" \
               b"abcdef payload"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:04"),
                                    packet = pkt))
         spkt = self.lastdispatch (2, element = self.r)
@@ -760,7 +771,7 @@ class test_routing (lantest):
     def test_rnd (self):
         for i in range (rcount):
             pkt = randpkt (rmin, rmax)
-            self.c.dispatch (Received (owner = self.c,
+            self.node.addwork (Received (owner = self.c,
                                        src = Macaddr ("aa:00:04:00:02:04"),
                                        packet = pkt))
     def test_short (self):
@@ -795,7 +806,7 @@ class test_l2routing (test_routing):
               b"\x10\x02\x40\x00\x80\x00\x00" \
               b"\x0f\x00\x00\x00\x00\x00\x00\x00" \
               b"\x07\xaa\x00\x04\x00\x07\x08\x9f"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)
@@ -831,7 +842,7 @@ class test_l2routing (test_routing):
               b"\x16\x00\x00\x00\x00\x00\x00\x00" \
               b"\x0e\xaa\x00\x04\x00\x07\x08\x9f" \
               b"\xaa\x00\x04\x00\x05\x04\xa0"
-        self.c.dispatch (Received (owner = self.c,
+        self.node.addwork (Received (owner = self.c,
                                    src = Macaddr ("aa:00:04:00:02:08"),
                                    packet = pkt))
         self.assertEqual (len (self.c.adjacencies), 1)

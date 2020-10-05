@@ -165,6 +165,14 @@ class TimerWheel (Element, StopThread):
             # that to avoid retransmitting packets out of order.
             self.wheel[pos].add_before (item)
         logging.trace ("Started {} second timeout for {}", timeout, item)
+
+    def jstart (self, item, timeout):
+        "Start a timer, with -10%/+0% jitter applied"
+        # This is standard practice in DECnet Phase V, but older
+        # versions also benefit from doing this in many cases.
+        if timeout > 2.0:
+            timeout *= random.uniform (0.9, 1.0)
+        self.start (item, timeout)
         
     def run (self):
         """Tick handler.

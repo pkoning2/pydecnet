@@ -76,7 +76,7 @@ class TestGre (DnTest):
         self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
         self.postPacket (b"\x00\x00\x60\x03" +
                          self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.counters.unk_dest, 0)
@@ -90,7 +90,7 @@ class TestGre (DnTest):
         self.lport = self.gre.create_port (lcirc, LOOPPROTO, False)
         self.postPacket (b"\x00\x00\x60\x03" +
                          self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.counters.unk_dest, 0)
@@ -98,7 +98,7 @@ class TestGre (DnTest):
         self.assertEqual (self.lport.counters.bytes_recv, 0)
         self.assertEqual (self.rport.counters.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x90\x00" + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastdispatch (1, lcirc, itype = Received)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (w.packet, self.tdata)
         self.assertEqual (self.gre.counters.unk_dest, 0)
@@ -106,7 +106,7 @@ class TestGre (DnTest):
         self.assertEqual (self.lport.counters.bytes_recv, 30)
         self.assertEqual (self.rport.counters.bytes_recv, 32)
         self.postPacket (b"\x00\x00\x91\x00" + self.tdata)
-        self.lastwork (2)   # Check that nothing new is posted
+        self.lastdispatch (1, lcirc, itype = Received)   # Check that nothing new is posted
         if self.gre.counters.unk_dest != 1:
             time.sleep (0.1)
         self.assertEqual (self.gre.counters.unk_dest, 1)

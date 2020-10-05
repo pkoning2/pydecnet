@@ -54,7 +54,7 @@ class EthTest (DnTest):
         self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -70,7 +70,7 @@ class EthTest (DnTest):
         self.lport = self.eth.create_port (lcirc, LOOPPROTO, False)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -80,7 +80,7 @@ class EthTest (DnTest):
         self.assertEqual (self.rport.counters.bytes_recv, 60)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        self.lastwork (1)
+        self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (self.eth.counters.unk_dest, 0)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
@@ -88,7 +88,7 @@ class EthTest (DnTest):
         self.assertEqual (self.rport.counters.bytes_recv, 60)
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastdispatch (1, lcirc, itype = Received)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -103,7 +103,7 @@ class EthTest (DnTest):
         self.rport.macaddr = Macaddr (Nodeid (1, 3))
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -113,7 +113,7 @@ class EthTest (DnTest):
         # Multicast and mismatch
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        self.lastwork (1)
+        self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (self.eth.counters.unk_dest, 0)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
@@ -121,7 +121,7 @@ class EthTest (DnTest):
         # Unicast mismatch (hardware address, but not this port address
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        self.lastwork (1)
+        self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (self.eth.counters.unk_dest, 0)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
@@ -135,7 +135,7 @@ class EthTest (DnTest):
         # Individual address
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -145,7 +145,7 @@ class EthTest (DnTest):
         # Multicast and mismatch
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastdispatch (2, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -155,7 +155,7 @@ class EthTest (DnTest):
         # Unicast mismatch (hardware address, but not this port address
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (3)
+        w = self.lastdispatch (3, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -165,7 +165,7 @@ class EthTest (DnTest):
         # Individual address, wrong protocol number
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x04" + self.lelen (self.tdata) + self.tdata)
-        self.lastwork (3)
+        self.lastdispatch (3, rcirc, itype = Received)
         
     def test_multiproto (self):
         rcirc = self.circ ()
@@ -176,7 +176,7 @@ class EthTest (DnTest):
         # Routing packet
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -186,7 +186,7 @@ class EthTest (DnTest):
         # MOP DL packet
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x01" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastdispatch (2, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -196,7 +196,7 @@ class EthTest (DnTest):
         # LAT packet
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x04" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (3)
+        w = self.lastdispatch (3, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -206,7 +206,7 @@ class EthTest (DnTest):
         # Loop packet (not an enabled protocol)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (3)
+        w = self.lastdispatch (3, rcirc, itype = Received)
         
     def test_rcvmc (self):
         rcirc = self.circ ()
@@ -217,7 +217,7 @@ class EthTest (DnTest):
         self.lport.add_multicast (Macaddr ("CF-00-00-00-00-00"))
         self.postPacket (b"\xab\x00\x00\x03\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
-        w = self.lastwork (1)
+        w = self.lastdispatch (1, rcirc, itype = Received)
         self.assertEqual (w.owner, rcirc)
         self.assertEqual (bytes (w.packet), self.tdata)
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -234,7 +234,7 @@ class EthTest (DnTest):
         self.assertEqual (self.rport.counters.bytes_recv, 60)
         self.postPacket (b"\xcf\x00\x00\x00\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        w = self.lastwork (2)
+        w = self.lastdispatch (1, lcirc, itype = Received)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
         self.assertEqual (self.eth.counters.unk_dest, 0)
@@ -346,6 +346,7 @@ class TestEthTap (EthTest):
     dev = "tap:/dev/tap0"
     
     def setUp (self):
+        ospath = os.path
         self.ospatch = unittest.mock.patch ("decnet.ethernet.os")
         self.selpatch = unittest.mock.patch ("decnet.ethernet.select.select")
         self.fpatch = unittest.mock.patch ("decnet.ethernet.fcntl")
@@ -359,6 +360,8 @@ class TestEthTap (EthTest):
         ethernet.select.select.side_effect = self.mselect
         self.os.open.return_value = 42
         self.os.read.side_effect = self.deliver
+        # Don't patch os.path
+        self.os.path = ospath
         # All set, open the interface
         super ().setUp ()
 

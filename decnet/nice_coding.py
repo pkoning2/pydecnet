@@ -4,6 +4,7 @@
 """
 
 import struct
+from collections.abc import Iterable
 
 from .common import *
 from . import packet
@@ -251,7 +252,7 @@ class NiceType (Field, packet.Indexed):
         # spaces to underscore.
         #
         # The value label argument may be used for C (coded) and CTM
-        # (masked counter) data; the values are strings which are the
+        # (mapped counter) data; the values are strings which are the
         # string to display for that value (C) or the name of that bit in
         # the bitmap (CTM).  If omitted the result is defined by a class
         # attribute (if subclassed) or as if an empty list was given,
@@ -503,6 +504,20 @@ mapindent = " " * 19
 mapsep = "\n" + mapindent
 
 class Map:
+    def __init__ (self, val = 0):
+        self.map = 0
+
+    def __iadd__ (self, other):
+        "Increment a mapped counter, and optionally OR in a bit"
+        if isinstance (other, Iterable):
+            n, bit = other
+            ret = self.__class__ (self + n)
+            ret.map = self.map | bit
+        else:
+            ret = self.__class__ (self + other)
+            ret.map = self.map
+        return ret
+            
     def format_qual (self, bmap = ()):
         bits = self.map
         if bits:
@@ -809,8 +824,8 @@ circuit_counters = (
     ( 1010, CTR4, "Data blocks received", "pkts_recv" ),
     ( 1011, CTR4, "Data blocks sent", "pkts_sent" ),
     ( 1020, CTM1, "Data errors inbound", None, 
-            ( "NAKs sent, data field block check error",
-              "NAKs sent, REP response" )),
+            { 1 : "NAKs sent, data field block check error",
+              2 : "NAKs sent, REP response" }),
     ( 1021, CTM1, "Data errors outbound", None,
             ( "NAKs received, header block check error",
               "NAKs received, data field block check error",
@@ -839,18 +854,21 @@ line_counters = (
     ( 0, CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
     ( 1000, CTR4, "Bytes received", "bytes_recv" ),
     ( 1001, CTR4, "Bytes sent" ),
+    ( 1002, CTR4, "Multicast bytes received", "mcbytes_recv" ),
     ( 1010, CTR4, "Data blocks received", "pkts_recv" ),
     ( 1011, CTR4, "Data blocks sent", "pkts_sent" ),
-    ( 1012, CTR4, "Multicast blocks received" ),
+    ( 1012, CTR4, "Multicast blocks received", "mcpkts_recv" ),
     ( 1013, CTR4, "Blocks sent, initially deferred", "sent_def" ),
     ( 1014, CTR4, "Blocks sent, single collision", "sent_1col" ),
     ( 1015, CTR4, "Blocks sent, multiple collisions", "sent_mcol" ),
     ( 1020, CTM1, "Data errors inbound", None, 
             ( "NAKs sent, header block check error",
+              # The items below are obsolete, now in circuit counters
               "NAKs sent, REP response",
               "Block too long",
               "Block check error",
               "REJ sent" )),
+    # Items 1021 through 1041 are obsolete, now found in circuit counters
     ( 1021, CTM1, "Data errors outbound", None,
             ( "NAKs received, header block check error",
               "NAKs received, data field block check error",
@@ -878,7 +896,7 @@ line_counters = (
             ( "Block check error",
               "Framing error",
               "Frame too long" )),
-    ( 1063, CTR2, "Unrecognized frame destination" ),
+    ( 1063, CTR2, "Unrecognized frame destination", "unk_dest" ),
     ( 1064, CTR2, "Data overrun" ),
     ( 1065, CTR2, "System buffer unavailable" ),
     ( 1066, CTR2, "User buffer unavailable" ),

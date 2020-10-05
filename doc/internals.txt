@@ -107,3 +107,67 @@ HTTP POST JSON API
 TBD: monitoring, control (in the future) and data service access via
 HTTP POST of JSON requests.
 
+Design notes for the point to point datalink related state machines
+
+In the DNA architecture, the routing point to point sublayer runs the
+routing layer initialization handshake state machine, starting with a
+"routing init" message, possibly followed by a verification message,
+and ending in the running state where hello messages are sent as
+needed and a listen timeout detects loss of communication.
+
+Below that is some point to point datalink which has its own
+initialization state machine.  DECnet treats these two as separate,
+and in particular is designed so they can fail separately.  The
+routing point to point sublayer has a "datalink start" state where the
+datalink layer is doing its initialization, but it has a timeout and
+will give up and reinitialize the datalink if its startup takes too
+long.
+
+This design makes sense where the two are separate components that can
+fail separately, such as a DMC-11 communications controller.  But in
+PyDECnet all this is in a single process and the "separate failure"
+case does not apply.  And a consequence of the routing layer timeout
+is that the routing layer may at times reinitialize the datalink layer
+just as the datalink is getting ready to report successful startup.
+
+For this reason, these two layers and their interaction in PyDECnet is
+slightly different from the spec, for efficiency and in particular to
+avoid the issue of clashing timeouts at the two layers.  The design
+relies on the fact that the data link layer does not fail separately,
+and will always (a) reliably report to the routing layer when it
+completes startup, and (b) keep trying to initialize forever until it
+succeeds.  So the routing layer initialization state machine does not
+have a timeout in the DS state.  Instead, it remains in that state
+until the data link layer reports Datalink UP.
+
+Once started, the data link state machine will keep trying until
+intialization completes.  If it loses a TCP connection during that
+process, the connection is simply re-established silently (the routing
+layer does not hear about that).  Reconnect and resending of data link
+initialization messages is done from a timer that has a bounded
+backoff on it, so it retries promptly on the first few tries after
+startup or if the datalink was previously up, but slows down so it
+doesn't keep hammering on a peer that is down or inoperative.
+
+Once the data link is up (and DlStatus UP has been sent to routing), a
+loss of a TCP connection will trigger a datalink restart, and any data
+link restart (from TCP disconnect or from a datalink protocol event
+that is defined to cause a restart) will produce a DlStatus DOWN to
+routing.  That is sent after the data link has completed shutdown,
+including stopping the receive thread, and has entered the Halted
+state.  Routing will restart the data link after a delay.
+
+There is one exception, Multinet UDP.  This is because Multinet is not
+actually a datalink at all; it is merely a trivial encapsulation and
+address mapping.  In the Multinet TCP case this is fairly well hidden
+by the fact that TCP provides the equivalent of the DNA data link
+layer services, i.e., we use the TCP connection machinery as the data
+link layer initialization and report datalink up to routing when the
+TCP connection has been made.  But UDP has no connections.
+
+So for the Multinet UDP case, there is a (fairly fast at first) timer
+in the DS state that causes the routing init messages to be resent
+until a proper response has been received.  This is controlled by the
+"start works" flag which is already in place to do the protocol
+workarounds needed to compensate (as best we can) for the lack of a
+"restart notification" in the Multinet UDP case.

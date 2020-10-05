@@ -9,8 +9,11 @@ import ctypes.util
 import socket
 import sys
 
+from decnet import logging
+
 PCAP_ERRBUF_SIZE = 256
 PCAP_MTU = 1518
+PCAP_NETMASK_UNKNOWN = 0xffffffff
 
 _pcaplib = None
 
@@ -67,7 +70,7 @@ class sockaddr (Union):
     _fields_ = (("inet", sockaddr_in),
                 ("inet6", sockaddr_in6),
                 ("dl", sockaddr_dl))
-    
+
 def format_sa (s):
     if s:
         s = s.contents
@@ -113,6 +116,14 @@ class pcap_pkthdr (Structure):
                 ("caplen", c_int32),    # Length of portion captured
                 ("len", c_int32))       # Actual packet length
 
+class bpf_program (Structure):
+    _fields_ = (("bf_len", c_uint),
+                ("bf_insns", c_void_p))
+
+    def __init__ (self):
+        self.bf_len = 0
+        self.bf_insns = None 
+        
 _dispatch_callback_type = CFUNCTYPE (None, c_void_p,
                                      POINTER (pcap_pkthdr),
                                      POINTER (c_ubyte))
@@ -140,8 +151,16 @@ def _findlib ():
         _pcaplib.pcap_freealldevs.argtypes = (p_pcap_if_t,)
         _pcaplib.pcap_freealldevs.restype = None
         _pcaplib.pcap_fileno.argtypes = (c_void_p,)
-        _pcaplib.pcap_fileno.restype = c_int        
-
+        _pcaplib.pcap_fileno.restype = c_int
+        _pcaplib.pcap_compile.argtypes = (c_void_p, POINTER (bpf_program),
+                                          c_char_p, c_int, c_uint32)
+        _pcaplib.pcap_compile.restype = c_int
+        _pcaplib.pcap_freecode.argtypes = (POINTER (bpf_program),)
+        _pcaplib.pcap_setfilter.argtypes = (c_void_p, POINTER (bpf_program))
+        _pcaplib.pcap_setfilter.restype = c_int
+        _pcaplib.pcap_geterr.argtypes = (c_void_p,)
+        _pcaplib.pcap_geterr.restype = c_char_p
+        
 class _pcap (object):
     """This class exists simply to match the naming conventions
     for the pcap error exception.
@@ -208,6 +227,7 @@ class pcapObject (object):
     def __init__ (self):
         _findlib ()
         self.pcap = None
+        self.filterprog = bpf_program ()
         
     def close (self):
         if self.pcap:
@@ -230,7 +250,8 @@ class pcapObject (object):
             name = name.encode ("latin1", "ignore")
         errbuf = create_string_buffer (PCAP_ERRBUF_SIZE)
         self.close ()
-        self.pcap = _pcaplib.pcap_open_live (name, mtu, promisc, timeout, errbuf)
+        self.pcap = _pcaplib.pcap_open_live (name, mtu, promisc,
+                                             timeout, errbuf)
         
     def inject (self, buf):
         """Send a buffer.  Returns the number of bytes sent.
@@ -251,3 +272,37 @@ class pcapObject (object):
             raise _pcap.error ("pcap.dispatch on closed handle")
         cb = _dispatch_callback_type (_pcapCallback (fun))
         _pcaplib.pcap_dispatch (self.pcap, count, cb, None)
+
+    def setfilter (self, s):
+        """Compile a PCAP filter expression, then make it the current
+        filter.
+        """
+        _findlib ()
+        if not self.pcap:
+            raise _pcap.error ("pcap.setfilter on closed handle")
+        logging.trace ("Setfilter: '{}'", s)
+        if isinstance (s, str):
+            s = s.encode ("latin1", "ignore")
+        ret = _pcaplib.pcap_compile (self.pcap, self.filterprog,
+                                     s, 0, PCAP_NETMASK_UNKNOWN)
+        if ret:
+            raise _pcap.error ("filter compile failure {}: {}"
+                               .format (ret, self.geterr ()))
+        ret = _pcaplib.pcap_setfilter (self.pcap, self.filterprog)
+        if ret:
+            raise _pcap.error ("setfilter failure {}: {}"
+                               .format (ret, self.geterr ()))
+       # Once the filters have been set, the compiled code buffer is no
+        # longer needed, so free it.
+        _pcaplib.pcap_freecode (self.filterprog)
+
+    def geterr (self):
+        """Get the current error string.
+        """
+        _findlib ()
+        if not self.pcap:
+            raise _pcap.error ("pcap.geterr on closed handle")
+        s = _pcaplib.pcap_geterr (self.pcap)
+        s = s.decode ("latin1", "ignore")
+        return s
+    

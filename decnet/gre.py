@@ -9,7 +9,6 @@ import socket
 
 from .common import *
 from . import logging
-from . import pktlogging
 from . import datalink
 
 SvnFileRev = "$LastChangedRevision$"
@@ -35,8 +34,8 @@ class GREPort (datalink.BcPort):
         """
         l = len (msg)
         if logging.tracing:
-            pktlogging.tracepkt ("Sending packet on {}"
-                                     .format (self.parent.name), msg)
+            logging.tracepkt ("Sending packet on {}",
+                              self.parent.name, pkt = msg)
         f = self.frame
         if self.pad:
             if l > 1498:
@@ -53,7 +52,7 @@ class GREPort (datalink.BcPort):
         self.counters.bytes_sent += l
         self.counters.pkts_sent += 1
         # We don't do padding, since GRE doesn't require it (it isn't
-        # real Ethernet and doesn't have minimum frame lenghts)
+        # real Ethernet and doesn't have minimum frame lengths)
         self.parent.send_frame (memoryview (f)[:l])
 
 GREPROTO = 47
@@ -72,6 +71,7 @@ class GRE (datalink.BcDatalink, StopThread):
         datalink.BcDatalink.__init__ (self, owner, name, config)
         self.host = datalink.HostAddress (config.device)
         self.source = config.source
+        self.socket = None
         
     def open (self):
         # Create the socket and start receive thread.  Note that we do not
@@ -135,8 +135,8 @@ class GRE (datalink.BcDatalink, StopThread):
                     continue
                 pos = 4 * hlen
                 if logging.tracing:
-                    pktlogging.tracepkt ("Received packet on {}"
-                                             .format (self.name), msg)
+                    logging.tracepkt ("Received packet on {}",
+                                      self.name, pkt = msg)
                 if msg[pos:pos + 2] != greflags:
                     # Unexpected flags or version in header, ignore
                     logging.debug ("On {}, unexpected header {}",

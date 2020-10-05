@@ -54,7 +54,8 @@ go away on expiration, you can send things to the adjacency.
 called when ready for routing upper layer.
 """
 
-# Circuit counter descriptions and field (attribute) names
+# Circuit counter descriptions and field (attribute) names.  Note that
+# we don't do congestion so the congestion loss counter is omitted.
 fieldlist = (("Time since counters zeroed", "time_since_zeroed"),
              ("Terminating packets received", "term_recv"),
              ("Originating packets sent", "orig_sent"),
@@ -64,7 +65,8 @@ fieldlist = (("Time since counters zeroed", "time_since_zeroed"),
              ("Adjacency down", "adj_down"),
              ("Initialization failure", "init_fail"),
              ("Time since circuit up", "last_up"))
-    
+rtr_only_fields = { "trans_recv", "trans_sent" }
+
 def allocvecs (maxidx):
     hops = bytearray (maxidx + 1)
     cost = array.array ("H", [ 0 ]) * (maxidx + 1)
@@ -255,18 +257,26 @@ class ExecCounters (NspCounters):
         ( "partial_update_loss", "Partial routing update loss" ),
         ( "ver_rejects", "Verification reject" )
     ]
-    
-    def __init__ (self, parent):
+    rtr_only_nc = { "aged_loss",
+                    "unreach_loss",
+                    "node_oor_loss",
+                    "partial_update_loss" }
+
+    def __init__ (self, parent, node):
         super ().__init__ (parent)
         # zero out the additional counters
         self.peak_conns = 0
-        self.aged_loss = 0
-        self.unreach_loss = 0
-        self.node_oor_loss = 0
         self.oversized_loss = 0
         self.fmt_errors = 0
-        self.partial_update_loss = 0
         self.ver_rejects = 0
+        if node.ntype == ENDNODE or node.ntype == PHASE2:
+            self.exclude = self.rtr_only_nc
+        else:
+            self.exclude = ()
+            self.partial_update_loss = 0
+            self.aged_loss = 0
+            self.unreach_loss = 0
+            self.node_oor_loss = 0
 
 class BaseRouter (Element):
     """The routing layer.  Mainly this is the parent of a number of control
@@ -286,7 +296,7 @@ class BaseRouter (Element):
         self.typename = config.routing.type
         self.nodeinfo = parent.nodeinfo (self.nodeid)
         self.nodeinfo.counterclass = ExecCounters
-        self.nodeinfo.counters = ExecCounters (self.nodeinfo)
+        self.nodeinfo.counters = ExecCounters (self.nodeinfo, self)
         self.name = self.nodeinfo.nodename
         self.circuits = EntityDict ()
         self.adjacencies = dict ()
@@ -529,7 +539,7 @@ class EndnodeRouting (BaseRouter):
             ctr = list ()
             for fl, f in fieldlist:
                 c = getattr (self.circuit.datalink.counters, f, None)
-                if c is not None:
+                if c is not None and f not in rtr_only_fields:
                     ctr.append (( "{} =".format (fl), c))
             h.append (ctr)
         if what == "counters":

@@ -50,7 +50,7 @@ class TestMop (DnTest):
         c.start ()
         w = datalink.Received (owner = c, src = Macaddr (b"foobar"),
                                packet = b"\x05\x00\x02\x00")
-        c.dispatch (w)
+        self.node.addwork (w)
         sysid, dest = self.lastsent (self.cp, 1)
         self.assertIsInstance (sysid, mop.SysId)
         self.assertEqual (sysid.software, "DECnet/Python")
@@ -68,7 +68,7 @@ class TestMop (DnTest):
                                b"\x02\x00\x02\x0d\x00"
                                b"\x64\x00\x01\x07"
                                b"\xc8\x00\x09\x08Unittest")
-        c.dispatch (w)
+        self.node.addwork (w)
         # Use the api, but called directly (don't go through the
         # trouble of bringing up the http server)
         ret = c.sysid.get_api ()
@@ -86,7 +86,7 @@ class TestMop (DnTest):
                                b"\x64\x00\x01\x07"
                                b"\xc8\x00\x09\x08New text"
                                b"\xca\x00\x0cSW dependent")
-        c.dispatch (w)
+        self.node.addwork (w)
         ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]
@@ -114,7 +114,7 @@ class TestMop (DnTest):
                                        b"\xcf\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00"
                                        b"\xd0\x00\x04 \x00\x00\x02"
                                        b"\xd1\x00\x14\xa2z\xa2\x1b\x00\x00\x00\x00\x03\x00\x00\x00\x80\x00\x86\x00\x02\x02\x01\x00")
-        c.dispatch (w)
+        self.node.addwork (w)
         ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]
@@ -145,7 +145,7 @@ class TestMop (DnTest):
                                         b"\xc8\x002SANYALnet Labs, PANDA TOPS-20 Monitor 7.1(21733)-4"
                                         b"\x90\x01\x01\x01"
                                         b"\x91\x01\x02\x06\x01")
-        c.dispatch (w)
+        self.node.addwork (w)
         ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]
@@ -161,7 +161,7 @@ class TestMop (DnTest):
                                         b"\x07\x00\x06\xaa\x00\x04\x00\x1c|"
                                         b"d\x00\x01%"
                                         b"\xc8\x00")
-        c.dispatch (w)
+        self.node.addwork (w)
         ret = c.sysid.get_api ()
         self.assertEqual (len (ret), 1)
         reply = ret[0]

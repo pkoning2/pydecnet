@@ -26,9 +26,10 @@ class ntest (DnTest):
         self.config.nsp.nsp_weight = 3
         self.config.nsp.qmax = self.qmax
         self.config.nsp.retransmits = 3
+        self.node.ntype = routing.L2ROUTER
         self.node.routing = unittest.mock.Mock ()
         self.node.routing.send = unittest.mock.Mock (wraps = self.rsend)
-        self.node.routing.nodeinfo.counters = routing.ExecCounters (self.node.routing.nodeinfo)
+        self.node.routing.nodeinfo.counters = routing.ExecCounters (self.node.routing.nodeinfo, self.node)
         self.node.session = unittest.mock.Mock ()
         self.nsp = nsp.NSP (self.node, self.config)
         #self.setloglevel (logging.TRACE)
@@ -39,7 +40,7 @@ class ntest (DnTest):
         if dest == self.node.nodeid:
             w = Received (owner = self.nsp, src = dest,
                           packet = bytes (pkt), rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
 
     def assertConns (self, count, ci = False):
         if ci:
@@ -69,7 +70,7 @@ class inbound_base (ntest):
         rla = 3
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check reply
         self.assertEqual (r.send.call_count, self.cdadj)
         if self.cdadj:
@@ -79,9 +80,9 @@ class inbound_base (ntest):
             self.assertEqual (dest, self.remnode)
             self.assertEqual (ack.dstaddr, rla)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.ConnInit)
         self.assertEqual (pkt.payload, b"payload")
@@ -132,7 +133,7 @@ class inbound_base (ntest):
             ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x00\x80"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = ack, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
         # That should get us into RUN state, and empty queue
         self.assertEqual (nc.state, nc.run)
         self.assertEqual (len (nc.data.pending_ack), 0)
@@ -151,11 +152,11 @@ class common_inbound (inbound_base):
             b"\x03\x00\x01\x00data payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data payload")
@@ -171,9 +172,9 @@ class common_inbound (inbound_base):
             b"\x03\x00\x01\x00\x01\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # Send a data message
         nc.send_data (b"hello world")
         # Check counters
@@ -188,9 +189,9 @@ class common_inbound (inbound_base):
             b"\x03\x00\x02\x00\x02\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # If we have explicit flow control, it still wasn't sent yet.
         if self.services != b'\x01':
             self.assertEqual (r.send.call_count, 1 + self.cdadj)
@@ -199,9 +200,9 @@ class common_inbound (inbound_base):
                 b"\x03\x00\x03\x00\x00\x02"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (self.node.addwork.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 2)
         # Verify data was sent, with piggyback ack
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -232,9 +233,9 @@ class common_inbound (inbound_base):
                 b"\x03\x00\x04\x00\x00\x05"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (self.node.addwork.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 2)
         # Verify all data was sent now
         self.assertEqual (r.send.call_count, 4 + self.cdadj)
         d1, d2 = r.send.call_args_list[-2:]
@@ -272,14 +273,14 @@ class common_inbound (inbound_base):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Should have two segments left on the pending queue
         self.assertEqual (len (nc.data.pending_ack), 2)
         # Ack through segment 3
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Should have nothing left on the pending queue
         self.assertEqual (len (nc.data.pending_ack), 0)
         # Send one more message.  It should be blocked only for
@@ -294,9 +295,9 @@ class common_inbound (inbound_base):
                 b"\x03\x00\x04\x00\x00\x04"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (self.node.addwork.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 2)
         # Verify all data was sent now
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -320,11 +321,11 @@ class common_inbound (inbound_base):
                b"\x03\x00\x05\x00\x07payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = disc, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 3)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 3)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.data_ctl, b"payload")
@@ -357,11 +358,11 @@ class common_inbound (inbound_base):
             b"\x03\x00\x01\x00data payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data payload")
@@ -384,9 +385,9 @@ class common_inbound (inbound_base):
             b"\x03\x00\x01\x00\x00\x02"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # Send two data packets
         nc.send_data (b"packet")
         nc.send_data (b"packet2")
@@ -425,7 +426,7 @@ class common_inbound (inbound_base):
                 b"\x03\x00\x02\x00\x01\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Holdoff timer expiration should generate explicit ACK
         DnTimeout (nc.other)
         self.assertEqual (r.send.call_count, 6 + self.cdadj)
@@ -456,7 +457,7 @@ class common_inbound (inbound_base):
                 b"\x03\x00\x03\x00\x02\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Second packet resend should have happened now
         self.assertEqual (r.send.call_count, 7 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -516,9 +517,9 @@ class common_inbound (inbound_base):
             b"\x03\x00\x01\x00\x00\x02"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         # Send a packet
         nc.send_data (b"packet")
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
@@ -579,9 +580,9 @@ class common_inbound (inbound_base):
         self.assertEqual (nc.state, nc.closed)
         self.assertConns (0)
         # Check that the timeout came to session control as a disconnect
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 39)
@@ -617,14 +618,14 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x01\x80\x01\x00payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check counters
         self.assertEqual (nc.destnode.counters.msg_rcv, 1)
         self.assertEqual (nc.destnode.counters.byt_rcv, 7)
         # Check data to SC
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.IntMsg)
         self.assertEqual (pkt.payload, b"payload")
@@ -636,9 +637,9 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x02\x00\x06\x02"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # Send a second interrupt
         nc.interrupt (b"interrupt 2")
         # Verify data was sent
@@ -690,9 +691,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (ds.reason, 38)
         self.assertEqual (nc.state, nc.di)
         # Check that the timeout came to session control as a disconnect
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 38)
@@ -778,7 +779,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x48" + lla.to_bytes (2, "little") + b"\x03\x00\x2a\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check new connection state, and that there no longer is an
         # NSP connection in its database.
         self.assertEqual (nc.state, nc.closed)
@@ -804,12 +805,12 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver packets 2 and 4 (both out of order)
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d2, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d4, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Nothing yet to session control
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         # No acks yet
         self.assertFalse (nc.data.islinked ())
         # Two packets in out of order cache
@@ -817,17 +818,17 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver packet 1
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d1, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # This should produce two packets to session control
-        self.assertEqual (self.node.addwork.call_count, 3)
-        r1, r2 = self.node.addwork.call_args_list[-2:]
+        self.assertEqual (s.dispatch.call_count, 3)
+        r1, r2 = s.dispatch.call_args_list[-2:]
         args, kwargs = r1
-        w, owner = args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 1")
         args, kwargs = r2
-        w, owner = args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 2")
@@ -848,17 +849,17 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver packet 3
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d3, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # This should produce the other two packets to session control
-        self.assertEqual (self.node.addwork.call_count, 5)
-        r1, r2 = self.node.addwork.call_args_list[-2:]
+        self.assertEqual (s.dispatch.call_count, 5)
+        r1, r2 = s.dispatch.call_args_list[-2:]
         args, kwargs = r1
-        w, owner = args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 3")
         args, kwargs = r2
-        w, owner = args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 4")
@@ -893,9 +894,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver packet 2 (out of order)
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p2, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Nothing to session control
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         # No acks yet
         self.assertFalse (nc.other.islinked ())
         # One packet in out of order cache for Int/LS subchannel (yes,
@@ -904,9 +905,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver packet 1
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p1, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Still nothing to session control (not SC data)
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         # OOO cache is now empty
         self.assertEqual (len (nc.data.ooo), 0)
         # Force ACK
@@ -1000,7 +1001,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, but queue length is now 1
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 1)
@@ -1008,7 +1009,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x02\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue now empty
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 0)
@@ -1018,7 +1019,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x01\x00\x06\x02"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         nc.interrupt (b"int 1")
         nc.interrupt (b"int 2")
         # Both should have been sent
@@ -1038,7 +1039,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, but queue length is now 1
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 1)
@@ -1046,7 +1047,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x02\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue now empty
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 0)
@@ -1089,7 +1090,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                 b"\x03\x00\x02\x00\x01\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Holdoff timer expiration should generate explicit ACK
         DnTimeout (nc.other)
         self.assertEqual (r.send.call_count, 9 + self.cdadj)
@@ -1110,7 +1111,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x04\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Even though the second packet was not resent, it was sent
         # once before so an ack for it is valid.  So both packets
         # should be acked now.
@@ -1128,7 +1129,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x00\x01payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check reply
         self.assertEqual (r.send.call_count, self.cdadj * 2)
         if self.cdadj:
@@ -1138,14 +1139,14 @@ class test_inbound_noflow_phase4 (common_inbound):
             self.assertEqual (dest, self.remnode)
             self.assertEqual (ack.dstaddr, rla)
         # Not delivered to session control
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         if self.phase > 2:
             # Deliver a Retransmitted CI
             p = b"\x68\x00\x00\x03\x00" + self.services + self.info + \
                 b"\x00\x01payload"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             # Check reply
             self.assertEqual (r.send.call_count, self.cdadj * 3)
             if self.cdadj:
@@ -1155,7 +1156,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                 self.assertEqual (dest, self.remnode)
                 self.assertEqual (ack.dstaddr, rla)
             # Not delivered to session control
-            self.assertEqual (self.node.addwork.call_count, 1)
+            self.assertEqual (s.dispatch.call_count, 1)
 
     def test_dup_data (self):
         """Duplicate data packets"""
@@ -1169,11 +1170,11 @@ class test_inbound_noflow_phase4 (common_inbound):
              b"\x03\x00\x01\x00data 1"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d1, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 1")
@@ -1183,9 +1184,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = d1, rts = False)
-        self.nsp.dispatch (w2)
+        self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # Forces explicit ack
         self.assertFalse (nc.data.islinked ())
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
@@ -1209,11 +1210,11 @@ class test_inbound_noflow_phase4 (common_inbound):
              b"\x03\x00\x01\x00int 1"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d1, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.IntMsg)
         self.assertEqual (pkt.payload, b"int 1")
@@ -1223,9 +1224,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = d1, rts = False)
-        self.nsp.dispatch (w2)
+        self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # Forces explicit ack
         self.assertFalse (nc.other.islinked ())
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
@@ -1250,11 +1251,11 @@ class test_inbound_noflow_phase4 (common_inbound):
                b"\x03\x00\x05\x00\x07payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = disc, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.data_ctl, b"payload")
@@ -1274,9 +1275,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = disc, rts = False)
-        self.nsp.dispatch (w2)
+        self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (self.node.addwork.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 2)
         # No Link reply expected
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -1299,11 +1300,11 @@ class test_inbound_noflow_phase4 (common_inbound):
                b"\x03\x00\x29\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = disc, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         # NoLink is a subclass of DiscConf, for the specific reason
         # code 41 (no link terminate)
@@ -1342,7 +1343,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\xf6\x8f"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 2)
@@ -1352,7 +1353,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 2)
@@ -1364,7 +1365,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x01\x00\x06\x02"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         nc.interrupt (b"packet 1")
         nc.interrupt (b"packet 2")
         # Both should have been sent
@@ -1384,7 +1385,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\xf6\x8f"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
@@ -1394,7 +1395,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x03\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
@@ -1405,7 +1406,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x05\xb0"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = ack, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             self.assertDebug ("Cross-subchannel")
             
     def test_bad_packet (self):
@@ -1423,7 +1424,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\xccabcdef"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check log message
         args = self.assertTrace ("Ill formatted")
         self.assertEqual (args[2], p)
@@ -1431,7 +1432,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x04"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check log message
         args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
@@ -1439,7 +1440,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x00\x80\x00\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check log message
         args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
@@ -1447,7 +1448,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x08abcdef"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check log message
         self.assertTrace ("NSP NOP")
         # CI message with bad destination address
@@ -1455,7 +1456,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x00\x01payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check log message, this is also just a decode error
         args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
@@ -1463,7 +1464,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x99\x00\x00\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         args = self.assertTrace ("Packet with bad address")
         self.assertEqual (bytes (args[1]), p)
         # Ditto but data segment
@@ -1471,7 +1472,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x73\x00\x01\x00inbound data"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         self.assertTrace ("in reserved port")
         # That should produce a No Link response
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
@@ -1489,7 +1490,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Deliver it as a returned packet
         w = Received (owner = self.nsp, src = self.node.nodeid,
                       packet = p, rts = True)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check the log
         self.assertTrace ("Returned CI not matched")
         # Incoming Link Service with invalid fcval_int
@@ -1497,7 +1498,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x01\x00\x08\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check logs
         args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
@@ -1506,7 +1507,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x03\x00\x01\x00\x03\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check logs
         args = self.assertDebug ("Invalid packet")
         self.assertEqual (args[1], p)
@@ -1514,7 +1515,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         p = b"\x04" + (lla + 1).to_bytes (2, "little") + b"\x03\x00\x00\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         args = self.assertTrace ("Packet with bad address")
         self.assertEqual (args[1], p)
         # Ditto but data segment
@@ -1522,7 +1523,7 @@ class test_inbound_noflow_phase4 (common_inbound):
             b"\x73\x00\x01\x00inbound data"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         self.assertTrace ("in reserved port")
         # That should produce a No Link response
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
@@ -1601,7 +1602,7 @@ class outbound_base (ntest):
             p = b"\x24" + lla.to_bytes (2, "little")
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             self.assertEqual (len (nc.data.pending_ack), 0)
             self.assertEqual (nc.state, nc.cd)
         # Deliver a connect confirm
@@ -1613,11 +1614,11 @@ class outbound_base (ntest):
         rla = 3
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.ConnConf)
         self.assertEqual (pkt.data_ctl, b"payload")
@@ -1664,11 +1665,11 @@ class outbound_base (ntest):
             b"\x03\x00\x01\x00inbound data"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"inbound data")
@@ -1678,7 +1679,7 @@ class outbound_base (ntest):
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x01\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # That should trigger the disconnect
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -1704,7 +1705,7 @@ class outbound_base (ntest):
             p = b"\x24" + lla.to_bytes (2, "little")
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             self.assertEqual (len (nc.data.pending_ack), 0)
             self.assertEqual (nc.state, nc.cd)
         # Deliver a connect reject, reason 1
@@ -1713,14 +1714,14 @@ class outbound_base (ntest):
         rla = 3
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check counters.  Note that no_res_rcv doesn't apply for this
         # case.
         self.assertEqual (nc.destnode.counters.no_res_rcv, 0)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertTrue (w.reject)
@@ -1745,11 +1746,11 @@ class outbound_base (ntest):
         # Deliver it as a returned packet
         w = Received (owner = self.nsp, src = self.node.nodeid,
                       packet = ci, rts = True)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertTrue (w.reject)
@@ -1770,7 +1771,7 @@ class outbound_base (ntest):
             p = b"\x24" + lla.to_bytes (2, "little")
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             self.assertEqual (len (nc.data.pending_ack), 0)
             self.assertEqual (nc.state, nc.cd)
         # Deliver a connect confirm
@@ -1782,11 +1783,11 @@ class outbound_base (ntest):
         rla = 3
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.ConnConf)
         self.assertEqual (pkt.data_ctl, b"payload")
@@ -1807,9 +1808,9 @@ class outbound_base (ntest):
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = p, rts = False)
-        self.nsp.dispatch (w2)
+        self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (self.node.addwork.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 1)
         # Check connection state
         self.assertEqual (nc.state, nc.run)
         self.assertConns (1)        
@@ -1896,9 +1897,9 @@ class outbound_base (ntest):
         # Nothing is sent when this happens
         self.assertEqual (r.send.call_count, 1)
         # Check that the timeout came to session control as a disconnect
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DiscInit)
         self.assertEqual (pkt.reason, 38)
@@ -1926,7 +1927,7 @@ class test_random (ntest):
             pkt = randpkt (8, 64)
             w = Received (owner = self.nsp, src = src,
                           packet = pkt, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
 
 class test_linkids (ntest):
     def test_alloc (self):
@@ -1988,7 +1989,7 @@ class test_connlimit_phase4 (ntest):
                 b"\x00\x01payload"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
-            self.nsp.dispatch (w)
+            self.node.addwork (w)
             # Check reply
             self.assertEqual (r.send.call_count, i * self.cdadj)
             if self.cdadj:
@@ -1998,9 +1999,9 @@ class test_connlimit_phase4 (ntest):
                 self.assertEqual (dest, self.remnode)
                 self.assertEqual (ack.dstaddr, rla)
             # Check data to Session Control
-            self.assertEqual (self.node.addwork.call_count, i)
-            args, kwargs = self.node.addwork.call_args
-            w, owner = args
+            self.assertEqual (s.dispatch.call_count, i)
+            args, kwargs = s.dispatch.call_args
+            w = args[0]
             pkt = w.packet
             self.assertIsInstance (pkt, nsp.ConnInit)
             self.assertEqual (pkt.payload, b"payload")
@@ -2023,7 +2024,7 @@ class test_connlimit_phase4 (ntest):
             b"\x00\x01payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Check reply
         self.assertEqual (r.send.call_count, i * self.cdadj + 1)
         args, kwargs = r.send.call_args
@@ -2032,7 +2033,7 @@ class test_connlimit_phase4 (ntest):
         self.assertEqual (dest, self.remnode)
         self.assertEqual (ack.dstaddr, rla)
         # Check no additional data to Session Control
-        self.assertEqual (self.node.addwork.call_count, i)
+        self.assertEqual (s.dispatch.call_count, i)
         # No new connections
         self.assertConns (i)
 
@@ -2079,7 +2080,7 @@ class test_qlimit_phase4 (inbound_base):
               (self.qmax + 1 + 0x8000).to_bytes (2, "little")
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # No retransmits, queue unchanged
         self.assertEqual (r.send.call_count, self.qmax + 1 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), self.qmax * 3)
@@ -2090,7 +2091,7 @@ class test_qlimit_phase4 (inbound_base):
               (self.qmax - 1 + 0x8000).to_bytes (2, "little")
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = ack, rts = False)
-        self.nsp.dispatch (w)
+        self.node.addwork (w)
         # Pending queue is shorter now
         self.assertEqual (len (nc.data.pending_ack), self.qmax * 2 + 1)        
         # Check that a pile more were sent
@@ -2151,9 +2152,9 @@ class test_connself_phase4 (ntest):
         # Remember the connection
         self.nspconn1 = nc
         # Check data to Session Control for the inbound connection
-        self.assertEqual (self.node.addwork.call_count, 1)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 1)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertEqual (pkt, ci)
         # Check connection state
@@ -2178,9 +2179,9 @@ class test_connself_phase4 (ntest):
         s = self.node.session
         nc2.accept (b"ok")
         # Check data to Session Control on first (outbound) connection
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc1)
         self.assertIsInstance (pkt, nsp.ConnConf)
@@ -2196,18 +2197,18 @@ class test_connself_phase4 (ntest):
         self.assertEqual (nc2.state, nc2.run)
         # Send a data message
         nc2.send_data (b"data")
-        self.assertEqual (self.node.addwork.call_count, 3)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 3)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc1)
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data")
         # Send a data message the other way
         nc1.send_data (b"reply")
-        self.assertEqual (self.node.addwork.call_count, 4)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 4)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc2)
         self.assertIsInstance (pkt, nsp.DataSeg)
@@ -2217,9 +2218,9 @@ class test_connself_phase4 (ntest):
         # Close the outbound connection
         nc1.disconnect (payload = b"bye")
         # That should produce a session control message on the other one
-        self.assertEqual (self.node.addwork.call_count, 5)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 5)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc2)
         self.assertIsInstance (pkt, nsp.DiscInit)
@@ -2240,9 +2241,9 @@ class test_connself_phase4 (ntest):
         s = self.node.session
         nc2.reject (payload = b"no")
         # Check data to Session Control on first (outbound) connection
-        self.assertEqual (self.node.addwork.call_count, 2)
-        args, kwargs = self.node.addwork.call_args
-        w, owner = args
+        self.assertEqual (s.dispatch.call_count, 2)
+        args, kwargs = s.dispatch.call_args
+        w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc1)
         self.assertTrue (w.reject)

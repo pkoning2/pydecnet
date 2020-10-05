@@ -10,9 +10,7 @@ import collections
 
 from .common import *
 from . import logging
-from . import pktlogging
 from .events import *
-#from . import main
 from . import nsp
 from . import session
 from . import timers
@@ -371,7 +369,8 @@ class RemoteSink (EventSink, timers.Timer):
         else:
             conn = item.connection
             msg = item.message
-            pktlogging.tracepkt ("Event sender received {} message".format (item.name), msg)
+            logging.tracepkt ("Event sender received {} message", item.name,
+                              pkt = msg)
             if isinstance (item, session.Disconnect):
                 logging.trace ("Event sender disconnect from {}",
                                conn.remotenode)

@@ -736,7 +736,8 @@ class NSP (Element):
             ret = [ html.firsttextsection (title, estat) ]
             # Get the executor counters
             ctr = [ ( "{} = ".format (lb), getattr (self.ectr, fn))
-                    for fn, lb in self.ectr.nodecounters ]
+                    for fn, lb in self.ectr.nodecounters
+                    if fn not in self.ectr.exclude ]
             ret.append (html.section ("Executor counters",
                                       html.dtable (ctr)))
             # Get the list of active nodes (those with traffic)
@@ -925,7 +926,7 @@ class txqentry (timers.Timer):
                 c.to_sc (Received (self, packet = disc), False)
                 c.close ()
                 # Mark connection as closed
-                c.state = c.closed
+                c.set_state (c.closed)
             return
         self.sent = False
         # Don't send just yet if flow control forbids it
@@ -1092,7 +1093,7 @@ class Data_Subchannel (Subchannel):
         self.send_blocked ()
         if self.parent.shutdown and not self.pending_ack:
             self.parent.disc_rej (*self.parent.pending_disc)
-            self.parent.state = self.parent.di
+            self.parent.set_state (self.parent.di)
             
     def flow_ok (self, qe):
         """Return True if this queue entry can be transmitted now, False
@@ -1288,7 +1289,7 @@ class Connection (Element, statemachine.StateMachine):
     closed, NSP no longer knows about it (for example, it is no longer
     listed in the connection address lookup tables) but it is possible for
     some other component still to hold a reference to it.  State CN is
-    represented by Connection.state = None.
+    represented by Connection.state == None.
     """
     def __init__ (self, parent, *, inbound = None, outbound = None):
         Element.__init__ (self, parent)
@@ -1345,7 +1346,7 @@ class Connection (Element, statemachine.StateMachine):
             # session control.
             self.parent.connections[srcaddr] = self
             # Set the new state, and send the packet up to Session Control
-            self.state = self.cr
+            self.set_state (self.cr)
             self.to_sc (inbound)
         elif outbound:
             dest, payload = outbound
@@ -1367,7 +1368,7 @@ class Connection (Element, statemachine.StateMachine):
             logging.trace ("Connecting to {}: {}", dest, payload)
             # Do this first otherwise that packet is processed in the
             # wrong state if it is addressed to ourselves.
-            self.state = self.ci
+            self.set_state (self.ci)
             # Now add the connection to the dictionary of ones we
             # know.  That too happens before the message is sent, for
             # the same reason.
@@ -1443,12 +1444,12 @@ class Connection (Element, statemachine.StateMachine):
         # phase 3 or later, but send it direct (no ack expected) for
         # phase 2.
         if self.cphase == 2:
-            self.state = self.run
+            self.set_state (self.run)
             # Stop the connect timer
             self.node.timers.stop (self)
             self.sendmsg (cc)
         else:
-            self.state = self.cc
+            self.set_state (self.cc)
             self.data.send (cc)
         return True
         
@@ -1462,7 +1463,7 @@ class Connection (Element, statemachine.StateMachine):
         self.node.timers.stop (self)
         # Do this first so the state will be DI if this is the local
         # node where the DiscComp comes back immediately.
-        self.state = self.di
+        self.set_state (self.di)
         self.disc_rej (reason, payload)
         return True
     
@@ -1496,7 +1497,7 @@ class Connection (Element, statemachine.StateMachine):
         else:
             # Do this first so the state will be DI if this is the local
             # node where the DiscComp comes back immediately.
-            self.state = self.di
+            self.set_state (self.di)
             self.disc_rej (reason, payload)
         return True
     
@@ -1509,7 +1510,7 @@ class Connection (Element, statemachine.StateMachine):
         if self.state != self.run:
             raise WrongState
         self.disc_rej (reason, payload)
-        self.state = self.di
+        self.set_state (self.di)
         return True
 
     def send_data (self, data):
@@ -1754,7 +1755,7 @@ class Connection (Element, statemachine.StateMachine):
             if isinstance (pkt, (DataSeg, AckData, IntMsg,
                                  LinkSvcMsg, AckOther)):
                 self.data.ack (0)   # Treat ack or data as ACK of CC message
-            self.state = self.run
+            self.set_state (self.run)
         return self.run (item)
 
     def run (self, item):

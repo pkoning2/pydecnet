@@ -22,12 +22,11 @@ import crc
 
 from .common import *
 from . import logging
-from . import pktlogging
 from . import timers
 from . import datalink
 from . import packet
-from . import statemachine
 from . import modulo
+from .nice_coding import CTM1
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -63,14 +62,14 @@ SYN4 = bytes ([ SYN ] * 4)
 DEL1 = byte (DEL)
 DEL2 = DEL1 + DEL1
 
-# Control message subtypes
+# Control message types
 ACK   = 1          # Acknowledgment
 NAK   = 2          # Negative acknowledgment
 REP   = 3          # Reply request
 STRT  = 6          # Start
 STACK = 7          # Start acknowledge
 
-# NAK reason codes
+# NAK reason codes (in the subtype field)
 R_HCRC = 1        # Header CRC error
 R_CRC  = 2        # Data CRC error
 R_REP  = 3        # Response to REP message
@@ -79,10 +78,31 @@ R_OVER = 9        # Receive overrun
 R_SHRT = 16       # Buffer too short for message
 R_FMT  = 17       # Header format error
 
-# Timeouts
-ACKTMR = 1        # Timeout when waiting for data ACK
-STACKTMR = 3      # Timeout when waiting for STACK during startup on TCP
-UDPTMR = 60       # Timeout between retries of startup on UDP
+class DdcmpCounters (datalink.PtpCounters):
+    def __init__ (self, owner):
+        super ().__init__ (owner)
+        self.data_errors_inbound = CTM1 ()
+        self.data_errors_outbound = CTM1 ()
+        self.remote_reply_timeouts = 0
+        self.local_reply_timeouts = 0
+        self.remote_buffer_errors = CTM1 ()
+
+# Mapped counter bit definitions for the above:
+DE_HCRC = 1
+DE_CRC = 2
+DE_REP = 4
+BUF_UNAVAIL = 1
+BUF_SML = 2
+
+# Mapping from NAK reason codes to counter map bits.  Value is True for
+# data error, False for buffer error, and the map bit.  Note that R_OVER
+# and R_FMT are not currently mapped to anything.
+nak_map = {
+    R_HCRC : (True, DE_HCRC),
+    R_CRC : (True, DE_CRC),
+    R_REP : (True, DE_REP),
+    R_BUF : (False, BUF_UNAVAIL),
+    R_SHRT : (False, BUF_SML) }
 
 class DMHdr (packet.Packet):
     "DDCMP packet common part -- the header including the header CRC"
@@ -114,8 +134,8 @@ class DMHdr (packet.Packet):
         crc = CRC16 (ret)
         return ret + bytes (crc)
 
-class DataMsg (DMHdr):
-    "A data message"
+class BaseDataMsg (DMHdr):
+    "Base class for data or maintenance message"
     # To allow for efficient processing of data messages in stream mode
     # connections, the decode method can accept just the header along
     # with a function that will deliver the data portion.
@@ -128,7 +148,6 @@ class DataMsg (DMHdr):
                ( packet.B, "addr", 1 ))
 
     _addslots = ("payload", "crcok")
-    soh = SOH
 
     @classmethod
     def decode (cls, buf, recv = None, check = True):
@@ -146,11 +165,25 @@ class DataMsg (DMHdr):
         dl = ret.count
         if recv:
             assert not buf, "Too much data in header buffer"
-            ret.payload = recv (dl)
-            crc = CRC16 (ret.payload)
-            crc.update (recv (2))
+            try:
+                ret.payload = recv (dl)
+                crc = CRC16 (ret.payload)
+                crc.update (recv (2))
+            except IOError:
+                # Lost connection or stop requested, simulate packet
+                # with bad data CRC.
+                ret.payload = None
+                ret.crcok = False
+                return ret, buf
         else:
-            require (buf, dl + 2)
+            if (len (buf) < dl + 2):
+                # Not enough data.  Fake a CRC error because that's what
+                # you'd get on the real system (it would read beyond the
+                # supposed end of frame and pick up whatever follows,
+                # producing a CRC error).
+                ret.crcok = False
+                ret.payload = b""
+                return ret, b""
             ret.payload = buf[:dl]
             crc = CRC16 (buf[:dl + 2])
             buf = buf[dl + 2:]
@@ -165,8 +198,12 @@ class DataMsg (DMHdr):
         crc = CRC16 (payload)
         ret.append (bytes (crc))
         return b"".join (ret)
+
+class DataMsg (BaseDataMsg):
+    "A DDCMP Data message (normal acknowledged data)"
+    soh = SOH
     
-class MaintMsg (DataMsg):
+class MaintMsg (BaseDataMsg):
     # Maintenance message is like regular data message, but
     # different start byte and no sequence numbers.  We don't
     # simply subclass it from DataMsg because then it a maint
@@ -240,14 +277,17 @@ class Err (Work):
         self.code = code
         self.resp = None
         
-class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
+class _DDCMP (datalink.PtpDatalink):
+    counter_class = DdcmpCounters
+    
     """An implementation of the DDCMP protocol.  This conforms to the
     Digital Network Architecture DDCMP protocol spec, V4.1 (AA-K175A-TK).
     It is also interoperable with the DDCMP implementation in SIMH,
     see the source code in pdp11_dmc.c.
 
     The current implementation supports point to point full duplex mode
-    only.  Half duplex and multipoint are TBD.
+    only.  Half duplex and multipoint could be added but probably will
+    not be since there is no obvious point in doing so.
 
     Communication can be over UDP or TCP, or using a serial line (UART).
     If UDP, each packet corresponds exactly to a DDCMP message.  In TCP
@@ -309,68 +349,17 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     port_type = 0    # DDCMP point
     
     def __init__ (self, owner, name, config):
-        self.tname = "{}.{}".format (owner.node.nodename, name)
-        self.rthread = None
-        statemachine.StateMachine.__init__ (self)
-        datalink.PtpDatalink.__init__ (self, owner, name, config)
+        super ().__init__ (owner, name, config)
         self.config = config
         self.qmax = config.qmax
-        proto, *rest = config.device.split (':')
-        proto = proto.lower ()
-        if proto == "serial":
-            if not serial:
-                raise ValueError ("Serial port support not available")
-            if not rest or len (rest) > 3:
-                raise ValueError ("Invalid serial device spec {}".format (config.device))
-            self.dev = rest[0]
-            self.uart = None
-            if len (rest) > 1:
-                self.speed = int (rest[1])
-                if len (rest) > 2:
-                    if not UART:
-                        raise ValueError ("BeagleBone UART module not available")
-                    self.uart = rest[2]
-            else:
-                self.speed = 9600
-            if self.uart:
-                UART.setup (self.uart)
-            self.serial = True
-            self.tcp = False
-            logging.trace ("DDCMP datalink {} initialized on uart {}"
-                           " speed {}", self.name, self.dev, self.speed)
-        else:
-            self.serial = False
-            lport, host, rport = rest
-            if proto == "tcp" or proto == "telnet":
-                self.tcp = True
-                self.telnet = (proto == "telnet")
-            elif proto == "udp":
-                self.tcp = False
-            else:
-                raise ValueError ("Invalid protocol {}".format (proto))
-            self.lport = int (lport)
-            self.host = datalink.HostAddress (host)
-            self.rport = int (rport)
-            # All set
-            logging.trace ("DDCMP datalink {} initialized using {} on "
-                           "port {} to {}:{}", self.name, proto, self.lport,
-                       host, self.rport)
-
-    def open (self):
-        # Open and close datalink are ignored, control is via the port
-        # (the higher layer's handle on the datalink entity)
-        pass
-
-    def close (self):
-        pass
-
-    def cansend (self):
-        return (self.n - self.a) < self.qmax
-    
-    def port_open (self):
-        if self.state != self.s0 and self.state != self.reconnect:
-            # Already open, ignore
-            return
+        # Timout values.  These are the ones that apply to the
+        # connectionless case (UDP or serial link); the TCP subclass
+        # overrides some of them.
+        self.acktmr = Backoff (1, 60)
+        self.stacktmr = Backoff (3, 120)
+        self.init_state ()
+        
+    def init_state (self):
         # Initialize DDCMP protocol state; the names are by and large taken
         # from the DDCMP spec.  Note that T and X are not explicitly
         # represented here.  The effect of T is obtained simply by
@@ -390,152 +379,95 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         # acked) and not yet sent (due to too many unacked).
         self.unack = [ None ] * 256
         self.notsent = queue.Queue ()
-        # Create the receive thread
-        self.rthread = StopThread (name = self.tname, target = self.run)
-        if self.serial:
-            # Just start receiving
-            self.rthread.start ()
-            logging.trace ("DDCMP {} listen on UART {} active",
-                           self.name, self.dev)
-            return
-        if self.tcp:
-            # We'll try for either outbound or incoming connections, whichever
-            # appears first.  Create the inbound (listen) socket here.
-            self.socket = socket.socket (socket.AF_INET)
-        else:
-            self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                         socket.IPPROTO_UDP)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Refresh the name to address mapping.  This isn't needed for the
-        # initial open but we want this for a subsequent one, because
-        # a restart of the circuit might well have been caused by an
-        # address change of the other end.
-        self.host.lookup ()
-        try:
-            self.socket.bind (("", self.lport))
-            if self.tcp:
-                self.socket.listen (1)
-        except (AttributeError, OSError, socket.error):
-            logging.trace ("DDCMP {} bind/listen failed", self.name)
-            if self.socket:
-                self.socket.close ()
-            return
-        self.rthread.start ()
-        logging.trace ("DDCMP {} listen to {} active",
-                       self.name, self.rport)
-
-    def try_connect (self):
-        # Get rid of any existing connect socket
-        try:
-            self.connsocket.close ()
-        except Exception:
-            pass
-        # Refresh the host name to address mapping
-        self.host.lookup ()
-        self.connsocket = socket.socket (socket.AF_INET)
-        self.connsocket.setblocking (False)
-        try:
-            self.connsocket.connect ((self.host.addr, self.rport))
-            logging.trace ("DDCMP {} connect to {} {} in progress",
-                           self.name, self.host.addr, self.rport)
-        except socket.error as e:
-            if e.errno == errno.EINPROGRESS:
-                logging.trace ("DDCMP {} connect to {} {} in progress",
-                               self.name, self.host.addr, self.rport)
-            else:
-                logging.trace ("DDCMP {} connect to {} {} rejected",
-                               self.name, self.host.addr, self.rport)
-                self.connsocket = None
-        except AttributeError:
-            self.connsocket = None
-        # Wait a random time (60-120 seconds) for the outbound connection
-        # to succeed.  If we get a timeout, give up on it and try again.
-        self.node.timers.start (self, random.random () * UDPTMR + UDPTMR)
-
-    def close_sockets (self):
-        self.state = self.s0
-        try:
-            self.socket.close ()
-        except Exception:
-            pass
-        try:
-            self.connsocket.close ()
-        except Exception:
-            pass
-        self.socket = self.connsocket = None
+        # Stop any timer
+        self.node.timers.stop (self)
         
-    def port_close (self):
-        if self.state != self.s0:
-            self.rthread.stop ()
-            # Thread exit will queue a HALTED work item
-            
-    def disconnected (self):
-        if self.state == self.running and self.port:
-            self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = datalink.DlStatus.DOWN))
-        self.close_sockets ()
-
-    def recvall (self, sz):
-        """Receive "sz" bytes of data from the socket.  This waits until
-        it has that much available.  If the connection was closed, raises
-        OSError; otherwise, it returns exactly the amount requested.
-        """
-        p = b''
-        while self.socket and len (p) < sz:
-            b = self.socket.recv (sz - len (p))
-            if not b:
-                raise OSError
-            if self.telnet:
-                # Handle escapes.  Note that we only handles escaped
-                # 377, not any other Telnet control codes.
-                e = b.count (DEL1)
-                if e & 1:
-                    b2 = self.socket.recv (1)
-                    if not b2:
-                        raise OSError
-                    b += b2
-                if e:
-                    b = b.replace (DEL2, DEL1)
-            p += b
-        if not self.socket:
-            raise OSError
-        return p
+    def cansend (self):
+        return (self.n - self.a) < self.qmax
     
-    def run (self):
-        """This method runs the receive thread.  Here we look for connections
-        (if in TCP mode) and receive the incoming data.  Message framing
-        is done here.  Received messages and error indications are passed
-        down to the DDCMP state machine which runs in the main thread.
+    def connected (self):
+        # We're connected.  Stop the timer, and start DDCMP protocol
+        # operation.
+        self.init_state ()
+        # Initialize the timeout values
+        self.acktmr.reset ()
+        self.stacktmr.reset ()
+        # Send a start message
+        self.send_start ()
+        return self.Istart
+
+    def do_restart (self):
+        if self.state == self.running:
+            # Tell the owner that we lost state
+            self.report_down ()
+        elif self.state == self.Maint:
+            # TODO: Tell the owner that we lost state
+            pass
+        if self.state != self.Istart:
+            # If we aren't already restarting, handle this much like
+            # initial connection, we initialize the timers and restart
+            # the protocol.
+            logging.trace ("Restarting DDCMP")
+            self.connected ()
+            self.set_state (self.Istart)
+        return self.Istart
+
+    def header_search (self):
+        """Search for the DDCMP header in the input stream (for serial
+        and TCP modes).  The simple scheme of looking for a header start
+        and then taking in 7 more bytes doesn't work if the other side
+        is repeatedly sending the same control message just after sync
+        was lost, and that message has what looks like a header start
+        byte at some other offset in the header.
         """
-        logging.trace ("DDCMP datalink {} receive thread started", self.name)
-        # Split out the three cases since they are rather different.
-        if self.serial:
-            self.run_serial ()
-        else:
-            if not self.socket:
-                return
-            if self.tcp:
-                self.run_tcp ()
-            else:
-                self.run_udp ()
-        # We come here when told to stop
-        self.close_sockets ()
-        logging.trace ("DDCMP datalink {} receive thread stopped", self.name)
-        self.node.addwork (datalink.DlStatus (self,
-                                              status = datalink.DlStatus.HALTED))
+        while True:
+            # Get the first byte.
+            c = self.readbytes (1)
+            while c:
+                h = c[0]
+                if h == ENQ or h == SOH or h == DLE:
+                    # Valid start of header.  Receive the rest of the header.
+                    c += self.readbytes (HDRLEN - len (c))
+                    # Check the Header CRC
+                    crc = CRC16 (c)
+                    if crc.good:
+                        if not self.insync:
+                            logging.trace ("Back in sync on {}", self.name)
+                        self.insync = True
+                        return c
+                    # Header CRC is bad.  If we're in sync, report
+                    # that as a bad header.  If not, treat it as
+                    # message not framed correctly, and silently
+                    # keep looking.
+                    logging.tracepkt ("bad header CRC on {}",
+                                      self.name, pkt = c)
+                    if self.insync:
+                        self.insync = False
+                        self.node.addwork (Err (self, R_HCRC))
+                        self.counters.data_errors_inbound += (1, DE_HCRC)
+                        logging.trace ("Lost sync on {}", self.name)
+                    else:
+                        logging.trace ("Out of sync, another HCRC error on {}",
+                                       self.name)
+                # Search through the 8 bytes we just received to see if
+                # any of them look like another valid header start.
+                # Just keep stripping off bytes from the start one at a
+                # time and re-examining the first of what's left to see
+                # if that too looks like a header.
+                c = c[1:]
 
     def handle_pkt (self, pkt, c):
         # Handle a parsed packet
         tp = pkt.__class__.__name__
         if isinstance (pkt, CtlMsg):
             # Control packet.
-            msg = "Received {} control packet on {}".format (tp, self.name)
-            pktlogging.tracepkt (msg, c)
+            logging.tracepkt ("Received {} control packet on {}",
+                              tp, self.name, pkt = c)
             self.node.addwork (Received (self, packet = pkt))
         elif pkt.crcok:
             # Data packet with good data CRC.
-            msg = "Received {} packet on {}".format (tp, self.name)
-            pktlogging.tracepkt (msg, c)
+            logging.tracepkt ("Received {} packet on {}",
+                              tp, self.name, pkt = c)
             self.node.addwork (Received (self, packet = pkt))
         else:
             # Fun complication: if the data CRC of a data
@@ -546,285 +478,28 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             e = Err (self, R_CRC)
             if not isinstance (pkt, MaintMsg):
                 e.resp = pkt.resp
-            msg = "{} packet with bad data CRC on {}".format (tp, self.name)
-            pktlogging.tracepkt (msg, c)
-            logging.debug (msg)
+            self.counters.data_errors_inbound += (1, DE_CRC)
+            logging.tracepkt ("{} packet with bad data CRC on {}",
+                              tp, self.name, pkt = c)
+            logging.debug ("{} packet with bad data CRC on {}",
+                           tp, self.name)
             self.node.addwork (e)
         
-    def run_tcp (self):
-        """Receive thread for the TCP case.
-        """
-        self.state = self.connecting
-        self.insync = False
-        self.try_connect ()
-        poll = select.poll ()
-        sfn = self.socket.fileno ()
-        if self.connsocket:
-            cfn = self.connsocket.fileno ()
-            poll.register (cfn, select.POLLOUT | select.POLLERR)
-        else:
-            cfn = None
-        poll.register (sfn, select.POLLIN | select.POLLERR)
-        # We try to establish an outgoing connection while also looking
-        # for an incoming one, so look for both ready to read on the
-        # listen socket (incoming) and ready to write on the connect socket
-        # (outbound connect completed).
-        connected = False
-        while not connected:
-            plist = poll.poll (1)
-            if self.rthread and self.rthread.stopnow:
-                return
-            for fd, event in plist:
-                if event & select.POLLERR:
-                    self.disconnected ()
-                    self.state = self.reconnect
-                    return
-                if fd == cfn:
-                    if event & select.POLLHUP:
-                        # Connection was closed, ignore this
-                        poll.unregister (cfn)
-                        self.connsocket = None
-                        continue
-                    # Outbound connection went through.  Stop listening,
-                    # and use that connection for data.
-                    self.socket.close ()
-                    self.socket = self.connsocket
-                    self.socket.setblocking (True)
-                    self.connsocket = None
-                    logging.trace ("DDCMP {} outbound connection made", self.name)
-                    # Drop out of the outer loop
-                    connected = True
-                    break
-                elif fd == sfn:
-                    # Ready on inbound socket.  Accept the connection.
-                    try:
-                        sock, ainfo = self.socket.accept ()
-                        host, port = ainfo
-                        if self.host.valid (host):
-                            # Good connection, stop looking
-                            self.socket.close ()
-                            if self.connsocket:
-                                self.connsocket.close ()
-                            # The socket we use from now on is the data socket
-                            self.socket = sock
-                            self.connsocket = None
-                            logging.trace ("DDCMP {} inbound connection accepted",
-                                           self.name)
-                            # Drop out of the outer loop
-                            connected = True
-                            break
-                        # If the connect is from someplace we don't want
-                        logging.trace ("DDCMP {} connect received from "
-                                       "unexpected address {}", self.name, host)
-                        sock.close ()
-                    except (OSError, socket.error):
-                        self.disconnected ()
-                        self.state = self.reconnect
-                        return
-        logging.trace ("DDCMP {} connected", self.name)
-        # At this point we're using just one socket, the data socket.
-        # Update the poll object we're using
-        poll = select.poll ()
-        sock = self.socket
-        sfn = sock.fileno ()
-        poll.register (sfn, select.POLLIN | select.POLLERR)
-        # We're connected.  Stop the timer, and start DDCMP protocol operation.
-        self.node.timers.stop (self)
-        self.state = self.Istart
-        self.send_start ()
-        # Start looking for messages.
-        while True:
-            plist = poll.poll (1)
-            if self.rthread and self.rthread.stopnow:
-                return
-            for fd, event in plist:
-                if event & select.POLLERR:
-                    pstate = self.state
-                    self.disconnected ()
-                    if pstate == self.Istart:
-                        self.state = self.reconnect
-                    return
-                # Not error, so it's incoming data.  Get the first byte.
-                try:
-                    c = sock.recv (1)
-                except Exception:
-                    c = None
-                if not c:
-                    pstate = self.state
-                    self.disconnected ()
-                    if pstate == self.Istart:
-                        self.state = self.reconnect
-                    return
-                h = c[0]
-                if h == SYN or h == DEL:
-                    # sync or fill, skip it
-                    continue
-                if h == ENQ or h == SOH or h == DLE:
-                    # Valid start of header.  Receive the header.
-                    c += self.recvall (HDRLEN - 1)
-                    # Check the Header CRC
-                    crc = CRC16 (c)
-                    if crc.good:
-                        # Header CRC is valid.  Construct a packet object
-                        # of the correct class.
-                        if not self.insync:
-                            logging.trace ("Back in sync on {}", self.name)
-                        self.insync = True
-                        # Decode via the header base class, which will
-                        # identify the actual message type using packet
-                        # class indexing and return that.  Tell decode
-                        # that the header CRC has already been checked.
-                        try:
-                            pkt, x = DMHdr.decode (c, self.recvall, False)
-                            self.handle_pkt (pkt, c)
-                        except DecodeError as e:
-                            msg = "Invalid packet: {}".format (e)
-                            pktlogging.tracepkt (msg, c)
-                    else:
-                        # Header CRC is bad.  If we're in sync, report
-                        # that as a bad header.  If not, treat it as
-                        # message not framed correctly, and silently
-                        # keep looking
-                        msg = "bad header CRC on {}".format (self.name)
-                        pktlogging.tracepkt (msg, c)
-                        if self.insync:
-                            self.insync = False
-                            self.node.addwork (Err (self, R_HCRC))
-                            logging.trace ("Lost sync on {}", self.name)
-                        else:
-                            logging.trace ("Out of sync, another HCRC error on {}", self.name)
-
-    def run_udp (self):
-        """Receive thread for the UDP case.
-        """
-        poll = select.poll ()
-        sock = self.socket
-        sfn = sock.fileno ()
-        poll.register (sfn, select.POLLIN | select.POLLERR)
-        self.state = self.Istart
-        self.send_start ()
-        # Start looking for messages.
-        while True:
-            plist = poll.poll (1)
-            if self.rthread and self.rthread.stopnow:
-                return
-            for fd, event in plist:
-                if event & select.POLLERR:
-                    self.disconnected ()
-                    return
-                # Not error, so it's incoming data.  Get the UDP packet
-                try:
-                    # Allow for a max length DDCMP data message plus some sync
-                    msg, addr = sock.recvfrom (16400)
-                except OSError:
-                    msg = None
-                if not msg:
-                    self.disconnected ()
-                    return
-                for i in range (len (msg)):
-                    h = msg[i]
-                    if h == SYN or h == DEL:
-                        # sync or fill, skip it
-                        continue
-                    if h == ENQ or h == SOH or h == DLE:
-                        # Packet start, process it
-                        break
-                    # Something else, error
-                    i = len (msg)
-                    break
-                try:
-                    c = msg[i:]
-                    if not c:
-                        # No valid header found, ignore whatever this is.
-                        continue
-                    pkt, x = DMHdr.decode (c)
-                except HdrCrcError:
-                    # Header CRC is bad.  Report it.
-                    msg = "Header CRC error"
-                    pktlogging.tracepkt (msg, c)
-                    self.node.addwork (Err (self, R_HCRC))
-                except DecodeError as e:
-                    msg = "Invalid packet: {}".format (e)
-                    pktlogging.tracepkt (msg, c)
-                    self.node.addwork (Err (self, R_FMT))
-                    continue
-                self.handle_pkt (pkt, c)
-
-    def run_serial (self):
-        """Receive thread for the UART case.
-        """
-        # We have to open it here rather than earlier to make sure the
-        # device is not closed if --daemon is used.
-        self.serial = serial.Serial (port = self.dev, baudrate = self.speed,
-                      parity = 'N', bytesize = 8, timeout = 5)
-        logging.trace ("Opened serial port {}, speed {}", self.dev, self.speed)
-        self.insync = False
-        self.state = self.Istart
-        self.send_start ()
-        # Start looking for messages.
-        while True:
-            if self.rthread and self.rthread.stopnow:
-                return
-            # Get the first byte.
-            try:
-                c = self.serial.read (1)
-            except Exception:
-                c = None
-            if not c:
-                # Timeout, keep looking for start of frame
-                continue
-            h = c[0]
-            if h == SYN or h == DEL:
-                # sync or fill, skip it
-                continue
-            if h == ENQ or h == SOH or h == DLE:
-                # Valid start of header.  Receive the header.
-                c += self.serial.read (HDRLEN - 1)
-                # Check the Header CRC
-                crc = CRC16 (c)
-                if crc.good:
-                    # Header CRC is valid.  Construct a packet object
-                    # of the correct class.
-                    if not self.insync:
-                        logging.trace ("Back in sync on {}", self.name)
-                    self.insync = True
-                    # Decode via the header base class, which will
-                    # identify the actual message type using packet
-                    # class indexing and return that.  Tell decode
-                    # that the header CRC has already been checked.
-                    try:
-                        pkt, x = DMHdr.decode (c, self.serial.read, False)
-                        self.handle_pkt (pkt, c)
-                    except DecodeError as e:
-                        msg = "Invalid packet: {}".format (e)
-                        pktlogging.tracepkt (msg, c)
-                else:
-                    # Header CRC is bad.  If we're in sync, report
-                    # that as a bad header.  If not, treat it as
-                    # message not framed correctly, and silently
-                    # keep looking
-                    msg = "bad header CRC on {}".format (self.name)
-                    pktlogging.tracepkt (msg, c)
-                    if self.insync:
-                        self.insync = False
-                        self.node.addwork (Err (self, R_HCRC))
-                        logging.debug ("Lost sync on {}", self.name)
-                    else:
-                        logging.debug ("Out of sync, another HCRC error on {}", self.name)
-
-    def sendmsg (self, msg, timeout = ACKTMR):
-        """Send the supplied message.  If the message has a "resp" field
-        that needs to be filled in, it is filled in from the current
-        state (the last correctly received message).
+    def sendmsg (self, msg, timeout):
+        """Do the common work for sending the supplied message.  If the
+        message has a "resp" field that needs to be filled in, it is
+        filled in from the current state (the last correctly received
+        message).
 
         For data messages, the "payload" attributes must contain the
         message payload.  Its length will be placed in the packet header
         during the encode process.  For all packet types, encode will
-        insert the correct CRC values.
+        insert the correct CRC values.  This part will be handled by the 
+        subclasses.
 
-        The optional timeout argument specified what timeout to start after
-        sending the message.  The default is one second.  Specify zero
-        for no timeout.
+        The optional timeout argument is a Backoff object which will be
+        used to obtain the timeout to start after sending the message.
+        Specify zero or None for no timeout.
         """
         # If the message has a "resp" field, set it.  Note that "hasattr"
         # does not work for this because, if it has never been set, the
@@ -832,73 +507,8 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         if msg.setresp:
             msg.resp = self.r
             self.ackflag = False    # No more need for ACK
-        # Just encode the message; CRCs are handled by the encoder.
-        msg = msg.encode ()
-        try:
-            if self.serial:
-                # Append a DEL byte.  No sync bytes in front, they
-                # aren't useful for async connections.
-                msg = msg + DEL1
-                if logging.tracing:
-                    pktlogging.tracepkt ("Sending packet on {}"
-                                         .format (self.name), msg)
-                self.serial.write (msg)
-            elif self.tcp:
-                msg = SYN4 + msg + DEL1
-                if self.telnet:
-                    msg = msg.replace (DEL1, DEL2)
-                if logging.tracing:
-                    pktlogging.tracepkt ("Sending packet on {}"
-                                         .format (self.name), msg)
-                self.socket.sendall (msg)
-            else:
-                if logging.tracing:
-                    pktlogging.tracepkt ("Sending packet on {}"
-                                         .format (self.name), msg)
-                self.socket.sendto (msg, (self.host.addr, self.rport))
-        except (OSError, AttributeError):
-            # AttributeError happens if socket has been changed to "None"
-            self.disconnected ()
-            return
         if timeout:
-            self.node.timers.start (self, timeout)
-
-    @setlabel ("Halted")
-    def s0 (self, data):
-        """State machine for the Halted state -- ignore all received
-        messages.  But handled HALTED status (completion of shutdown) by
-        cleaning up some state.  We stay in halted state for that, the
-        layer above will restart the circuit when it wants to.
-        """
-        if isinstance (data, datalink.DlStatus):
-            if self.rthread:
-                self.rthread.join (1)
-            self.rthread = None
-            # Pass this work item up to the routing layer
-            self.node.addwork (data, self.port.owner)
-        return None
-
-    def reconnect (self, data):
-        """State machine for the case where a connection failed (or was
-        never really made) during Istart.  That connection is closed, and
-        the receive thread exited, so we need to start that all over.
-        """
-        if isinstance (data, timers.Timeout):
-            self.port_open ()
-        # Anything other than timeout should not come here but is ignored.
-        return None    # no change in state
-
-    @setlabel ("TCP connecting")
-    def connecting (self, data):
-        """State machine for the connecting state -- this applies to TCP
-        mode operation while we're still looking for a connection from
-        the remote peer.  Since connection attempts go both ways, we handle
-        timeouts here, and resend the connect attempt if so.
-        """
-        if isinstance (data, timers.Timeout):
-            self.try_connect ()
-        # Anything other than timeout should not come here but is ignored.
-        return None    # no change in state
+            self.node.timers.jstart (self, timeout.next ())
 
     @setlabel ("Starting")
     def Istart (self, data):
@@ -912,11 +522,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         elif isinstance (data, Received):
             data = data.packet
             if isinstance (data, StartMsg):
+                self.stacktmr.reset ()
                 self.send_stack ()
-                return self.AStart
+                return self.Astart
             elif isinstance (data, StackMsg):
-                return self.running_state ()
+                return self.running_state (True)
             elif isinstance (data, MaintMsg):
+                self.init_state ()
+                self.set_state (self.Maint)
+                self.Maint (data)
                 return self.Maint
             else:
                 # Unexpected message, we use the option of ignoring it
@@ -924,11 +538,15 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 # That way, we don't generate a message flood if things
                 # get very confused.
                 pass
-        # By default, no state change
+        elif isinstance (data, datalink.ThreadExit):
+            self.reconnect ()
+        # By default, no state change.  Note that we don't need to
+        # handle a Restart work item since we're in the right state
+        # already.
         return None
 
     @setlabel ("Start ACK")
-    def AStart (self, data):
+    def Astart (self, data):
         """Astarted state -- we get here after the connection is up and we
         have sent the Stack message.
 
@@ -939,17 +557,19 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
         elif isinstance (data, Received):
             pkt = data.packet
             if isinstance (pkt, StackMsg):
-                return self.running_state ()
+                return self.running_state (True)
             elif isinstance (pkt, MaintMsg):
                 # Set state to Maintenance, then process the message
                 # as for that state
-                self.state = self.Maint
+                self.init_state ()
+                self.set_state (self.Maint)
                 self.Maint (data)
                 return self.state    # Make state change explicit in trace
-            elif isinstance (pkt, (AckMsg, DataMsg)):
-                # Set running state, stop the timer, then process
-                # the received data or ACK message as usual
-                self.state = self.running_state ()
+            elif isinstance (pkt, (AckMsg, DataMsg)) and pkt.resp == 0:
+                # Ack or data with RESP = 0, set running state, stop the
+                # timer, then process the received data or ACK message
+                # as usual
+                self.set_state (self.running_state (False))
                 self.running (data)
                 return self.state    # Make state change explicit in trace
             else:
@@ -958,20 +578,24 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 # That way, we don't generate a message flood if things
                 # get very confused.
                 pass
+        elif isinstance (data, datalink.Restart):
+            # Restart the DDCMP protocol.
+            return self.do_restart ()
+        elif isinstance (data, datalink.ThreadExit):
+            self.reconnect ()
         # By default, no state change
         return None
         
-    def running_state (self):
-        """Enter running state.
+    def running_state (self, ack):
+        """Enter running state.  "ack" is True to send Ack message.
         """
         # Tell the routing init layer that this datalink is running
-        if self.port:
-            self.node.addwork (datalink.DlStatus (self.port.owner,
-                                                  status = datalink.DlStatus.UP))
+        self.report_up ()
         logging.trace ("Enter DDCMP running state on {}", self.name)
         self.node.timers.stop (self)
-        # Send an ack to tell the other end
-        self.send_ack ()
+        if ack:
+            # Send an ack to tell the other end
+            self.send_ack ()
         # Return what we want for next state.
         return self.running
 
@@ -979,13 +603,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
     def running (self, data):
         if isinstance (data, Received):
             data = data.packet
-            if isinstance (data, MaintMsg):
-                # Set state to Maintenance, then process the message
-                # as for that state
-                self.state = self.Maint
-                self.Maint (data)
-                return self.state    # Make state change explicit in trace
-            elif isinstance (data, DataMsg):
+            if isinstance (data, DataMsg):
                 # Process the ack (the resp field) unconditionally
                 self.process_ack (data)
                 # Check the sequence number
@@ -998,9 +616,6 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 self.ackflag = True
                 # Pass the payload up to our client.
                 msg = data.payload
-                if logging.tracing:
-                    logging.trace ("Received DDCMP message on {} len {}: {!r}",
-                                   self.name, len (msg), msg)
                 if self.port:
                     self.counters.bytes_recv += len (msg)
                     self.counters.pkts_recv += 1
@@ -1010,20 +625,39 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             elif isinstance (data, AckMsg):
                 self.process_ack (data)
             elif isinstance (data, NakMsg):
+                # Count the error reported by the other side
+                try:
+                    d_err, bit = nak_map[data.subtype]
+                    if d_err:
+                        self.counters.data_errors_outbound += (1, bit)
+                    else:
+                        self.counters.remote_buffer_errors += (1, bit)
+                except KeyError:
+                    pass
                 # A Nak acknowledges everything preceding the error
                 if self.process_ack (data):
                     # Now retransmit the rest, given that it was a good Nak
                     # (i.e., resp field is in the correct range)
                     self.retransmit ()
             elif isinstance (data, RepMsg):
+                self.counters.remote_reply_timeouts += 1
                 if data.num == self.r:
                     self.ackflag = True
                 else:
                     # Rep number does not match our latest, send NAK
+                    self.counters.data_errors_inbound += (1, DE_REP)
                     self.send_nak (R_REP)
+            elif isinstance (data, MaintMsg):
+                # Set state to Maintenance, then process the message
+                # as for that state
+                self.init_state ()
+                self.report_down ()
+                self.set_state (self.Maint)
+                self.Maint (data)
+                return self.state    # Make state change explicit in trace
             elif isinstance (data, StartMsg):
-                # Start while running, halt the circuit
-                self.disconnected ()
+                # Start while running, restart the circuit
+                self.do_restart ()
                 return
             elif isinstance (data, StackMsg):
                 # Send another ACK
@@ -1040,6 +674,12 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
                 # to process that even though there was an error elsewhere.
                 self.process_ack (data)
             self.send_nak (data.code)
+        elif isinstance (data, datalink.Restart):
+            # Restart the protocol.
+            return self.do_restart ()
+        elif isinstance (data, datalink.ThreadExit):
+            self.reconnect ()
+            return None
         # Done processing the incoming event.  If we now have an ACK to
         # send, that means this wasn't satisfied by an outgoing data
         # message that resulted from what we just did, so send an
@@ -1051,15 +691,11 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     def send_start (self):
         msg = StartMsg ()
-        if self.tcp or self.serial:
-            tmo = STACKTMR
-        else:
-            tmo = random.random () * UDPTMR + UDPTMR
-        self.sendmsg (msg, tmo)
+        self.sendmsg (msg, self.stacktmr)
 
     def send_stack (self):
         msg = StackMsg ()
-        self.sendmsg (msg, STACKTMR)
+        self.sendmsg (msg, self.stacktmr)
 
     def send_ack (self):
         msg = AckMsg ()
@@ -1073,7 +709,7 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
 
     def send_rep (self):
         msg = RepMsg (num = self.n)
-        self.sendmsg (msg)
+        self.sendmsg (msg, self.acktmr)
 
     def process_ack (self, msg):
         # Process the ACK field (resp field) in the supplied message.
@@ -1101,12 +737,14 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             # actually do that.
         if self.a != self.n:
             # Some messages remain pending, restart the timer
-            self.node.timers.start (self, ACKTMR)
+            self.node.timers.jstart (self, self.acktmr.next ())
         else:
             # No transmits pending, stop timer
             self.node.timers.stop (self)
+            # Reinitialize the backoff timer to the minimum
+            self.acktmr.reset ()
         # If we now can transmit more (because the number of pending
-        # messages is < 255) and there are messages waiting, send
+        # messages is < qmax) and there are messages waiting, send
         # them now.  More precisely, if the message we just processed
         # was a NAK, append them to the end of the unacknowledged message
         # queue because the next action will be to retransmit all that is
@@ -1133,28 +771,36 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             t += 1
             msg = self.unack[t]
             assert (msg)
-            self.sendmsg (msg)
+            self.sendmsg (msg, self.acktmr)
             
     @setlabel ("Maintenance")
     def Maint (self, data):
-        if isinstance (data, MaintMsg):
-            # Pass the payload up to our client.
-            msg = data.payload
-            logging.trace ("Received DDCMP maintenance message on {} len {}: {!r}",
-                           self.name, len (msg), msg)
-            # We don't have any way to open maintenance ports yet, so
-            # for now just discard the packet.
-            if False: #self.port:
-                self.counters.bytes_recv += len (msg)
-                self.counters.pkts_recv += 1
-                self.node.addwork (Received (self.port.owner, packet = msg))
-            else:
-                logging.trace ("Message discarded, no port open")
-        elif isinstance (data, StartMsg):
-            # The spec says to "notify" the user.  There isn't any
-            # obvious way to do that, so instead let's halt if we get
-            # a Start.
-            self.disconnected ()
+        if isinstance (data, Received):
+            data = data.packet
+            if isinstance (data, MaintMsg):
+                # Pass the payload up to our client.
+                msg = data.payload
+                logging.trace ("Received DDCMP maintenance message on {} len {}: {!r}",
+                               self.name, len (msg), msg)
+                # We don't have any way to open maintenance ports yet, so
+                # for now just discard the packet.
+                if False: #self.port:
+                    self.counters.bytes_recv += len (msg)
+                    self.counters.pkts_recv += 1
+                    self.node.addwork (Received (self.port.owner, packet = msg))
+                else:
+                    logging.trace ("Message discarded, no port open")
+            elif isinstance (data, StartMsg):
+                # The spec says to "notify" the user.  There isn't any
+                # obvious way to do that, so instead let's restart if we
+                # get a Start.
+                self.do_restart ()
+        elif isinstance (data, datalink.Restart):
+            # Restart the protocol.
+            return self.do_restart ()
+        elif isinstance (data, datalink.ThreadExit):
+            self.reconnect ()
+            return None
         return None
         
     def send (self, data, dest = None, queue = False):
@@ -1185,5 +831,456 @@ class DDCMP (datalink.PtpDatalink, statemachine.StateMachine):
             assert (self.unack[self.n] is None)
             self.unack[self.n] = msg
             if not queue:
-                self.sendmsg (msg)
-            
+                self.sendmsg (msg, self.acktmr)
+
+class _SerialDDCMP (_DDCMP):
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        proto, *rest = config.device.split (':')
+        if not rest or len (rest) > 3:
+            raise ValueError ("Invalid serial device spec {}".format (config.device))
+        self.dev = rest[0]
+        self.uart = None
+        if len (rest) > 1:
+            self.speed = int (rest[1])
+            if len (rest) > 2:
+                if not UART:
+                    raise ValueError ("BeagleBone UART module not available")
+                self.uart = rest[2]
+        else:
+            self.speed = 9600
+        if self.uart:
+            UART.setup (self.uart)
+        logging.trace ("DDCMP datalink {} initialized on uart {}"
+                       " speed {}", self.name, self.dev, self.speed)
+
+    def connect (self):
+        # Open the serial link.  Note that we're after the point where
+        # the process is made into a daemon, if applicable, which is
+        # important so open file descriptors stay open.
+        self.serial = serial.Serial (port = self.dev, baudrate = self.speed,
+                      parity = 'N', bytesize = 8, timeout = 5)
+        logging.trace ("Opened serial port {}, speed {}", self.dev, self.speed)
+    
+    def disconnect (self):
+        try:
+            self.serial.close ()
+        except Exception:
+            pass
+        self.serial = None
+
+    def check_connection (self):
+        logging.trace ("DDCMP {} listen on UART {} active",
+                       self.name, self.dev)
+        return True
+
+    def readbytes (self, n):
+        ret = b''
+        while len (ret) < n:
+            if self.rthread and self.rthread.stopnow:
+                raise IOError
+            ret += self.serial.read (n - len (ret))
+        return ret
+    
+    def receive_loop (self):
+        self.insync = False
+        # Start looking for messages.
+        while True:
+            # Get a good header
+            try:
+                c = self.header_search ()
+            except IOError:
+                # Stop signal, quit
+                return
+            # Decode via the header base class, which will
+            # identify the actual message type using packet
+            # class indexing and return that.  Tell decode
+            # that the header CRC has already been checked.
+            try:
+                pkt, x = DMHdr.decode (c, self.readbytes, False)
+                self.handle_pkt (pkt, c)
+            except DecodeError as e:
+                logging.tracepkt ("Invalid packet: {}", e, pkt = c)
+
+    def sendmsg (self, msg, timeout):
+        super ().sendmsg (msg, timeout)
+        # Just encode the message; CRCs are handled by the encoder.
+        msg = msg.encode ()
+        try:
+            # Append a DEL byte.  No sync bytes in front, they
+            # aren't useful for async connections.
+            msg = msg + DEL1
+            if logging.tracing:
+                logging.tracepkt ("Sending packet on {}",
+                                  self.name, pkt = msg)
+            self.serial.write (msg)
+        except (OSError, AttributeError):
+            # AttributeError happens if self.serial has been changed
+            # to "None"
+            return
+
+
+class _TcpDDCMP (_DDCMP):
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        # TCP uses different timeouts because the underlying channel
+        # also does retransmissions.
+        self.acktmr = Backoff (5, 60)
+        self.stacktmr = Backoff (5, 120)
+        self.conntmr = Backoff (5, 120)
+        proto, *rest = config.device.split (':')
+        proto = proto.lower ()
+        lport, host, rport = rest
+        self.telnet = (proto == "telnet")
+        self.lport = int (lport)
+        self.host = datalink.HostAddress (host)
+        self.rport = int (rport)
+        # All set
+        logging.trace ("DDCMP datalink {} initialized using {} on "
+                       "port {} to {}:{}", self.name, proto, self.lport,
+                       host, self.rport)
+
+    def connect (self):
+        # We'll try for either outbound or incoming connections, whichever
+        # appears first.  Create the inbound (listen) socket here.
+        self.socket = socket.socket (socket.AF_INET)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Refresh the name to address mapping.  This isn't needed for the
+        # initial open but we want this for a subsequent one, because
+        # a restart of the circuit might well have been caused by an
+        # address change of the other end.
+        self.host.lookup ()
+        try:
+            self.socket.bind (("", self.lport))
+            self.socket.listen (1)
+        except (AttributeError, OSError, socket.error):
+            logging.trace ("DDCMP {} bind/listen failed", self.name)
+            if self.socket:
+                self.socket.close ()
+            return
+        logging.trace ("DDCMP {} listen on {} active",
+                       self.name, self.lport)
+        self.connsocket = socket.socket (socket.AF_INET)
+        self.connsocket.setblocking (False)
+        try:
+            self.connsocket.connect ((self.host.addr, self.rport))
+            logging.trace ("DDCMP {} connect to {} {} in progress",
+                           self.name, self.host.addr, self.rport)
+        except socket.error as e:
+            if e.errno == errno.EINPROGRESS:
+                logging.trace ("DDCMP {} connect to {} {} in progress",
+                               self.name, self.host.addr, self.rport)
+            else:
+                logging.trace ("DDCMP {} connect to {} {} rejected",
+                               self.name, self.host.addr, self.rport)
+                self.connsocket = None
+        except AttributeError:
+            self.connsocket = None
+        # Wait a random time, initially in the 5 second range but
+        # slowing down as we do more retries, for the outbound
+        # connection to succeed.  If we get a timeout, give up on it and
+        # try again.
+        self.node.timers.jstart (self, self.conntmr.next ())
+
+    def check_connection (self):
+        self.insync = False
+        poll = select.poll ()
+        sfn = self.socket.fileno ()
+        if self.connsocket:
+            cfn = self.connsocket.fileno ()
+            poll.register (cfn, select.POLLOUT | select.POLLERR)
+        else:
+            cfn = None
+        poll.register (sfn, select.POLLIN | select.POLLERR)
+        # We try to establish an outgoing connection while also looking
+        # for an incoming one, so look for both ready to read on the
+        # listen socket (incoming) and ready to write on the connect socket
+        # (outbound connect completed).
+        connected = False
+        while not connected:
+            plist = poll.poll (1)
+            if self.rthread and self.rthread.stopnow:
+                return False
+            for fd, event in plist:
+                if event & select.POLLERR:
+                    return False
+                if fd == cfn:
+                    if event & select.POLLHUP:
+                        # Connection was closed, ignore this.  Do the
+                        # full cleanup just in case the OS likes it
+                        # better that way.
+                        try:
+                            self.connsocket.shutdown (socket.SHUT_RDWR)
+                        except Exception:
+                            pass
+                        self.connsocket.close ()
+                        self.connsocket = None
+                        poll.unregister (cfn)
+                        continue
+                    # Outbound connection went through.  Stop listening,
+                    # and use that connection for data.
+                    self.socket.close ()
+                    self.socket = self.connsocket
+                    self.socket.setblocking (True)
+                    self.connsocket = None
+                    logging.trace ("DDCMP {} outbound connection made", self.name)
+                    # Drop out of the outer loop
+                    connected = True
+                    break
+                elif fd == sfn:
+                    # Ready on inbound socket.  Accept the connection.
+                    try:
+                        sock, ainfo = self.socket.accept ()
+                        host, port = ainfo
+                        if self.host.valid (host):
+                            # Good connection, stop looking
+                            self.socket.close ()
+                            if self.connsocket:
+                                try:
+                                    # Just in case there's an active
+                                    # connection on that socket right
+                                    # now.
+                                    self.connsocket.shutdown (socket.SHUT_RDWR)
+                                except Exception:
+                                    pass
+                                self.connsocket.close ()
+                            # The socket we use from now on is the data socket
+                            self.socket = sock
+                            self.connsocket = None
+                            logging.trace ("DDCMP {} inbound connection accepted",
+                                           self.name)
+                            # Drop out of the outer loop
+                            connected = True
+                            break
+                        # If the connect is from someplace we don't want
+                        logging.trace ("DDCMP {} connect received from "
+                                       "unexpected address {}", self.name, host)
+                        sock.close ()
+                    except (OSError, socket.error):
+                        return False
+        logging.trace ("DDCMP {} connected", self.name)
+        self.conntmr.reset ()
+        return True
+
+    def readbytes (self, sz):
+        """Receive "sz" bytes of data from the socket.  This waits until
+        it has that much available.  If the connection was closed, raises
+        OSError; otherwise, it returns exactly the amount requested.
+        """
+        if self.telnet:
+            p = b''
+            while len (p) < sz:
+                b = self.recvall (sz - len (p))
+                # Handle escapes.  Note that we only handles escaped
+                # 377, not any other Telnet control codes.
+                e = b.count (DEL1)
+                if e & 1:
+                    b2 = self.recvall (1)
+                    b += b2
+                if e:
+                    b = b.replace (DEL2, DEL1)
+                p += b
+        else:
+            p = self.recvall (sz)
+        return p
+    
+    def receive_loop (self):
+        poll = select.poll ()
+        sock = self.socket
+        sfn = sock.fileno ()
+        poll.register (sfn, select.POLLIN | select.POLLERR)
+        # Start looking for messages.
+        while True:
+            plist = poll.poll (1)
+            for fd, event in plist:
+                if event & select.POLLERR:
+                    return
+                # Not error, so it's incoming data.  Get a good header
+                try:
+                    c = self.header_search ()
+                except IOError:
+                    # Stop signal or connection lost, quit
+                    return
+                # Decode via the header base class, which will
+                # identify the actual message type using packet
+                # class indexing and return that.  Tell decode
+                # that the header CRC has already been checked.
+                try:
+                    pkt, x = DMHdr.decode (c, self.readbytes, False)
+                    if logging.tracing and isinstance (pkt, BaseDataMsg):
+                        # We want to log the packet, make sure the
+                        # payload is included as part of the log
+                        # message.  (The "c" argument to handle_pkt is
+                        # used for a tracepkt call; the message
+                        # dispatching uses the "pkt" argument.)
+                        c = (c, pkt.payload)
+                    self.handle_pkt (pkt, c)
+                except DecodeError as e:
+                    logging.tracepkt ("Invalid packet: {}", e, pkt = c)
+
+    def disconnect (self):
+        try:
+            self.socket.shutdown (socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            self.socket.close ()
+        except Exception:
+            pass
+        try:
+            self.connsocket.shutdown (socket.SHUT_RDWR)
+        except Exception:
+            pass
+        try:
+            self.connsocket.close ()
+        except Exception:
+            pass
+        self.socket = self.connsocket = None
+
+    def sendmsg (self, msg, timeout):
+        super ().sendmsg (msg, timeout)
+        # Just encode the message; CRCs are handled by the encoder.
+        msg = msg.encode ()
+        try:
+            msg = SYN4 + msg + DEL1
+            if self.telnet:
+                msg = msg.replace (DEL1, DEL2)
+            if logging.tracing:
+                logging.tracepkt ("Sending packet on {}",
+                                  self.name, pkt = msg)
+            self.socket.sendall (msg)
+        except (OSError, AttributeError):
+            # AttributeError happens if socket has been changed to "None"
+            self.reconnect ()
+            return
+
+class _UdpDDCMP (_DDCMP):
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        proto, *rest = config.device.split (':')
+        lport, host, rport = rest
+        self.lport = int (lport)
+        self.host = datalink.HostAddress (host)
+        self.rport = int (rport)
+        # All set
+        logging.trace ("DDCMP datalink {} initialized using UDP on "
+                       "port {} to {}:{}", self.name, self.lport,
+                       host, self.rport)
+
+    def connect (self):
+        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
+                                     socket.IPPROTO_UDP)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Refresh the name to address mapping.  This isn't needed for the
+        # initial open but we want this for a subsequent one, because
+        # a restart of the circuit might well have been caused by an
+        # address change of the other end.
+        self.host.lookup ()
+        try:
+            self.socket.bind (("", self.lport))
+        except (AttributeError, OSError, socket.error):
+            logging.trace ("DDCMP {} bind {} failed", self.name, self.lport)
+            raise
+            if self.socket:
+                self.socket.close ()
+
+    def disconnect (self):
+        try:
+            self.socket.close ()
+        except Exception:
+            pass
+        self.socket = None
+
+    def check_connection (self):
+        logging.trace ("DDCMP {} UDP on to {} active",
+                       self.name, self.rport)
+        return True
+    
+    def receive_loop (self):
+        poll = select.poll ()
+        sock = self.socket
+        sfn = sock.fileno ()
+        poll.register (sfn, select.POLLIN | select.POLLERR)
+        # Start looking for messages.
+        while True:
+            plist = poll.poll (1)
+            if self.rthread and self.rthread.stopnow:
+                return
+            for fd, event in plist:
+                if event & select.POLLERR:
+                    return
+                # Not error, so it's incoming data.  Get the UDP packet
+                try:
+                    # Allow for a max length DDCMP data message plus some sync
+                    msg, addr = sock.recvfrom (16400)
+                except OSError:
+                    msg = None
+                if not msg:
+                    return
+                for i in range (len (msg)):
+                    h = msg[i]
+                    if h == SYN or h == DEL:
+                        # sync or fill, skip it
+                        continue
+                    if h == ENQ or h == SOH or h == DLE:
+                        # Packet start, process it
+                        break
+                    # Something else, error
+                    i = len (msg)
+                    break
+                try:
+                    c = msg[i:]
+                    if not c:
+                        # No valid header found, ignore whatever this is.
+                        continue
+                    if len (c) < HDRLEN:
+                        # Not enough data to make a valid DDCMP header.
+                        # Call it a header CRC error since that's what
+                        # the real hardware would do (it would read past
+                        # the data we found, picking up garbage bytes to
+                        # make up the missing amount).
+                        raise HdrCrcError
+                    pkt, x = DMHdr.decode (c)
+                except HdrCrcError:
+                    # Header CRC is bad.  Report it.
+                    logging.tracepkt ("Header CRC error", pkt = c)
+                    self.counters.data_errors_inbound += (1, DE_HCRC)
+                    self.node.addwork (Err (self, R_HCRC))
+                    continue
+                except DecodeError as e:
+                    logging.tracepkt ("Invalid packet: {}", e, pkt = c)
+                    self.node.addwork (Err (self, R_FMT))
+                    continue
+                self.handle_pkt (pkt, c)
+
+    def sendmsg (self, msg, timeout):
+        super ().sendmsg (msg, timeout)
+        # Just encode the message; CRCs are handled by the encoder.
+        msg = msg.encode ()
+        try:
+            if logging.tracing:
+                logging.tracepkt ("Sending packet on {}",
+                                  self.name, pkt = msg)
+            self.socket.sendto (msg, (self.host.addr, self.rport))
+        except (OSError, AttributeError):
+            # AttributeError happens if socket has been changed to "None"
+            self.reconnect ()
+            return
+
+# Factory class -- returns an instance of the appropriate _DDCMP
+# subclass instance given the specific device flavor specified.
+class DDCMP (datalink.Datalink):
+    def __new__ (cls, owner, name, config):
+        api, dev = config.device.split (":", 1)
+        api = api.lower ()
+        if api == "serial":
+            if not serial:
+                raise ValueError ("Serial port support not available")
+            c = _SerialDDCMP
+        elif api == "tcp" or api == "telnet":
+            c = _TcpDDCMP
+        elif api == "udp":
+            c = _UdpDDCMP
+        else:
+            raise ValueError ("Unknown DDCMP circuit subtype {}".format (api))
+        return c (owner, name, config)

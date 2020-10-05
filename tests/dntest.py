@@ -7,6 +7,7 @@ import random
 import collections
 from collections.abc import Sequence
 import re
+import queue
 
 import unittest
 import unittest.mock
@@ -20,6 +21,7 @@ from decnet import events
 from decnet import node
 from decnet import event_logger
 from decnet import timers
+from decnet import datalink
 
 def testcases (tests):
     for t in tests:
@@ -45,17 +47,66 @@ def randpkt (minlen, maxlen):
     i = random.getrandbits (plen * 8)
     return i.to_bytes (plen, "little")
 
+def testsdu (num = 0):
+    "Generate test payload (SDU)"
+    # If the argument is omitted or zero, a standard string is
+    # returned.  Otherwise the payload is the supplied number encoded
+    # as a 4 byte integer.
+    if num:
+        return num.to_bytes (4, "little")
+    return b"four score and seven years ago"
+
 class container (object):
     """An empty object, but you can assign attributes to it."""
 
 def start_timer (item, timeout):
-    #print ("starting timeout {} on {}", timeout, item)
+    logging.trace ("starting timeout {} on {}", timeout, item)
     item.next = False
     
 def stop_timer (item):
-    #print ("stopping timer on {}", item)
+    logging.trace ("stopping timer on {}", item)
     item.next = item
-    
+
+class Dispatcher:
+    def __init__ (self):
+        self.workqueue = queue.Queue ()
+        # Initially dispatching is enabled.  It may be that some test
+        # cases will want to turn it off for specific reasons.
+        self.do_dispatch = True
+        self.working = False
+        
+    def addwork (self, work, handler = None):
+        """Add a work item (instance of a Work subclass) to the node's
+        work queue.  This can be called from any thread.  If "handler"
+        is specified, set the owner of the work item to that value,
+        overriding the handler specified when the Work object was created.
+        """
+        # This method adapted from decnet.node
+        if handler is not None:
+            work.owner = handler
+        logging.trace ("Add work {} of {}", work, work.owner)
+        self.workqueue.put (work)
+        if self.do_dispatch:
+            self.dispatch ()
+
+    def dispatch (self):
+        # If we're not currently in a work item, dispatch any queued
+        # work items, one by one.  This is called from addwork if
+        # dispatching is enabled, and can also be called at any time
+        # (useful if dispatching is disabled) to cause queued but not
+        # dispatched work items to be dispatched at that time.
+        if not self.working:
+            self.working = True
+            while True:
+                try:
+                    item = self.workqueue.get (0)
+                    logging.trace ("dispatch work {} of {}", item, item.owner)
+                    item.dispatch ()
+                    logging.trace ("finished work {} of {}", item, item.owner)
+                except queue.Empty:
+                    break
+            self.working = False
+
 class t_node (node.Node):
     nodeid = Nodeid (1, 5)
     nodename = "NEMO"
@@ -65,8 +116,12 @@ class t_node (node.Node):
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
         self.addwork = unittest.mock.Mock ()
+        self.dispatcher = Dispatcher ()
+        self.addwork.side_effect = self.dispatcher.addwork
         self.timers = unittest.mock.Mock ()
         self.timers.start.side_effect = start_timer
+        # Don't model the jitter, just make this like regular start
+        self.timers.jstart.side_effect = start_timer
         self.timers.stop.side_effect = stop_timer
         self.dispatch = unittest.mock.Mock ()
         self.ecounts = collections.Counter ()
@@ -75,9 +130,8 @@ class t_node (node.Node):
         self.nicenode = NiceNode (self.nodeid, self.nodename)
         
     def start (self, mainthread = False): pass
-    def mainloop (self): raise Exception
     def stop (self): pass
-
+        
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
             event.setsource (self.nodeid)
@@ -87,14 +141,8 @@ class t_node (node.Node):
         self.elist.append (event)
         super ().logevent (event, entity, **kwds)
 
-    def addwork_dispatcher (self, work, handler = None):
-        # This method is used as the side effect of "addwork" if a
-        # particular test actually needs to dispatch work items to
-        # their handler.
-        work.dispatch ()
-
-    def enable_dispatcher (self):
-        self.addwork.side_effect = self.addwork_dispatcher
+    def enable_dispatcher (self, enable = True):
+        self.dispatcher.do_dispatch = enable
         
 class DnTest (unittest.TestCase):
     loglevel = logging.CRITICAL
@@ -102,7 +150,8 @@ class DnTest (unittest.TestCase):
     def setUp (self):
         """Common setup for DECnet/Python test cases.
         """
-        self.node = t_node ()
+        global node
+        node = self.node = t_node ()
         self.node.logevent = unittest.mock.Mock (wraps = self.node.logevent)
         self.lpatches = list ()
         for n in ("critical", "error", "warning", "info", "debug",
@@ -121,7 +170,10 @@ class DnTest (unittest.TestCase):
     def setloglevel (self, level):
         logging.logging.getLogger ().setLevel (level)
         logging.tracing = True
-        
+
+    def trace (self):
+        # A shortcut for something we use during debug
+        self.setloglevel (logging.TRACE)
     def tearDown (self):
         logging.logging.shutdown ()
         for p in self.lpatches:
@@ -144,17 +196,30 @@ class DnTest (unittest.TestCase):
         self.assertIsInstance (w, ptype)
         return w, dest
 
-    def lastwork (self, calls, back = 0, itype = Received):
-        # The work we expect to be posted comes from a separate
-        # thread, which means it might not be here quite yet.  Allow
-        # for that.
-        if self.node.addwork.call_count != calls:
+    def lastdispatch (self, calls, element = None, back = 0,
+                      itype = packet.Packet):
+        # Check the count of work items that have been delivered to
+        # the element (by default the node) and return the most recent
+        # item, or n items back from most recent if back is given.
+        # Verify that the item is of type itype.
+        #
+        # In earlier code, a similar check was done that looked at the
+        # node.addwork calls.  That is more problematic because a
+        # number of layers use work items internally, and all work
+        # items go through that call.  We are interested not so much
+        # in the internals but rather in work items delivered to the
+        # next layer, which is what checking for dispatched items will
+        # do.
+        element = element or self.node
+        if element.dispatch.call_count != calls:
             time.sleep (0.1)
-        self.assertEqual (self.node.addwork.call_count, calls)
+        self.assertEqual (element.dispatch.call_count, calls)
+        if not calls:
+            return None
         if back:
-            a, k = self.node.addwork.call_args_list[-1 - back]
+            a, k = element.dispatch.call_args_list[-1 - back]
         else:
-            a, k = self.node.addwork.call_args
+            a, k = element.dispatch.call_args
         w = a[0]
         self.assertIsInstance (w, itype)
         return w
@@ -190,14 +255,10 @@ class DnTest (unittest.TestCase):
             value = p.values[value]
         self.assertEqual (p, value)
 
-    def lastdispatch (self, calls, element = None):
-        element = element or self.node
-        self.assertEqual (element.dispatch.call_count, calls)
-        a, k = element.dispatch.call_args
-        w = a[0]
-        self.assertIsInstance (w, packet.Packet)
-        return w
-
+    def assertUp (self, count = 1):
+        w = self.lastdispatch (count, itype = datalink.DlStatus)
+        self.assertEqual (w.status, w.UP)
+        
     def eventcount (self, ec):
         return self.node.ecounts[ec]
     
@@ -273,6 +334,8 @@ def nextport ():
 def DnTimeout (dest):
     assert (dest.islinked ())
     stop_timer (dest)
-    t = timers.Timeout (dest, dest.revcount)
-    t.dispatch ()
-    
+    # Timeouts are delivered through the work queue in the real
+    # system, and we need to do that here as well to make sure proper
+    # sequentiality is maintained.
+    logging.trace ("Queueing Timeout")
+    node.addwork (timers.Timeout (dest, dest.revcount))

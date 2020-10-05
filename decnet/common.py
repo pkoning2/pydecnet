@@ -455,6 +455,19 @@ class Macaddr (Field, bytes):
 
     __repr__ = __str__
 
+    def __format__ (self, f):
+        """Convert the address to string form; the format character is
+        the separator.  If omitted the default (dash) is used.  But "x"
+        means to return it as a hex string with 0x prefix and no
+        separators.
+        """
+        ret = str (self)
+        if f == "x":
+            ret = "0x" + ret.replace ("-", "")
+        elif f:
+            ret = ret.replace ("-", f)
+        return ret
+    
     def islocal (self):
         """True if the address is from the locally administered address space."""
         return (self[0] & 0x02) != 0
@@ -503,6 +516,19 @@ class Ethertype (Field, bytes):
 
     __repr__ = __str__
 
+    def __format__ (self, f):
+        """Convert the type to string form; the format character is
+        the separator.  If omitted the default (dash) is used.  But "x"
+        means to return it as a hex string with 0x prefix and no
+        separators.
+        """
+        ret = str (self)
+        if f == "x":
+            ret = "0x" + ret.replace ("-", "")
+        elif f:
+            ret = ret.replace ("-", f)
+        return ret
+    
 # Well known protocol types
 MOPDLPROTO   = Ethertype ("60-01")
 MOPCONSPROTO = Ethertype ("60-02")
@@ -640,8 +666,12 @@ class StopThread (threading.Thread):
         handling of "stopnow" needs to go into the class that uses this.
 
         If "wait" is True, wait for the thread to exit.
+
+        This method returns True if the thread was active, False if not.
         """
-        if not self.stopnow and self.isAlive ():
+        if not self.isAlive ():
+            return False
+        if not self.stopnow:
             self.stopnow = True
             if wait:
                 self.join (10)
@@ -650,6 +680,7 @@ class StopThread (threading.Thread):
                                    self.name)
                 else:
                     logging.trace ("Thread {} stopped", self.name)
+        return True
 
 class WorkHandler (object):
     """A simple object that accepts a work item as Element would, and
@@ -835,3 +866,32 @@ class Histogram (collections.Counter):
         "Count a delta-t value in 0.1 second increments"
         self[round (dt * 10)] += 1
         
+class Backoff:
+    "A simple object to provide binary exponential backoff values"
+    def __init__ (self, low, high = None):
+        """Like range() this takes one or two arguments.  If one
+        argument is supplied, that is the upper bound and the lower
+        bound is 1.  Otherwise, the first argument is the lower bound
+        and the second is the upper bound.
+        """
+        if high is None:
+            low, high = 1, low
+        assert low < high and low > 0
+        self.low = self.current = low
+        self.high = high
+        self.tries = 0
+
+    def __next__ (self):
+        ret = self.current
+        self.current = min (self.current * 2, self.high)
+        self.tries += 1
+        return ret
+
+    def reset (self):
+        self.current = self.low
+        self.tries = 0
+
+    def next (self):
+        # Because I always forget whether next is a function or a method
+        return next (self)
+    
