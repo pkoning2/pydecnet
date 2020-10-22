@@ -179,6 +179,9 @@ cp.add_argument ("device", help = "Device or connection string")
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (range 1..25, default 4)",
                  choices = range (1, 26), default = 4)
+cp.add_argument ("--latency", type = int, metavar = "L",
+                 choices = range (1, 440),
+                 help = "Circuit latency in ms (range 1..439), used to compute cost")
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval "
                  "(overrides exec setting)")

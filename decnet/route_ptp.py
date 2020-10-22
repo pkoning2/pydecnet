@@ -1037,7 +1037,7 @@ class PtpCircuit (statemachine.StateMachine):
             t4 = self.adj.t4
         else:
             t4 = "-"
-        return [ self.name, self.config.cost, neighbor, ntype,
+        return [ self.name, self.cost, neighbor, ntype,
                  self.t3, self.blksize, t4, self.tiver,
                  self.state.label ]
 
@@ -1074,7 +1074,7 @@ class PtpCircuit (statemachine.StateMachine):
                         # status
                         r.block_size = self.blksize
             elif req.char ():
-                r.cost = self.config.cost
+                r.cost = self.cost
                 r.hello_timer = self.t3
                 if self.state.nice_code == None:
                     # Running, fill in listen timer.  Yes, that's a
@@ -1088,7 +1088,7 @@ class PtpCircuit (statemachine.StateMachine):
         ret = { "name" : self.name,
                 "state" : self.state.__name__,
                 "hello_timer" : self.t3,
-                "cost" : self.config.cost }
+                "cost" : self.cost }
         if self.state == self.ru:
             ntype = ntypestrings[self.ntype]
             if self.rphase == 3:

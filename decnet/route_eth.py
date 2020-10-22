@@ -184,7 +184,7 @@ class LanCircuit (timers.Timer):
         else:
             dr = ""
         # This needs to return a list not a tuple
-        return [ self.name, self.datalink.macaddr, self.config.cost,
+        return [ self.name, self.datalink.macaddr, self.cost,
                  self.config.priority, self.t3, dr ]
     
     def nice_read (self, req, resp):
@@ -203,7 +203,7 @@ class LanCircuit (timers.Timer):
                     # Fill in hops/cost in case we're not getting this
                     # from the routing table.
                     r.hops = 1
-                    r.cost = self.config.cost
+                    r.cost = self.cost
         elif isinstance (req, nicepackets.NiceReadCircuit):
             cn = str (self)
             if req.counters ():
@@ -233,7 +233,7 @@ class LanCircuit (timers.Timer):
                 r.state = 0   # on
             elif req.char ():
                 r.hello_timer = self.t3
-                r.cost = self.config.cost
+                r.cost = self.cost
                 self.extrachar (r)
                 # The spec says DR is a status, but RSX and VMS
                 # implement it as characteristic.  Doing it as status
@@ -463,7 +463,7 @@ class RoutingLanCircuit (LanCircuit):
                 "is_dr" : self.isdr,
                 "hello_timer" : self.t3,
                 "priority" : self.prio,
-                "cost" : self.config.cost }
+                "cost" : self.cost }
         if self.dr:
             ret["designated_router"] = self.dr
         if self.adjacencies:

@@ -283,7 +283,15 @@ usually done with TCP but may be needed with the RSX implementation of
 Multinet.
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
-default is 4.  
+default is 4.
+
+--latency: Circuit round-trip latency, used to compute cost via the
+formula recommended by Johnny Billquist.  Units are milliseconds, in
+the range 1 to 439.  The intent is to measure (with ping or
+equivalent) the round trip latency to the destination of this circuit,
+and use the measured latency as the argument.  PyDECnet will then
+compute the cost to be used.  This parameter is legal for LAN circuits
+but not really sensible there.
 
 --t1: Background routing message interval override.  Argument is an
 integer.  Default is the routing setting of t1 or bct1, depending on
