@@ -1,0 +1,13 @@
+[Unit]
+Description=PyDECnet service script for node SAMPLE
+After=syslog.target network.target
+
+[Service]
+Type=simple
+PIDFile=pydecnet.pid
+ExecStart=/usr/local/bin/pydecnet /etc/sysconfig/decnet/pydecnet.conf --log-file /var/log/decnet/sample.log --keep 3 --daemon
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
