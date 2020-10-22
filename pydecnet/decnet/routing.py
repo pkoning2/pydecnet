@@ -130,7 +130,12 @@ class Circuit (Element):
         self.routing = parent
         self.name = name
         self.config = config
-        self.cost = config.cost
+        if config.latency:
+            # Latency was supplied, calculate cost by the Johnny
+            # Billquist formula, see http://mim.update.uu.se/costs.htm
+            self.cost = 3 + config.latency // 20
+        else:
+            self.cost = config.cost
         self.t1 = config.t1
 
     def init_counters (self):
