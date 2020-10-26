@@ -53,6 +53,7 @@ class HostAddress (object):
             alist = socket.gethostbyname_ex (self.name)[2]
         except socket.gaierror:
             # Error in name resolution.  Return pref as the fallback
+            logging.exception ("Name lookup error on {}", self.name)
             return pref
         self.aset = frozenset (alist)
         self.any = self.aset == { "0.0.0.0" }
