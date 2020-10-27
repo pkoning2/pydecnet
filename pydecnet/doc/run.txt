@@ -55,7 +55,7 @@ The full set of command line options is:
 
 usage: pydecnet [-h] [-d] [--chroot P] [--uid UID] [--gid GID] [--pid-file FN]
                 [-L FN] [-e LV] [-S] [--syslog S] [--log-config LC] [-k KEEP]
-                [-H [CMD]] [-V]
+                [-H [CMD]] [-M N] [-V]
                 [CFN [CFN ...]]
 
 positional arguments:
@@ -80,13 +80,17 @@ optional arguments:
                         Requires a log file name to be specified.
   -H [CMD], --config-help [CMD]
                         Show configuration file help (for CMD if given)
+  -M N, --mac-address N
+                        MAC address calculator: argument is the node address
+                        to be converted.
   -V, --version         show program's version number and exit
 
-At least one configuration file argument must be supplied.  Each
-configuration file corresponds to a PyDECnet node to be run, so a
-typical invocation will have a single configuration file.  Refer to
-the documentation in "config.txt" for a full explanation of the format
-of a configuration file.
+Except when the -H, -M, or -V switches are used, at least one
+configuration file argument must be supplied.  Each configuration file
+corresponds to a PyDECnet node to be run, so a typical invocation will
+have a single configuration file.  Refer to the documentation in
+"config.txt" for a full explanation of the format of a configuration
+file.
 
 By default, PyDECnet runs in the foreground.  If --daemon is supplied,
 it runs as a daemon.  In that case, a log file name must be supplied
@@ -139,6 +143,10 @@ level different from INFO).
 
 The -H switch can be used to get usage information for each type of
 entry defined for the configuration files.
+
+The -M switch accesses the DECnet MAC address calculator.  The
+argument is a DECnet node ID in the usual form.  PyDECnet will print
+the corresponding MAC address (starting with AA-00-04-00) and exit.
 
 ****************************************************************
 

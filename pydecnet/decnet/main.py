@@ -92,6 +92,9 @@ dnparser.add_argument ("-k", "--keep", type = int, default = 0,
 dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        nargs = "?", const = "",
                        help = "Show configuration file help (for CMD if given)")
+dnparser.add_argument ("-M", "--mac-address", metavar = "N", type = Nodeid,
+                       help = """MAC address calculator: argument is the
+                              node address to be converted.""")
 
 class pidfile:
     def __init__ (self, args):
@@ -140,6 +143,11 @@ def main ():
             args = ( "-h", )
         p, msg = config.configparser.parse_args (args)
         print (msg)
+        return
+    if p.mac_address:
+        m = Macaddr (p.mac_address)
+        M = str (m).upper ()
+        print ("MAC address for {} is {} ({::})".format (p.mac_address, M, m))
         return
     if not p.configfile:
         print ("At least one config file argument must be specified")
