@@ -400,7 +400,7 @@ class _BridgeEth (_Ethernet):
             return
         try:
             self.socket.sendto (buf, (self.host.addr, self.rport))
-        except (IOError, socket.error) as e:
+        except (IOError, socket.error, TypeError) as e:
             pass
         
         

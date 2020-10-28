@@ -42,7 +42,7 @@ class HostAddress (object):
         self.next_check = 0
         self._addr = None
         self.anyok = any
-        self.lookup ()
+        self.lookup (False)
 
     def lookup (self, pref = None):
         """Look up the name in DNS.  Return one of the IP addresses
@@ -52,7 +52,11 @@ class HostAddress (object):
         try:
             alist = socket.gethostbyname_ex (self.name)[2]
         except socket.gaierror:
-            # Error in name resolution.  Return pref as the fallback
+            # Error in name resolution.  Return pref as the fallback.
+            # But if this is the call from the constructor, abort
+            # instead.
+            if pref is False:
+                raise
             logging.exception ("Name lookup error on {}", self.name)
             return pref
         self.aset = frozenset (alist)

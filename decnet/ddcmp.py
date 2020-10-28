@@ -974,7 +974,7 @@ class _TcpDDCMP (_DDCMP):
                 logging.trace ("DDCMP {} connect to {} {} rejected",
                                self.name, self.host.addr, self.rport)
                 self.connsocket = None
-        except AttributeError:
+        except (AttributeError, TypeError):
             self.connsocket = None
         # Wait a random time, initially in the 5 second range but
         # slowing down as we do more retries, for the outbound
@@ -1262,7 +1262,7 @@ class _UdpDDCMP (_DDCMP):
                 logging.tracepkt ("Sending packet on {}",
                                   self.name, pkt = msg)
             self.socket.sendto (msg, (self.host.addr, self.rport))
-        except (OSError, AttributeError):
+        except (OSError, AttributeError, TypeError):
             # AttributeError happens if socket has been changed to "None"
             self.reconnect ()
             return
