@@ -206,7 +206,7 @@ class DecnetLogRecord (logging.LogRecord):
                             c.append (".")
                     except IndexError:
                         n.append ("  ")
-                    if o == 8:
+                    if o == 7:
                         n.append ("")
                 ret.append ("{:04x}/ {} {}".format (ln,
                                                     " ".join (n),
