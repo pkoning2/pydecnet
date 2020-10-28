@@ -60,6 +60,7 @@ class rtest (DnTest):
         self.config.t1 = 300
         self.config.t3 = 10
         self.config.cost = 1
+        self.config.latency = None
         self.config.verify = self.verify
         self.r.phase = self.node.phase = self.phase
         self.r.tiver = self.tiver

@@ -81,7 +81,7 @@ class EthTest (DnTest):
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
         self.lastdispatch (1, rcirc, itype = Received)
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 1)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
         self.assertEqual (self.lport.counters.bytes_recv, 0)
@@ -91,7 +91,7 @@ class EthTest (DnTest):
         w = self.lastdispatch (1, lcirc, itype = Received)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 1)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 120)
         self.assertEqual (self.lport.counters.bytes_recv, 60)
@@ -114,7 +114,7 @@ class EthTest (DnTest):
         self.postPacket (b"\xab\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         self.lastdispatch (1, rcirc, itype = Received)
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 1)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
         self.assertEqual (self.rport.counters.bytes_recv, 60)
@@ -122,7 +122,7 @@ class EthTest (DnTest):
         self.postPacket (b"\x02\x03\x04\x05\x06\x07\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         self.lastdispatch (1, rcirc, itype = Received)
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 2)
         self.assertEqual (self.eth.counters.mcbytes_recv, 0)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
         self.assertEqual (self.rport.counters.bytes_recv, 60)
@@ -227,7 +227,7 @@ class EthTest (DnTest):
         self.assertEqual (self.rport.counters.bytes_recv, 60)
         self.postPacket (b"\xab\x00\x00\x00\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x90\x00" + self.tdata)
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 1)
         self.assertEqual (self.eth.counters.mcbytes_recv, 60)
         self.assertEqual (self.eth.counters.bytes_recv, 60)
         self.assertEqual (self.lport.counters.bytes_recv, 0)
@@ -237,7 +237,7 @@ class EthTest (DnTest):
         w = self.lastdispatch (1, lcirc, itype = Received)
         self.assertEqual (w.owner, lcirc)
         self.assertEqual (bytes (w.packet), self.pad (self.tdata))
-        self.assertEqual (self.eth.counters.unk_dest, 0)
+        self.assertEqual (self.eth.counters.unk_dest, 1)
         self.assertEqual (self.eth.counters.mcbytes_recv, 120)
         self.assertEqual (self.eth.counters.bytes_recv, 120)
         self.assertEqual (self.lport.counters.bytes_recv, 60)

@@ -49,6 +49,7 @@ class rtest (DnTest):
             self.config.circuit[n].t1 = None
             self.config.circuit[n].t3 = 10
             self.config.circuit[n].cost = 1
+            self.config.circuit[n].latency = None
             self.config.circuit[n].priority = 32
             self.config.circuit[n].verify = False
             self.config.circuit[n].nr = 30

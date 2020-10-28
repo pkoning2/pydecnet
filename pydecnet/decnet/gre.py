@@ -98,7 +98,7 @@ class GRE (datalink.BcDatalink, StopThread):
         """
         try:
             self.socket.sendto (buf, (self.host.addr, GREPROTO))
-        except (AttributeError, IOError):
+        except (AttributeError, IOError, TypeError):
             pass
         
     def run (self):

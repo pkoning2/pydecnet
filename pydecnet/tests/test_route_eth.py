@@ -28,6 +28,7 @@ class lantest (DnTest):
         self.config.t3 = 10
         self.config.t1 = 15
         self.config.cost = 1
+        self.config.latency = None
         self.config.priority = 32
         self.config.nr = 3
         self.r.ntype = self.ntype

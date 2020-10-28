@@ -189,12 +189,13 @@ class _ConnectMultinet (_TcpMultinet):
             self.socket.connect ((self.host.addr, self.portnum))
             logging.trace ("Multinet {} connect to {} {} in progress",
                            self.name, self.host.addr, self.portnum)
-        except (AttributeError, OSError, socket.error):
+        except (AttributeError, OSError, socket.error, TypeError):
             # If we get a failure on the connect, log that but take no
             # other action.  The connection timer will still be
             # started and its timeout will cause a retry.  This
             # ensures we don't retry errors such as "interface down"
-            # at high speed.
+            # at high speed.  TypeError happens if host.addr is None,
+            # which is the result we get from a failed name lookup.
             logging.trace ("Multinet {} connect to {} {} rejected",
                            self.name, self.host.addr, self.portnum)
             # Bad connect attempt, get rid of the failed socket
