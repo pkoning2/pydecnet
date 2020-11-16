@@ -10,7 +10,6 @@
 # Leaflet.Arc from https://github.com/MAD-GooZe/Leaflet.Arc
 
 import datetime
-import subprocess
 import json
 import re
 import os
@@ -705,7 +704,8 @@ class NodePoller (Element, statemachine.StateMachine):
             # Issue the read exec characteristics
             return self.next_request (execchar, self.procexec)
         elif isinstance (item, session.Reject):
-            maplogger.trace ("connection rejected, data {}", item.message)
+            maplogger.trace ("connection to {} rejected, reason {}, data {}",
+                             self.curnode, item.reason, item.message)
             if item.reason != session.UNREACH:
                 # Node was reachable but the connection was not
                 # accepted, perhaps a Cisco node or NML disabled.
