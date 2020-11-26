@@ -10,6 +10,7 @@ except ImportError:
 from decnet import config
 from decnet import ethernet
 from decnet import logging
+from decnet.host import dualstack
 
 def errmsg ():
     if not config.logging.error.called:
@@ -19,7 +20,11 @@ def errmsg ():
 
 class Logchecker (DnTest):
     req = ""
-    
+
+    def setUp (self):
+        super ().setUp ()
+        config.logging.error = unittest.mock.Mock ()
+
     def ctest (self, s):
         # Supply a config file which has the given entries, plus
         # enough other stuff to keep Config happy.
@@ -98,7 +103,6 @@ class TestCircuit_err (Logchecker):
     def test_errors (self):
         self.checkerr ("circuit", "arguments are required")
         self.checkerr ("circuit name", "arguments are required")
-        self.checkerr ("circuit name Ethernet", "arguments are required")
         self.checkerr ("circuit foo-0 GRE foo --frob", "unrecognized argument")
         self.checkerr ("circuit foo-0 GRE foo --t1 wrong", "invalid int value")
         self.checkerr ("circuit foo-0 GRE foo --console wrongstring",
@@ -106,7 +110,11 @@ class TestCircuit_err (Logchecker):
         self.checkerr ("circuit foo-0 unknown foo", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --nr 0", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --nr 35", "invalid choice")
-        self.checkerr ("circuit foo-0 GRE foo --prio -1", "invalid choice")
+        if dualstack:
+            self.checkerr ("circuit foo-0 GRE foo --prio -1",
+                           "expected one argument")
+        else:
+            self.checkerr ("circuit foo-0 GRE foo --prio -1", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo --prio 128", "invalid choice")
         self.checkerr ("circuit foo-0 GRE foo\ncircuit foo-0 Ethernet dev",
                        "Conflicting value for circuit name")
@@ -175,9 +183,15 @@ class TestHttp_err (Logchecker):
     
     def test_errors (self):
         self.checkerr ("http --frob", "unrecognized argument")
-        self.checkerr ("http --http-port -1", "invalid choice")
+        if dualstack:
+            self.checkerr ("http --http-port -1", "expected one argument")
+        else:
+            self.checkerr ("http --http-port -1", "invalid choice")
         self.checkerr ("http --http-port 65536", "invalid choice")
-        self.checkerr ("http --https-port -1", "invalid choice")
+        if dualstack:
+            self.checkerr ("http --https-port -1", "expected one argument")
+        else:
+            self.checkerr ("http --https-port -1", "invalid choice")
         self.checkerr ("http --https-port 65536", "invalid choice")
         
 class TestRouting (Logchecker):

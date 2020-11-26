@@ -123,7 +123,9 @@ class NodeEntity (EntityBase):
         return "{} = {}".format (t, self.ename)
     
 class StringEntityBase (EntityBase):
-    _layout = (( packet.A, "ename", 16 ),)
+    # The spec does not give a length limit for the name, so make it
+    # 255 (the max possible given the encoding).
+    _layout = (( packet.A, "ename", 255 ),)
 
 class LineEntity (StringEntityBase):
     label = "Line"

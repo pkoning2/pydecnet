@@ -17,12 +17,9 @@ class EthTest (DnTest):
 
     def setUp (self):
         super ().setUp ()
-        self.config = container ()
-        self.config.device = self.dev
-        self.config.random_address = False
-        self.config.single_address = False
-        self.config.hwaddr = Macaddr ("02-03-04-05-06-07")
-        self.eth = ethernet.Ethernet (self.node, "eth-0", self.config)
+        spec = "circuit eth-0 Ethernet {} --hwaddr 02-03-04-05-06-07".format (self.spec)
+        self.tconfig = self.config (spec)
+        self.eth = ethernet.Ethernet (self.node, "eth-0", self.tconfig)
         self.eth.open ()
         
     def tearDown (self):
@@ -300,7 +297,7 @@ class EthTest (DnTest):
             self.postPacket (hdr + self.lelen (pkt) + pkt, False)
         
 class TestEthPcap (EthTest):
-    dev = "pcap:eth-0"
+    spec = "eth-0 --mode pcap"
     
     def setUp (self):
         ethernet.pcap._pcap.error = Exception ("Pcap test error")
@@ -343,7 +340,7 @@ class TestEthPcap (EthTest):
 # the two, and we can't count on that.  So instead mock out the relevant
 # API calls.
 class TestEthTap (EthTest):
-    dev = "tap:/dev/tap0"
+    spec = "/dev/tap0 --mode tap"
     
     def setUp (self):
         ospath = os.path
@@ -399,14 +396,14 @@ class TestEthTap (EthTest):
 class TestEthUdp (EthTest):
     def setUp (self):
         # First open the Ethernet
-        self.lport = nextport ()
+        self.tport = nextport ()
         self.cport = nextport ()
-        self.dev = "udp:{}:127.0.0.1:{}".format (self.cport, self.lport)
+        self.spec = "--mode udp --dest-port {} --destination 127.0.0.1 --source-port {} --source 127.0.0.1".format (self.cport, self.tport)
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", self.lport))
+        self.socket.bind (("", self.cport))
         
     def tearDown (self):
         self.socket.close ()
@@ -415,13 +412,13 @@ class TestEthUdp (EthTest):
     def postPacket (self, pkt, wait = True):
         if len (pkt) < 60:
             pkt += bytes (60 - len (pkt))
-        self.socket.sendto (pkt, ("127.0.0.1", self.cport))
+        self.socket.sendto (pkt, ("127.0.0.1", self.tport))
         if wait:
             time.sleep (0.1)
             
     def lastSent (self):
         b, addr = self.socket.recvfrom (1500)
-        self.assertEqual (addr, ("127.0.0.1", self.cport))
+        self.assertEqual (addr, ("127.0.0.1", self.tport))
         return b
     
 if __name__ == "__main__":

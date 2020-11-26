@@ -14,7 +14,6 @@ from urllib.parse import urlparse, parse_qs
 import re
 import mimetypes
 import time
-import subprocess
 
 try:
     import ssl
@@ -25,6 +24,7 @@ from .common import *
 from . import logging
 from . import html
 from . import mapper
+from . import host
 
 packagedir = os.path.dirname (__file__)
 
@@ -94,13 +94,13 @@ class Monitor:
     def serverstart (self, secure):
         config = self.config
         if secure:
-            server_address = (config.source, config.https_port)
+            server_addr = host.SourceAddress (config, config.https_port)
             logging.debug ("Starting https server on port {}",
                            config.https_port)
         else:
-            server_address = (config.source, config.http_port)
+            server_addr = host.SourceAddress (config, config.http_port)
             logging.debug ("Starting http server on port {}", config.http_port)
-        httpd = DECnetMonitor (server_address, DECnetMonitorRequest,
+        httpd = DECnetMonitor (server_addr, DECnetMonitorRequest,
                                self.nodelist, config, self.resources,
                                self.mapserver, secure)
         if secure:
@@ -110,7 +110,7 @@ class Monitor:
         httpd.serve_forever ()
 
 class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
-    def __init__ (self, addr, rclass, nodelist, config, resources,
+    def __init__ (self, source_addr, rclass, nodelist, config, resources,
                   mapserver, secure):
         self.nodelist = nodelist
         self.api = config.api
@@ -121,9 +121,17 @@ class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
             self.addlinks = ()
         self.resources = resources
         self.secure = secure or config.insecure_api
-        super ().__init__ (addr, rclass)
+        super ().__init__ (source_addr.sockaddr, rclass, False)
+        # Now replace the socket by what we actually want
+        self.socket = source_addr.create_server ()
+        self.server_address = self.socket.getsockname ()
 
-#psplit_re = re.compile (r"/([^/\s]*)(?:/(\S*))?")
+    def server_bind (self):
+        pass
+
+    def server_activate (self):
+        pass
+    
 class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
     def setup (self):
         super ().setup ()

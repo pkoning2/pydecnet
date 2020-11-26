@@ -362,6 +362,9 @@ class BaseRouter (Element):
         except KeyError:
             pass
 
+    def isolated (self):
+        return len (self.adjacencies) == 1
+    
     def http_get (self, mobile, parts, qs):
         if self.ntype == ENDNODE or self.ntype == PHASE2:
             infos = ( "summary", "counters" )
@@ -522,7 +525,16 @@ class EndnodeRouting (BaseRouter):
             logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.datalink.counters.orig_sent += 1
         if dest != self.nodeid:
-            self.circuit.send (pkt, None, tryhard)
+            ret = self.circuit.send (pkt, None, tryhard)
+            if not ret and rqr:
+                # Could not send (point to point circuit not up or up
+                # to wrong endnode).  If request return to sender was
+                # set (NSP CI messages), do so.
+                pkt.dstnode, pkt.srcnode = pkt.srcnode, pkt.dstnode
+                pkt.rts = 1
+                pkt.rqr = 0
+                self.dispatch (pkt)
+                logging.trace ("Returned packet to NSP")
         else:
             # Addressed to self, send it back up to NSP.
             self.dispatch (pkt)

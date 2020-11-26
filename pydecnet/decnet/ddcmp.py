@@ -27,6 +27,7 @@ from . import datalink
 from . import packet
 from . import modulo
 from .nice_coding import CTM1
+from . import host
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -836,22 +837,21 @@ class _DDCMP (datalink.PtpDatalink):
 class _SerialDDCMP (_DDCMP):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
-        proto, *rest = config.device.split (':')
-        if not rest or len (rest) > 3:
+        self.dev, *rest = config.device.split (":")
+        if len (rest) > 2:
             raise ValueError ("Invalid serial device spec {}".format (config.device))
-        self.dev = rest[0]
         self.uart = None
-        if len (rest) > 1:
-            self.speed = int (rest[1])
-            if len (rest) > 2:
+        if len (rest):
+            self.speed = int (rest[0])
+            if len (rest) > 1:
                 if not UART:
                     raise ValueError ("BeagleBone UART module not available")
-                self.uart = rest[2]
+                self.uart = rest[1]
         else:
             self.speed = 9600
         if self.uart:
             UART.setup (self.uart)
-        logging.trace ("DDCMP datalink {} initialized on uart {}"
+        logging.trace ("DDCMP datalink {} initialized on device {}"
                        " speed {}", self.name, self.dev, self.speed)
 
     def connect (self):
@@ -919,7 +919,6 @@ class _SerialDDCMP (_DDCMP):
             # to "None"
             return
 
-
 class _TcpDDCMP (_DDCMP):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
@@ -928,87 +927,76 @@ class _TcpDDCMP (_DDCMP):
         self.acktmr = Backoff (5, 60)
         self.stacktmr = Backoff (5, 120)
         self.conntmr = Backoff (5, 120)
-        proto, *rest = config.device.split (':')
-        proto = proto.lower ()
-        lport, host, rport = rest
-        self.telnet = (proto == "telnet")
-        self.lport = int (lport)
-        self.host = datalink.HostAddress (host)
-        self.rport = int (rport)
+        self.telnet = (config.mode == "telnet")
+        self.source = host.SourceAddress (config, config.source_port)
+        if not self.source.can_listen:
+            raise ValueError ("Source port must be specified")
+        # This is the source address to bind to for the outgoing
+        # connection, same as above but with the port number
+        # defaulted.
+        self.csource = host.SourceAddress (config, 0)
+        self.dest = host.HostAddress (config.destination, config.dest_port,
+                                      self.source, any = True)
         # All set
-        logging.trace ("DDCMP datalink {} initialized using {} on "
-                       "port {} to {}:{}", self.name, proto, self.lport,
-                       host, self.rport)
+        logging.trace ("DDCMP datalink {} initialized on {} to {} ",
+                       self.name, self.source, self.dest)
 
+    def handle_reconnect (self, item):
+        super ().handle_reconnect (item)
+        
     def connect (self):
         # We'll try for either outbound or incoming connections, whichever
         # appears first.  Create the inbound (listen) socket here.
-        self.socket = socket.socket (socket.AF_INET)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Refresh the name to address mapping.  This isn't needed for the
-        # initial open but we want this for a subsequent one, because
-        # a restart of the circuit might well have been caused by an
-        # address change of the other end.
-        self.host.lookup ()
-        try:
-            self.socket.bind (("", self.lport))
-            self.socket.listen (1)
-        except (AttributeError, OSError, socket.error):
-            logging.trace ("DDCMP {} bind/listen failed", self.name)
-            if self.socket:
-                self.socket.close ()
-            return
+        self.socket = self.source.create_server ()
         logging.trace ("DDCMP {} listen on {} active",
-                       self.name, self.lport)
-        self.connsocket = socket.socket (socket.AF_INET)
-        self.connsocket.setblocking (False)
-        try:
-            self.connsocket.connect ((self.host.addr, self.rport))
-            logging.trace ("DDCMP {} connect to {} {} in progress",
-                           self.name, self.host.addr, self.rport)
-        except socket.error as e:
-            if e.errno == errno.EINPROGRESS:
-                logging.trace ("DDCMP {} connect to {} {} in progress",
-                               self.name, self.host.addr, self.rport)
-            else:
-                logging.trace ("DDCMP {} connect to {} {} rejected",
-                               self.name, self.host.addr, self.rport)
-                self.connsocket = None
-        except (AttributeError, TypeError):
+                       self.name, self.source)
+        # Start the connection, except in "any address" mode.
+        if self.dest.can_connect:
+            self.connsocket = self.dest.create_connection (self.csource)
+            logging.trace ("DDCMP {} connect to {} in progress",
+                           self.name, self.dest)
+            # Next time around, try the next address, in case we have
+            # several to try from.
+            next (self.dest)
+            # Wait a random time, initially in the 5 second range but
+            # slowing down as we do more retries, for the outbound
+            # connection to succeed.  If we get a timeout, give up on
+            # it and try again.
+            self.node.timers.jstart (self, self.conntmr.next ())
+        else:
             self.connsocket = None
-        # Wait a random time, initially in the 5 second range but
-        # slowing down as we do more retries, for the outbound
-        # connection to succeed.  If we get a timeout, give up on it and
-        # try again.
-        self.node.timers.jstart (self, self.conntmr.next ())
+            logging.trace ("DDCMP {} not connecting, any-address mode",
+                           self.name)
 
     def check_connection (self):
         self.insync = False
         poll = select.poll ()
-        sfn = self.socket.fileno ()
         if self.connsocket:
             cfn = self.connsocket.fileno ()
-            poll.register (cfn, select.POLLOUT | select.POLLERR)
+            poll.register (cfn, datalink.REGPOLLOUT)
         else:
             cfn = None
-        poll.register (sfn, select.POLLIN | select.POLLERR)
+        sfn = self.socket.fileno ()
+        poll.register (sfn, datalink.REGPOLLIN)
         # We try to establish an outgoing connection while also looking
         # for an incoming one, so look for both ready to read on the
         # listen socket (incoming) and ready to write on the connect socket
         # (outbound connect completed).
         connected = False
         while not connected:
-            plist = poll.poll (1)
+            plist = poll.poll (datalink.POLLTS)
             if self.rthread and self.rthread.stopnow:
                 return False
             for fd, event in plist:
-                if event & select.POLLERR:
-                    return False
                 if fd == cfn:
-                    if event & select.POLLHUP:
-                        # Connection was closed, ignore this.  Do the
-                        # full cleanup just in case the OS likes it
-                        # better that way.
+                    # Event on the connect socket.
+                    if event & datalink.POLLERRHUP:
+                        # Connection was closed or hit an error,
+                        # ignore this.  Do the full cleanup just in
+                        # case the OS likes it better that way.  The
+                        # main thread will retry when it times out (if
+                        # the listen doesn't give us a connection
+                        # before then).
                         try:
                             self.connsocket.shutdown (socket.SHUT_RDWR)
                         except Exception:
@@ -1023,7 +1011,8 @@ class _TcpDDCMP (_DDCMP):
                     self.socket = self.connsocket
                     self.socket.setblocking (True)
                     self.connsocket = None
-                    logging.trace ("DDCMP {} outbound connection made", self.name)
+                    logging.trace ("DDCMP {} outbound connection made",
+                                   self.name)
                     # Drop out of the outer loop
                     connected = True
                     break
@@ -1031,10 +1020,11 @@ class _TcpDDCMP (_DDCMP):
                     # Ready on inbound socket.  Accept the connection.
                     try:
                         sock, ainfo = self.socket.accept ()
-                        host, port = ainfo
-                        if self.host.valid (host):
+                        if self.dest.valid (ainfo):
                             # Good connection, stop looking
                             self.socket.close ()
+                            # Stop any timer
+                            self.node.timers.stop (self)
                             if self.connsocket:
                                 try:
                                     # Just in case there's an active
@@ -1087,13 +1077,13 @@ class _TcpDDCMP (_DDCMP):
     def receive_loop (self):
         poll = select.poll ()
         sock = self.socket
-        sfn = sock.fileno ()
-        poll.register (sfn, select.POLLIN | select.POLLERR)
+        poll.register (sock, datalink.REGPOLLIN)
         # Start looking for messages.
         while True:
-            plist = poll.poll (1)
+            plist = poll.poll (datalink.POLLTS)
             for fd, event in plist:
-                if event & select.POLLERR:
+                if event & datalink.POLLERRHUP:
+                    # Error or disconnect, quit.
                     return
                 # Not error, so it's incoming data.  Get a good header
                 try:
@@ -1157,32 +1147,19 @@ class _TcpDDCMP (_DDCMP):
 class _UdpDDCMP (_DDCMP):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
-        proto, *rest = config.device.split (':')
-        lport, host, rport = rest
-        self.lport = int (lport)
-        self.host = datalink.HostAddress (host)
-        self.rport = int (rport)
+        # Todo: ANY support
+        self.source = host.SourceAddress (config, config.source_port)
+        if not self.source.can_listen:
+            raise ValueError ("Source port must be specified")
+        self.dest = host.HostAddress (config.destination, config.dest_port,
+                                      self.source)
         # All set
         logging.trace ("DDCMP datalink {} initialized using UDP on "
-                       "port {} to {}:{}", self.name, self.lport,
-                       host, self.rport)
+                       "port {} to {}", self.name, config.source_port,
+                       self.dest)
 
     def connect (self):
-        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                     socket.IPPROTO_UDP)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Refresh the name to address mapping.  This isn't needed for the
-        # initial open but we want this for a subsequent one, because
-        # a restart of the circuit might well have been caused by an
-        # address change of the other end.
-        self.host.lookup ()
-        try:
-            self.socket.bind (("", self.lport))
-        except (AttributeError, OSError, socket.error):
-            logging.trace ("DDCMP {} bind {} failed", self.name, self.lport)
-            raise
-            if self.socket:
-                self.socket.close ()
+        self.socket = self.dest.create_udp (self.source)
 
     def disconnect (self):
         try:
@@ -1193,21 +1170,22 @@ class _UdpDDCMP (_DDCMP):
 
     def check_connection (self):
         logging.trace ("DDCMP {} UDP on to {} active",
-                       self.name, self.rport)
+                       self.name, self.dest)
         return True
     
     def receive_loop (self):
         poll = select.poll ()
         sock = self.socket
         sfn = sock.fileno ()
-        poll.register (sfn, select.POLLIN | select.POLLERR)
+        poll.register (sfn, datalink.REGPOLLIN)
         # Start looking for messages.
         while True:
-            plist = poll.poll (1)
+            plist = poll.poll (datalink.POLLTS)
             if self.rthread and self.rthread.stopnow:
                 return
             for fd, event in plist:
-                if event & select.POLLERR:
+                if event & datalink.POLLERRHUP:
+                    # Error (or disconnect, whatever that means)
                     return
                 # Not error, so it's incoming data.  Get the UDP packet
                 try:
@@ -1261,7 +1239,7 @@ class _UdpDDCMP (_DDCMP):
             if logging.tracing:
                 logging.tracepkt ("Sending packet on {}",
                                   self.name, pkt = msg)
-            self.socket.sendto (msg, (self.host.addr, self.rport))
+            self.socket.sendto (msg, self.dest.sockaddr)
         except (OSError, AttributeError, TypeError):
             # AttributeError happens if socket has been changed to "None"
             self.reconnect ()
@@ -1271,8 +1249,18 @@ class _UdpDDCMP (_DDCMP):
 # subclass instance given the specific device flavor specified.
 class DDCMP (datalink.Datalink):
     def __new__ (cls, owner, name, config):
-        api, dev = config.device.split (":", 1)
-        api = api.lower ()
+        api = config.mode
+        if not api:
+            # Legacy configuration via device argument, convert that
+            api, dev = config.device.split (":", 1)
+            config.mode = api = api.lower ()
+            if api == "serial":
+                config.device = dev
+            else:
+                x, *rest = config.device.split (":")
+                lport, config.destination, rport = rest
+                config.source_port = int (lport)
+                config.dest_port = int (rport)
         if api == "serial":
             if not serial:
                 raise ValueError ("Serial port support not available")

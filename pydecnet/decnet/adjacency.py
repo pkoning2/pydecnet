@@ -60,7 +60,11 @@ class Adjacency (Element, timers.Timer):
     def html_row (self):
         neighbor = str (self.node.nodeinfo (self.nodeid))
         ntype = ntypestrings[self.ntype]
-        return [ neighbor, ntype, self.blksize, self.priority, 
+        prio = self.priority
+        if self.ntype == ENDNODE:
+            # End nodes don't have designated router priority, obviously.
+            prio = ""
+        return [ neighbor, ntype, self.blksize, prio, 
                  self.t4, self.tiver ]
 
     def get_api (self):

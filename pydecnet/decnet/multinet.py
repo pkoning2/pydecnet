@@ -17,6 +17,7 @@ import socket
 from .common import *
 from . import datalink
 from . import logging
+from . import host
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -60,28 +61,13 @@ class _Multinet (datalink.PtpDatalink):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
         self.config = config
-        m = dev_re.match (config.device)
-        if not m:
-            logging.error ("Invalid device value for Multinet datalink {}",
-                           self.name)
-            raise ValueError
-        self.source = config.source
-        host, port, cmode, lmode, lport = m.groups ()
-        if port:
-            port = int (port)
-        else:
-            port = 700
-        self.portnum = self.lport = port
-        self.mode = lmode or cmode
-        self.host = datalink.HostAddress (host, any = self.mode == ":listen")
-        if self.mode:
-            mode = "TCP " + self.mode[1:]
-        else:
-            mode = "UDP"
-            if lport:
-                self.lport = int (lport[1:])
-        logging.trace ("Multinet datalink {} initialized to {}:{}, {}",
-                       self.name, host, port, mode)
+        logging.debug ("Multinet datalink {} initialized:\n"
+                       "  Mode:   {}\n"
+                       "  Dest:   {}:{}\n"
+                       "  Source: {}:{}",
+                       self.name, config.mode,
+                       config.destination, config.dest_port,
+                       config.source, config.source_port)
         self.seq = 0
 
     def connected (self):
@@ -118,10 +104,6 @@ class _Multinet (datalink.PtpDatalink):
             self.reconnect ()
         
 class _TcpMultinet (_Multinet):
-    def connect (self):
-        self.socket = socket.socket (socket.AF_INET)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
     def disconnect (self):
         if self.socket:
             # Shut down the socket, if any
@@ -175,32 +157,32 @@ class _ConnectMultinet (_TcpMultinet):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
         self.conntmr = Backoff (5, 120)
-        
+        self.source = host.SourceAddress (config, config.source_port)
+        self.dest = host.HostAddress (config.destination,
+                                      config.dest_port, self.source)
+
     def connect (self):
-        super ().connect ()
-        if self.source:
-            s, *p = self.source.split (":")
-            if p:
-                self.socket.bind ((s, int (p[0])))
-            else:
-                self.socket.bind ((self.source, 0))
         # Connect to the remote host
         try:
-            self.socket.connect ((self.host.addr, self.portnum))
-            logging.trace ("Multinet {} connect to {} {} in progress",
-                           self.name, self.host.addr, self.portnum)
-        except (AttributeError, OSError, socket.error, TypeError):
+            self.socket = self.dest.create_connection (self.source)
+            logging.trace ("Multinet {} connect to {} in progress",
+                           self.name, self.dest)
+        except (AttributeError, OSError, socket.error, TypeError) as e:
             # If we get a failure on the connect, log that but take no
             # other action.  The connection timer will still be
             # started and its timeout will cause a retry.  This
             # ensures we don't retry errors such as "interface down"
             # at high speed.  TypeError happens if host.addr is None,
             # which is the result we get from a failed name lookup.
-            logging.trace ("Multinet {} connect to {} {} rejected",
-                           self.name, self.host.addr, self.portnum)
+            logging.trace ("Multinet {} connect to {} rejected",
+                           self.name, self.dest)
             # Bad connect attempt, get rid of the failed socket
-            self.socket.close ()
+            if self.socket:
+                self.socket.close ()
             self.socket = None
+        # Next time we'll try the next address, if we have several.
+        x=next (self.dest)
+        logging.trace ("Next address is {}", x)
         # Wait a random time, initially in the 5 second range but
         # slowing down as we do more retries, for the outbound
         # connection to succeed.  If we get a timeout, give up on it and
@@ -213,68 +195,80 @@ class _ConnectMultinet (_TcpMultinet):
         sock = self.socket
         if not sock:
             return False
-        sellist = [ sock.fileno () ]
+        p = select.poll ()
+        p.register (sock, datalink.REGPOLLOUT)
         while True:
             try:
-                r, w, e = select.select ([], sellist, sellist, 1)
+                pl = p.poll (datalink.POLLTS)
+                logging.trace ("check_connection {}", pl)
             except select.error as exc:
-                logging.trace ("Select error {}", exc)
-                e = True
+                logging.trace ("Poll error {}", exc)
+                return False
             if self.rthread and self.rthread.stopnow:
                 return False
-            if e:
+            if not pl:
+                continue
+            fn, mask = pl[0]
+            if mask & datalink.POLLERRHUP:
                 return False
-            if w:
+            if mask & select.POLLOUT:
                 logging.trace ("Multinet {} connected", self.name)
                 return True
 
 class _ListenMultinet (_TcpMultinet):
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        self.conntmr = Backoff (5, 120)
+        self.source = host.SourceAddress (config, config.source_port)
+        self.dest = host.HostAddress (config.destination,
+                                      config.dest_port, self.source,
+                                      any = True)
+        
     def connect (self):
-        super ().connect ()
         try:
-            self.socket.bind ((self.source, self.lport))
-            logging.trace ("Multinet {} bind {} done", self.name, self.lport)
+            self.socket = self.source.create_server ()
+            logging.trace ("Multinet {} bind {} done",
+                           self.name, self.source)
         except (AttributeError, OSError, socket.error):
-            logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
-            # Start the connect timer to act as a retry holdoff timer.
-            self.node.timers.jstart (self, self.conntmr.next ())
-            return
-        # Wait for an incoming connection.
-        try:
-            self.socket.listen (1)
-        except (AttributeError, OSError, socket.error):
-            logging.trace ("Multinet {} listen failed", self.name)
+            logging.trace ("Multinet {} bind {} failed",
+                           self.name, self.source)
             # Start the connect timer to act as a retry holdoff timer.
             self.node.timers.jstart (self, self.conntmr.next ())
             return
         logging.trace ("Multinet {} listen to {} active",
-                       self.name, self.lport)
+                       self.name, self.source)
 
     def check_connection (self):
         sock = self.socket
-        sellist = [ sock.fileno () ]
+        if not sock:
+            return False
+        p = select.poll ()
+        p.register (sock, datalink.REGPOLLIN)
         while True:
             try:
-                r, w, e = select.select (sellist, [], sellist, 1)
-            except select.error:
-                logging.trace ("Select error {}", e)
-                e = True
+                pl = p.poll (datalink.POLLTS)
+                logging.trace ("check_connection {}", pl)
+            except select.error as exc:
+                logging.trace ("Poll error {}", exc)
+                return False
             if self.rthread and self.rthread.stopnow:
                 return False
-            if e:
+            if not pl:
+                continue
+            fn, mask = pl[0]
+            if mask & datalink.POLLERRHUP:
                 return False
-            if not r:
+            if not (mask & select.POLLIN):
                 continue
             try:
                 sock, ainfo = sock.accept ()
-                host, port = ainfo
-                if self.host.valid (host):
+                if self.dest.valid (ainfo):
                     # Good connection, stop looking
                     break
                 # If the connect is from someplace we don't want
                 logging.trace ("Multinet {} connect received from " \
                                "unexpected address {}",
-                               self.name, host)
+                               self.name, ainfo)
                 sock.close ()
             except (AttributeError, OSError, socket.error) as exc:
                 logging.trace ("Close error {}", exc)
@@ -293,18 +287,20 @@ class _ListenMultinet (_TcpMultinet):
 class _UdpMultinet (_Multinet):
     port_class = MultinetUdpPort
 
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        if not config.source_port:
+            raise ValueError ("Missing --source-port")
+        # It would be possible to add "any address" support, but since
+        # UDP Multinet is deprecated I don't think I'll bother.
+        self.source = host.SourceAddress (config, config.source_port)
+        self.dest = host.HostAddress (config.destination,
+                                      config.dest_port, self.source)
+        
     def connect (self):
-        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                     socket.IPPROTO_UDP)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self.socket.bind ((self.source, self.lport))
-            logging.trace ("Multinet {} bind {} done", self.name, self.lport)
-        except (AttributeError, OSError, socket.error):
-            logging.trace ("Multinet {} bind {} failed", self.name, self.lport)
-            return
+        self.socket = self.dest.create_udp (self.source)
         logging.trace ("Multinet {} (UDP) bound to {}",
-                       self.name, self.lport)
+                       self.name, self.source)
 
     def disconnect (self):
         if self.socket:
@@ -322,19 +318,23 @@ class _UdpMultinet (_Multinet):
         
     def receive_loop (self):
         sock = self.socket
-        sellist = [ sock.fileno () ]
+        p = select.poll ()
+        p.register (sock, datalink.REGPOLLIN)
         while True:
-            # Look for traffic
             try:
-                r, w, e = select.select (sellist, [], sellist, 1)
+                pl = p.poll (datalink.POLLTS)
+                logging.trace ("receive_loop poll {}", pl)
             except select.error as exc:
-                logging.trace ("Select error {}", exc)
-                e = True
+                logging.trace ("Poll error {}", exc)
+                return False
             if self.rthread and self.rthread.stopnow:
                 return
-            if e:
+            if not pl:
+                continue
+            fn, mask = pl[0]
+            if mask & datalink.POLLERRHUP:
                 return
-            if r:
+            if mask & select.POLLIN:
                 # Receive a packet
                 try:
                     msg, addr = sock.recvfrom (1500)
@@ -344,9 +344,9 @@ class _UdpMultinet (_Multinet):
                 if not msg or len (msg) <= 4:
                     logging.trace ("Receive runt packet {!r}", msg)
                     continue
-                host, port = addr
-                if not self.host.valid (host):
+                if not self.dest.valid (addr):
                     # Not from peer, ignore
+                    logging.trace ("Bad sender {}", addr)
                     continue
                 # Check header?  For now just skip it.
                 msg = msg[4:]
@@ -366,7 +366,7 @@ class _UdpMultinet (_Multinet):
             hdr = self.seq.to_bytes (2, "little") + b"\000\000"
             self.seq = (self.seq + 1) & 0xffff
             try:
-                sock.sendto (hdr + msg, (self.host.addr, self.portnum))
+                sock.sendto (hdr + msg, self.dest.sockaddr)
             except (socket.error, AttributeError, OSError) as exc:
                 # AttributeError happens if socket has been
                 # changed to "None"
@@ -376,24 +376,47 @@ class _UdpMultinet (_Multinet):
 # subclass instance given the specific device flavor specified.
 class Multinet (datalink.Datalink):
     def __new__ (cls, owner, name, config):
-        m = dev_re.match (config.device)
-        if not m:
-            logging.error ("Invalid device value for Multinet datalink {}",
-                           self.name)
-            raise ValueError
-        host, port, cmode, lmode, lport = m.groups ()
-        mode = lmode or cmode
-        if mode == ":listen":
+        if not config.mode:
+            # Legacy config via "device" argument, parse that
+            m = dev_re.match (config.device)
+            if not m:
+                logging.error ("Invalid device value for Multinet datalink {}",
+                               self.name)
+                raise ValueError
+            config.destination, port, cmode, lmode, lport = m.groups ()
+            config.mode = lmode or cmode
+            if not config.mode:
+                config.mode = "udp"
+            else:
+                config.mode = config.mode[1:]
+            if port:
+                config.dest_port = int (port)
+            else:
+                config.dest_port = 700
+            if config.mode == "listen":
+                config.source_port = config.dest_port
+                config.dest_port = 0
+            else:
+                if lport:
+                    config.source_port = int (lport[1:])
+                else:
+                    config.source_port = 0
+            if config.mode == "udp":
+                if not config.source_port:
+                    config.source_port = config.dest_port
+        if config.mode == "listen":
             c = _ListenMultinet
-        elif mode == ":connect":
+        elif config.mode == "connect":
             c = _ConnectMultinet
-        elif mode:
-            raise ValueError ("Unknown Multinet mode {}".format (mode))
-        else:
+        elif config.mode == "udp":
             # Warn that Multinet in UDP mode violates most of the
             # point to point datalink requirements.  The same goes for
             # TCP, but the consequences aren't quite so evil so there
             # we don't warn.
             logging.warning ("Multinet UDP mode not recommended since it violates DECnet architecture")
+            if not config.source_port:
+                config.source_port = config.dest_port
             c = _UdpMultinet
+        else:
+            raise ValueError ("Unknown Multinet mode {}".format (config.mode))
         return c (owner, name, config)

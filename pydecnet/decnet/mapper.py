@@ -706,10 +706,16 @@ class NodePoller (Element, statemachine.StateMachine):
         elif isinstance (item, session.Reject):
             maplogger.trace ("connection to {} rejected, reason {}, data {}",
                              self.curnode, item.reason, item.message)
-            if item.reason != session.UNREACH:
+            if item.reason not in (session.UNREACH, session.OBJ_FAIL):
                 # Node was reachable but the connection was not
                 # accepted, perhaps a Cisco node or NML disabled.
                 # Call it reachable.
+                #
+                # Note we don't treat OBJ_FAIL as reachable, because
+                # it is the code used for connect timeout.  While that
+                # typically means the destination had a problem, it
+                # can be due to network issues where the "unreachable,
+                # return-to-sender" isn't delivered.
                 self.curnode.update (True, self.pollts)
             # We're done (and we don't have a connection at the moment)
             self.conn = None
@@ -1083,7 +1089,9 @@ class Mapper (Element, statemachine.StateMachine):
     def checkmapscan (self):
         now = Timestamp ()
         nowts = now.startts ()
-        if m.lastscan + SCANINTERVAL < nowts:
+        if self.node.routing.isolated ():
+            maplogger.debug ("Skipping scan since mapper is isolated")
+        elif m.lastscan + SCANINTERVAL < nowts:
             maplogger.info ("Starting mapper full network scan")
             # Initialize the traversal data.  Begin with all currently
             # known nodes that are not (a) phase III nodes in another

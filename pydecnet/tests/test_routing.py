@@ -242,7 +242,7 @@ class test_ethend (rtest):
 class test_ptpend (rtest):
     ntype = "endnode"
     circ = (( "ptp-0", False ),)
-    
+    loglevel = logging.TRACE
     def setUp (self):
         super ().setUp ()
         self.assertState ("ds")
@@ -456,7 +456,15 @@ class test_ptpend (rtest):
         self.r.send (b"payload", Nodeid (1, 44))
         # FIXME: not reachable, check that.
         self.lastsent (self.d1, 3, ptype = bytes)
-
+        # Similar but RQR set
+        self.r.send (b"payload", Nodeid (1, 44), rqr = 1)
+        self.lastsent (self.d1, 3, ptype = bytes)
+        # Verify that it came back to NSP
+        w = self.lastdispatch (1, self.node.nsp, itype = Received)
+        self.assertEqual (w.packet, b"payload")
+        self.assertEqual (w.src, Nodeid (1, 44))
+        self.assertTrue (w.rts)
+        
     def test_recvdata_ph2 (self):
         # Send phase2 init
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \

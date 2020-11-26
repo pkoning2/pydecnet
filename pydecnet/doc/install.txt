@@ -2,8 +2,10 @@ Prerequisites
 
 PyDECnet requires Python 3.3 or later.
 
-Apart from standard Python modules, pydecnet uses the following
-optional modules:
+Apart from standard Python modules, PyDECnet requires the "psutil"
+module.
+
+PyDECnet can also use the following optional modules:
 
 1. python-daemon: if present, the --daemon command line option is
    available.

@@ -37,7 +37,6 @@ class stest (DnTest):
         self.config.object[0].authentication = "off"
         self.node.nsp = unittest.mock.Mock ()
         self.s = session.Session (self.node, self.config)
-        #self.setloglevel (logging.TRACE)
         
     def pp (self):
         # Pause if using external subprocess

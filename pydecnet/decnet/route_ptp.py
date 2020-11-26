@@ -158,6 +158,9 @@ class PtpCircuit (statemachine.StateMachine):
             # Note: this check has to be made before dstnode is changed
             # to the older form (if needed) because internally we store
             # the neighbor ID according to our phase, not its phase.
+            #
+            # TODO: allow dstnode mismatch if Phase II node does
+            # intercept (only if this is an endnode).
             dstnode = pkt.dstnode
             if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
                 logging.debug ("Sending packet {} to wrong address {} "
