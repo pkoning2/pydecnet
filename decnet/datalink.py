@@ -11,6 +11,9 @@ import sys
 import struct
 import socket
 import select
+import queue
+import re
+import subprocess
 from collections import defaultdict
 
 from .common import *
@@ -19,85 +22,18 @@ from . import nicepackets
 from . import statemachine
 from . import timers
 
+# Either of these is taken as a socket error:
+POLLERRHUP = select.POLLERR | select.POLLHUP
+# We'll use select.poll.register with one of these masks:
+REGPOLLIN  = select.POLLIN  | POLLERRHUP
+REGPOLLOUT = select.POLLOUT | POLLERRHUP
+
+# Poll timeout to use.  Note that it is in milliseconds, rather than
+# the normal seconds.
+POLLTS = 1000
+
 SvnFileRev = "$LastChangedRevision$"
 
-class HostAddress (object):
-    """A class for handling host addresses, including periodic refreshing
-    of name lookup information.  Thanks to Rob Jarratt for the idea, in
-    a note on the HECnet list.
-    """
-    def __init__ (self, name, interval = 3600, any = False):
-        """Initialize a HostAddress object for the supplied name, which
-        will be looked up now and re-checked every "interval" seconds.
-        The default check interval is one hour.  If "any" is True, an
-        empty address or one that maps to 0.0.0.0 is permitted, which
-        will be interpreted by the "valid" method as "any address is
-        considered valid".  By default, the empty/null address is
-        rejected.
-        """
-        if not name:
-            name = "0.0.0.0"
-        self.name = name
-        self.interval = interval
-        self.next_check = 0
-        self._addr = None
-        self.anyok = any
-        self.lookup (False)
-
-    def lookup (self, pref = None):
-        """Look up the name in DNS.  Return one of the IP addresses
-        for the name.  If "pref" is supplied, return that value if it
-        is still one of the valid addresses for the name.
-        """
-        try:
-            alist = socket.gethostbyname_ex (self.name)[2]
-        except socket.gaierror:
-            # Error in name resolution.  Return pref as the fallback.
-            # But if this is the call from the constructor, abort
-            # instead.
-            if pref is False:
-                raise
-            logging.exception ("Name lookup error on {}", self.name)
-            return pref
-        self.aset = frozenset (alist)
-        self.any = self.aset == { "0.0.0.0" }
-        if self.any and not self.anyok:
-            raise ValueError ("Null address not permitted")
-        self.next_check = time.time () + self.interval
-        if pref and pref in self.aset:
-            self._addr = pref
-        else:
-            self._addr = random.choice (alist)
-        return self.addr
-
-    def valid (self, addr):
-        """Verify that the supplied address is a valid address for
-        the host, i.e., that it is in the set of IP addresses we found
-        at the last lookup.
-        """
-        self.check_interval ()
-        return addr in self.aset or self.any
-
-    def check_interval (self):
-        """Do another check, if needed.  If so, do another DNS lookup
-        and select an address from among the set of addresses found.
-        If the currently selected address is still valid, keep that one;
-        otherwise pick a random one.
-        """
-        if time.time () > self.next_check:
-            self.lookup (self._addr)
-
-    @property
-    def addr (self):
-        """Return the currently chosen address to use when sending to
-        this host.
-        """
-        self.check_interval ()
-        return self._addr
-
-    def __str__ (self):
-        return str (self.addr)
-    
 class DatalinkLayer (Element):
     """The datalink layer.  This is mainly a container for the individual
     datalink circuits.
@@ -367,6 +303,7 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         self.counters = self.counter_class (self)
         self.restart_timer = Backoff (2, 120)
         self.is_up = False
+        self.restart_now = False
         
     def open (self):
         # Open and close datalink are ignored, control is via the port
@@ -397,20 +334,26 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         signal is delivered, it raises an IOError exception.
         """
         sock = self.socket
-        sellist = [ sock.fileno () ]
+        p = select.poll ()
+        p.register (sock, REGPOLLIN)
         ret = b''
         while len (ret) < n:
             # Look for traffic
             try:
-                r, w, e = select.select (sellist, [], sellist, 1)
+                pl = p.poll (POLLTS)
+                logging.trace ("recvall poll {}", pl)
             except select.error as exc:
-                logging.trace ("Select error {}", exc)
-                e = True
+                logging.trace ("Poll error {}", exc)
+                raise
             if self.rthread and self.rthread.stopnow:
                 raise IOError
-            if e:
+            if not pl:
+                continue
+            fn, mask = pl[0]
+            if mask & POLLERRHUP:
                 raise IOError
-            if r:
+            if mask & select.POLLIN:
+                # Receive a packet
                 try:
                     m = sock.recv (n - len (ret))
                 except (AttributeError, OSError, socket.error) as exc:
@@ -443,9 +386,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         """Common actions for a Stop work item
         """
         # Stop the receive thread, if active
-        if not self.rthread or not self.rthread.stop (False):
-            # It wasn't, so fake a thread exit report
-            self.node.addwork (ThreadExit (self))
+        if self.rthread:
+            self.rthread.stop (False)
         # Tell the owner
         self.report_down ()
         # Set the state 
@@ -454,10 +396,12 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
     def handle_reconnect (self, item):
         """Common actions for a Reconnect work item
         """
+        logging.trace ("in handle_reconnect, {}", item.now)
         self.handle_stop (item)
         self.restart_now = item.now
-        return self.reconnecting
-
+        self.state = ret = self.reconnecting
+        return ret
+    
     def validate (self, item):
         # Implement common actions (things to be done in all states).
         if isinstance (item, Received):
@@ -470,12 +414,20 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             self.set_state (self.handle_reconnect (item))
             return False
         elif isinstance (item, ThreadExit):
+            if self.state != self.shutdown:
+                self.state = self.reconnecting
             if self.rthread and \
                self.rthread is not threading.current_thread ():
                 # The check for current thread is mostly for the unit
                 # tests, where work item delivery is done more crudely.
                 self.rthread.join (1)
             self.rthread = None
+            # Report that this circuit is now down
+            self.report_down ()
+            # Handle this item in the reconnecting state, unless we
+            # were in shutdown state in which case it's handled there.
+            return True
+        # Any other item is just handled without further ado.
         return True
     
     @setlabel ("Halted")
@@ -490,8 +442,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         
     @setlabel ("Shutdown")
     def shutdown (self, item):
-        """State for shutting down.  All messages are ignored.  A DOWN
-        datalink status item indicates the receive thread has exited.
+        """State for shutting down.  All messages are ignored.  A
+        ThreadExit work item indicates the receive thread has exited.
         """
         if isinstance (item, ThreadExit):
             # Free any sockets or file descriptors
@@ -502,14 +454,19 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
 
     @setlabel ("Reconnecting")
     def reconnecting (self, item):
-        """Like shutdown, but when we get the DOWN item, start a timer.
-        When that timer expires, restart.  This state is used for
-        handling cases where we have to start over from the beginning.
-        That happens if the connection is lost, if we use connections.
-        It also applies to Multinet, which isn't a real datalink but
-        where we use reinitialization of the TCP connection in place of
-        data link protocol restart to deal with routing layer restart
-        requests.
+        """Like shutdown, but when we get the ThreadExit work item,
+        start a timer.  When that timer expires, restart.  This state is
+        used for handling cases where we have to start over from the
+        beginning.  That happens if the connection is lost, if we use
+        connections.  It also applies to Multinet, which isn't a real
+        datalink but where we use reinitialization of the TCP connection
+        in place of data link protocol restart to deal with routing
+        layer restart requests.
+
+        The ThreadExit work item may indicate to skip the holdoff timer.
+        This is done if the reason for the reconnect is a timeout -- in
+        that case, we already waited and there is no good reason to wait
+        twice.
         """
         if isinstance (item, timers.Timeout):
             self.node.addwork (Start (self))
@@ -534,10 +491,6 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             # request.  Make it immediate since we already timed out, no
             # sense in timing out twice for one retry.
             self.reconnect (True)
-        elif isinstance (item, ThreadExit):
-            # Connection failed, the receive thread has stopped.
-            # Retry the connection.
-            self.reconnect ()
         
     @abstractmethod
     def connected (self, item):
@@ -560,8 +513,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
     def run (self):
         """The main code for the receive thread.
         """
-        logging.trace ("Receive thread started for {}", self.name)
         try:
+            logging.trace ("Receive thread started for {}", self.name)
             conn = self.check_connection ()
             if self.rthread and not self.rthread.stopnow:
                 if conn:
@@ -575,7 +528,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
                     logging.trace ("Connect failed for {}", self.name)
         except Exception:
             logging.exception ("Exception in receive thread for {}", self.name)
-        self.node.addwork (ThreadExit (self))
+        finally:
+            self.node.addwork (ThreadExit (self))
             
     @abstractmethod
     def connect (self):

@@ -22,6 +22,7 @@ from decnet import node
 from decnet import event_logger
 from decnet import timers
 from decnet import datalink
+from decnet import config
 
 def testcases (tests):
     for t in tests:
@@ -153,6 +154,18 @@ class DnTest (unittest.TestCase):
         global node
         node = self.node = t_node ()
         self.node.logevent = unittest.mock.Mock (wraps = self.node.logevent)
+        # Start the pydecnet logging machinery.  This used to just
+        # start the Python standard logger with a "basic" config, but
+        # that isn't really good enough because we don't get the nice
+        # timestamps and other helpful information.
+        lc = container ()
+        lc.log_config = lc.log_file = lc.syslog = lc.chroot = None
+        lc.keep = lc.uid = lc.gid = 0
+        lc.daemon = False
+        lc.log_level = self.loglevel
+        logging.start (lc)
+        # Make sure the level is set properly.
+        self.setloglevel (self.loglevel)
         self.lpatches = list ()
         for n in ("critical", "error", "warning", "info", "debug",
                   "trace", "log", "exception"):
@@ -160,10 +173,6 @@ class DnTest (unittest.TestCase):
             p = unittest.mock.patch ("decnet.logging.%s" % n, wraps = m)
             p.start ()
             self.lpatches.append (p)
-        # logging.logging is the Python standard logging module
-        h = logging.logging.StreamHandler (sys.stdout)
-        logging.logging.basicConfig (handlers = [ h ], level = self.loglevel)
-        self.setloglevel (self.loglevel)
         self.lasttrace = 0
         self.lastdebug = 0
         
@@ -174,6 +183,7 @@ class DnTest (unittest.TestCase):
     def trace (self):
         # A shortcut for something we use during debug
         self.setloglevel (logging.TRACE)
+
     def tearDown (self):
         logging.logging.shutdown ()
         for p in self.lpatches:
@@ -322,7 +332,13 @@ class DnTest (unittest.TestCase):
             if pat_re.search (args[0]):
                 return args
         self.fail (msg)
-        
+
+    def config (self, s):
+        ret, msg = config.configparser.parse_args (s.split ())
+        if msg:
+            self.fail ("config error: {}".format (msg))
+        return ret
+    
 _port = 6665
 
 def nextport ():

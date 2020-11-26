@@ -27,6 +27,7 @@ from . import datalink
 from . import datalinks    # All the datalinks we know
 from . import logging
 from .nsp import Seq
+from .host import dualstack
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -147,7 +148,22 @@ class Objects (list):
         if val.number:
             self.nums[val.number] = val
         self.append (val)
-    
+
+def dualstack_switches (cp):
+    # Add switches to enable dual stack handling, if available
+    if dualstack:
+        # Note: these are "count" switches but for the moment are
+        # treated as Booleans.  At some point we'll implement
+        # prioritizing one or the other if it its switch is specified
+        # more than once (e.g., "-466")
+        cp.add_argument ("-4", "--ipv4", action = "count", default = 0,
+                         help = "Use IPv4")
+        cp.add_argument ("-6", "--ipv6", action = "count", default = 0,
+                         help = "Use IPv6")
+    else:
+        cp.set_defaults (ipv4 = 1)
+        cp.set_defaults (ipv6 = 0)
+        
 def config_cmd (name, help, collection = None):
     # collection, if specified, is a checkdict subclass that is used to
     # collect all the items for this component name.  If collection is
@@ -175,13 +191,14 @@ cp = config_cmd ("circuit", "Circuit configuration", collection = Circuits)
 cp.add_argument ("name", help = "Circuit name", type = circname)
 cp.add_argument ("type", choices = datalinks, metavar = "type",
                  help = "Datalink type; one of {}.".format (", ".join (datalinks)))
-cp.add_argument ("device", help = "Device or connection string")
+cp.add_argument ("device", help = "Device name", nargs = "?")
 cp.add_argument ("--cost", type = int, metavar = "N",
                  help = "Circuit cost (range 1..25, default 4)",
                  choices = range (1, 26), default = 4)
 cp.add_argument ("--latency", type = int, metavar = "L",
                  choices = range (1, 440),
                  help = "Circuit latency in ms (range 1..439), used to compute cost")
+dualstack_switches (cp)
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval "
                  "(overrides exec setting)")
@@ -193,10 +210,23 @@ else:
     cp.add_argument ("--console", const = bytes (8), metavar = "V",
                      nargs = "?", type = scan_ver,
                      help = "Enable MOP console (V = verification)")
-cp.add_argument ("--source", default = "", 
-                 help = """Source IP address (or address:port, if TCP)
-                 to use for IP based
+cp.add_argument ("--mode",
+                 help = """Connection mode.  Permitted values vary with
+                 device type, see doc/config.txt for details.""")
+cp.add_argument ("--destination", metavar = "D",
+                 help = """Destination IP address to use for IP based
+                 device communication""")
+cp.add_argument ("--dest-port", type = int, metavar = "DP",
+                 choices = range (1, 65536),
+                 help = """Destination TCP or UDP port to use for IP based
+                 device communication""")
+cp.add_argument ("--source", default = "", metavar = "S",
+                 help = """Source IP address to use for IP based
                  device communication (default: auto-select)""")
+cp.add_argument ("--source-port", type = int, metavar = "SP",
+                 choices = range (65536),
+                 help = """Source TCP or UDP port to use for IP based
+                 device communication.  Required for UDP, optional for TCP.""")
 cp.add_argument ("--single-address", action = "store_true", default = False,
                  help = "Use a single MAC address for all Ethernet"
                  " clients on this circuit (default: use separate MAC address for"
@@ -228,6 +258,7 @@ cp = config_cmd ("http", "HTTP access")
 cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  type = int, choices = range (65536),
                  help = "Port number for HTTP access, 0 to disable")
+dualstack_switches (cp)
 cp.add_argument ("--source", default = "", type = IpAddr,
                  help = """Source IP address to use for IP based
                  device communication (default: auto-select)""")

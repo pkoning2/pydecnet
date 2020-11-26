@@ -93,7 +93,6 @@ class DDCMPbase (DnTest):
     
     def setUp (self):
         super ().setUp ()
-        self.tconfig.source = "127.0.0.1"
         self.tconfig.qmax = self.qmax
         self.dmc = ddcmp.DDCMP (self.node, "dmc-0", self.tconfig)
         self.rport = self.dmc.create_port (self.node)
@@ -599,16 +598,22 @@ class Qmax255:
     
 class DdcmpUdp (DDCMPbase):
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
         self.cport = nextport ()
         # UDP mode
-        self.tconfig.device = "udp:{}:127.0.0.1:{}".format (self.cport, self.lport)
+        spec = "circuit dmc-0 DDCMP udp:{}:127.0.0.1:{}".format (self.lport,
+                                                                 self.cport)
+        self.tconfig = self.config (spec)
         super ().setUp ()
+        # Verify the mapping from old format to new
+        self.assertEqual (self.tconfig.mode, "udp")
+        self.assertEqual (self.tconfig.destination, "127.0.0.1")
+        self.assertEqual (self.tconfig.dest_port, self.cport)
+        self.assertEqual (self.tconfig.source_port, self.lport)
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind (("", self.lport))
+        self.socket.bind (("", self.cport))
         self.rport.open ()
 
     def tearDown (self):
@@ -617,11 +622,11 @@ class DdcmpUdp (DDCMPbase):
 
     def receivepdu (self):
         b, addr = self.socket.recvfrom (1500)
-        self.assertEqual (addr, ("127.0.0.1", self.cport))
+        self.assertEqual (addr, ("127.0.0.1", self.lport))
         return b
     
     def sendpdu (self, pdu):
-        self.socket.sendto (makebytes (pdu), ("127.0.0.1", self.cport))
+        self.socket.sendto (makebytes (pdu), ("127.0.0.1", self.lport))
 
 class TestDdcmpUdp (DdcmpUdp, CommonTests):
     "UDP tests"
@@ -678,12 +683,18 @@ class DdcmpStream (DDCMPbase):
         
 class DdcmpTcp (DdcmpStream):
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
         self.cport = nextport ()
         # TCP mode
-        self.tconfig.device = "tcp:{}:127.0.0.1:{}".format (self.cport, self.lport)
+        spec = "circuit dmc-0 DDCMP tcp:{}:127.0.0.1:{}".format (self.lport,
+                                                                 self.cport)
+        self.tconfig = self.config (spec)
         super ().setUp ()
+        # Verify the mapping from old format to new
+        self.assertEqual (self.tconfig.mode, "tcp")
+        self.assertEqual (self.tconfig.destination, "127.0.0.1")
+        self.assertEqual (self.tconfig.dest_port, self.cport)
+        self.assertEqual (self.tconfig.source_port, self.lport)
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
@@ -862,7 +873,7 @@ class TcpTests (StreamTests):
             # Early listen
             lsock = socket.socket (socket.AF_INET)
             lsock.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            lsock.bind (("", self.lport))
+            lsock.bind (("", self.cport))
             lsock.listen (1)
         try:
             self.socket.shutdown (socket.SHUT_RDWR)
@@ -870,6 +881,7 @@ class TcpTests (StreamTests):
             # If socket isn't connected a shutdown will fail
             pass
         self.socket.close ()
+        logging.trace ("recon: disconnect done")
         time.sleep (0.1)
         # Expire the reconnect holdoff timer
         DnTimeout (self.rport.parent)
@@ -885,8 +897,9 @@ class TcpTests (StreamTests):
             # Late listen
             lsock = socket.socket (socket.AF_INET)
             lsock.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            lsock.bind (("", self.lport))
+            lsock.bind (("", self.cport))
             lsock.listen (1)
+            logging.trace ("recon: late listen, now listening")
             # Since DDCMP tried to connect before we listened, it
             # would have gotten a failure from that and we need to
             # tell it to do that again.
@@ -895,12 +908,14 @@ class TcpTests (StreamTests):
             # Connect
             self.socket = socket.socket (socket.AF_INET)
             self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.socket.connect (("127.0.0.1", self.cport))
+            self.socket.connect (("127.0.0.1", self.lport))
+            logging.trace ("recon: connect done")
         else:
             # Either kind of listen
             sock, ainfo = lsock.accept ()
             self.assertEqual (ainfo[0], "127.0.0.1")
             lsock.close ()
+            logging.trace ("recon: accept done")
             self.socket = sock
         # Bring up DDCMP just to be sure
         logging.trace ("Final ddcmp startup")
@@ -943,7 +958,7 @@ class DdcmpTcplisten (DdcmpTcp):
     "TCP mode DDCMP, listening for connection"
     def setUp (self):
         super ().setUp ()
-        self.socket.bind (("", self.lport))
+        self.socket.bind (("", self.cport))
         self.socket.listen (1)
         self.rport.open ()
         sock, ainfo = self.socket.accept ()
@@ -954,19 +969,22 @@ class DdcmpTcplisten (DdcmpTcp):
     def sendpdu (self, pdu):
         # Override the base class version to send the packet with SYN
         # and DEL wrapping
-        self.socket.sendall (ddcmp.SYN4 + makebytes (pdu) +ddcmp.DEL1)
+        self.socket.sendall (ddcmp.SYN4 + makebytes (pdu) + ddcmp.DEL1)
 
 class TestDdcmpTcplisten (DdcmpTcplisten, CommonTests, TcpTests):
     "TCP tests, listen (conn ction outbound)"
     
 class DdcmpTcpconn (DdcmpTcp):
     "TCP mode DDCMP, connecting"
+
     def setUp (self):
         super ().setUp ()
-        self.socket.bind (("", self.lport))
         self.rport.open ()
+        # Note that we don't bind the port that DDCMP is connecting
+        # to, so that connect goes nowhere.  Depending on the OS, it
+        # might be immediately rejected, or not.
         time.sleep (0.1)
-        self.socket.connect (("127.0.0.1", self.cport))
+        self.socket.connect (("127.0.0.1", self.lport))
 
 class TestDdcmpTcpconn (DdcmpTcpconn, CommonTests, TcpTests):
     "TCP tests, connect (connection inbound)"
@@ -1029,15 +1047,13 @@ class PipeSerial:
     
 class DdcmpSerial (DdcmpStream):
     def setUp (self):
-        self.tconfig = container ()
-        self.lport = nextport ()
-        self.cport = nextport ()
         # Create this before the DDCMP object is created, to make sure
         # ddcmp.serial is not None, otherwise the object creation
         # fails.
         ddcmp.serial = self.socket = PipeSerial ()
-        # Serial mode
-        self.tconfig.device = "serial:somename"
+        # Serial mode, using the new specification format
+        spec = "circuit dmc-0 DDCMP somename --mode serial"
+        self.tconfig = self.config (spec)
         super ().setUp ()
         self.rport.open ()
 

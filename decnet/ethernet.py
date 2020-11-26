@@ -13,11 +13,18 @@ import socket
 import struct
 import os
 import sys
+import psutil
 
+try:
+    MACADDR = socket.AF_LINK
+except AttributeError:
+    MACADDR = socket.AF_PACKET
+    
 from .common import *
 from . import logging
 from . import datalink
 from . import pcap
+from . import host
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -88,12 +95,20 @@ class _Ethernet (datalink.BcDatalink, StopThread):
     def open (self):
         # If no explicit address was set, see if we find one to use.
         if self.hwaddr == NULLID:
-            for dname, desc, addrs, flags in pcap.findalldevs ():
-                if dname == self.dev and addrs:
-                    self.hwaddr = Macaddr (addrs[0][0])
-        if self.hwaddr == NULLID:
-            logging.error ("No hardware address for Ethernet {}", self.name)
-            return
+            ifaddr = psutil.net_if_addrs ()
+            try:
+                for a in ifaddr[self.dev]:
+                    if a.family == MACADDR:
+                        self.hwaddr = Macaddr (a.address)
+                        break
+                else:
+                    logging.error ("No hardware address for Ethernet {}",
+                                   self.name)
+                    return
+            except KeyError:
+                    logging.error ("No address info for interface {}",
+                                   self.name)
+                    return
         logging.debug ("Ethernet {} hardware address is {}",
                        self.name, self.hwaddr)
         # start receive thread
@@ -290,7 +305,7 @@ class _PcapEth (_Ethernet):
         self.pcap.open_live (self.dev, ETH_MTU, 1, ETH_TMO)
         super ().open ()
         self.opened = True
-        logging.trace ("pcap handle {}", self.pcap.pcap)
+        logging.trace ("opened {}, pcap handle {}", self.dev, self.pcap.pcap)
         if self.filter_str:
             self.pcap.setfilter (self.filter_str)
             
@@ -324,34 +339,14 @@ class _BridgeEth (_Ethernet):
     """
     def __init__ (self, owner, name, dev, config):
         super ().__init__ (owner, name, dev, config)
-        lport, host, rport = dev.split (":")
-        self.lport = int (lport)
-        self.host = datalink.HostAddress (host)
-        self.rport = int (rport)
-        logging.debug ("Ethernet bridge {} initialized on {}, to {} {}",
-                       self.name, self.lport, self.host, self.rport)
+        self.source = host.SourceAddress (config, config.source_port)
+        self.host = host.HostAddress (config.destination, config.dest_port,
+                                      self.source)
+        logging.debug ("Ethernet bridge {} initialized on {}, to {}",
+                       self.name, self.source, self.host)
         
     def open (self):
-        self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                     socket.IPPROTO_UDP)
-        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        for retry in range (3):
-            # This ought to work reliably, but on Python 3.7 it
-            # occasionally does not, and on older pythons it seems to
-            # fail more frequently.  So try a few times if necessary.
-            sock = self.socket
-            if not sock:
-                return
-            self.sellist = [ sock.fileno () ]
-            try:
-                sock.bind (("", self.lport))
-                break
-            except (OSError, socket.error):
-                logging.exception ("Ethernet bridge {} socket {} bind {} failed",
-                                   self.name, sock, self.lport)
-            self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
-                                         socket.IPPROTO_UDP)
-            self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket = self.host.create_udp (self.source)
         super ().open ()
         
     def close (self):
@@ -363,18 +358,20 @@ class _BridgeEth (_Ethernet):
         self.socket = None
 
     def run (self):
-        sellist = self.sellist
+        poll = select.poll ()
         sock = self.socket
+        poll.register (sock, datalink.REGPOLLIN)
         logging.trace ("Ethernet bridge {} receive thread started", self.name)
         while True:
             # Look for traffic
-            try:
-                r, w, e = select.select (sellist, [], sellist, 1)
-            except select.error:
-                e = True
-            if self.stopnow or e:
+            plist = poll.poll (datalink.POLLTS)
+            if self.stopnow:
                 break
-            if r:
+            for fd, event in plist:
+                if event & datalink.POLLERRHUP:
+                    self.disconnected ()
+                    break
+                # Not error, so we have incoming data.
                 try:
                     msg, addr = sock.recvfrom (1514)
                 except socket.error:
@@ -382,15 +379,12 @@ class _BridgeEth (_Ethernet):
                 if not msg or len (msg) <= 4:
                     self.disconnected ()
                     return
-                host, port = addr
-                good = False
-                if port != self.rport or not self.host.valid (host):
+                if not self.host.valid (addr):
                     # Not from peer, ignore
                     continue
-                source = (host, port)
                 if msg[6] & 1:
                     continue   # source routed???  ignore it
-                self.receive (len (msg), msg, source)
+                self.receive (len (msg), msg, addr)
 
     def send_frame (self, buf, skip = None):
         """Send an Ethernet frame.  Ignore any errors, because that's
@@ -399,7 +393,7 @@ class _BridgeEth (_Ethernet):
         if not self.socket:
             return
         try:
-            self.socket.sendto (buf, (self.host.addr, self.rport))
+            self.socket.sendto (buf, self.host.sockaddr)
         except (IOError, socket.error, TypeError) as e:
             pass
         
@@ -408,8 +402,15 @@ class _BridgeEth (_Ethernet):
 # subclass instance given the specific device flavor specified.
 class Ethernet (datalink.Datalink):
     def __new__ (cls, owner, name, config):
-        dev = config.device or name
-        api, dev = dev.split (":", 1)
+        api = config.mode
+        if not api:
+            # Legacy configuration via device argument, convert that
+            api, config.device = config.device.split (":", 1)
+            config.mode = api = api.lower ()
+            if api == "bridge" or api == "udp":
+                lport, config.destination, rport = config.device.split (":")
+                config.source_port = int (lport)
+                config.dest_port = int (rport)
         if api == "tap" and _TapEth:
             c = _TapEth
         elif api == "pcap":
@@ -421,4 +422,4 @@ class Ethernet (datalink.Datalink):
             c = _BridgeEth
         else:
             raise ValueError ("Unknown Ethernet circuit subtype {}".format (api))
-        return c (owner, name, dev, config)
+        return c (owner, name, config.device, config)

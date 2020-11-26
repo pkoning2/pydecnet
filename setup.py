@@ -28,6 +28,9 @@ setup (author = "Paul Koning",
             ]
         },
        py_modules = [ "crc" ],
+       install_requires = [
+           "psutil >= 3.2.0"
+           ],
        extras_require = {
            "daemon" : "python-daemon",
            "yaml" : "PyYAML",
@@ -45,5 +48,7 @@ setup (author = "Paul Koning",
            "Programming Language :: Python :: 3.6",
            "Programming Language :: Python :: 3.7",
            "Programming Language :: Python :: 3.8",
+           "Programming Language :: Python :: 3.9",
+           "Programming Language :: Python :: 3.10",
            ],       
        )

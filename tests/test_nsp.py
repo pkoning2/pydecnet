@@ -32,7 +32,6 @@ class ntest (DnTest):
         self.node.routing.nodeinfo.counters = routing.ExecCounters (self.node.routing.nodeinfo, self.node)
         self.node.session = unittest.mock.Mock ()
         self.nsp = nsp.NSP (self.node, self.config)
-        #self.setloglevel (logging.TRACE)
         self.nsp.start ()
         self.assertConns (0)
 

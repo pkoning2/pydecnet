@@ -7,11 +7,12 @@ import select
 
 from decnet import datalink
 from decnet import multinet
+from decnet.host import dualstack
 
 class MultinetBase (DnTest):
     def setUp (self):
         super ().setUp ()
-        self.tconfig.source = "127.0.0.1"
+        logging.warning = unittest.mock.Mock ()
         self.mult = multinet.Multinet (self.node, "multinet-0", self.tconfig)
         self.rport = self.mult.create_port (self.node)
         self.node.enable_dispatcher ()
@@ -64,11 +65,12 @@ class MultinetCommonTests:
 
 class TestMultinetUDP (MultinetBase, MultinetCommonTests):
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
         self.cport = nextport ()
         # UDP mode
-        self.tconfig.device = "127.0.0.1:{}:{}".format (self.lport, self.cport)
+        spec = "circuit mul-0 Multinet 127.0.0.1:{}:{}".format (self.lport,
+                                                                self.cport)
+        self.tconfig = self.config (spec)
         # Initially turn off warnings such as the Multinet UDP "don't
         # do this" warning.
         self.loglevel = logging.ERROR
@@ -101,11 +103,11 @@ class TestMultinetUDP (MultinetBase, MultinetCommonTests):
 
 class TestMultinetUDPnodest (MultinetBase):
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
         self.cport = nextport ()
-        # UDP mode
-        self.tconfig.device = "127.0.0.1:{}:{}".format (self.lport, self.cport)
+        spec = "circuit mul-0 Multinet 127.0.0.1:{}:{}".format (self.lport,
+                                                                self.cport)
+        self.tconfig = self.config (spec)
         # Initially turn off warnings such as the Multinet UDP "don't
         # do this" warning.
         self.loglevel = logging.ERROR
@@ -155,8 +157,12 @@ class MultinetTCPbase (MultinetBase, MultinetCommonTests):
         "Test port close"
         self.rport.close ()
         time.sleep (0.1)
-        b = self.socket.recv (1)
-        self.assertEqual (b, b"")
+        try:
+            b = self.socket.recv (1)
+            self.assertEqual (b, b"")
+        except OSError:
+            # This is also a valid outcome
+            pass
         
     def test_restart (self):
         "Test local restart to force disconnect, then reconnect"
@@ -215,10 +221,13 @@ class MultinetTCPbase (MultinetBase, MultinetCommonTests):
         self.assertEqual (self.mult.counters.pkts_recv, 2)
         
 class TestMultinetTCPconnect (MultinetTCPbase):
+    "Test TCP connect mode"
+
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
-        self.tconfig.device = "127.0.0.1:{}:connect".format (self.lport)  # active TCP
+        # TCP connect mode
+        spec = "circuit mul-0 Multinet 127.0.0.1:{}:connect".format (self.lport)
+        self.tconfig = self.config (spec)
         super ().setUp ()
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -237,22 +246,60 @@ class TestMultinetTCPconnect (MultinetTCPbase):
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind (("", self.lport))
         self.socket.listen (1)
-        logging.trace ("listening")
         time.sleep (0.3)
         DnTimeout (self.rport.parent)
-        logging.trace ("timeout done")
         sock, ainfo = self.socket.accept ()
-        logging.trace ("accepted")
         self.assertEqual (ainfo[0], "127.0.0.1")
         self.socket.close ()
         self.socket = sock
         self.assertUp (count)
 
+@unittest.skipUnless (dualstack, "Test needs IPv4/v6 dual stack support")
+class TestMultinetTCPconnect2 (MultinetTCPbase):
+    "Test TCP connect mode, two addresses"
+    def setUp (self):
+        self.lport = nextport ()
+        # TCP connect mode
+        spec = "circuit mul-0 Multinet localhost:{}:connect -446".format (self.lport)
+        self.tconfig = self.config (spec)
+        super ().setUp ()
+        self.socket = socket.socket (socket.AF_INET)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.bind (("", self.lport))
+        self.socket.listen (1)
+        logging.trace ("Listening to IPv4")
+        self.rport.open ()
+        sock, ainfo = self.socket.accept ()
+        self.assertEqual (ainfo[0], "127.0.0.1")
+        self.socket.close ()
+        self.socket = sock
+        self.socket2 = socket.socket (socket.AF_INET6)
+        self.socket2.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket2.setsockopt (socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        self.socket2.bind (("", self.lport))
+        self.socket2.listen (1)
+        time.sleep (0.1)
+        self.assertUp ()        
+
+    def tearDown (self):
+        self.socket2.close ()
+        super ().tearDown ()
+        
+    def do_reconnect (self, count, expire = True):
+        time.sleep (0.3)
+        DnTimeout (self.rport.parent)
+        sock, ainfo = self.socket2.accept ()
+        self.assertEqual (ainfo[0], "::1")
+        self.socket2.close ()
+        self.socket = sock
+        self.assertUp (count)
+
 class TestMultinetTCPconnectLate (MultinetBase):
     def setUp (self):
-        self.tconfig = container ()
         self.lport = nextport ()
-        self.tconfig.device = "127.0.0.1:{}:connect".format (self.lport)
+        # TCP connect mode
+        spec = "circuit mul-0 Multinet 127.0.0.1:{}:connect".format (self.lport)
+        self.tconfig = self.config (spec)
         super ().setUp ()
 
     def tearDown (self):
@@ -294,15 +341,16 @@ class TestMultinetTCPconnectLate (MultinetBase):
         
 class TestMultinetTCPlisten (MultinetTCPbase):
     def setUp (self):
-        self.tconfig = container ()
-        self.cport = nextport ()
-        self.tconfig.device = "127.0.0.1:{}:listen".format (self.cport)  # passive TCP
+        self.lport = nextport ()
+        # TCP listen mode
+        spec = "circuit mul-0 Multinet 127.0.0.1:{}:listen".format (self.lport)
+        self.tconfig = self.config (spec)
         super ().setUp ()
         self.rport.open ()
         time.sleep (0.1)
         self.socket = socket.socket (socket.AF_INET)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.connect (("127.0.0.1", self.cport))
+        self.socket.connect (("127.0.0.1", self.lport))
         time.sleep (0.1)
         self.assertUp ()
 
@@ -312,7 +360,62 @@ class TestMultinetTCPlisten (MultinetTCPbase):
         if expire:
             DnTimeout (self.rport.parent)
         time.sleep (0.1)
-        self.socket.connect (("127.0.0.1", self.cport))
+        self.socket.connect (("127.0.0.1", self.lport))
+        time.sleep (0.1)
+        self.assertUp (count)
+
+@unittest.skipUnless (socket.has_ipv6, "Test needs IPv6 support")
+class TestMultinetTCP6listen (MultinetTCPbase):
+    def setUp (self):
+        self.lport = nextport ()
+        # TCP listen mode
+        spec = "circuit mul-0 Multinet --mode listen --source ::1 --source-port {}".format (self.lport)
+        self.tconfig = self.config (spec)
+        super ().setUp ()
+        self.rport.open ()
+        time.sleep (0.1)
+        self.socket = socket.socket (socket.AF_INET6)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.connect (("::1", self.lport))
+        time.sleep (0.1)
+        self.assertUp ()
+
+    def do_reconnect (self, count, expire = True):
+        self.socket = socket.socket (socket.AF_INET6)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if expire:
+            DnTimeout (self.rport.parent)
+        time.sleep (0.1)
+        self.socket.connect (("::1", self.lport))
+        time.sleep (0.1)
+        self.assertUp (count)
+        
+@unittest.skipUnless (dualstack, "Test needs IPv4/v6 dual stack support")
+class TestMultinetTCP46listen (MultinetTCPbase):
+    "Test mixed IPv4/v6 operation"
+    
+    def setUp (self):
+        self.lport = nextport ()
+        # TCP listen mode
+        spec = "circuit mul-0 Multinet --mode listen -46 --source-port {}".format (self.lport)
+        self.tconfig = self.config (spec)
+        super ().setUp ()
+        self.rport.open ()
+        time.sleep (0.1)
+        self.socket = socket.socket (socket.AF_INET6)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.socket.connect (("::1", self.lport))
+        time.sleep (0.1)
+        self.assertUp ()
+
+    def do_reconnect (self, count, expire = True):
+        # Reconnect with IPv4.
+        self.socket = socket.socket (socket.AF_INET)
+        self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if expire:
+            DnTimeout (self.rport.parent)
+        time.sleep (0.1)
+        self.socket.connect (("127.0.0.1", self.lport))
         time.sleep (0.1)
         self.assertUp (count)
         

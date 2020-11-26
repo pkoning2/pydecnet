@@ -31,7 +31,6 @@ class brtest (DnTest):
             self.node.datalink.circuits[n] = unittest.mock.Mock ()
             self.node.datalink.circuits[n].__class__ = ethernet.Ethernet
             self.node.datalink.circuits[n].create_port.side_effect = makeport
-        #self.setloglevel (logging.TRACE)
         self.bridge = bridge.Bridge (self.node, self.config)
         self.bridge.start ()
         i = 1

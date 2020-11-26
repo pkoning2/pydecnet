@@ -669,7 +669,7 @@ class StopThread (threading.Thread):
 
         This method returns True if the thread was active, False if not.
         """
-        if not self.isAlive ():
+        if not self.is_alive ():
             return False
         if not self.stopnow:
             self.stopnow = True
@@ -894,4 +894,3 @@ class Backoff:
     def next (self):
         # Because I always forget whether next is a function or a method
         return next (self)
-    

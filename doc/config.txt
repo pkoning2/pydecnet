@@ -88,6 +88,13 @@ for the HTTP listener.  Default is 8443.  The value 0 disables HTTPS.
 containing the SSL server certificate to be used for HTTPS.  Default
 is "decnet.pem".
 
+-4: enable HTTP access via IPv4.
+-6: enable HTTP access via IPv6.  These two switches are supported
+only if the platform has dual-stack support (which Windows, Linux,
+and Mac OS all do) as described in RFC 3493.  If neither switch is
+present, both IPv4 and IPv6 are accepted; if only one is, then only
+that IP protocol is accepted.
+
 --api: enables the JSON API.  If omitted, JSON requests (to the "api"
 URL) are rejected.  
 
@@ -216,71 +223,96 @@ that Multinet over UDP does not work well (defective protocol design,
 there's nothing the implementation can do about that) and is not
 recommended -- Multinet over TCP is ok.
 
-Argument: Device name or connection data.  The meaning of this string
-depends on the circuit type:
+Optional argument: Device name or connection data.  The meaning of
+this string depends on the circuit type.  In previous versions, this
+argument might contain several parts separated by colons, especially
+for IP based connectivity.  That form is still supported for backward
+compatibility but not recommended because the syntax varies and is not
+easy to remember.  It is optional in the sense that some circuit
+specifications do not use it, but others require it; see the details
+below for the different "mode" values.
 
-    Ethernet: subtype:dest where subtype indicates a particular method
-    for speaking Ethernet, and dest is the device or destination to be
-    used.  Acceptable values are:
-        tap:devname -- TUN/TAP accessing the named TAP device
-	pcap:ifname -- Use the specified Ethernet interface via the
-	    PCAP library
-        bridge:localport:host:port -- Attach this Ethernet to the 
-            Bilquist bridge at the specified IP address and UDP port,
-            sending from and receiving on the specific localport.
-	    For those used to SIMH notation, "udp" is a synonym for 
-	    "bridge".  
+Network configuration arguments: these four optional arguments are
+used to specify network parameters for any of the circuit types that
+communicate over IP based protocols.
 
-    Multinet: this can use UDP or TCP.  For UDP, the device argument
-    is host, host:port, or host:rport:lport.  In the first form, the
-    port number is 700 (the default); in the second, the port number
-    is the specified value for both endpoints; in the third, the two
-    numbers are remote and local port numbers respectively.  For TCP,
-    the device argument is host::mode or host:port:mode, with the port
-    number interpreted as above, and mode is either "listen" to expect
-    an incoming TCP connection, or "connect" to initiate an outgoing
-    connection.  For the listen case, omitting the host address or
-    specifying 0.0.0.0 means connections are accepted from any
-    address.  One of the two sides must be configured to connect, the
-    other to listen.  Note: as stated above, Multinet over UDP is
-    discouraged because its operation violates the requirements in the
-    DECnet Routing Architecture specification (and does so in a way
-    that seriously impairs reliability).
+--source: Source IP address to use.  If not specified, the OS default
+is used.
 
-    GRE: host.  This specifies GRE encapsulation to the specified
-    host.  The IP protocol type is always 47 (the assigned value for
-    the GRE protocol).
+--source-port: Source (local) TCP or UDP port number to use.  For TCP,
+this specifies the listen port (for incoming connections).  But with
+Multinet it can also be used with outbound connections ("connect"
+mode), in case the other end requires a specific sending port number.
 
-    DDCMP: mode:lport:host:rport.  lport is the local port number,
-    host specifies the remote host address, and rport is the remote
-    port number.  mode is udp, tcp, or telnet.  For udp, communication
-    is by UDP datagrams between the local port and the specified host
-    and remote port.  Otherwise, communication is by a TCP
-    connection.  Unlike the other datalink types, DDCMP will listen on
-    the specified local port while also attempting to connect to the
-    designated host and remote port.  This matches what is done in the
-    DMC emulation in SimH V4.0.  Telnet mode is used when the remote
-    host is a telnet server connected to a DDCMP interface; in this
-    mode, correct Telnet character escape processing is done.  In
-    regular TCP mode, the connection is treated as a transparent raw
-    connection.  
-    Alternatively, DDCMP can use a UART port on the system to
-    communicate with the remote node.  For this case, the device
-    string is serial:devname or serial:devname:speed.  devname is the
-    device name of the serial port to use, and speed may be specified
-    (the default is 9600).  Serial mode requires the pyserial module.
-    On a BeagleBone, if the Adafruit_BBIO module is installed, the
-    additional field :uartport can be added, which is the port name
-    of the UART device to be used.  
+--destination: Destination (remote) IP address.  If omitted for
+inbound TCP modes, any destination address is accepted.  For UDP and
+GRE, this is not yet allowed, a specific address must be specified.
 
---source: source IP address to use, for devices that use IP, TCP, or
-UDP communication.  Defaults to letting the system choose the address
-(for outbound connections), or accepting any local address (for
-inbound connections).
-For Multinet TCP, the argument is address or address:port or :port.
-This allows the source port number to be specified, which is not
-usually done with TCP but may be needed with the RSX implementation of
-Multinet.
+--dest-port: Destination (remote) TCP or UDP port number.  For TCP
+inbound connections, this is typically omitted in which case the port
+number is not checked.
+
+-4: IPv4 allowed
+-6: IPv6 allowed
+
+Source and destination may be numeric addresses, or DNS names.  If a
+name is used, this is resolved at startup and again every hour, to
+allow for dynamic addresses.  Source must be a single address; if a
+name is used that must translate to a single address (from among the
+address families allowed by the -4 and -6 switches).
+
+Address families: if -4 or -6, but not both, are supplied, only that
+address family is enabled.  If both are present, both are enabled if
+the system supports it.  The default is -4 -6, i.e., both enabled.
+
+If names are used, the addresses found by the lookup are used in
+random order.  But -4 or -6 can be repeated to give preference to that
+family.  For example, --destination google.com -466 will try any of
+that hosts's addresses, but all its IPv6 addresses will be tried
+before the IPv4 addresses.  This applies to outbound traffic; inbound
+any enabled address will be accepted and that address will then be
+used.
+
+--mode: Datalink connection mode, for datalinks that can communicate
+in several different ways.  Allowed values, for the various datalink
+types, are:
+
+    Ethernet:
+      tap: TUN/TAP accessing the TAP device named by the device
+      argument.
+      pcap: PCAP library accessing the Ethernet interface named by the
+      device argument.
+      bridge or udp: Attach this Ethernet to a Billquist bridge (using
+      UDP).  Network addressing is done by the networking arguments
+      listed below.
+
+    Multinet:
+       udp: Multinet over UDP.  Not recommended (not reliable)
+       connect: Multinet over TCP, this side originates the
+       connection.
+       listen: Multinet over TCP, other side originates the
+       connection.
+
+    GRE: not used
+       Note that GRE uses the source and destination address arguments
+       but not source and dest port since the GRE protocol number is
+       fixed. 
+
+    DDCMP:
+       serial: DDCMP over a (real) UART.  The device argument is the
+       device name, optionally followed by :speed (the default is 9600
+       baud).  On a BeagleBone, if the Adafruit_BBIO module is
+       installed, the additional field :uartport can be added, which
+       is the port name of the UART device to be used.
+       udp: DDCMP over UDP.
+       tcp: DDCMP over TCP.  Unlike Multinet, both sides both connect
+       and listen, compatible with how SIMH does it.
+       telnet: DDCMP over TCP, with Telnet data encapsulation.  Use
+       this when the other end is a Telnet server connected to a DDCMP
+       serial port, to enable proper Telnet escape character
+       processing. 
+       Note that outbound connections are not made if --destination is
+       omitted ("any remote adddress" mode).
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
 default is 4.
@@ -309,7 +341,7 @@ circuits.
 
 --nr: Number of adjacenct routers.  Argument is an integer in the
 range 1 to 33.  This value specifies how many other routers may be
-present on this Ehternet.  Note that the DNA spec says this is a
+present on this Ethernet.  Note that the DNA spec says this is a
 number in the range 1..255, but this is wrong: the list of adjacent
 routers appears in the Router Hello message, and the size limit of
 that field in the message implies a limit of 33 routers.  
@@ -475,7 +507,7 @@ version numbers.
 
 Component "bridge"
 
-This component is required for a Bilquist bridge node.  Its only
+This component is required for a Billquist bridge node.  Its only
 argument is the name of the bridge.
 
 A bridge has one or more circuits, which must be Ethernet.  It will
