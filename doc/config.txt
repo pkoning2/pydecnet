@@ -296,7 +296,10 @@ types, are:
     GRE: not used
        Note that GRE uses the source and destination address arguments
        but not source and dest port since the GRE protocol number is
-       fixed. 
+       fixed.
+       GRE supports IPv6 or IPv6, but it does not support both
+       concurrently.  For now, use the -4 or -6 switch to tell it
+       which you want.
 
     DDCMP:
        serial: DDCMP over a (real) UART.  The device argument is the
