@@ -354,7 +354,7 @@ class SourceAddress (HostAddress):
     def bind_socket (self, fam, type = socket.SOCK_STREAM, proto = 0):
         sock = socket.socket (fam, type, proto)
         try:
-            if fam == socket.AF_INET6:
+            if fam == socket.AF_INET6 and type != socket.SOCK_RAW:
                 if self.use_dualstack:
                     # We want both IPs, enable that
                     sock.setsockopt (socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
