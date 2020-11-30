@@ -638,7 +638,7 @@ class RoutingLanCircuit (LanCircuit):
                 a = None
                 for a in self.adjacencies.values ():
                     break
-            if not (a and a.state == UP) and \
+            if not (a and a.state == UP) and item.src and \
                isinstance (item, (LongData, ShortData)):
                 # No adjacency, but it's a data packet, use a dummy
                 # adjacency instead.
