@@ -120,7 +120,6 @@ class GRE (datalink.BcDatalink, StopThread):
         while True:
             try:
                 pl = p.poll (datalink.POLLTS)
-                logging.trace ("receive_loop poll {}", pl)
             except select.error as exc:
                 logging.trace ("Poll error {}", exc)
                 return False

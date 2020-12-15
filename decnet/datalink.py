@@ -341,7 +341,6 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             # Look for traffic
             try:
                 pl = p.poll (POLLTS)
-                logging.trace ("recvall poll {}", pl)
             except select.error as exc:
                 logging.trace ("Poll error {}", exc)
                 raise
