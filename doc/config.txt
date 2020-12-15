@@ -244,9 +244,10 @@ this specifies the listen port (for incoming connections).  But with
 Multinet it can also be used with outbound connections ("connect"
 mode), in case the other end requires a specific sending port number.
 
---destination: Destination (remote) IP address.  If omitted for
-inbound TCP modes, any destination address is accepted.  For UDP and
-GRE, this is not yet allowed, a specific address must be specified.
+--destination: Destination (remote) IP address.  If omitted or
+specified as "*", for inbound TCP modes, any destination address is
+accepted.  For UDP and GRE, this is not yet allowed, a specific
+address must be specified.
 
 --dest-port: Destination (remote) TCP or UDP port number.  For TCP
 inbound connections, this is typically omitted in which case the port
