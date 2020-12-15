@@ -3,6 +3,11 @@ change at the top.  "Significant" means a non-trivial functional
 change or a change that affects how you use or install the
 application.
 
+1.0-575: Correct documentation omission: in rev 570, the circuit
+configuration spec was changed so "0.0.0.0" is no longer recognized as
+"any address allowed".  Instead, use an empty address or the special
+value "*".
+
 1.0-570: IPv6 support, which introduces new configuration file options
 for circuits and http.  The old syntax for circuit destination
 configuration specs still works but is deprecated (it's harder to use)
