@@ -242,7 +242,7 @@ class test_ethend (rtest):
 class test_ptpend (rtest):
     ntype = "endnode"
     circ = (( "ptp-0", False ),)
-    loglevel = logging.TRACE
+
     def setUp (self):
         super ().setUp ()
         self.assertState ("ds")
