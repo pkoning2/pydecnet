@@ -14,6 +14,8 @@ PyDECnet can also use the following optional modules:
    JSON configuration files are supported.
 3. python-pam: if present, username/password authentication for DECnet
    objects is available.
+4. pyserial: if present, the "serial" mode of the DDCMP datalink
+   is available.
 
 You can check what optional libraries are installed using this
 command:
