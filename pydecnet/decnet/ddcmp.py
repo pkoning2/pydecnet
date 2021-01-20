@@ -851,8 +851,15 @@ class _SerialDDCMP (_DDCMP):
             self.speed = 9600
         if self.uart:
             UART.setup (self.uart)
-        logging.trace ("DDCMP datalink {} initialized on device {}"
-                       " speed {}", self.name, self.dev, self.speed)
+        uart = ""
+        if self.uart:
+            uart = " (UART {})".format (self.uart)
+        logging.debug ("DDCMP datalink {} initialized:\n"
+                       "  Mode:   {}\n"
+                       "  Device: {}{}\n"
+                       "  Speed:  {}",
+                       self.name, config.mode,
+                       self.dev, uart, self.speed)
 
     def connect (self):
         # Open the serial link.  Note that we're after the point where
@@ -938,8 +945,13 @@ class _TcpDDCMP (_DDCMP):
         self.dest = host.HostAddress (config.destination, config.dest_port,
                                       self.source, any = True)
         # All set
-        logging.trace ("DDCMP datalink {} initialized on {} to {} ",
-                       self.name, self.source, self.dest)
+        logging.debug ("DDCMP datalink {} initialized:\n"
+                       "  Mode:   {}\n"
+                       "  Dest:   {}:{}\n"
+                       "  Source: {}:{}",
+                       self.name, config.mode,
+                       config.destination, config.dest_port,
+                       config.source, config.source_port)
 
     def handle_reconnect (self, item):
         super ().handle_reconnect (item)
@@ -1154,9 +1166,13 @@ class _UdpDDCMP (_DDCMP):
         self.dest = host.HostAddress (config.destination, config.dest_port,
                                       self.source)
         # All set
-        logging.trace ("DDCMP datalink {} initialized using UDP on "
-                       "port {} to {}", self.name, config.source_port,
-                       self.dest)
+        logging.debug ("DDCMP datalink {} initialized:\n"
+                       "  Mode:   {}\n"
+                       "  Dest:   {}:{}\n"
+                       "  Source: {}:{}",
+                       self.name, config.mode,
+                       config.destination, config.dest_port,
+                       config.source, config.source_port)
 
     def connect (self):
         self.socket = self.dest.create_udp (self.source)
