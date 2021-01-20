@@ -566,7 +566,8 @@ class RoutingLanCircuit (LanCircuit):
                             # This node is the lowest priority, ignore its
                             # hello.
                             return
-                    self.minrouterblk = min (a.blksize for a in rslist)
+                    # Update the router block size to use.
+                    self.update_blk ()
                     hellochange = True
                 else:
                     a.alive ()
@@ -742,6 +743,12 @@ class RoutingLanCircuit (LanCircuit):
             # Router adjacency, update DR state and send an updated hello
             self.calcdr ()
             self.newhello ()
+            self.update_blk ()
+
+    def update_blk (self):
+        # Update the routing message block size we currently want.
+        # This is the smallest routing neighbor block size or our own
+        # block size, whichever is less.
             self.minrouterblk = ETHMTU
             for r in self.routers ():
                 self.minrouterblk = min (self.minrouterblk, r.blksize)
