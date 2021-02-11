@@ -284,8 +284,8 @@ types, are:
       pcap: PCAP library accessing the Ethernet interface named by the
       device argument.
       bridge or udp: Attach this Ethernet to a Billquist bridge (using
-      UDP).  Network addressing is done by the networking arguments
-      listed below.
+      UDP).  Network addressing is done by the network configuration
+      arguments listed above.
 
     Multinet:
        udp: Multinet over UDP.  Not recommended (not reliable)
