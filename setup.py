@@ -8,6 +8,7 @@ Licensed under open source license terms stated in file LICENSE.
 """
 
 from setuptools import setup
+from decnet.main import getrevision
 
 setup (author = "Paul Koning",
        author_email = "ni1d@arrl.net",
@@ -15,7 +16,7 @@ setup (author = "Paul Koning",
        description = "DECnet protocol implementation in Python",
        name = "decnet",
        #url = ""
-       version = "1.0",
+       version = getrevision (),
        python_requires = ">=3.3",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
