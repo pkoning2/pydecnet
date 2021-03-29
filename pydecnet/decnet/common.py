@@ -19,8 +19,9 @@ import collections
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
-DNVERSION = "DECnet/Python V1.0"
-CYEAR = "2020"
+DNVERNUM = "1.0"
+DNVERSION = "DECnet/Python V{}".format (DNVERNUM)
+CYEAR = "2021"
 AUTHORS = "Paul Koning"
 
 # Defaults

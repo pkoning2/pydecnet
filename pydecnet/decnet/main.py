@@ -124,6 +124,10 @@ def sighandler (signum, frame):
     signalled = True
     raise KeyboardInterrupt
 
+def getrevision ():
+    http.setdnrev ()
+    return "{}.{}".format (http.DNVERNUM, http.DNREV)
+
 def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
