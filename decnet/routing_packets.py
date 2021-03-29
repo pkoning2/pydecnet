@@ -130,6 +130,7 @@ class CtlHdr (packet.Packet):
     _layout = (( packet.BM,
                  ( "control", 0, 1 ),
                  ( "type", 1, 3 ),
+                 ( "ext_type", 4, 3 ),   # Phase IV-prime extended type
                  ( "pf", 7, 1 )),)
     control = 1
     pf = 0
@@ -291,7 +292,7 @@ class RoutingMessage (CtlHdr):
         point of view of the caller, i.e., with incoming circuit's
         hop/cost included.
         """
-        cost = circ.config.cost
+        cost = circ.cost
         for s in self.segments:
             i = s.startid
             for e in s.entries:
@@ -332,7 +333,7 @@ class PhaseIIIRouting (RoutingMessage):
         point of view of the caller, i.e., with incoming circuit's
         hop/cost included.
         """
-        cost = circ.config.cost
+        cost = circ.cost
         i = 1
         for e in self.segments:
             yield i, (e.hops + 1, e.cost + cost)
@@ -354,7 +355,10 @@ class RouterHello (CtlHdr):
     hiid = HIORD
     ntype_l1 = 2
     ntype_l2 = 1
-
+    # Values for ext_type field encoding the PF flag
+    ext_type_4 = 0
+    ext_type_4prime = 1
+    
 class Elist (packet.Packet):
     _layout = (( packet.RES, 7 ),
                ( packet.I, "rslist", 236 ))
@@ -367,7 +371,7 @@ class RSent (packet.Packet):
                  ( "twoway", 7, 1 )))
     hiid = HIORD
     
-class EndnodeHello (CtlHdr):
+class EndnodeHelloBase (CtlHdr):
     _layout = (( Version, "tiver" ),
                ( packet.BV, "hiid", 4 ),
                ( Nodeid, "id" ),
@@ -379,12 +383,21 @@ class EndnodeHello (CtlHdr):
                ( packet.B, "timer", 2 ),
                ( packet.RES, 1 ),
                ( packet.I, "testdata", 128 ))
-    type = 6
-    hiid = HIORD
     ntype = ENDNODE
+    # Note that HIORD appears in the packet header even for Phase IV
+    # Prime nodes; the spec says that the real upper 32 bits only
+    # appear in MAC layer headers.
+    hiid = HIORD
     # Only meaningful for router hellos, but defined here for commonality
     prio = 0
 
+class EndnodeHello (EndnodeHelloBase):
+    type = 6
+
+class EndnodeHelloPrime (EndnodeHelloBase):
+    type = 7
+    ext_type = 1
+    
 class NodeInit (packet.Packet):
     _layout = (( packet.B, "msgflag", 1 ),
                ( packet.B, "starttype", 1 ),

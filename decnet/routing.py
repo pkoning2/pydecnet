@@ -1333,7 +1333,7 @@ class L2Router (L1Router):
                         r.circuit = a.circuit
                         r.next_node = self.node.nodeinfo (a.nodeid)
                     if req.info == 1:
-                        # statuss
+                        # status
                         r.hops = self.aminhops[i]
                         r.cost = self.amincost[i]
                 else:

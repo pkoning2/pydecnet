@@ -254,6 +254,40 @@ class TestMultinetTCPconnect (MultinetTCPbase):
         self.socket = sock
         self.assertUp (count)
 
+    def test_mimbug (self):
+        logging.trace ("Disconnecting the socket")
+        self.socket.shutdown (socket.SHUT_RDWR)
+        self.socket.close ()
+        time.sleep (0.1)
+        w = self.lastdispatch (2, itype = datalink.DlStatus)
+        self.assertEqual (w.status, w.DOWN)
+        # We're not creating a new listen socket, so the restarts will
+        # fail with a no such port error.
+        logging.trace ("sleeping")
+        time.sleep (0.3)
+        logging.trace ("done sleeping")
+        DnTimeout (self.rport.parent)
+        # Try again
+        logging.trace ("sleeping")
+        time.sleep (0.3)
+        logging.trace ("done sleeping")
+        DnTimeout (self.rport.parent)
+        # Try again
+        logging.trace ("sleeping")
+        time.sleep (0.3)
+        logging.trace ("done sleeping")
+        DnTimeout (self.rport.parent)
+        # Try again
+        logging.trace ("sleeping")
+        time.sleep (0.3)
+        logging.trace ("done sleeping")
+        DnTimeout (self.rport.parent)
+        # Try again
+        logging.trace ("sleeping")
+        time.sleep (0.3)
+        logging.trace ("done sleeping")
+        DnTimeout (self.rport.parent)
+        
 @unittest.skipUnless (dualstack, "Test needs IPv4/v6 dual stack support")
 class TestMultinetTCPconnect2 (MultinetTCPbase):
     "Test TCP connect mode, two addresses"
