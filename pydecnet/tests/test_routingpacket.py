@@ -159,7 +159,7 @@ class routingmsg (DnTest):
     def setUp (self):
         super ().setUp ()
         self.circ = unittest.mock.Mock ()
-        self.circ.config.cost = 5
+        self.circ.cost = 5
 
 class test_p3routing (routingmsg):
     def test_decode (self):
