@@ -341,8 +341,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             # Look for traffic
             try:
                 pl = p.poll (POLLTS)
-            except select.error as exc:
-                logging.trace ("Poll error {}", exc)
+            except select.error:
+                logging.trace ("Poll error", exc_info = True)
                 raise
             if self.rthread and self.rthread.stopnow:
                 raise IOError
@@ -355,8 +355,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
                 # Receive a packet
                 try:
                     m = sock.recv (n - len (ret))
-                except (AttributeError, OSError, socket.error) as exc:
-                    logging.trace ("Receive header error {}", exc)
+                except (AttributeError, OSError, socket.error):
+                    logging.trace ("Receive header error", exc_info = True)
                     m = None
                 if not m:
                     raise IOError
@@ -474,7 +474,8 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             # Free any sockets or file descriptors
             self.disconnect ()
             if self.restart_now:
-                # No holdoff
+                # No holdoff, but hold off next time
+                self.restart_now = False
                 self.node.addwork (Start (self))
                 return self.s0
             else:
