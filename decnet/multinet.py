@@ -130,6 +130,7 @@ class _TcpMultinet (_Multinet):
                 # Now receive exactly the byte count mentioned
                 msg = self.recvall (bc)
             except IOError:
+                logging.trace ("Exception in receive loop", exc_info = True)
                 return
             self.node.addwork (Received (self, packet = msg))
         
@@ -147,10 +148,10 @@ class _TcpMultinet (_Multinet):
             hdr = mlen.to_bytes (2, "little") + b"\000\000"
             try:
                 self.socket.send (hdr + msg)
-            except (socket.error, AttributeError, OSError) as exc:
+            except (socket.error, AttributeError, OSError):
                 # AttributeError happens if socket has been
                 # changed to "None"
-                logging.trace ("send error {}", exc)
+                logging.trace ("send error", exc_info = True)
                 self.reconnect ()
 
 class _ConnectMultinet (_TcpMultinet):
@@ -200,9 +201,8 @@ class _ConnectMultinet (_TcpMultinet):
         while True:
             try:
                 pl = p.poll (datalink.POLLTS)
-                logging.trace ("check_connection {}", pl)
-            except select.error as exc:
-                logging.trace ("Poll error {}", exc)
+            except select.error:
+                logging.trace ("Poll error", exc_info = True)
                 return False
             if self.rthread and self.rthread.stopnow:
                 return False
@@ -247,9 +247,8 @@ class _ListenMultinet (_TcpMultinet):
         while True:
             try:
                 pl = p.poll (datalink.POLLTS)
-                logging.trace ("check_connection {}", pl)
-            except select.error as exc:
-                logging.trace ("Poll error {}", exc)
+            except select.error:
+                logging.trace ("Poll error", exc_info = True)
                 return False
             if self.rthread and self.rthread.stopnow:
                 return False
@@ -270,8 +269,8 @@ class _ListenMultinet (_TcpMultinet):
                                "unexpected address {}",
                                self.name, ainfo)
                 sock.close ()
-            except (AttributeError, OSError, socket.error) as exc:
-                logging.trace ("Close error {}", exc)
+            except (AttributeError, OSError, socket.error):
+                logging.trace ("Close error", exc_info = True)
                 return False
         logging.trace ("Multinet {} connected", self.name)
         # Stop listening:
@@ -323,8 +322,8 @@ class _UdpMultinet (_Multinet):
         while True:
             try:
                 pl = p.poll (datalink.POLLTS)
-            except select.error as exc:
-                logging.trace ("Poll error {}", exc)
+            except select.error:
+                logging.trace ("Poll error", exc_info = True)
                 return False
             if self.rthread and self.rthread.stopnow:
                 return
@@ -366,10 +365,10 @@ class _UdpMultinet (_Multinet):
             self.seq = (self.seq + 1) & 0xffff
             try:
                 sock.sendto (hdr + msg, self.dest.sockaddr)
-            except (socket.error, AttributeError, OSError) as exc:
+            except (socket.error, AttributeError, OSError):
                 # AttributeError happens if socket has been
                 # changed to "None"
-                logging.trace ("send error {}", exc)
+                logging.trace ("send error", exc_info = True)
             
 # Factory class -- returns an instance of the appropriate _Multinet
 # subclass instance given the specific device flavor specified.
