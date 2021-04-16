@@ -114,7 +114,7 @@ class Node (Entity):
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
         self.decnet = hasattr (config, "routing")
-        self.ident = "{}-{}".format (http.DNVERSION, http.DNREV)
+        self.ident = self.swident = "{}-{}".format (http.DNVERSION, http.DNREV)
         if config.system.identification:
             self.ident = config.system.identification
         if self.decnet:
@@ -420,6 +420,10 @@ class Node (Entity):
             if req.sum () or req.char ():
                 # summary or characteristics (!)
                 exe.identification = self.ident
+            if req.char ():
+                # This is always the software identification string,
+                # unlike "ident" which is configurable.
+                exe.software_identification = self.swident
             elif req.stat ():
                 exe.physical_address = Macaddr (self.nodeid)
             if req.sumstat ():   # summary or status
