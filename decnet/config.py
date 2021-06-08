@@ -213,20 +213,34 @@ else:
 cp.add_argument ("--mode",
                  help = """Connection mode.  Permitted values vary with
                  device type, see doc/config.txt for details.""")
-cp.add_argument ("--destination", metavar = "D",
-                 help = """Destination IP address to use for IP based
+# New preferred names for addresses and ports.  Note that the code
+# continues to refer to them by their earlier names, hence the "dest="
+# arguments.
+cp.add_argument ("--remote-address", metavar = "R",
+                 dest = "destination",
+                 help = """Remote IP address to use for IP based
                  device communication""")
-cp.add_argument ("--dest-port", type = int, metavar = "DP",
+cp.add_argument ("--remote-port", type = int, metavar = "DP",
+                 dest = "dest_port",
                  choices = range (1, 65536),
-                 help = """Destination TCP or UDP port to use for IP based
+                 help = """Remote TCP or UDP port to use for IP based
                  device communication""")
-cp.add_argument ("--source", default = "", metavar = "S",
-                 help = """Source IP address to use for IP based
+cp.add_argument ("--local-address", metavar = "S",
+                 dest = "source",
+                 help = """Local IP address to use for IP based
                  device communication (default: auto-select)""")
-cp.add_argument ("--source-port", type = int, metavar = "SP",
-                 choices = range (65536),
-                 help = """Source TCP or UDP port to use for IP based
+cp.add_argument ("--local-port", type = int, metavar = "SP",
+                 dest = "source_port", choices = range (65536),
+                 help = """Local TCP or UDP port to use for IP based
                  device communication.  Required for UDP, optional for TCP.""")
+# Old synonyms for the above
+cp.add_argument ("--destination", help = argparse.SUPPRESS)
+cp.add_argument ("--dest-port", type = int, choices = range (1, 65536),
+                 help = argparse.SUPPRESS)
+cp.add_argument ("--source", help = argparse.SUPPRESS)
+cp.add_argument ("--source-port", type = int, choices = range (65536),
+                 help = argparse.SUPPRESS)
+
 cp.add_argument ("--single-address", action = "store_true", default = False,
                  help = "Use a single MAC address for all Ethernet"
                  " clients on this circuit (default: use separate MAC address for"
@@ -259,9 +273,11 @@ cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  type = int, choices = range (65536),
                  help = "Port number for HTTP access, 0 to disable")
 dualstack_switches (cp)
-cp.add_argument ("--source", default = "", type = IpAddr,
-                 help = """Source IP address to use for IP based
-                 device communication (default: auto-select)""")
+cp.add_argument ("--local-address", type = IpAddr, dest = "source",
+                 help = """Local IP address to use for the HTTP server
+                        (default: auto-select)""")
+# Synonym for the above for older configs
+cp.add_argument ("--source", help = argparse.SUPPRESS)
 cp.add_argument ("--http-root", metavar = "R",
                  help = """Root directory for files served by the HTTP
                         server.  Must contain the "resources" directory
@@ -363,21 +379,21 @@ cp = config_cmd ("logging", "Event logging configuration",
                  collection = Loggers)
 cp.add_argument ("type", choices = ("console", "file", "monitor"),
                  help = "Sink type")
-cp.add_argument ("--sink-node", type = str, metavar = "N",
+cp.add_argument ("--sink-node", metavar = "N",
                  help = "Remote sink node (default: local)")
-cp.add_argument ("--sink-username", type = str, metavar = "U",
+cp.add_argument ("--sink-username", metavar = "U",
                  default = "",
                  help = "Remote sink connection username")
-cp.add_argument ("--sink-password", type = str, metavar = "PW",
+cp.add_argument ("--sink-password", metavar = "PW",
                  default = "",
                  help = "Remote sink connection password")
-cp.add_argument ("--sink-account", type = str, metavar = "A",
+cp.add_argument ("--sink-account", metavar = "A",
                  default = "",
                  help = "Remote sink connection account")
-cp.add_argument ("--sink-file", type = str, default = "events.dat",
+cp.add_argument ("--sink-file", default = "events.dat",
                  metavar = "FN",
                  help = "File name for File sink")
-cp.add_argument ("--events", type = str, default = "",
+cp.add_argument ("--events", default = "",
                  help = """Events to enable (default: known events for
                         local console, none otherwise""")
 
@@ -412,7 +428,7 @@ else:
     cp.set_defaults (authentication = "off")
 
 cp = config_cmd ("bridge", "LAN bridge layer")
-cp.add_argument ("name", type = str, help = "Bridge name")
+cp.add_argument ("name", help = "Bridge name")
 
 class Config (object):
     """Container for configuration data.

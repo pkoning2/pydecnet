@@ -66,7 +66,7 @@ class _Multinet (datalink.PtpDatalink):
                        "  Dest:   {}:{}\n"
                        "  Source: {}:{}",
                        self.name, config.mode,
-                       config.destination, config.dest_port,
+                       config.destination or "*", config.dest_port,
                        config.source, config.source_port)
         self.seq = 0
 
