@@ -167,6 +167,10 @@ class _pcap (object):
     """
     class error (OSError): pass
 
+def cvterrbuf (errbuf):
+    errbuf = b"".join (b for b in errbuf).rstrip (b"\0")
+    return errbuf.decode ("latin1", "ignore")
+    
 def findalldevs ():
     """Return a list of 4-tuples: name, description, addresses, and flags
     for each pcap device found.  Addresses is a list of 4-tuples: individual
@@ -181,7 +185,7 @@ def findalldevs ():
     errbuf = create_string_buffer (PCAP_ERRBUF_SIZE)
     ret = _pcaplib.pcap_findalldevs (byref (listhead), errbuf)
     if ret < 0:
-        raise _pcap.error (errbuf)
+        raise _pcap.error (cvterrbuf (errbuf))
     try:
         lptr = listhead
         while lptr:
@@ -252,7 +256,10 @@ class pcapObject (object):
         self.close ()
         self.pcap = _pcaplib.pcap_open_live (name, mtu, promisc,
                                              timeout, errbuf)
-        
+        if not self.pcap:
+            logging.error ("PCAP open failure, status {}", cvterrbuf (errbuf))
+        return self.pcap
+    
     def inject (self, buf):
         """Send a buffer.  Returns the number of bytes sent.
         """

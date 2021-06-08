@@ -237,6 +237,8 @@ class HostAddress (object):
         return self.addrinfo[1]
 
     def __str__ (self):
+        if self.any:
+            return "*:{}".format (self.sockaddr[1])
         return "{}:{}".format (*self.sockaddr)
     
     @property

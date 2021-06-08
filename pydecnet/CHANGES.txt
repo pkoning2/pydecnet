@@ -3,6 +3,14 @@ change at the top.  "Significant" means a non-trivial functional
 change or a change that affects how you use or install the
 application.
 
+1.0-584: Since the circuit configuration switches --destination,
+--dest-port, --source, and --source-port were confusing for "listen"
+mode circuits and other cases where one would naturally think in terms
+of inbound traffic, this version introduces new switches
+--remote-address, --remote-port, --local-address, and --local-port
+respectively.  The old names still work but the new names are the
+documented ones and are preferred.
+
 1.0-575: Correct documentation omission: in rev 570, the circuit
 configuration spec was changed so "0.0.0.0" is no longer recognized as
 "any address allowed".  Instead, use an empty address or the special

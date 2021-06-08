@@ -101,8 +101,9 @@ URL) are rejected.
 --insecure-api: allows the JSON API (if enabled by --api) on the HTTP
 port.  By default, JSON is allowed only on the HTTPS port.
 
---source: source IP address to use, for both HTTP and HTTPS.  Defaults
-to accepting any local address.
+--local-address: local IP address to use, for both HTTP and HTTPS.
+Defaults to accepting any local address (i.e., HTTP and HTTPS
+connections to any of the host's addresses are accepted).
 
 --http-root: directory which contains the "resources" subdirectory,
 from which fixed files such as the decnet.css and icon files are
@@ -236,22 +237,22 @@ Network configuration arguments: these four optional arguments are
 used to specify network parameters for any of the circuit types that
 communicate over IP based protocols.
 
---source: Source IP address to use.  If not specified, the OS default
-is used.
+--local-address: Local IP address to use.  If not specified, the OS
+default is used.
 
---source-port: Source (local) TCP or UDP port number to use.  For TCP,
-this specifies the listen port (for incoming connections).  But with
+--local-port: Local TCP or UDP port number to use.  For TCP, this
+specifies the listen port (for incoming connections).  But with
 Multinet it can also be used with outbound connections ("connect"
 mode), in case the other end requires a specific sending port number.
 
---destination: Destination (remote) IP address.  If omitted or
-specified as "*", for inbound TCP modes, any destination address is
-accepted.  For UDP and GRE, this is not yet allowed, a specific
-address must be specified.
+--remote-address: Remote IP address.  If omitted or specified as "*",
+for inbound TCP modes, any destination address is accepted.  For UDP
+and GRE, this is not yet allowed, a specific address must be
+specified.
 
---dest-port: Destination (remote) TCP or UDP port number.  For TCP
-inbound connections, this is typically omitted in which case the port
-number is not checked.
+--remote-port: Remote TCP or UDP port number.  For TCP inbound
+connections, this is typically omitted in which case the port number
+is not checked.
 
 -4: IPv4 allowed
 -6: IPv6 allowed
@@ -281,16 +282,20 @@ types, are:
     Ethernet:
       tap: TUN/TAP accessing the TAP device named by the device
       argument.
+      
       pcap: PCAP library accessing the Ethernet interface named by the
       device argument.
+      
       bridge or udp: Attach this Ethernet to a Billquist bridge (using
       UDP).  Network addressing is done by the network configuration
       arguments listed above.
 
     Multinet:
        udp: Multinet over UDP.  Not recommended (not reliable)
+
        connect: Multinet over TCP, this side originates the
        connection.
+
        listen: Multinet over TCP, other side originates the
        connection.
 
@@ -308,13 +313,17 @@ types, are:
        baud).  On a BeagleBone, if the Adafruit_BBIO module is
        installed, the additional field :uartport can be added, which
        is the port name of the UART device to be used.
+
        udp: DDCMP over UDP.
+
        tcp: DDCMP over TCP.  Unlike Multinet, both sides both connect
        and listen, compatible with how SIMH does it.
+       
        telnet: DDCMP over TCP, with Telnet data encapsulation.  Use
        this when the other end is a Telnet server connected to a DDCMP
        serial port, to enable proper Telnet escape character
-       processing. 
+       processing.
+       
        Note that outbound connections are not made if --destination is
        omitted ("any remote adddress" mode).
 
