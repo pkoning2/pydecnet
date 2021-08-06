@@ -389,8 +389,11 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
             self.rthread.stop (False)
         # Tell the owner
         self.report_down ()
-        # Set the state 
-        return self.shutdown
+        # Set the state
+        if self.rthread:
+            # We still have a thread, wait for it to exit
+            return self.shutdown
+        return self.s0
 
     def handle_reconnect (self, item):
         """Common actions for a Reconnect work item
@@ -399,7 +402,12 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         self.handle_stop (item)
         self.restart_now = item.now
         self.state = ret = self.reconnecting
-        return ret
+        if self.rthread:
+            # We still have a thread, wait for it to exit
+            return ret
+        # Move things along to the next stage by giving the Reconnect
+        # item to the reconnecting state handler.
+        return self.reconnecting (item)
     
     def validate (self, item):
         # Implement common actions (things to be done in all states).
@@ -470,7 +478,7 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         if isinstance (item, timers.Timeout):
             self.node.addwork (Start (self))
             return self.s0
-        elif isinstance (item, ThreadExit):
+        elif isinstance (item, (ThreadExit, Reconnect)):
             # Free any sockets or file descriptors
             self.disconnect ()
             if self.restart_now:
@@ -507,8 +515,9 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
 
     def start_thread (self):
         # Create the receive thread
-        self.rthread = StopThread (name = self.tname, target = self.run)
-        self.rthread.start ()
+        if not self.rthread:
+            self.rthread = StopThread (name = self.tname, target = self.run)
+            self.rthread.start ()
         
     def run (self):
         """The main code for the receive thread.
