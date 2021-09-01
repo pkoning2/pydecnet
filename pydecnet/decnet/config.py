@@ -197,7 +197,8 @@ cp.add_argument ("--cost", type = int, metavar = "N",
                  choices = range (1, 26), default = 4)
 cp.add_argument ("--latency", type = int, metavar = "L",
                  choices = range (1, 440),
-                 help = "Circuit latency in ms (range 1..439), used to compute cost")
+                 help = """Circuit latency in ms (range 1..439), 
+                 used to compute cost via the Bilquist algorithm""")
 dualstack_switches (cp)
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval "
@@ -210,7 +211,10 @@ else:
     cp.add_argument ("--console", const = bytes (8), metavar = "V",
                      nargs = "?", type = scan_ver,
                      help = "Enable MOP console (V = verification)")
-cp.add_argument ("--mode",
+cp.add_argument ("--loop-node", metavar = "N",
+                 help = """Loop node name.  If not specified, no loop
+                 node is created for this circuit.""")
+cp.add_argument ("--mode", metavar = "M",
                  help = """Connection mode.  Permitted values vary with
                  device type, see doc/config.txt for details.""")
 # New preferred names for addresses and ports.  Note that the code

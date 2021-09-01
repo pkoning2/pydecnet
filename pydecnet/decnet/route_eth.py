@@ -68,6 +68,7 @@ class LanCircuit (timers.Timer):
         self.holdoff = False
         # Actually only a router property but used in common html code
         self.isdr = False
+        self.loopadj = None
         
     def __str__ (self):
         return "{0.name}".format (self)
@@ -188,7 +189,8 @@ class LanCircuit (timers.Timer):
                  self.config.priority, self.t3, dr ]
     
     def nice_read (self, req, resp):
-        if isinstance (req, nicepackets.NiceReadNode) and req.sumstat ():
+        if isinstance (req, nicepackets.NiceReadNode) and \
+           req.sumstat () and not req.loop ():
             for a in sorted (self.adjacencies.values (),
                              key = lambda a: a.adjnode ()):
                 neighbor = a.adjnode ()
@@ -232,6 +234,8 @@ class LanCircuit (timers.Timer):
                 # summary or status
                 r.state = 0   # on
             elif req.char ():
+                if self.loop_node:
+                    r.loopback_name = self.loop_node
                 r.hello_timer = self.t3
                 r.cost = self.cost
                 self.extrachar (r)

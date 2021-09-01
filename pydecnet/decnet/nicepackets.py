@@ -322,20 +322,26 @@ class NodeReplyDict (ReplyDict):
         
     def sorted (self, req):
         # Special handler for sorting node replies.  Executor always
-        # comes first, followed by the others.  If the request was a
-        # wild card, filter the results accordingly.  This is somewhat
-        # inefficient in that we produce the full list and then trim
-        # it, but it is good enough and it's very easy to implement.
-        # Optimization can certainly be done without too much effort
-        # if it turns out to be worth doing.
+        # comes first, followed by regular nodes, then finally loop
+        # nodes.  If the request was a wild card, filter the results
+        # accordingly.  This is somewhat inefficient in that we
+        # produce the full list and then trim it, but it is good
+        # enough and it's very easy to implement.  Optimization can
+        # certainly be done without too much effort if it turns out to
+        # be worth doing.
         e = self.node.routing.nodeid
         ent = req.entity
         # Check explicitly since just trying to access self[e] would
         # create a record for e...
         if e in self and ent.match (e):
             yield e, self[e]
-        for k, v in sorted (self.items ()):
+        for k, v in sorted ((k, v) for k, v in self.items ()
+                            if isinstance (k, Nodeid)):
             if k != e and ent.match (k):
+                yield k, v
+        for k, v in sorted ((k, v) for k, v in self.items ()
+                            if not isinstance (k, Nodeid)):
+            if ent.match (k):
                 yield k, v
                 
 # Base class for NICE reply packets.  These need to be subclassed for

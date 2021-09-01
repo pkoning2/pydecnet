@@ -24,10 +24,12 @@ according to those versions.  This is primarily a test tool.
 
 Supported datalinks
 
-Supported datalinks include Ethernet, DDCMP over TCP, UDP, or
-asynchronous serial connections, the DMC-11 emulation implemented in
-SIMH V3.9, "Multinet" encapsulation of point to point datalink
-messages over UDP or TCP, and GRE encapsulation of Ethernet packets.
+Supported datalinks include Ethernet, DDCMP over TCP, UDP,
+asynchronous serial connections, or synchronous serial connections
+with the use of the USB connected DDCMP framer board, using the DMC-11
+emulation implemented in SIMH V3.9, "Multinet" encapsulation of point
+to point datalink messages over UDP or TCP, and GRE encapsulation of
+Ethernet packets.
 
 Note that Multinet encapsulation over UDP is not recommended because
 it violates the DNA specification badly enough that it is extremely

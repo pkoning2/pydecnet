@@ -54,6 +54,16 @@ go away on expiration, you can send things to the adjacency.
 called when ready for routing upper layer.
 """
 
+# Counter map tables.  Standard DECnet keeps only a bitmap, but we
+# keep per-qualifier counters as well to give a bit more detail.
+# These are in a 16-entry vector indexed by qualifier bit number.  The
+# tables below list pairs of bit number and label.
+ddcmp_de_map = ((0, "Header block check errors"),
+                (1, "Data field block check errors"),
+                (2, "REP responses"))
+ddcmp_be_map = ((0, "Buffers unavailable"),
+                (1, "Buffers too small"))
+
 # Circuit counter descriptions and field (attribute) names.  Note that
 # we don't do congestion so the congestion loss counter is omitted.
 fieldlist = (("Time since counters zeroed", "time_since_zeroed"),
@@ -64,7 +74,23 @@ fieldlist = (("Time since counters zeroed", "time_since_zeroed"),
              ("Circuit down", "cir_down"),
              ("Adjacency down", "adj_down"),
              ("Initialization failure", "init_fail"),
-             ("Time since circuit up", "last_up"))
+             ("Time since circuit up", "last_up"),
+             # Now for datalink counters.  Common counters:
+             ("Bytes received", "bytes_recv"),
+             ("Bytes sent", "bytes_sent"),
+             ("Data blocks received", "pkts_recv"),
+             ("Data blocks sent", "pkts_sent"),
+             # DDCMP counters
+             ("Data errors inbound", "data_errors_inbound", ddcmp_de_map),
+             ("Data errors outbound", "data_errors_outbound", ddcmp_de_map),
+             ("Remote reply timeouts", "remote_reply_timeouts"),
+             ("Local reply timeouts", "local_reply_timeouts"),
+             ("Remote buffer errors", "remote_buffer_errors", ddcmp_be_map),
+             # Ethernet counters.  Technically these are line
+             # counters.
+             ("Multicast bytes received", "mcbytes_recv"),
+             ("Multicast data blocks received", "mcpkts_recv"),
+             )
 rtr_only_fields = { "trans_recv", "trans_sent" }
 
 def allocvecs (maxidx):
@@ -115,6 +141,9 @@ class SelfAdj (adjacency.Adjacency):
         # on which to count them.
         if pkt.src and pkt.src.circuit:
             pkt.src.circuit.datalink.counters.term_recv += 1
+            if pkt.srcnode == self.node.nodeid and \
+               pkt.src.circuit.loop_node is not None:
+                pkt.srcnode = pkt.src.circuit
         work = Received (self.node.nsp, packet = pkt.payload,
                          src = pkt.srcnode, rts = pkt.rts)
         self.node.addwork (work, self.node.nsp)
@@ -310,8 +339,15 @@ class BaseRouter (Element):
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
             try:
-                self.circuits[name] = self.routing_circuit (name, dl, c)
+                rc = self.routing_circuit (name, dl, c)                
+                rc.loop_node = None
+                self.circuits[name] = rc
                 logging.debug ("Initialized routing circuit {}", name)
+                if c.loop_node:
+                    ln = c.loop_node.upper ()
+                    n = self.node.addloopnodeinfo (ln, rc)
+                    rc.loop_node = n
+                    logging.debug ("Added loop node {} for {}", ln, name)
             except Exception:
                 logging.exception ("Error initializing routing circuit {}", name)
 
@@ -410,6 +446,20 @@ class BaseRouter (Element):
         ret.extend (self.html (what))
         return sb, html.main (*ret)
 
+    def html_ccounters (self, circ, ctr):
+        # Format counters for circ, append them to ctr
+        for fl, f, *cmap in fieldlist:
+            c = getattr (circ, f, None)
+            if c is not None and f not in rtr_only_fields:
+                ctr.append (( "{} =".format (fl), c))
+                if cmap:
+                    # Mapped counter, break it down
+                    cmap = cmap[0]
+                    for bitnum, fl in cmap:
+                        c2 = c.cmap[bitnum]
+                        if c2:
+                            ctr.append (( "{} = ".format (fl), c2))
+        
     def description (self, mobile):
         return html.makelink (mobile, "routing",
                               "{0.ntypestring} {0.nodeid} ({0.name})".format (self),
@@ -426,11 +476,11 @@ class BaseRouter (Element):
                  "version" : self.tiver }
 
     def read_node (self, req, nodeid, resp):
-        r = resp[nodeid]
         # Supply the requested information for the indicated node.
-        if req.info == 2:
+        if req.char ():
             # Characteristics.  This applies only to executor, which
             # the caller has already checked.
+            r = resp[nodeid]
             r.routing_version = self.tiver
             # Generate NICE style node type
             if self.tiver == tiver_ph4:
@@ -449,13 +499,13 @@ class BaseRouter (Element):
     def nice_read (self, req, resp):
         if isinstance (req, nicepackets.NiceReadNode):
             # Read node
-            if req.info == 3:
+            if req.counters ():
                 # counters, nothing to do since NSP took care of that.
                 return
-            if req.info == 2:
+            if req.char ():
                 # characteristics -- only executor has those
                 if (req.one () and req.entity.value == self.nodeid) \
-                   or req.mult () and not req.adj ():
+                   or req.mult () and not req.adj () and not req.loop ():
                     # Supply executor characteristics.  Note that
                     # "adjacent" does not do this since the executor
                     # isn't an adjacent node.
@@ -468,7 +518,7 @@ class BaseRouter (Element):
                     # multiple nodes.  start with adjacencies.
                     for c in self.circuits.values ():
                         c.nice_read (req, resp)
-                    if not req.adj ():
+                    if not req.adj () and not req.loop ():
                         # known or significant or active, thrown in
                         # reachability information
                         self.reach (req, resp)
@@ -554,10 +604,7 @@ class EndnodeRouting (BaseRouter):
         h = self.circuit.html_row ()
         if what == "counters":
             ctr = list ()
-            for fl, f in fieldlist:
-                c = getattr (self.circuit.datalink.counters, f, None)
-                if c is not None and f not in rtr_only_fields:
-                    ctr.append (( "{} =".format (fl), c))
+            self.html_ccounters (self.circuit.datalink.counters, ctr)
             h.append (ctr)
         if what == "counters":
             return [ html.detail_section ("Circuit", header, [ h ]) ]
@@ -616,9 +663,8 @@ class Phase2Routing (BaseRouter):
             h = c.html_row ()
             if h:
                 if what == "counters":
-                    ctr = [ ( "{} =".format (fl),
-                              getattr (c.datalink.counters, f))
-                            for fl, f in fieldlist ]
+                    ctr = list ()
+                    self.html_ccounters (c.datalink.counters, ctr)
                     h.append (ctr)
                 rows.append (h)
         if rows:
@@ -961,8 +1007,27 @@ class L1Router (BaseRouter):
         pkt = LongData (rqr = rqr, rts = 0, ie = 1, dstnode = dest,
                         srcnode = self.nodeid, visit = 0,
                         payload = data, src = None)
-        self.forward (pkt, orig = True)
-        
+        if isinstance (dest, Nodeid):
+            # Sending to normal node
+            self.forward (pkt, orig = True)
+        else:
+            # Loop node
+            pkt.dstnode = self.nodeid
+            # The datalink dependent sublayer has found us a suitable
+            # adjacency.  It has to be either this node (i.e., there's
+            # a loopback connector attached) or a neighbor of type
+            # "router" so it can route the packet back to us.
+            a = dest.loopadj
+            if a is not None:
+                # We have one, send it
+                a.send (pkt)
+            else:
+                # No adjacency, call it unreachable.
+                if tryhard:
+                    pkt.rts = 1
+                    pkt.rqr = 0
+                    self.dispatch (pkt)
+                    
     def forward (self, pkt, orig = False):
         """Send a data packet to where it should go next.  "pkt" is the
         packet object to send.  For received packets, "pkt.src" is the
@@ -1063,10 +1128,7 @@ class L1Router (BaseRouter):
                     if h:
                         if what == "counters":
                             ctr = list ()
-                            for fl, f in fieldlist:
-                                i = getattr (c.datalink.counters, f, None)
-                                if i is not None:
-                                    ctr.append (( "{} =".format (fl), i))
+                            self.html_ccounters (c.datalink.counters, ctr)
                             h.append (ctr)
                         rows.append (h)
             if rows:

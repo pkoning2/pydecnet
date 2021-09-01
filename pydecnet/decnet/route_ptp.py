@@ -71,7 +71,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.name = name
         self.t3 = config.t3 or 60
         self.timer = 0
-        self.tiver = self.adj = None
+        self.tiver = self.adj = self.loopadj = None
         self.ntype = UNKNOWN
         self.retry_delay = 1
         # Use MTU as the blocksize until we learn otherwise
@@ -452,7 +452,7 @@ class PtpCircuit (statemachine.StateMachine):
         if isinstance (item, (Start, timers.Timeout)):
             logging.trace ("Starting {}", self)
             self.datalink.open ()
-            self.tiver = self.adj = None
+            self.tiver = self.adj = self.loopadj = None
             self.timer = 0     # No remote hello timer value received
             self.rphase = 0    # Don't know the neighbor's phase yet
             self.ntype = UNKNOWN # Nor his type
@@ -994,6 +994,9 @@ class PtpCircuit (statemachine.StateMachine):
         to "up", and start the hello timer.
         """
         self.adj.up ()
+        if self.id == self.node.nodeid or \
+           self.ntype in { L1ROUTER, L2ROUTER }:
+            self.loopadj = self.adj
         self.nrec = 0
         self.datalink.counters.last_up = Timestamp ()
         self.node.logevent (events.circ_up, events.CircuitEventEntity (self),
@@ -1005,13 +1008,13 @@ class PtpCircuit (statemachine.StateMachine):
         """
         if self.adj:
             self.adj.down ()
-        self.adj = None
+        self.adj = self.loopadj = None
 
     def adj_timeout (self, adj):
         """Take the adjacency down and restart the circuit.  This is
         called by adjacency listen timeout.
         """
-        self.adj = None
+        self.adj = self.loopadj = None
         self.restart (events.circ_down,
                       "timeout",
                       entity = events.CircuitEventEntity (self),
@@ -1045,7 +1048,8 @@ class PtpCircuit (statemachine.StateMachine):
                  self.state.label ]
 
     def nice_read (self, req, resp):
-        if isinstance (req, nicepackets.NiceReadNode) and req.sumstat ():
+        if isinstance (req, nicepackets.NiceReadNode) and \
+           req.sumstat () and not req.loop ():
             if self.state == self.ru:
                 neighbor = self.optnode ()
                 if req.one () and neighbor != req.entity.value:
@@ -1076,6 +1080,8 @@ class PtpCircuit (statemachine.StateMachine):
                     if req.info == 1:
                         # status
                         r.block_size = self.blksize
+                if self.loop_node is not None:
+                    r.loopback_name = self.loop_node.nodename
             elif req.char ():
                 r.cost = self.cost
                 r.hello_timer = self.t3

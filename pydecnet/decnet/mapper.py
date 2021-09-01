@@ -855,6 +855,20 @@ class NodePoller (Element, statemachine.StateMachine):
         # adjacencies for circuits that were "known" this time around.
         self.curnode.adj = { k : v for (k, v) in self.curnode.adj.items ()
                              if k[0] in circuits }
+        if self.nodeid == self.parent.nodeid:
+            # This poll is for the mapper node itself.  Don't run
+            # active nodes scan because that will show as active all
+            # the nodes that we're trying to poll (in parallel)
+            # because they have connections, but some of those
+            # connections will fail because the node is not actually
+            # reachable.  There may be more elegant solutions, but
+            # simply skipping the node poll on the mapper node should
+            # cure most of the issue.
+            #
+            # It would be tempting to replace the "active nodes" query
+            # by "adjacent nodes", but RSTS badly messes up the
+            # implementation of that request.
+            return self.finished ()
         return self.next_request (actnode, self.procactnode)
 
     def procactnode (self, ret):
@@ -878,7 +892,7 @@ class NodePoller (Element, statemachine.StateMachine):
             n.update (True, self.pollts)
             # See if it's a neighbor and its type was given.
             #### Bug workaround: we'd like to use the type, if this
-            #### node is a neighbor node.  Unfortunately RSTS include
+            #### node is a neighbor node.  Unfortunately RSTS includes
             #### the type even if the node is not adjacent.  To make
             #### matters worse, it has the wrong value, at least some
             #### of the time, for example showing an area router as L1
