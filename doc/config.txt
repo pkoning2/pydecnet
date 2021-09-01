@@ -314,6 +314,20 @@ types, are:
        installed, the additional field :uartport can be added, which
        is the port name of the UART device to be used.
 
+       framer: DDCMP over a synchronous connection using the USB to
+       DDCMP sync framer board.  The device argument is the device
+       name (an Ethernet interface, which will be accessed using the
+       pcap library) followed by :mode and then optionally :speed.
+       Mode is "rs232_dte", "rs232_dce" or "internal" for RS-232
+       signalling with modem-supplied clocks, RS-232 signaling with
+       framer supplying the clock, and "internal modem" (high speed
+       coax connection) respectively.  Speed is the data rate in bits
+       per second; this is required in rs232_dce and internal modes,
+       not applicable for the rs232_dte (modem supplied clock) case.
+       For more information on the framer including documentation,
+       firmware, and design files, see
+       https://github.com/pkoning2/ddcmp
+
        udp: DDCMP over UDP.
 
        tcp: DDCMP over TCP.  Unlike Multinet, both sides both connect
@@ -368,6 +382,10 @@ The remote node must supply a verification value that matches the
 --inbound-verification switch value for that node in the node list.
 If it doesn't match, or if no inbound verification value is defined
 for the remote node, initialization is rejected.
+
+--loop-node: Loop node name to associate with this circuit.  The name
+must not already be in use as a regular node name.  If omitted, no
+loop node name is assigned to this circuit.
 
 --mop: applies only to bridge circuits.  By default, only DECnet
 packets are accepted from and sent to this circuit.  If --mop is

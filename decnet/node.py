@@ -64,6 +64,7 @@ class Nodeinfo (nsp.NSPNode, NiceNode):
     needed by the various layers for remote node items -- for example, the
     state and counters needed by NSP.  The argument is the node config entry.
     """
+    loopnode = False
     def __new__ (cls, c, nodeid = None):
         if c:
             return NiceNode.__new__ (cls, c.id, c.name)
@@ -92,6 +93,28 @@ class Nodeinfo (nsp.NSPNode, NiceNode):
             ret["inbound_verification"] = str (self.iverif,
                                                encoding = "latin1")
         return ret
+
+    def get_dest (self):
+        return Nodeid (self)
+    
+class LoopNode (Nodeinfo):
+    loopnode = True
+    def __new__ (cls, name, circuit):
+        n = NiceNode.__new__ (cls, 0, name)
+        n.circuit = circuit
+        return n
+
+    def __init__ (self, name, circuit):
+        super ().__init__ (None, 0)
+        
+    def get_api (self):
+        ret = super ().get_api ()
+        ret["cicuit"] = circuit
+        return ret
+
+    def get_dest (self):
+        "Get the destination information for this node"
+        return self.circuit
     
 # A mapping from router node type to DECnet Phase number.  We need this
 # in a number of layers so we'll keep the answer in the Node object.
@@ -111,8 +134,8 @@ class Node (Entity):
     def __init__ (self, config):
         self.node = self
         self.config = config
-        self.nodeinfo_byname = dict()
-        self.nodeinfo_byid = dict()
+        self.nodeinfo_byname = dict ()
+        self.nodeinfo_byid = dict ()
         self.decnet = hasattr (config, "routing")
         self.ident = self.swident = "{}-{}".format (http.DNVERSION, http.DNREV)
         if config.system.identification:
@@ -170,7 +193,13 @@ class Node (Entity):
         # caught at config read-in.
         self.nodeinfo_byname[n.nodename] = n
         self.nodeinfo_byid[n] = n
-        
+
+    def addloopnodeinfo (self, name, circ):
+        n = LoopNode (name, circ)
+        self.nodeinfo_byname[name] = n
+        self.nodeinfo_byid[circ] = n
+        return n
+    
     def nodeinfo (self, n):
         """Look up a node in the node database.  The argument can be
         either a name (a string) or an id (a number or Nodeid).
@@ -182,7 +211,7 @@ class Node (Entity):
         if isinstance (n, str):
             try:
                 # See if the supplied string is a valid node ID
-                # (num.num2 or somply num).  If yes, we'll look it up
+                # (num.num2 or simply num).  If yes, we'll look it up
                 # that way.  If we get an error, it's not a valid ID
                 # so assume it is a name.
                 n = Nodeid (n)
@@ -401,9 +430,6 @@ class Node (Entity):
         if req.events ():
             # Asking for events
             return -1    # Unknown function or option
-        if isinstance (req, (nicepackets.NiceReadNode,
-                             nicepackets.NiceZeroNode)) and req.loop ():
-            return       # Nothing matches (we don't do loop nodes)
         # Hand the request to various layers.  NSP first because it
         # knows best what all the nodes are.
         self.nsp.nice_read (req, resp)

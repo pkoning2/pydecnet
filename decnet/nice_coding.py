@@ -56,7 +56,7 @@ class EntityBase (packet.Packet):
     
     def __new__ (cls, arg = None):
         ret = packet.Packet.__new__ (cls)
-        if arg:
+        if arg is not None:
             ret.ename = arg
         return ret
     
@@ -105,7 +105,7 @@ class NodeEntity (EntityBase):
 
     def __init__ (self, arg = None):
         super ().__init__ ()
-        if arg:
+        if arg is not None:
             self.ename = NiceNode (arg)
             
     def __str__ (self):
@@ -508,13 +508,16 @@ mapsep = "\n" + mapindent
 class Map:
     def __init__ (self, val = 0):
         self.map = 0
-
+        self.cmap = [ 0 ] * 16
+        
     def __iadd__ (self, other):
         "Increment a mapped counter, and optionally OR in a bit"
         if isinstance (other, Iterable):
-            n, bit = other
+            n, bitnum = other
             ret = self.__class__ (self + n)
-            ret.map = self.map | bit
+            ret.map = self.map | (1 << bitnum)
+            ret.cmap = self.cmap
+            ret.cmap[bitnum] += 1
         else:
             ret = self.__class__ (self + other)
             ret.map = self.map

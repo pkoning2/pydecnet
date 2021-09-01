@@ -430,6 +430,14 @@ nolinkset = { ConnConf, DiscInit, DataSeg, IntMsg, LinkSvcMsg }
 # These reason codes are internal to NSP and not available to SC
 reservedreasons = { NoRes.reason, DiscComp.reason, NoLink.reason }
 
+def shortname (n):
+    if isinstance (n, Nodeid):
+        return Nodeid (n)
+    return n.name
+
+def skey (n):
+    return not isinstance (n[0], Nodeid), n
+
 class NSP (Element):
     """The NSP Entity.  This owns all the connections.  It implements
     the ECL (formerly NSP) layer of the DECnet Network Architecture.
@@ -589,8 +597,14 @@ class NSP (Element):
                     if conn:
                         # We still think we have a connection mapping,
                         # do the source address check.
-                        if item.src != conn.dest or \
-                           (t is not AckConn and pkt.srcaddr != conn.dstaddr):
+                        if item.src != conn.dest and \
+                           isinstance (conn.dest, Nodeid):
+                            # Node address mismatch.  Note we don't
+                            # check this for loop nodes, where the
+                            # destination "address" is a circuit
+                            # rather than a Nodeid.
+                            conn = None
+                        elif t is not AckConn and pkt.srcaddr != conn.dstaddr:
                             # Mismatch, map to reserved port or discard
                             conn = None
                 # No valid connection mapping found, send message to the
@@ -683,10 +697,15 @@ class NSP (Element):
             ret = [ html.firsttextsection (title, echar) ]
             objects = self.parent.session.html_objects ()
             ret.append (objects)
-            nodes = [ [ Nodeid (k),
-                        html.cell (n.nodename, 'class="double_right"') ]
-                      for k, n in sorted (self.node.nodeinfo_byid.items ())
-                      if n.nodename ]
+            lpnodes = sorted ([ n.nodename, n.circuit.name ]
+                              for n in self.node.nodeinfo_byid.values ()
+                              if n.loopnode)
+            hdr = [ "Node name", "Circuit" ]
+            ret.append (html.tbsection ("Loop nodes", hdr, lpnodes))
+            nodes = sorted ((Nodeid (k),
+                             html.cell (n.nodename, 'class="double_right"'))
+                            for k, n in self.node.nodeinfo_byid.items ()
+                            if n.nodename and not n.loopnode)
             nl = len (nodes)
             if nl < 20:
                 cols = 1
@@ -716,9 +735,10 @@ class NSP (Element):
                       "Max connections: {}".format (self.maxconns) ]
             ret = [ html.firsttextsection (title, estat) ]
             # Get the list of active nodes (those with traffic)
-            anodes = [ (Nodeid (k), n.nodename, "{:.1f}".format (n.delay))
-                       for k, n in sorted (self.node.nodeinfo_byid.items ())
+            anodes = [ (shortname (k), n.nodename, "{:.1f}".format (n.delay))
+                       for k, n in self.node.nodeinfo_byid.items ()
                        if n.used () ]
+            anodes.sort (key = skey)
             hdr = ( "Node ID", "Node name", "Delay" )
             if anodes:
                 ret.append (html.tbsection ("Node status", hdr, anodes))
@@ -742,7 +762,7 @@ class NSP (Element):
                                       html.dtable (ctr)))
             # Get the list of active nodes (those with traffic)
             anodes = list ()
-            for k, n in sorted (self.node.nodeinfo_byid.items ()):
+            for k, n in self.node.nodeinfo_byid.items ():
                 if not n.used ():
                     continue
                 nc = n.counters
@@ -750,7 +770,8 @@ class NSP (Element):
                     continue
                 ctr = [ ( "{} = ".format (lb), getattr (nc, fn))
                         for fn, lb in nc.nodecounters ]
-                anodes.append ([ Nodeid (k), n.nodename, ctr ])
+                anodes.append ([ shortname (k), n.nodename, ctr ])
+            anodes.sort (key = skey)
             hdr = ( "Node ID", "Node name" )
             if anodes:
                 ret.append (html.detail_section ("Node counters", hdr, anodes))
@@ -784,11 +805,12 @@ class NSP (Element):
         # Fill in a NICE read node response record with information
         # from nodeinfo, inserting it into resp.  Note that asking for
         # it causes the entry to be created.
+        print ("reading node", id (nodeinfo), nodeinfo)
         r = resp[nodeinfo]
         r.entity = nicepackets.NodeEntity (nodeinfo)
         # We have a node for which we have some information.  Check
         # the information type request to see what is wanted.
-        if req.info < 2:
+        if req.sumstat ():
             # summary or status
             # Count the connections to this node.  TODO: should this
             # be tracked as state in the NSPNode object?
@@ -801,8 +823,10 @@ class NSP (Element):
                 r.active_links = links
             if nodeinfo.delay != 0:
                 r.delay = int (nodeinfo.delay) or 1
-        elif req.info == 2:
-            # characteristics.  Nothing exept for executor
+        elif req.char ():
+            # characteristics.  Nothing except for executor or loop
+            if nodeinfo.loopnode:
+                r.circuit = nodeinfo.circuit.name
             if nodeinfo == self.node.routing.nodeinfo:
                 # It's the executor
                 r.ecl_version = nspver3[self.nspver]
@@ -816,31 +840,36 @@ class NSP (Element):
         else:
             # counters
             nodeinfo.counters.copy (r)
-            
+        
     def nice_read (self, req, resp):
         # We only know about nodes
         if not isinstance (req, nicepackets.NiceReadNode):
             return
         # We know nothing about adjacent nodes
-        if req.entity.code == -4:
+        if req.adj ():
             return
         if req.mult ():
             # Multiple nodes: walk the node table
-            for n in self.node.nodeinfo_byid.keys ():
+            for n in self.node.nodeinfo_byid.values ():
                 # Add it to the response either if we're doing
                 # "known", or the executor, or "active" and there is a
                 # link, or "significant" and we have any information.
-                if req.known () or n == self.node.routing.nodeinfo:
+                if req.known () or \
+                   (n == self.node.routing.nodeinfo and not req.loop ()):
                     self.read_node (req, n, resp)
+                elif req.loop ():
+                    # Loop nodes
+                    if n.loopnode:
+                        self.read_node (req, n, resp)
                 else:
                     # significant or active.  See if we want to
                     # include this.
                     if req.sig () and \
-                       ((req.info == 3 and n.used ()) or \
-                        (req.info < 2 and n.delay != 0)):
+                       ((req.counters () and n.used ()) or \
+                        (req.sumstat () and n.delay != 0)):
                         self.read_node (req, n, resp)
                     else:
-                        # Active, get the link count
+                        # Active
                         l = 0
                         for c in self.connections.values ():
                             if c.destnode == n:
@@ -848,12 +877,17 @@ class NSP (Element):
                         if l:
                             self.read_node (req, n, resp, l)
         else:
-            # Specific node by name or ID.  Actually, name was
-            # converted to ID in node.py
+            # Specific node by name or ID.  Name was converted to
+            # Nodeinfo entry in node.py
             try:
                 n = self.node.nodeinfo_byid[req.entity.value]
             except KeyError:
-                return
+                try:
+                    print ("looking for", req.entity.value.nodename)
+                    n = self.node.nodeinfo_byname[req.entity.value.nodename]
+                except KeyError:
+                    print ("no node", req.entity.value)
+                    return
             self.read_node (req, n, resp)
 
 class txqentry (timers.Timer):
@@ -1330,7 +1364,14 @@ class Connection (Element, statemachine.StateMachine):
             # Inbound connection.  Save relevant state about the remote
             # node, and send the payload up to session control.
             self.dest = inbound.src
-            self.destnode = self.parent.node.nodeinfo (self.dest)
+            if isinstance (self.dest, Nodeid):
+                self.destnode = self.parent.node.nodeinfo (self.dest)
+            else:
+                # Circuit, so try to find the loop node.
+                if self.dest.loop_node is not None:
+                    self.destnode = self.dest.loop_node
+                else:
+                    self.destnode = self.node.nodeinfo (self.node.nodeid)
             self.destnode.counters.con_rcv += 1
             self.dstaddr = pkt.srcaddr
             self.parent.rconnections[(self.dest, self.dstaddr)] = self
@@ -1359,7 +1400,7 @@ class Connection (Element, statemachine.StateMachine):
                 self.destnode = self.parent.node.nodeinfo (dest)
             except KeyError:
                 raise UnknownNode from None
-            dest = self.dest = Nodeid (self.destnode)
+            dest = self.dest = self.destnode.get_dest ()
             self.destnode.counters.con_xmt += 1
             ci = self.makepacket (ConnInit, payload = payload,
                                   fcopt = ConnMsg.SVC_NONE,
@@ -1415,7 +1456,15 @@ class Connection (Element, statemachine.StateMachine):
         # dstaddr isn't set yet if we're closing due to timeout after
         # CI, or CI returned to sender.
         if self.dstaddr:
-            del self.parent.rconnections[(self.dest, self.dstaddr)]
+            # The lookup by destination (remote) address in the case
+            # of a loop node connection may be either the loop node's
+            # circuit (if it was matched when the incoming packet
+            # arrived) or the executor's address.  So try it both
+            # ways.
+            try:
+                del self.parent.rconnections[(self.dest, self.dstaddr)]
+            except KeyError:
+                del self.parent.rconnections[(self.node.nodeid, self.dstaddr)]
         self.parent.ret_id (self.srcaddr)
         # Clean up the subchannels
         self.data.close ()

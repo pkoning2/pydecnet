@@ -5,9 +5,10 @@
 This defines a general mechanism to compute CRCs for any polynomial, using
 the well known 256 entry lookup table technique.
 
-Credit for some of the details goes to Ross Williams; refer to his document
-"A Painless Guide to CRC Error Detection Algorithms" at
-http://www.ross.net/crc/crcpaper.html for more details.
+Credit for some of the details goes to Ross Williams; refer to his
+document "A Painless Guide to CRC Error Detection Algorithms" at
+https://web.archive.org/web/20190620155540/http://www.ross.net/crc/download/crc_v3.txt
+for more details.
 """
 
 import collections.abc

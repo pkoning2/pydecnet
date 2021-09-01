@@ -28,6 +28,7 @@ from . import packet
 from . import modulo
 from .nice_coding import CTM1
 from . import host
+from . import pcap
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -88,16 +89,16 @@ class DdcmpCounters (datalink.PtpCounters):
         self.local_reply_timeouts = 0
         self.remote_buffer_errors = CTM1 ()
 
-# Mapped counter bit definitions for the above:
-DE_HCRC = 1
-DE_CRC = 2
-DE_REP = 4
-BUF_UNAVAIL = 1
-BUF_SML = 2
+# Mapped counter bit number definitions for the above:
+DE_HCRC = 0
+DE_CRC = 1
+DE_REP = 2
+BUF_UNAVAIL = 0
+BUF_SML = 1
 
-# Mapping from NAK reason codes to counter map bits.  Value is True for
-# data error, False for buffer error, and the map bit.  Note that R_OVER
-# and R_FMT are not currently mapped to anything.
+# Mapping from NAK reason codes to counter map bit numbers.  Value is
+# True for data error, False for buffer error, and the map bit number.
+# Note that R_OVER and R_FMT are not currently mapped to anything.
 nak_map = {
     R_HCRC : (True, DE_HCRC),
     R_CRC : (True, DE_CRC),
@@ -127,13 +128,20 @@ class DMHdr (packet.Packet):
         ret, buf = super (__class__, cls).decode (buf, recv, check)
         return ret, buf[2:]
 
-    def encode (self):
+    def encode (self, addcrc = True):
+        # Optional argument addcrc can be used to suppress the CRC
+        # fields (for use by the DDCMP framer board).  The default is
+        # True.  If False is supplied, the header CRC field is omitted
+        # from the encoded data.
+        #
         # Supply the address.  Note that we don't enforce it on
         # receive.
         self.addr = 1
         ret = super ().encode ()
-        crc = CRC16 (ret)
-        return ret + bytes (crc)
+        if addcrc:
+            crc = CRC16 (ret)
+            return ret + bytes (crc)
+        return ret
 
 class BaseDataMsg (DMHdr):
     "Base class for data or maintenance message"
@@ -157,12 +165,11 @@ class BaseDataMsg (DMHdr):
         # the data portion of the message.  If recv is supplied, buf
         # must be just the header.  If recv is omitted or None, buf
         # must be the entire packet including data CRC.  Data CRC is
-        # always checked (the "check" argument is present in order to
-        # match the signature of the base class decode method).
+        # checked if recv is supplied or check is True (the default).
         #
         # Note that decode succeeds even for bad data CRC, because some
         # of the header fields still have to be acted on.
-        ret, buf = super (__class__, cls).decode (buf)
+        ret, buf = super (__class__, cls).decode (buf, check = check)
         dl = ret.count
         if recv:
             assert not buf, "Too much data in header buffer"
@@ -170,6 +177,7 @@ class BaseDataMsg (DMHdr):
                 ret.payload = recv (dl)
                 crc = CRC16 (ret.payload)
                 crc.update (recv (2))
+                ret.crcok = crc.good
             except IOError:
                 # Lost connection or stop requested, simulate packet
                 # with bad data CRC.
@@ -186,18 +194,29 @@ class BaseDataMsg (DMHdr):
                 ret.payload = b""
                 return ret, b""
             ret.payload = buf[:dl]
-            crc = CRC16 (buf[:dl + 2])
+            if check:
+                crc = CRC16 (buf[:dl + 2])
+                ret.crcok = crc.good
+            else:
+                ret.crcok = True
             buf = buf[dl + 2:]
-        ret.crcok = crc.good
         return ret, buf
             
-    def encode (self):
+    def encode (self, addcrc = True):
+        # For data frames, the framer requires the space occupied by
+        # the header CRC to be part of the transmitted frame.  The
+        # value is not used.  The data CRC is not needed, not even a
+        # dummy field.
         payload = makebytes (self.payload)
         self.count = len (payload)
-        ret = [ super ().encode () ]
-        ret.append (payload)
-        crc = CRC16 (payload)
-        ret.append (bytes (crc))
+        ret = [ super ().encode (addcrc) ]
+        if addcrc:
+            ret.append (payload)
+            crc = CRC16 (payload)
+            ret.append (bytes (crc))
+        else:
+            ret.append (b"\x00\x00")
+            ret.append (payload)
         return b"".join (ret)
 
 class DataMsg (BaseDataMsg):
@@ -482,8 +501,6 @@ class _DDCMP (datalink.PtpDatalink):
             self.counters.data_errors_inbound += (1, DE_CRC)
             logging.tracepkt ("{} packet with bad data CRC on {}",
                               tp, self.name, pkt = c)
-            logging.debug ("{} packet with bad data CRC on {}",
-                           tp, self.name)
             self.node.addwork (e)
         
     def sendmsg (self, msg, timeout):
@@ -667,6 +684,7 @@ class _DDCMP (datalink.PtpDatalink):
             # DDCMP is different from most ARQ protocols: it doesn't
             # retransmit data on timeout, but instead asks the other
             # end to retransmit its current ACK or NAK.
+            self.counters.local_reply_timeouts += 1
             self.send_rep ()
         elif isinstance (data, Err):
             # Error notification from receive thread.
@@ -1261,6 +1279,283 @@ class _UdpDDCMP (_DDCMP):
             self.reconnect ()
             return
 
+DC1 = 0o21
+FRAMER_MAC  = Macaddr ("AA-00-03-04-05-07")
+IF_MAC      = Macaddr ("AA-00-03-04-05-06")
+FRAMER_PROT = Ethertype ("60-06")
+
+class FramerHdr (packet.Packet):
+    _layout = (( Macaddr, "da" ),
+               ( Macaddr, "sa" ),
+               ( Ethertype, "prot" ),
+               ( packet.B, "data_len", 2 ))
+
+class FromFramer (FramerHdr):
+    _layout = (( packet.B, "stat", 2 ),
+                 packet.Payload )
+
+# FromFramer.stat values:
+STAT_OK = 0        # good frame
+STAT_HCRC = 1      # Header CRC error
+STAT_CRC = 2       # Data CRC error
+STAT_LEN = 3       # Frame too long (if so, the entire data field is absent)
+
+# The interface address is aa-00-03-04-05-06 and the framer is at
+# aa-00-03-04-05-07, though actually the framer doesn't care about the
+# addresses; it only checks the protocol type (60-06).
+class ToFramerHdr (FramerHdr):
+    da = Macaddr ("AA-00-03-04-05-07")
+    sa = Macaddr ("AA-00-03-04-05-06")
+    prot = FRAMER_PROT
+
+class ToFramer (ToFramerHdr):
+    _layout = ( packet.Payload, )
+    
+class FramerStatus (packet.Packet):
+    _layout = (( packet.B, "dc1", 1 ),
+               ( packet.BM,
+                 ( "on", 0, 1 ),
+                 ( "sync", 1, 1 )),
+               ( packet.BM,
+                 ( "mode", 0, 2 ),
+                 ( "loop", 2, 1 ),
+                 ( "bist", 3, 1 ),
+                 ( "split", 4, 1 ),
+                 ( "ddcmp_v3", 5, 1 ),
+                 ( "reserved", 6, 10 )),
+               ( packet.B, "sdusize", 2),
+               ( packet.B, "speed", 4 ),
+               ( packet.B, "txspeed", 4 ),
+               ( packet.B, "rxframes", 4 ),
+               ( packet.B, "rxbytes", 4 ),
+               ( packet.B, "txframes", 4 ),
+               ( packet.B, "txbytes", 4 ),
+               ( packet.B, "hcrc_err", 4 ),
+               ( packet.B, "crc_err", 4 ),
+               ( packet.B, "len_err", 4 ),
+               ( packet.B, "nobuf_err", 4 ),
+               ( packet.B, "last_cmd_sts", 4 ),
+               ( packet.B, "freq", 4 ),
+               packet.Payload )
+    dc1 = DC1
+
+    def __sub__ (self, other):
+        assert isinstance (other, __class__)
+        ret = self.__class__ ()
+        ret.on = self.on
+        ret.sync = self.sync
+        ret.mode = self.mode
+        ret.loop = self.loop
+        ret.bist = self.bist
+        ret.split = self.split
+        ret.ddcmp_v3 = self.ddcmp_v3
+        ret.sdusize = self.sdusize
+        ret.speed = self.speed
+        ret.txspeed = self.txspeed
+        ret.last_cmd_sts = self.last_cmd_sts
+        ret.freq = self.freq
+        ret.payload = self.payload
+        ret.rxframes = self.rxframes - other.rxframes
+        ret.rxbytes = self.rxbytes - other.rxbytes
+        ret.txframes = self.txframes - other.txframes
+        ret.txbytes = self.txbytes - other.txbytes
+        ret.hcrc_err = self.hcrc_err - other.hcrc_err
+        ret.crc_err = self.crc_err - other.crc_err
+        ret.len_err = self.len_err - other.len_err
+        ret.nobuf_err = self.nobuf_err - other.nobuf_err
+        return ret
+    
+    @property
+    def version (self):
+        return self.payload.decode ("ascii").rstrip ("\0")
+
+class FramerCmd (ToFramerHdr):
+    _layout = (( packet.B, "dc1", 1 ),
+               ( packet.B, "op", 1  ))
+    dc1 = DC1
+
+class FramerReqStatus (FramerCmd):
+    op = 0
+    
+class FramerOn (FramerCmd):
+    _layout = (( packet.BM,
+                 ( "mode", 0, 2 ),
+                 ( "loop", 2, 1 ),
+                 ( "bist", 3, 1 ),
+                 ( "split", 4, 1 ),
+                 ( "ddcmp_v3", 5, 1 ),
+                 ( "reserved", 6, 10 )),
+               ( packet.B, "speed", 4 ),
+               ( packet.B, "txspeed", 4 ))
+    op = 1
+
+# mode values
+RS232_MODEM_CLK = 0
+INT_MODEM =       1
+RS232_LOCAL_CLK = 2
+
+class FramerOff (FramerCmd):
+    op = 2
+    
+class _FramerDDCMP (_DDCMP):
+    def __init__ (self, owner, name, config):
+        super ().__init__ (owner, name, config)
+        self.dev, mode, *rest = config.device.split (":")
+        if len (rest) > 1:
+            raise ValueError ("Invalid framer device spec {}".format (config.device))
+        self.speed = self.loop = 0
+        if len (rest):
+            self.speed = int (rest[0])
+        mode = mode.lower ()
+        if mode == "rs232_dte":
+            self.mode = RS232_MODEM_CLK
+        elif mode == "rs232_dce":
+            self.mode = RS232_LOCAL_CLK
+        elif mode == "internal":
+            self.mode = INT_MODEM
+        elif mode == "loopback":
+            self.mode = INT_MODEM
+            self.loop = 1
+            if not self.speed:
+                self.speed = 1000000
+        else:
+            raise ValueError ("Invalid framer mode {}".format (mode))
+        self.on = False
+        self.last_status = None
+        self.pcap = None
+        super ().open ()
+        logging.debug ("DDCMP datalink {} initialized:\n"
+                       "  Mode:   {}\n"
+                       "  Device: {}\n"
+                       "  Framer mode: {}\n"
+                       "  Speed:  {}",
+                       self.name, config.mode,
+                       self.dev, mode, self.speed)
+
+    def connect (self):
+        # Turn the framer on.
+        if not self.pcap:
+            self.pcap = pcap.pcapObject ()
+            # Don't need promiscuous mode
+            if not self.pcap.open_live (self.dev, 1518, 0, 100):
+                self.pcap = None
+                return
+        req = FramerOn (mode = self.mode, loop = self.loop, speed = self.speed)
+        self.to_framer (req)
+    
+    def disconnect (self):
+        # Turn the framer off
+        self.on = False
+        req = FramerOff ()
+        if self.pcap:
+            self.to_framer (req)
+            time.sleep (0.1)
+        try:
+            self.rthread.stop (True)
+        except AttributeError:
+            pass
+        self.rthread = None
+        if self.pcap:
+            self.pcap.close ()
+            self.pcap = None
+    
+    def handle_stop (self, item):
+        self.disconnect ()
+        super ().handle_stop (item)
+        
+    def check_connection (self):
+        # Note that we get here before the receive_loop is entered, so
+        # we can't wait for the status message from the framer because
+        # the code to receive it isn't running yet.  Instead, we deal
+        # with received status, and in particular error status, later
+        # on in that loop.
+        return self.pcap
+
+    def sendmsg (self, msg, timeout):
+        super ().sendmsg (msg, timeout)
+        msg = msg.encode (addcrc = False)
+        buf = ToFramer (payload = msg)
+        if logging.tracing:
+            logging.tracepkt ("Sending packet on {}",
+                              self.name, pkt = msg)
+        self.to_framer (buf)
+
+    def to_framer (self, buf):
+        buf = makebytes (buf)
+        if logging.tracing:
+            logging.tracepkt ("Sending framer buffer on {}",
+                              self.name, pkt = buf)
+        try:
+            l2 = self.pcap.inject (buf)
+            if l2 < 0:
+                # Error status
+                logging.trace ("Error status: {}", self.pcap.geterr ())
+        except IOError:
+            logging.trace ("Error sending to framer", exc_info = True)
+        
+    def receive_frame (self, plen, packet, ts):
+        if not packet:
+            # pcap_next returns None if we got a timeout
+            logging.trace ("pcap timeout")
+            return
+        try:
+            frame = FromFramer (packet)
+        except Exception:
+            logging.tracepkt ("Invalid packet from framer {}",
+                              self.name, pkt = packet)
+            return
+        if frame.prot != FRAMER_PROT or frame.da != IF_MAC:
+            # Not from framer, or to us, ignore it
+            return
+        logging.tracepkt ("Received from framer:", pkt = packet)
+        if frame.payload[0] == DC1:
+            # Status message, parse that
+            try:
+                stat = FramerStatus (frame.payload)
+            except Exception:
+                logging.tracepkt ("Invalid status message from {}", 
+                                  self.name, pkt = packet)
+                return
+            logging.trace ("Received status from {}: {}", self.name, stat)
+            self.on = stat.on
+            self.last_status = stat
+            return
+        if frame.stat == STAT_OK:
+            try:
+                pkt, x = DMHdr.decode (frame.payload, check = False)
+                if isinstance (pkt, BaseDataMsg):
+                    pkt.crcok = True
+                self.handle_pkt (pkt, frame.payload)
+            except DecodeError as e:
+                logging.tracepkt ("Invalid packet: {}", e, pkt = c)
+                self.node.addwork (Err (self, R_FMT))
+        elif frame.stat == STAT_HCRC:
+            logging.tracepkt ("Header CRC error", pkt = frame.payload)
+            self.counters.data_errors_inbound += (1, DE_HCRC)
+            self.node.addwork (Err (self, R_HCRC))
+        elif frame.stat == STAT_CRC:
+            logging.tracepkt ("Data CRC error", pkt = frame.payload)
+            pkt, x = DMHdr.decode (frame.payload, check = False)
+            pkt.crcok = False
+            self.handle_pkt (pkt, frame.payload)
+        elif frame.stat == STAT_LEN:
+            logging.trace ("Length error")
+            self.node.addwork (Err (self, R_SHRT))
+        
+    def receive_loop (self):
+        logging.trace ("in receive_loop")
+        while True:
+            if self.rthread.stopnow:
+                logging.trace ("Exiting thread because of stop")
+                break
+            try:
+                cnt = self.pcap.dispatch (0, self.receive_frame)
+                if self.last_status and not self.on:
+                    # Device is off, quit
+                    break
+            except pcap._pcap.error:
+                raise
+
 # Factory class -- returns an instance of the appropriate _DDCMP
 # subclass instance given the specific device flavor specified.
 class DDCMP (datalink.Datalink):
@@ -1270,7 +1565,7 @@ class DDCMP (datalink.Datalink):
             # Legacy configuration via device argument, convert that
             api, dev = config.device.split (":", 1)
             config.mode = api = api.lower ()
-            if api == "serial":
+            if api == "serial" or api == "framer":
                 config.device = dev
             else:
                 x, *rest = config.device.split (":")
@@ -1285,6 +1580,8 @@ class DDCMP (datalink.Datalink):
             c = _TcpDDCMP
         elif api == "udp":
             c = _UdpDDCMP
+        elif api == "framer":
+            c = _FramerDDCMP
         else:
             raise ValueError ("Unknown DDCMP circuit subtype {}".format (api))
         return c (owner, name, config)

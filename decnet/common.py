@@ -413,6 +413,10 @@ class NiceNode (Nodeid):
         if self.nodename:
             yield self.nodename
 
+    def get_dest (self):
+        "Get the destination information for this node"
+        return Nodeid (self)
+
 _mac_re = re.compile ("[-:]")
 class Macaddr (Field, bytes):
     """MAC address for Ethernet (or similar LAN).
