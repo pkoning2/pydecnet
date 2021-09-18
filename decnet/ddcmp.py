@@ -8,6 +8,12 @@ import select
 import socket
 import queue
 import errno
+import psutil
+
+try:
+    AF_MACADDR = socket.AF_LINK
+except AttributeError:
+    AF_MACADDR = socket.AF_PACKET
 
 try:
     import serial
@@ -1280,8 +1286,6 @@ class _UdpDDCMP (_DDCMP):
             return
 
 DC1 = 0o21
-FRAMER_MAC  = Macaddr ("AA-00-03-04-05-07")
-IF_MAC      = Macaddr ("AA-00-03-04-05-06")
 FRAMER_PROT = Ethertype ("60-06")
 
 class FramerHdr (packet.Packet):
@@ -1300,12 +1304,10 @@ STAT_HCRC = 1      # Header CRC error
 STAT_CRC = 2       # Data CRC error
 STAT_LEN = 3       # Frame too long (if so, the entire data field is absent)
 
-# The interface address is aa-00-03-04-05-06 and the framer is at
-# aa-00-03-04-05-07, though actually the framer doesn't care about the
-# addresses; it only checks the protocol type (60-06).
+# The framer doesn't care about the addresses; it only checks the
+# protocol type (60-06).  But for sanity in interpreting wireshark
+# traces we'll use the actual addresses anyway.
 class ToFramerHdr (FramerHdr):
-    da = Macaddr ("AA-00-03-04-05-07")
-    sa = Macaddr ("AA-00-03-04-05-06")
     prot = FRAMER_PROT
 
 class ToFramer (ToFramerHdr):
@@ -1388,7 +1390,8 @@ class FramerOn (FramerCmd):
                ( packet.B, "speed", 4 ),
                ( packet.B, "txspeed", 4 ))
     op = 1
-
+    data_len = 12
+    
 # mode values
 RS232_MODEM_CLK = 0
 INT_MODEM =       1
@@ -1396,6 +1399,14 @@ RS232_LOCAL_CLK = 2
 
 class FramerOff (FramerCmd):
     op = 2
+    data_len = 2
+
+FRAMER_MODES = (
+    ( "rs232_dte", RS232_MODEM_CLK, 0 ),
+    ( "rs232_dce", RS232_LOCAL_CLK, 0 ),
+    ( "internal", INT_MODEM, 0 ),
+    ( "coax", INT_MODEM, 0 ),
+    ( "loopback", INT_MODEM, 1 ))
     
 class _FramerDDCMP (_DDCMP):
     def __init__ (self, owner, name, config):
@@ -1407,29 +1418,43 @@ class _FramerDDCMP (_DDCMP):
         if len (rest):
             self.speed = int (rest[0])
         mode = mode.lower ()
-        if mode == "rs232_dte":
-            self.mode = RS232_MODEM_CLK
-        elif mode == "rs232_dce":
-            self.mode = RS232_LOCAL_CLK
-        elif mode == "internal":
-            self.mode = INT_MODEM
-        elif mode == "loopback":
-            self.mode = INT_MODEM
-            self.loop = 1
-            if not self.speed:
-                self.speed = 1000000
-        else:
+        self.mode = None
+        # The framer mode can be abbreviated so long as the
+        # abbreviation is unique.
+        for mname, mcode, loop in FRAMER_MODES:
+            if mname.startswith (mode):
+                if self.mode is not None:
+                    raise ValueError ("Ambiguous framer mode {}".format (mode))
+                self.mode = mcode
+                self.loop = loop
+        if self.mode is None:
             raise ValueError ("Invalid framer mode {}".format (mode))
+        if self.loop and not self.speed:
+            self.speed = 1000000
         self.on = False
         self.last_status = None
         self.pcap = None
+        ifaddr = psutil.net_if_addrs ()
+        try:
+            for a in ifaddr[self.dev]:
+                if a.family == AF_MACADDR:
+                    self.hwaddr = Macaddr (a.address)
+                    ba = bytearray (self.hwaddr)
+                    ba[5] += 1
+                    self.fraddr = Macaddr (ba)
+                    break
+            else:
+                raise ValueError ("No hardware address for Ethernet {}".format (self.name))
+        except KeyError:
+             raise ValueError ("No address info for interface {}".format (self.name)) from None
         super ().open ()
         logging.debug ("DDCMP datalink {} initialized:\n"
                        "  Mode:   {}\n"
                        "  Device: {}\n"
+                       "  Address: {}\n"
                        "  Framer mode: {}\n"
                        "  Speed:  {}",
-                       self.name, config.mode,
+                       self.name, self.fraddr, config.mode,
                        self.dev, mode, self.speed)
 
     def connect (self):
@@ -1474,13 +1499,15 @@ class _FramerDDCMP (_DDCMP):
     def sendmsg (self, msg, timeout):
         super ().sendmsg (msg, timeout)
         msg = msg.encode (addcrc = False)
-        buf = ToFramer (payload = msg)
+        buf = ToFramer (payload = msg, data_len = len (msg))
         if logging.tracing:
             logging.tracepkt ("Sending packet on {}",
                               self.name, pkt = msg)
         self.to_framer (buf)
 
     def to_framer (self, buf):
+        buf.da = self.fraddr
+        buf.sa = self.hwaddr
         buf = makebytes (buf)
         if logging.tracing:
             logging.tracepkt ("Sending framer buffer on {}",
@@ -1504,7 +1531,7 @@ class _FramerDDCMP (_DDCMP):
             logging.tracepkt ("Invalid packet from framer {}",
                               self.name, pkt = packet)
             return
-        if frame.prot != FRAMER_PROT or frame.da != IF_MAC:
+        if frame.prot != FRAMER_PROT or frame.da != self.hwaddr:
             # Not from framer, or to us, ignore it
             return
         logging.tracepkt ("Received from framer:", pkt = packet)
@@ -1527,7 +1554,7 @@ class _FramerDDCMP (_DDCMP):
                     pkt.crcok = True
                 self.handle_pkt (pkt, frame.payload)
             except DecodeError as e:
-                logging.tracepkt ("Invalid packet: {}", e, pkt = c)
+                logging.tracepkt ("Invalid packet: {}", e, pkt = packet)
                 self.node.addwork (Err (self, R_FMT))
         elif frame.stat == STAT_HCRC:
             logging.tracepkt ("Header CRC error", pkt = frame.payload)

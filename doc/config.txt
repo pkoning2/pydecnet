@@ -321,7 +321,8 @@ types, are:
        Mode is "rs232_dte", "rs232_dce" or "internal" for RS-232
        signalling with modem-supplied clocks, RS-232 signaling with
        framer supplying the clock, and "internal modem" (high speed
-       coax connection) respectively.  Speed is the data rate in bits
+       coax connection) respectively.  "coax" is also accepted as a
+       synonym for "internal".  Speed is the data rate in bits
        per second; this is required in rs232_dce and internal modes,
        not applicable for the rs232_dte (modem supplied clock) case.
        For more information on the framer including documentation,

@@ -16,9 +16,9 @@ import sys
 import psutil
 
 try:
-    MACADDR = socket.AF_LINK
+    AF_MACADDR = socket.AF_LINK
 except AttributeError:
-    MACADDR = socket.AF_PACKET
+    AF_MACADDR = socket.AF_PACKET
     
 from .common import *
 from . import logging
@@ -98,7 +98,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             ifaddr = psutil.net_if_addrs ()
             try:
                 for a in ifaddr[self.dev]:
-                    if a.family == MACADDR:
+                    if a.family == AF_MACADDR:
                         self.hwaddr = Macaddr (a.address)
                         break
                 else:

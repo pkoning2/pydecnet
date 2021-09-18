@@ -21,8 +21,8 @@ setup (author = "Paul Koning",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
                     "decnet.resources.images" ],
-       package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.svg", "*.js" ],
-                        "decnet.resources.images" : [ "*.png" ]},
+       package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.js", "*.html" ],
+                        "decnet.resources.images" : [ "*.png", "*.svg" ]},
        entry_points  = {
            "console_scripts" : [
                "pydecnet = decnet.main:main"
