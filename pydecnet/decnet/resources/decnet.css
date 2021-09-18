@@ -15,7 +15,7 @@ table, th, td {
 }
 
 .top {
-    background-image: url('pydecnet.svg');
+    background-image: url('images/pydecnet.svg');
     background-repeat: no-repeat;
     background-position: left top;
     background-size: auto 75%;
