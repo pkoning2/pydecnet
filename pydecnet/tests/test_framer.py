@@ -142,7 +142,7 @@ class FramerTest (DnTest):
             self.received.put (packet[16:16 + pdusize])
             
     def rloop (self):
-        while not self.rthread.stopnow:
+        while self.rthread and not self.rthread.stopnow:
             try:
                 cnt = pcapPort.dispatch (1, self.receive_frame)
             except pcap._pcap.error:
