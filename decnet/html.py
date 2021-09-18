@@ -228,8 +228,10 @@ class mapdoc (doc):
     def __str__ (self):
         return super ().__str__ ('''
   <link rel="stylesheet" href="/resources/leaflet.css">
+  <link rel="stylesheet" href="/resources/Leaflet.Dialog.css">
   <script src="/resources/leaflet.js"></script>
-  <script src="/resources/leaflet-arc.min.js"></script>''')
+  <script src="/resources/leaflet-arc.min.js"></script>
+  <script src="/resources/Leaflet.Dialog.js"></script>''')
 
 def page_title (title, links = ()):
     now = time.time ()

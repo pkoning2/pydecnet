@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html> <head>
+  <meta charset="UTF-8">
+<title>Network mapper documentation</title>
+  <link href="decnet.css" rel="stylesheet" type="text/css">
+</head>
+
+<body>
+<h2>Description of the network mapper system.</h2>
+<p>
+First of all, some background on how it works.  There are three parts: 
+the node database, the network scanner, and the map display maker. 
+</p><p> 
+The node database is read from <a
+href="http://mim.update.uu.se/nodedb">the HECnet node name database at
+MIM</a>.  The code extracts name, node 
+address, owner's name, name of the node's location, and location 
+latitude/longitude.  This information is retrieved daily.  If your node
+location information is missing or incorrect, please contact <a
+href="mailto:bqt@mim.update.uu.se">Johnny Billquist</a>, the keeper of
+the HECnet node database.
+</p><p> 
+For some nodes, the node database does not give a location.  If so,
+the map data table shows the location as blank, and the map display
+shows the node in the South Atlantic Ocean, at <a
+href="https://en.wikipedia.org/wiki/Inaccessible_Island">Inaccessible 
+Island</a> (in honor of Daniel Suarez's novel "Influx").
+</p><p> 
+The network scanner looks at every node mentioned in the node database 
+plus every node it can see as reachable.  Roughly speaking, it makes a 
+NICE connection (remote network management protocol) to each node, 
+then asks it three questions: "show exec characteristics ", "show
+active circuits" and "show active nodes".  The first questions answers
+"what type of node is this" and also gets the node name if we do not
+already know it.  The other two give the adjacent nodes, i.e., the 
+connections from this node to its neighbors.  Often but not always, 
+that information includes the node type of the adjacent nodes. 
+</p><p> 
+This process continues iteratively until information for all visible 
+nodes has been refreshed. 
+</p><p> 
+There are some optimizations and tricks.  If a node is reported as 
+reachable in the "show active nodes" reply (whether as a neighbor or
+farther away) it's recorded as reachable, even if the network scanner
+can't talk to it.  
+This means that Phase II nodes, Phase III nodes in another area, or 
+Cisco routers will all be shown as reachable so long as there is a 
+node somewhere that answers NICE requests and shows them as reachable. 
+</p><p> 
+Also, for optimization, if a node reports a neighbor's type as Phase 
+II or Phase III (in another area) or endnode, the network scanner
+doesn't try to connect  
+to it because it already has all the information needed.  This speeds 
+up the scan.  It also avoids a bug in DECnet/E where "show active
+nodes" on an endnode leaves the request hanging after the reply data
+is sent (the "no more data" message is missing).
+</p><p> 
+At the completion of the scan, the up/down information is updated. 
+Currently each node, and each adjacency entry for that node, has three 
+timestamps: last up, last down, and last seen.  During the scan, when 
+a node is seen as visible, or when an adjacent node is reported, that 
+entry is marked with the current time as "last seen".  When the scan
+is finished, the entire database is examined.  Any item not marked 
+with the current timestamp in "last seen" is currently down.  If it
+was previously up (its "last up" time is greater than its "last down")
+then "last down" is set to the current time. Similarly, any item
+previously marked "down" ("last down" greater than "last up") has its
+"last up" set to the current time.
+</p><p> 
+The map display takes as input the node and adjacent-node information 
+collected by the scanner and summarizes it in two steps.  First, all 
+the nodes are grouped by latitude/longitude.  Each distinct spot on 
+the map is given a marker associated with all the nodes at that 
+location.   Nodes without location information are assigned the
+placeholder coordinates 37° 18′ S, 12° 41′ W (the location of
+<a
+href="https://en.wikipedia.org/wiki/Inaccessible_Island">Inaccessible 
+Island</a>).
+</p><p> 
+Next, all the circuits (adjacent node) information is examined, 
+grouped by lat/long of the endpoints.  An arc on the map corresponds 
+to all the connections between node pairs at the location markers 
+connected by that arc. 
+</p>
+<h3>Incremental scan</h3>
+<p>The mapper is an "event monitor" and will react to node or circuit
+change events send to the DECnet node of which it is part by
+performing a partial scan of the network.  For a node reachable event, it
+will scan that node; for a circuit change, it will scan the nodes at
+the endpoints of that circuit.  For a node unreachable event, the node
+is simply marked as unreachable (no scan is done for this case).
+<p></p>
+<h2>Colors used on the map</h2> 
+<p> 
+Each item (node or circuit) has a "health" which is similar to its
+up/down status. In the table below, the type color and style for the
+different "Value" entries are how that health value is shown in the
+map data table.</p>
+<table>
+  <tr>
+    <th>Value</th><th>Description</th>
+  </tr>
+  <tr>
+    <td><span class="hs3">Up</span></td><td>Node or circuit is currently visible to the
+      scanner as operational</td>
+  </tr>
+  <tr>
+    <td><span class="hs2">Down</span></td><td>Node or circuit is not currently visible to the
+      scanner, or it is seen in the scan but the reported status is
+      "not operational"</td>
+  </tr>
+  <tr>
+    <td><span class="hs1">Faded</span></td><td>Node or circuit has been "down" for more than
+      two weeks, or node has never been seen as "up".</td>
+  </tr>
+</table>
+<p>
+A possible future enhancement would add a "warning" status, which would
+be something 
+like "it is up now but it has been bouncing up/down a lot" but that
+isn't currently in the code. 
+</p><p> 
+Location markers and connection arcs both summarize multiple nodes and 
+circuits.  The color used for these comes from the health of the 
+components that go into them.
+</p>
+<table>
+  <tr>
+    <th>Color</th><th>Description</th>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="images/marker-icon-green.png"></td><td>All nodes at this
+	location, or all circuits on this path, are "up"</td>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="images/marker-icon-yellow.png"></td><td>The majority, but
+	not all, nodes at this
+	location, or circuits on this path, are "up"</td>
+  </tr>
+    <td style="text-align:center"><img
+      src="images/marker-icon-red.png"></td><td>At least half
+	of the nodes at this
+	location, or circuits on this path, are "down"</td>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="images/marker-icon-gray.png"></td><td>All nodes at this
+	location, or circuits on this path, are "faded".  But if a
+	path is "faded" for more than 180 days, it is not plotted on
+	the map at all.</td>
+  </tr>
+</table>
+<p>
+All location markers have a popup (window that appears when you click 
+the marker) which lists the nodes at that location, grouped by heath 
+status (up in black, down in red, faded in gray italics).  
+Exception: the default marker at Inaccessible Island
+omits gray nodes because there are too many.  A 
+location marker that isn't gray also has a tool tip (appears when you 
+hover over the marker) which lists the up and down nodes only, not the 
+faded ones. 
+</p><p> 
+Arcs also have popups, which list the individual circuits for this 
+path by their end point node names/numbers. 
+</p>
+<p></p>
+<h2>Map data table</h2>
+<p>
+The map data table shows the underlying data collected by the mapper,
+in tabular form sorted by node number.  For each node, it shows the
+address and name, node typoe, location if shown in the database, and
+time when the node status was last changed to down, and was last
+changed to up, if applicable.  The status is indicated by the color
+and style of the node address/name text: black text is "up", red is
+"down", and gray italic is "faded".
+</p><p>
+If the mapper obtained circuit information from a given node, that is
+shown as a nested table below the line for the node information.  For
+each circuit, it shows the circuit name, adjacent node address and
+name, adjacent node location if known, and last down and last up
+timestamps.  As before, the name color and style indicates the status
+of the circuit.
+<p></p>
+<h2>Map controls</h2>
+<p>
+The zoom in/out is at the top left.  Just below it is the "help"
+button which shows map documentation. The button at the 
+top right is the layers tool, which lets you choose from a number of 
+map sources, and also allows you to turn on/off the location and/or 
+path display separately for the backbone (area routers and connections
+between area routers) and level 1.
+</p><p> 
+There is also a tabular display, sorted by node 
+number, accessible via a link on the map display.  It 
+shows more detail than can comfortably fit on the map itself. 
+</p><p> 
+The map images come from various map sources, such as 
+OpenStreetMap.  They all use Mercator projection, and there isn't a 
+convenient way to change.  The map machinery 
+has some limitations (or bugs).  For example, 
+if you zoom way out you'll see the continents more than once, which is 
+proper, but the markers only appear on one copy. 
+</p>
+</body> </html>
