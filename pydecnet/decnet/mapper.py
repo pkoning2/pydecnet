@@ -8,6 +8,9 @@
 #
 # Leaflet from https://github.com/Leaflet/Leaflet
 # Leaflet.Arc from https://github.com/MAD-GooZe/Leaflet.Arc
+# Leaflet.Dialog from https://github.com/NBTSolutions/Leaflet.Dialog
+#  Dialog uses FontAwesome icons, licensed under Creative Commons
+#  Attribution 4.0 license: https://fontawesome.com/license
 
 import datetime
 import json
@@ -25,6 +28,9 @@ except ImportError:
 # that happen now so we have the resulting internal module imported
 # before any chroot is done.
 datetime.datetime.strptime("2020", "%Y")
+
+packagedir = os.path.dirname (__file__)
+resdir = os.path.join (packagedir, "resources")
 
 from .common import *
 from . import html
@@ -153,6 +159,23 @@ var Esri_WorldTopoMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest
 		tooltipAnchor: [16, -28],
 		shadowSize:  [41, 41]});
 '''
+
+# Read map pane documentation HTML content.  This is inserted into the
+# JavaScript code for the map display, as the content of a popup
+# dialog box.  It would be nice to do this with <embed > or <iframe >
+# but that produces its own framing and scroll bar, rather than
+# obeying the one of the (resizable) dialog box.  So we'll do it this
+# way.  It just means that a change in the documentation text has no
+# effect until the PyDECnet process is restarted, since the
+# documentation is loaded only at startup.
+with open (os.path.join (resdir, "mapdoc.html"), "rt") as f:
+    mapdoc = f.read ()
+
+# Similarly, read the documentation content that is inserted into the
+# map data table HTML.
+with open (os.path.join (resdir, "mapdatadoc.html"), "rt") as f:
+    mapdatadoc = f.read ()
+
 MAPBODYEND = """
   var map = L.map('map', {layers: [osm, l2places, l2paths,
       l1places, l1paths]}).setView([45, -20], 3);
@@ -173,7 +196,92 @@ var overlaymaps = { "Core Node locations" : l2places,
 
 L.control.layers (basemaps, overlaymaps).addTo (map);
 
-</script></div>"""
+var doctext = %r;
+
+var mapdoc = L.control.dialog ({ initOpen: false,
+  anchor: [ 50, 50 ],
+  size: [ 500, 400 ],
+  maxSize: [ 1500, 1500 ] })
+  .setContent (doctext);
+
+/* Adapted from Leaflet.Control.Zoom */
+  var DocButton = L.Control.extend({
+  	// @section
+  	// @aka Control.DocButton options
+  	options: {
+  		position: 'topleft',
+  		DocText: '?',
+  		DocTitle: 'Map documentation'
+  	},
+
+  	onAdd: function (map) {
+  		var docName = 'mapper-control-mapdoc',
+  		    container = L.DomUtil.create('div', docName + ' leaflet-bar'),
+  		    options = this.options;
+
+  		this._docButton  = this._createButton(options.DocText, options.DocTitle,
+  		        docName + '-in',  container, this._doc);
+        this._map = map;
+
+  		return container;
+  	},
+
+  	onRemove: function (map) {
+  	},
+
+  	disable: function () {
+  		this._disabled = true;
+  		this._updateDisabled();
+  		return this;
+  	},
+
+  	enable: function () {
+  		this._disabled = false;
+  		this._updateDisabled();
+  		return this;
+  	},
+
+  	_doc: function (e) {
+  		if (!this._disabled) {
+            mapdoc.addTo (this._map);
+  			mapdoc.open();
+  		}
+  	},
+
+  	_createButton: function (html, title, className, container, fn) {
+  		var link = L.DomUtil.create('a', className, container);
+  		link.innerHTML = html;
+  		link.href = '#';
+  		link.title = title;
+
+  		/*
+  		 * Will force screen readers like VoiceOver to read this as "Doc in - button"
+  		 */
+  		link.setAttribute('role', 'button');
+  		link.setAttribute('aria-label', title);
+
+  		L.DomEvent.disableClickPropagation(link);
+  		L.DomEvent.on(link, 'click', L.DomEvent.stop);
+  		L.DomEvent.on(link, 'click', fn, this);
+  		L.DomEvent.on(link, 'click', this._refocusOnMap, this);
+
+  		return link;
+  	},
+
+  	_updateDisabled: function () {
+  		var className = 'leaflet-disabled';
+
+  		L.DomUtil.removeClass(this._docButton, className);
+
+  		if (this._disabled) {
+  			L.DomUtil.addClass(this._docButton, className);
+  		}
+  	}
+  });
+
+new DocButton ().addTo (map);
+
+</script></div>""" % mapdoc
 
 dtr_re = re.compile (r"(.+?): +(.+)")
 
@@ -1346,8 +1454,10 @@ class Mapper (Element, statemachine.StateMachine):
         body = body.format (",\n".join (l1markers), ",\n".join (l1arcs),
                             ",\n".join (l2markers), ",\n".join (l2arcs))
         self.mapbody = MAPBODYHDR + body + MAPBODYEND
+        doclink = '<p>Data table documentation is <a href="#mapdatadoc">here.</a></p><p></p>'
+        tabletext = str (mapdatatable (nodehdr, nodedata))
         self.databody = html.section (self.datatitle,
-                                      mapdatatable (nodehdr, nodedata))
+                                      doclink + tabletext + mapdatadoc)
         maplinks = (("/map", "Network map"), ("/map/data", "Map data table"))
         if m.lastinc > m.lastscan:
             inc = m.lastinc
