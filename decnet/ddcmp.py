@@ -38,6 +38,30 @@ from . import pcap
 
 SvnFileRev = "$LastChangedRevision$"
 
+# oui is used to find framers; the framer interface address starts
+# with the same 3 bytes as this one.
+framer_oui = Macaddr ("AA-00-03-00-00-00")
+
+def findFramers ():
+    # Returns a dictionary of tuples, keyed by interface name, value
+    # is a pair of interface address and framer address.
+    ret = dict ()
+    for dn, desc, alist, flgs in pcap.findalldevs ():
+        for sa, mask, ba, da in alist:
+            try:
+                addr = Macaddr (sa)
+                if addr[:3] == framer_oui[:3]:
+                    ia = addr
+                    framer = dn
+                    iab = bytearray (ia)
+                    iab[-1] += 1
+                    fa = Macaddr (iab)
+                    ret[framer] = (ia, fa)
+                    break
+            except ValueError:
+                pass    # address isn't a MAC address
+    return ret
+
 # The CRC-16 polynomial; see section D.2 of the DDCMP spec.
 class CRC16 (crc.CRC, poly = (16, 15, 2, 0)): pass
 
@@ -1303,6 +1327,7 @@ STAT_OK = 0        # good frame
 STAT_HCRC = 1      # Header CRC error
 STAT_CRC = 2       # Data CRC error
 STAT_LEN = 3       # Frame too long (if so, the entire data field is absent)
+STAT_LOC = 4       # Carrier lost during frame
 
 # The framer doesn't care about the addresses; it only checks the
 # protocol type (60-06).  But for sanity in interpreting wireshark
@@ -1317,14 +1342,16 @@ class FramerStatus (packet.Packet):
     _layout = (( packet.B, "dc1", 1 ),
                ( packet.BM,
                  ( "on", 0, 1 ),
-                 ( "sync", 1, 1 )),
+                 ( "sync", 1, 1 ),
+                 ( "clock_ok", 2, 1 )),
                ( packet.BM,
                  ( "mode", 0, 2 ),
                  ( "loop", 2, 1 ),
                  ( "bist", 3, 1 ),
                  ( "split", 4, 1 ),
                  ( "ddcmp_v3", 5, 1 ),
-                 ( "reserved", 6, 10 )),
+                 ( "raw_waveform", 6, 1 ),
+                 ( "reserved", 7, 9 )),
                ( packet.B, "sdusize", 2),
                ( packet.B, "speed", 4 ),
                ( packet.B, "txspeed", 4 ),
@@ -1346,11 +1373,13 @@ class FramerStatus (packet.Packet):
         ret = self.__class__ ()
         ret.on = self.on
         ret.sync = self.sync
+        ret.clock_ok = self.clock_ok
         ret.mode = self.mode
         ret.loop = self.loop
         ret.bist = self.bist
         ret.split = self.split
         ret.ddcmp_v3 = self.ddcmp_v3
+        ret.raw_waveform = self.raw_waveform
         ret.sdusize = self.sdusize
         ret.speed = self.speed
         ret.txspeed = self.txspeed
@@ -1386,7 +1415,8 @@ class FramerOn (FramerCmd):
                  ( "bist", 3, 1 ),
                  ( "split", 4, 1 ),
                  ( "ddcmp_v3", 5, 1 ),
-                 ( "reserved", 6, 10 )),
+                 ( "raw_waveform", 6, 1 ),
+                 ( "reserved", 7, 9 )),
                ( packet.B, "speed", 4 ),
                ( packet.B, "txspeed", 4 ))
     op = 1
@@ -1411,9 +1441,25 @@ FRAMER_MODES = (
 class _FramerDDCMP (_DDCMP):
     def __init__ (self, owner, name, config):
         super ().__init__ (owner, name, config)
+        self.acktmr = Backoff (1, 5)
+        self.stacktmr = Backoff (3, 20)
         self.dev, mode, *rest = config.device.split (":")
         if len (rest) > 1:
             raise ValueError ("Invalid framer device spec {}".format (config.device))
+        fdict = findFramers ()
+        if self.dev == "*":
+            # Special syntax: * means use the connected framer
+            # whatever its interface name may be.  There must be
+            # exactly one for this to be permitted.
+            if len (fdict) != 1:
+                raise ValueError ("Framer device spec * requires exactly one connected framer")
+            self.dev, fraddr = fdict.popitem ()
+        else:
+            try:
+                fraddr = fdict[self.dev]
+            except KeyError:
+                raise ValueError ("Framer {} not found or interface is not a framer".format (self.dev))
+        self.hwaddr, self.fraddr = fraddr
         self.speed = self.loop = 0
         if len (rest):
             self.speed = int (rest[0])
@@ -1434,19 +1480,6 @@ class _FramerDDCMP (_DDCMP):
         self.on = False
         self.last_status = None
         self.pcap = None
-        ifaddr = psutil.net_if_addrs ()
-        try:
-            for a in ifaddr[self.dev]:
-                if a.family == AF_MACADDR:
-                    self.hwaddr = Macaddr (a.address)
-                    ba = bytearray (self.hwaddr)
-                    ba[5] += 1
-                    self.fraddr = Macaddr (ba)
-                    break
-            else:
-                raise ValueError ("No hardware address for Ethernet {}".format (self.name))
-        except KeyError:
-             raise ValueError ("No address info for interface {}".format (self.name)) from None
         super ().open ()
         logging.debug ("DDCMP datalink {} initialized:\n"
                        "  Mode:   {}\n"
@@ -1568,6 +1601,11 @@ class _FramerDDCMP (_DDCMP):
         elif frame.stat == STAT_LEN:
             logging.trace ("Length error")
             self.node.addwork (Err (self, R_SHRT))
+        elif frame.stat == STAT_LOC:
+            logging.trace ("Loss of carrier during frame")
+            # Treat it as header CRC error
+            self.counters.data_errors_inbound += (1, DE_HCRC)
+            self.node.addwork (Err (self, R_HCRC))
         
     def receive_loop (self):
         logging.trace ("in receive_loop")

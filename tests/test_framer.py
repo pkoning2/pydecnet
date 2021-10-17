@@ -32,19 +32,16 @@ import time
 import socket
 import queue
 import os
+import random
 
 from tests.dntest import *
 from decnet.common import *
 from decnet import pcap
-from decnet.ddcmp import FramerOn, FramerStatus, CRC16
+from decnet.ddcmp import FramerOn, FramerStatus, CRC16, findFramers
 
 MAXLEN = 1486
 SYN4 = b"\226" * 4
 SYN8 = SYN4 + SYN4
-
-# oui is used to find framers; the framer interface address starts
-# with the same 3 bytes as this one.
-oui = Macaddr ("AA-00-03-00-00-00")
 
 pcapPort = None
 framer = None
@@ -71,26 +68,6 @@ if "NO_DTE" in os.environ:
 else:
     def dte (f):
         return f
-
-def findFramers ():
-    # Returns a dictionary of tuples, keyed by interface name, value
-    # is a pair of interface address and framer address.
-    ret = dict ()
-    for dn, desc, alist, flgs in pcap.findalldevs ():
-        for sa, mask, ba, da in alist:
-            try:
-                addr = Macaddr (sa)
-                if addr[:3] == oui[:3]:
-                    ia = addr
-                    framer = dn
-                    iab = bytearray (ia)
-                    iab[-1] += 1
-                    fa = Macaddr (iab)
-                    ret[framer] = (ia, fa)
-                    break
-            except ValueError:
-                pass    # address isn't a MAC address
-    return ret
 
 def setUpModule ():
     global pcapPort, framer, ia, fa, HDR
@@ -167,7 +144,7 @@ class FramerTest (DnTest):
         return self.send_cmd (b"\000")
     
     def send_on (self, mode, speed, *, txspeed = 0,
-                 loop = 0, bist = 0, split = 0, ddcmp_v3 = 0):
+                 loop = 0, bist = 0, split = 0, ddcmp_v3 = 0, raw = 0):
         cmd = FramerOn (da = fa, sa = ia)
         cmd.mode = mode
         cmd.speed = speed
@@ -175,6 +152,7 @@ class FramerTest (DnTest):
         cmd.bist = bist
         cmd.split = split
         cmd.ddcmp_v3 = ddcmp_v3
+        cmd.raw_waveform = raw
         cmd.txspeed = txspeed
         cmd.data_len = 12
         self.send_eth (cmd)
@@ -183,6 +161,9 @@ class FramerTest (DnTest):
         if ret.last_cmd_sts:
             # Some sort of error, stop now
             return ret
+        if raw:
+            # Raw doesn't have sync so don't look for it
+            return ret
         for i in range (8):
             if ret.sync:
                 self.start_stat = ret
@@ -190,6 +171,7 @@ class FramerTest (DnTest):
             time.sleep (0.1)
             ret = self.get_stat ()
         else:
+            self.print_stat (self.start_stat)
             if mode != 1:
                 self.assertNotEqual (ret.freq, 0, "Modem clock not present")
             self.fail ("No received data, check loopback connection")
@@ -233,6 +215,8 @@ class FramerTest (DnTest):
         flags = "on" if stat.on else "off"
         if stat.sync:
             flags += ", sync"
+        if stat.clock_ok:
+            flags += ", bit clock ok"
         print ("\nStatus:   ", flags)
         flags = ("rs-232 (modem clock)", "integral modem",
                  "rs-232 (local clock)", "??")[stat.mode]
@@ -244,6 +228,8 @@ class FramerTest (DnTest):
             flags += ", split speed"
         if stat.ddcmp_v3:
             flags += ", ddcmp dmc"
+        if stat.raw_waveform:
+            flags += ", raw waveform"
         print ("Flags:    ", flags)
         print ("SDU size: ", stat.sdusize)
         print ("Speed:    ", stat.speed, stat.txspeed)
@@ -347,13 +333,11 @@ class TestFreq (FramerTest):
         "Measure frequency, integral modem loopback"
         stat = self.send_on (1, 1000000, loop = loop)
         self.assertTrue (stat.on)
-        time.sleep (0.5)
+        time.sleep (1)
         stat = self.get_stat ()
-        # Look for a tolerance of 0.5 % (integral modem measurement is
-        # approximate due to the fact it looks at the modulated signal
-        # rather than an actual clock signal).
+        # Look for a tolerance of 0.2 %
         self.assertAlmostEqual (stat.speed, stat.freq,
-                                delta = stat.speed // 200)
+                                delta = stat.speed // 500)
         
     @external
     def test_freq_im (self):
@@ -364,7 +348,7 @@ class TestFreq (FramerTest):
         "Measure frequency, RS-232 local clock"
         stat = self.send_on (2, 250000, loop = 1)
         self.assertTrue (stat.on)
-        time.sleep (0.5)
+        time.sleep (1)
         stat = self.get_stat ()
         # Look for a tolerance of 0.2 %
         self.assertAlmostEqual (stat.speed, stat.freq,
@@ -380,7 +364,7 @@ class TestFreq (FramerTest):
         stat = self.get_stat ()
         self.assertNotEqual (stat.freq, 0, "Modem clock not connected")
         print ("\nModem clock frequency is {}".format (stat.freq))
-
+                
 class TestBist (FramerTest):
     BIST_TIME = 10
     
@@ -589,6 +573,7 @@ class TestRaw (FramerTest):
         self.assertTrue (stat.on)
         buf = [ SYN8 ]
         count = 50
+        # 18 bytes of payload, 2 bytes of CRC (zero also)
         payload = bytes (20)
         for i in range (count):
             msg = b"\201\022\000\001" + i.to_bytes (2, "little")
@@ -653,6 +638,54 @@ class TestRaw (FramerTest):
         self.assertEqual (rstat, 0)
         self.assertEqual (rdata[:6], msg2)
         
+    def test_minsync_bitdrop (self):
+        "Test resync after bit drop"
+        # Note: this uses a longer than minimal sync sequence because
+        # the bit drop is detected by CRC error, which is done in the
+        # C code behind the receive FIFO, so by the time it's noticed
+        # a number of bytes have already gone by.
+        stat = self.send_on (1, 1000000, loop = 1)
+        self.assertTrue (stat.on)
+        cmsg = b"\005abcde"
+        cmsg += bytes (CRC16 (cmsg))
+        msg = b"".join ((SYN8, cmsg, SYN8, SYN8, cmsg))
+        # Drop the LSbit of the 13th byte, i.e., 5th byte of the first
+        # control message.
+        l13 = len (msg) - 13
+        msgd = (int.from_bytes (msg[13:], "little") >> 1).to_bytes (l13, "little")
+        msg = msg[:13] + msgd
+        self.send_raw (msg)
+        rstat, rdata = self.rcv ()
+        self.assertEqual (rstat, 1)
+        self.assertEqual (rdata[:5], cmsg[:5])
+        rstat, rdata = self.rcv ()
+        self.assertEqual (rstat, 0)
+        self.assertEqual (rdata, cmsg)
+        
+    def test_minsync_bitadd (self):
+        "Test resync after bit add"
+        # Note: this uses a longer than minimal sync sequence because
+        # the bit add is detected by CRC error, which is done in the
+        # C code behind the receive FIFO, so by the time it's noticed
+        # a number of bytes have already gone by.
+        stat = self.send_on (1, 1000000, loop = 1)
+        self.assertTrue (stat.on)
+        cmsg = b"\005abcde"
+        cmsg += bytes (CRC16 (cmsg))
+        msg = b"".join ((SYN8, cmsg, SYN8, SYN8, cmsg))
+        # Insert a zero bit before the 13th byte, i.e., 5th byte of
+        # the first control message.
+        l13 = len (msg) - 13
+        msga = (int.from_bytes (msg[13:], "little") << 1).to_bytes (l13 + 1, "little")
+        msg = msg[:13] + msga
+        self.send_raw (msg)
+        rstat, rdata = self.rcv ()
+        self.assertEqual (rstat, 1)
+        self.assertEqual (rdata[:5], cmsg[:5])
+        rstat, rdata = self.rcv ()
+        self.assertEqual (rstat, 0)
+        self.assertEqual (rdata, cmsg)
+        
 class TestErrors (FramerTest):
     "Test handling of invalid inputs"
     def test_slow (self):
@@ -693,6 +726,18 @@ class TestErrors (FramerTest):
         self.assertTrue (stat.on)
         self.assertEqual (stat.last_cmd_sts, 3)  # Already active
 
+    def test_rawrs232 (self):
+        "Start in raw mode but RS-232"
+        stat = self.send_on (2, 100000, raw = 1)
+        self.assertFalse (stat.on)
+        self.assertEqual (stat.last_cmd_sts, 7)  # bad mode
+        
+    def test_rawbist (self):
+        "Start in raw mode but BIST"
+        stat = self.send_on (1, 100000, bist = 1, raw = 1)
+        self.assertFalse (stat.on)
+        self.assertEqual (stat.last_cmd_sts, 7)  # bad mode
+        
     def test_txoff (self):
         "Transmit when not active"
         # Make sure we're off
@@ -704,6 +749,17 @@ class TestErrors (FramerTest):
         stat = self.rcvstat ()
         self.assertFalse (stat.on)
         self.assertEqual (stat.last_cmd_sts, 6)
+        
+    def test_xmitraw (self):
+        "Raw waveform mode but regular transmit"
+        stat = self.send_on (1, 100000, raw = 1)
+        self.assertTrue (stat.on)
+        msg = b"\005abcde"
+        self.send (msg)
+        # Receive status triggered by the error
+        stat = self.rcvstat ()
+        self.assertTrue (stat.on)
+        self.assertEqual (stat.last_cmd_sts, 8)
         
     def test_txshort_ctl (self):
         "Transmit too short control message"
@@ -813,4 +869,200 @@ class TestErrors (FramerTest):
         stat = self.get_stat ()
         diff = stat - self.start_stat
         self.assertEqual (diff.crc_err, 1)
+        
+class TestRawWaveforms (FramerTest):
+    def modulate (self, bs):
+        # Return the byte string which is the integral modem waveform
+        # data corresponding to the supplied data buffer, 2 bits per
+        # data bit, LSB first.
+        ret = list ()
+        a = 0
+        bit = 0x80
+        for b in bs:
+            for i in range (8):
+                # Edge at start of bit cell
+                bit = bit ^ 0x80
+                a = (a >> 1) | bit
+                if (b & 1) == 0:
+                    # Zero, edge in middle of bit cell
+                    bit = bit ^ 0x80
+                a = (a >> 1) | bit
+                b >>= 1
+                if (i == 3):
+                    ret.append (a)
+            ret.append (a)
+        return bytes (ret)
+
+    def modbit (self, toggle):
+        if toggle:
+            self.bit = not self.bit
+        if self.ji:
+            self.ji -= 1
+        else:
+            self.bpb = random.randint (*self.bpbr)
+            self.ji = random.randint (*self.jir) - 1
+        bit = self.bit
+        for b in range (self.bpb):
+            if bit:
+                self.a |= 1 << self.bpos
+            bp = self.bpos = self.bpos + 1
+            if bp == 8:
+                self.moddata.append (self.a)
+                self.a = 0
+                self.bpos = 0
+
+    def jmodulate (self, bs, bpb, ji):
+        # Return the byte string which is the integral modem waveform
+        # data corresponding to the supplied data buffer.  bpb is a
+        # pair specifying the min and max bits per baud, and fi is a
+        # pair specifying the min and max number of baud until the
+        # next random bits per baud value is chosen.
+        #
+        # The resulting waveform will have a minimum of 2 * bpb[0]
+        # bits per data bit, and a max of 2 * bpb[1] bits, so the
+        # transmit rate should be set to twice the average rate, or
+        # bpb[0] + bpb[1] times the desired data rate.
+        #
+        # This method is intended for generating test waveforms to
+        # validate the handling of transmit rate fluctuations or phase
+        # jitter.  Rate fluctuations would use ji values significantly
+        # larger than 1, while phase jitter would be simulated with ji
+        # values of 1 or perhaps 2.
+        self.bpbr = bpb
+        self.jir = ji
+        self.ji = 0
+        self.moddata = list ()
+        self.bit = True
+        self.bpos = 0
+        self.a = 0
+        for b in bs:
+            for bp in range (8):
+                self.modbit (True)
+                self.modbit ((b & 1) == 0)
+                b >>= 1
+        if self.bpos:
+            self.a |= (0xff << self.bpos) & 0xff
+            self.moddata.append (self.a)
+        return bytes (self.moddata)
+    
+    def test_carrier_drop (self):
+        "Test carrier drop after frame"
+        stat = self.send_on (1, 1000000, loop = 1, raw = 1)
+        self.assertTrue (stat.on)
+        cmsg = b"\005abcde"
+        cmsg += bytes (CRC16 (cmsg))
+        # We'll send line unit start, SYN sequence, frame, then quiet.
+        msg = self.modulate (b"\x1f" + SYN8 + cmsg)
+        # Append a byte to force another edge because the receive
+        # clock recovery needs one more transition after capturing the
+        # bit before it tells the receive FIFO handler to clock it in.
+        if msg[-1] & 0x80:
+            msg += b'\x00'
+        else:
+            msg += b'\xff'
+        self.send_raw (msg)
+        rstat, rdata = self.rcv ()
+        self.assertEqual (rstat, 0)
+        self.assertEqual (rdata, cmsg)
+        # Since carrier dropped, sync status should be False now
+        ret = self.get_stat ()
+        self.assertFalse (ret.sync)
+
+    def test_carrier_fail_crc (self):
+        "Test carrier loss in middle of header CRC"
+        stat = self.send_on (1, 1000000, loop = 1, raw = 1)
+        self.assertTrue (stat.on)
+        # Build a data frame.  Start with line unit start, then sync
+        buf = [ b"\x1f", SYN8 ]
+        payload = b"U" * 20
+        payload += bytes (CRC16 (payload))
+        msg = b"\201\024\000\001\000\000"
+        hcrc = CRC16 (msg)
+        buf.append (msg)
+        buf.append (bytes (hcrc))
+        buf.append (payload)
+        buf = b"".join (buf)
+        for pos in (5, 7, 20, 29):
+            with self.subTest (truncate_at = pos):
+                # Truncate the frame after "pos" bytes, the 9 below
+                # accounts for the line unit start byte and syn sequence.
+                raw = self.modulate (buf[:pos + 9])
+                # Append a byte to force another edge because the receive
+                # clock recovery needs one more transition after capturing the
+                # bit before it tells the receive FIFO handler to clock it in.
+                if raw[-1] & 0x80:
+                    raw += b'\x00'
+                else:
+                    raw += b'\xff'
+                self.send_raw (raw)
+                rstat, rdata = self.rcv ()
+                # Expected status is loss of carrier during frame
+                self.assertEqual (rstat, 4)
+                # Up to 3 bytes may go missing because of the 32 bit FIFO
+                self.assertGreater (len (rdata), pos - 4)
+                # Don't try to check the data
+                # Since carrier dropped, sync status and bit clock ok
+                # should be False now
+                ret = self.get_stat ()
+                self.assertFalse (ret.sync)
+                self.assertFalse (ret.clock_ok)
+        
+    def test_jitter_int (self, loop = 1):
+        "Test jitter tolerance, internal loopback"
+        # Build a data frame.  Start with line unit start, then sync
+
+        buf = [ b"\x1f", SYN8 ]
+        payload = b"\x55\xaa\x55\xaa\x00\x00\x00\xff\xff\xff\x01\x01\xfe\xfe" * 2
+        msg = b"\201" + len (payload).to_bytes (2, "little") + b"\001\000\000"
+        payload += bytes (CRC16 (payload))
+        hcrc = CRC16 (msg)
+        buf.append (msg)
+        buf.append (bytes (hcrc))
+        buf.append (payload)
+        # Append the CRC reinforcing DEL and a bunch of SYN bytes.
+        # That ensures the whole frame makes it into the receive FIFO
+        # (which is 4 bytes wide) before the bit clock stops.
+        buf.append (b'\xff')
+        buf.append (SYN8)
+        buf = b"".join (buf)
+        frame = buf[9:-9]
+        for bpbr, jir in (
+            ((9, 11), (1, 1)),          # 10% random jitter
+            ((7,  9), (1, 1)),          # 12% random jitter
+            ((5,  7), (1, 1)),          # 16% random jitter
+            ((4,  6), (1, 1)),          # 20% random jitter
+            # Frequency fluctuations are over 5-15 byte spans
+            ((9, 11), (80, 240)),        # 10% freq error
+            ((7,  9), (80, 240)),        # 12% freq error
+            ((5,  7), (80, 240))):       # 16% freq error
+            ratemul = sum (bpbr) // 2
+            perc = 100 / ratemul
+            if jir == (1, 1):
+                what = "random"
+                #print ("jandom jitter, {:.2f} %".format (perc))
+            else:
+                what = "freq"
+                #print ("frequency fluctuations, {:.2f} %".format (perc))
+            what = "random" if jir == (1, 1) else "freq"
+            with self.subTest (percentage = perc, what = what):
+                stat = self.send_on (1, 100000, txspeed = 100000 * ratemul,
+                                     loop = loop, split = 1, raw = 1)
+                self.assertTrue (stat.on)
+                raw = self.jmodulate (buf, bpbr, jir)
+                #print (len (raw))
+                assert len (raw) <= 1496
+                self.send_raw (raw)
+                # Try to receive the frame
+                ret = self.rcv ()
+                self.assertIsNotNone (ret, "Nothing received")
+                rstat, rdata = ret
+                #self.assertEqual (rstat, 0, "Not good frame")
+                self.assertEqual (rdata, frame)
+                stat = self.send_off ()
+                self.assertFalse (stat.on)
+
+    @external
+    def test_jitter_ext (self):
+        "Test jitter tolerance, external loopback"
+        self.test_jitter_int (0)
         
