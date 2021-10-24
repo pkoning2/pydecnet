@@ -805,7 +805,6 @@ class NSP (Element):
         # Fill in a NICE read node response record with information
         # from nodeinfo, inserting it into resp.  Note that asking for
         # it causes the entry to be created.
-        print ("reading node", id (nodeinfo), nodeinfo)
         r = resp[nodeinfo]
         r.entity = nicepackets.NodeEntity (nodeinfo)
         # We have a node for which we have some information.  Check
