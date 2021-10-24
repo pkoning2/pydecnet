@@ -3,6 +3,14 @@ change at the top.  "Significant" means a non-trivial functional
 change or a change that affects how you use or install the
 application.
 
+----------------------------------------
+
+1.0-586: Add loop node support (currently only for point to point
+circuits).
+Add support for DDCMP over synchronous links, using a USB-connected
+synchronous framer.  See https://github.com/pkoning2/ddcmp for
+hardware and software design files and documentation for that device.
+
 1.0-584: Since the circuit configuration switches --destination,
 --dest-port, --source, and --source-port were confusing for "listen"
 mode circuits and other cases where one would naturally think in terms

@@ -252,8 +252,8 @@ class FramerTest (DnTest):
         # Do n loop tests, each consisting of one each of the three
         # frame types.
         for i in range (n):
-            for t in ( b"\005\000",
-                       b"\201\004\000\001\002\003\000\000",
+            for t in ( b"\005\001",
+                       b"\201\010\000\001\002\003\000\000\005\001\000\004",
                        b"\220\004\000\001\002\003\000\000" ):
                 buf = t + i.to_bytes (4, "little")
                 self.send (buf)
@@ -317,11 +317,13 @@ class TestBasic (FramerTest):
         "Loop test of a range of packet sizes"
         stat = self.send_on (1, 1000000, loop = 1)
         self.assertTrue (stat.on)
-        for r in ( range (1, MAXLEN + 1, 50),
-                   range (1, 30),
+        for r in ( range (5, MAXLEN + 1, 50),
+                   range (5, 30),
                    range (1450, MAXLEN + 1) ):
             for s in r:
-                hdr = b"\201" + s.to_bytes (2, "little") + b"\003\004\005\000\000"
+                hdr = b"\201" + s.to_bytes (2, "little") + \
+                      b"\003\004\005\000\000" + \
+                      b"\005\001\040\001"
                 self.send (hdr + bytes (s))
                 rstat, rdata = self.rcv ()
                 self.assertEqual (rstat, 0)
@@ -573,8 +575,9 @@ class TestRaw (FramerTest):
         self.assertTrue (stat.on)
         buf = [ SYN8 ]
         count = 50
-        # 18 bytes of payload, 2 bytes of CRC (zero also)
-        payload = bytes (20)
+        # 18 bytes of payload, 2 bytes of CRC
+        payload = b"\005\002\220\016" + bytes (14)
+        payload += bytes (CRC16 (payload))
         for i in range (count):
             msg = b"\201\022\000\001" + i.to_bytes (2, "little")
             crc = CRC16 (msg)
@@ -603,7 +606,7 @@ class TestRaw (FramerTest):
         buf = [ SYN8 ]
         count = 150
         for i in range (count):
-            msg = b"\005\000\000\001" + i.to_bytes (2, "little")
+            msg = b"\005\001\000\001" + i.to_bytes (2, "big")
             crc = CRC16 (msg)
             buf.append (msg)
             buf.append (bytes (crc))
@@ -616,7 +619,7 @@ class TestRaw (FramerTest):
                 self.assertEqual (i, count, "Not enough received messages")
             rstat, msg = ret
             self.assertEqual (rstat, 0)
-            seq = int.from_bytes (msg[4:6], "little")
+            seq = int.from_bytes (msg[4:6], "big")
             self.assertEqual (seq, i)
 
     def test_concat_ctl_loop (self):
@@ -627,13 +630,13 @@ class TestRaw (FramerTest):
         "Test resync with just 4 SYN bytes"
         stat = self.send_on (1, 1000000, loop = 1)
         self.assertTrue (stat.on)
-        msg = SYN8 + b"\005" + bytes (99) + SYN4
-        msg2 = b"\005abcde"
+        msg = SYN8 + b"\005\001" + bytes (99) + SYN4
+        msg2 = b"\005\003bcde"
         msg += msg2 + bytes (CRC16 (msg2))
         self.send_raw (msg)
         rstat, rdata = self.rcv ()
         self.assertEqual (rstat, 1)
-        self.assertEqual (rdata[:6], b"\005" + bytes (5))
+        self.assertEqual (rdata[:6], b"\005\001" + bytes (4))
         rstat, rdata = self.rcv ()
         self.assertEqual (rstat, 0)
         self.assertEqual (rdata[:6], msg2)
@@ -646,7 +649,7 @@ class TestRaw (FramerTest):
         # a number of bytes have already gone by.
         stat = self.send_on (1, 1000000, loop = 1)
         self.assertTrue (stat.on)
-        cmsg = b"\005abcde"
+        cmsg = b"\005\001bcde"
         cmsg += bytes (CRC16 (cmsg))
         msg = b"".join ((SYN8, cmsg, SYN8, SYN8, cmsg))
         # Drop the LSbit of the 13th byte, i.e., 5th byte of the first
@@ -670,7 +673,7 @@ class TestRaw (FramerTest):
         # a number of bytes have already gone by.
         stat = self.send_on (1, 1000000, loop = 1)
         self.assertTrue (stat.on)
-        cmsg = b"\005abcde"
+        cmsg = b"\005\001bcde"
         cmsg += bytes (CRC16 (cmsg))
         msg = b"".join ((SYN8, cmsg, SYN8, SYN8, cmsg))
         # Insert a zero bit before the 13th byte, i.e., 5th byte of
@@ -743,7 +746,7 @@ class TestErrors (FramerTest):
         # Make sure we're off
         stat = self.send_cmd (b"\002")
         self.assertFalse (stat.on)
-        msg = b"\005abcde"
+        msg = b"\005\001bcde"
         self.send (msg)
         # Receive status triggered by the error
         stat = self.rcvstat ()
@@ -754,7 +757,7 @@ class TestErrors (FramerTest):
         "Raw waveform mode but regular transmit"
         stat = self.send_on (1, 100000, raw = 1)
         self.assertTrue (stat.on)
-        msg = b"\005abcde"
+        msg = b"\005\001bcde"
         self.send (msg)
         # Receive status triggered by the error
         stat = self.rcvstat ()
@@ -765,7 +768,7 @@ class TestErrors (FramerTest):
         "Transmit too short control message"
         stat = self.send_on (1, 1000000, loop = 1)
         self.assertTrue (stat.on)
-        msg = b"\005abcd"
+        msg = b"\005\003bcd"
         self.send (msg)
         # Receive status triggered by the error
         stat = self.rcvstat ()
@@ -949,7 +952,7 @@ class TestRawWaveforms (FramerTest):
         "Test carrier drop after frame"
         stat = self.send_on (1, 1000000, loop = 1, raw = 1)
         self.assertTrue (stat.on)
-        cmsg = b"\005abcde"
+        cmsg = b"\005\003bcde"
         cmsg += bytes (CRC16 (cmsg))
         # We'll send line unit start, SYN sequence, frame, then quiet.
         msg = self.modulate (b"\x1f" + SYN8 + cmsg)
@@ -974,7 +977,7 @@ class TestRawWaveforms (FramerTest):
         self.assertTrue (stat.on)
         # Build a data frame.  Start with line unit start, then sync
         buf = [ b"\x1f", SYN8 ]
-        payload = b"U" * 20
+        payload = b"\005\001\004\044" + b"U" * 18
         payload += bytes (CRC16 (payload))
         msg = b"\201\024\000\001\000\000"
         hcrc = CRC16 (msg)
@@ -1012,7 +1015,8 @@ class TestRawWaveforms (FramerTest):
         # Build a data frame.  Start with line unit start, then sync
 
         buf = [ b"\x1f", SYN8 ]
-        payload = b"\x55\xaa\x55\xaa\x00\x00\x00\xff\xff\xff\x01\x01\xfe\xfe" * 2
+        payload = b"\005\004\350\032"
+        payload += b"\x55\xaa\x55\xaa\x00\x00\xff\xff\xff\x01\x01\xfe\xfe" * 2
         msg = b"\201" + len (payload).to_bytes (2, "little") + b"\001\000\000"
         payload += bytes (CRC16 (payload))
         hcrc = CRC16 (msg)

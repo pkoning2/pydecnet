@@ -325,9 +325,11 @@ types, are:
        synonym for "internal".  Speed is the data rate in bits
        per second; this is required in rs232_dce and internal modes,
        not applicable for the rs232_dte (modem supplied clock) case.
+       The interface name may be given as "*" if there is exactly one
+       framer connected to the system; in that case its interface name
+       will be looked up.
        For more information on the framer including documentation,
-       firmware, and design files, see
-       https://github.com/pkoning2/ddcmp
+       firmware, and design files, see https://github.com/pkoning2/ddcmp
 
        udp: DDCMP over UDP.
 
