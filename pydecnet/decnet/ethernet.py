@@ -338,6 +338,8 @@ class _BridgeEth (_Ethernet):
     Ethernet datagram.
     """
     def __init__ (self, owner, name, dev, config):
+        if config.hwaddr == NULLID:
+            config.random_address = True
         super ().__init__ (owner, name, dev, config)
         self.source = host.SourceAddress (config, config.source_port)
         self.host = host.HostAddress (config.destination, config.dest_port,
