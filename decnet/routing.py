@@ -492,7 +492,26 @@ class BaseRouter (Element):
             r.segment_buffer_size = MTU
             # Have the subclass supply anything else it wants to
             self.node_char (r)
-
+        elif req.sumstat ():
+            # Summary or status
+            # We only know about it if it is in area
+            if nodeid.area == self.homearea:
+                tid = nodeid.tid
+                a = self.oadj[tid]
+                if a is not self.selfadj:
+                    if a:
+                        r = resp[nodeid]
+                        r.state = 4    # reachable
+                        r.adj_circuit = a.circuit
+                        nxt = self.node.nodeinfo (a.nodeid)
+                        r.next_node = nxt
+                        if req.stat ():
+                            r.hops = self.minhops[tid]
+                            r.cost = self.mincost[tid]
+                    else:
+                        r = resp[nodeid]
+                        r.state = 5    # unreachable
+            
     def node_char (self, r):
         pass
     
