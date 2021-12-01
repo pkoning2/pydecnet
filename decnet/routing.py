@@ -1394,7 +1394,7 @@ class L2Router (L1Router):
                         if a is self.selfadj:
                             r.next_node = self.nodeinfo
                         else:
-                            r.circuit = a.circuit
+                            r.adj_circuit = a.circuit
                             r.next_node = self.node.nodeinfo (a.nodeid)
                         if req.info == 1:
                             # status
@@ -1411,7 +1411,7 @@ class L2Router (L1Router):
                     if a is self.selfadj:
                         r.next_node = self.nodeinfo
                     else:
-                        r.circuit = a.circuit
+                        r.adj_circuit = a.circuit
                         r.next_node = self.node.nodeinfo (a.nodeid)
                     if req.info == 1:
                         # status
