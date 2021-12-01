@@ -124,9 +124,6 @@ class _Ethernet (datalink.BcDatalink, StopThread):
         if not packet:
             # pcap_next returns None if we got a timeout
             return
-        if plen < 60:
-            # Runt???
-            return
         proto = packet[12:14]
         try:
             port = self.ports[proto]
