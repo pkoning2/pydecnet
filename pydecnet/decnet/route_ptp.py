@@ -550,7 +550,6 @@ class PtpCircuit (statemachine.StateMachine):
                                         nspsize = MTU,
                                         int = 7,   # Offer intercept services
                                         sysver = "DECnet/Python")
-                    self.initmsg = initmsg
                     self.dlsend (initmsg)
                 self.rphase = 2
                 self.hellomsg = NopMsg (payload = b'\252' * 10)
