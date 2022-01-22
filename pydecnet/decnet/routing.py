@@ -333,6 +333,7 @@ class BaseRouter (Element):
         self.nodeinfo.counters = ExecCounters (self.nodeinfo, self)
         self.name = self.nodeinfo.nodename
         self.circuits = EntityDict ()
+        self.p2lines = dict ()
         self.adjacencies = dict ()
         self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
         dlcirc = self.node.datalink.circuits
@@ -342,15 +343,20 @@ class BaseRouter (Element):
                 rc = self.routing_circuit (name, dl, c)                
                 rc.loop_node = None
                 self.circuits[name] = rc
-                logging.debug ("Initialized routing circuit {}", name)
+                rc.p2id = nicepackets.P2LineEntity (name, len (self.p2lines))
+                self.p2lines[rc.p2id] = rc
                 if c.loop_node:
-                    ln = c.loop_node.upper ()
-                    n = self.node.addloopnodeinfo (ln, rc)
-                    rc.loop_node = n
-                    logging.debug ("Added loop node {} for {}", ln, name)
+                    if self.LanCircuit and isinstance (rc, self.LanCircuit):
+                        logging.error ("Loop node {} not valid for LAN circuit {}, ignored", c.loop_node, name)
+                    else:
+                        ln = c.loop_node.upper ()
+                        n = self.node.addloopnodeinfo (ln, rc)
+                        rc.loop_node = n
+                        logging.debug ("Added loop node {} for {}", ln, name)
             except Exception:
                 logging.exception ("Error initializing routing circuit {}", name)
-
+        self.parent.register_api ("routing", self.api)
+        
     def routing_circuit (self, name, dl, c):
         """Factory function for circuit objects.  Depending on the datalink
         type (LAN vs. not) and node type (endnode vs.router) we use different
@@ -465,8 +471,10 @@ class BaseRouter (Element):
                               "{0.ntypestring} {0.nodeid} ({0.name})".format (self),
                               "?system={0.name}".format (self))
 
-    def json_description (self):
-        return { self.name : [ self.ntypestring, self.nodeid ] }
+    def api (self, client, reqtype, tag, args):
+        if reqtype == "get":
+            return self.get_api ()
+        return dict (error = "Unsupported operation", type = reqtype)
 
     def get_api (self):
         return { "circuits" : self.circuits.get_api (),
@@ -503,11 +511,23 @@ class BaseRouter (Element):
                         r = resp[nodeid]
                         r.state = 4    # reachable
                         r.adj_circuit = a.circuit
-                        nxt = self.node.nodeinfo (a.nodeid)
-                        r.next_node = nxt
                         if req.stat ():
                             r.hops = self.minhops[tid]
                             r.cost = self.mincost[tid]
+                            if nodeid == a.nodeid:
+                                # Node is adjacent
+                                if a.rphase == 4:
+                                    r.adj_type = a.ntype + 2
+                                elif a.rphase == 3:
+                                    r.adj_type = 1 if a.ntype == ENDNODE else 0
+                                else:
+                                    r.adj_type = 2
+                        else:
+                            # Like RSX, supply this only for
+                            # "summary".  The spec says otherwise, but
+                            # this way it makes the tabular output for
+                            # "show node status" look much better.
+                            r.next_node = self.node.nodeinfo (a.nodeid)
                     else:
                         r = resp[nodeid]
                         r.state = 5    # unreachable
@@ -516,8 +536,27 @@ class BaseRouter (Element):
         pass
     
     def nice_read (self, req, resp):
+        if isinstance (req, nicepackets.P2NiceReadExecStatus):
+            # Phase II read executor status
+            exe = resp[0]
+            exe.routing_version = self.tiver
+            exe.name = self.name
+            # If we can't represent the node number (one byte limit) send 255
+            exe.id = min (self.tid, 255)
         if isinstance (req, nicepackets.NiceReadNode):
             # Read node
+            qual = getattr (req, "circuit", None)
+            # VMS sends the wrong code; accept that too
+            qual = getattr (req, "vms_circuit", qual)
+            if qual:
+                if qual.code == -1:
+                    # Known, treat as no qualifier
+                    qual = None
+                elif qual.code < 0:
+                    # Some other plural entity, error
+                    return
+                else:
+                    qual = qual.value
             if req.counters ():
                 # counters, nothing to do since NSP took care of that.
                 return
@@ -536,14 +575,21 @@ class BaseRouter (Element):
                 else:
                     # multiple nodes.  start with adjacencies.
                     for c in self.circuits.values ():
-                        c.nice_read (req, resp)
+                        if qual is None or c.name == qual:
+                            c.nice_read (req, resp)
                     if not req.adj () and not req.loop ():
                         # known or significant or active, thrown in
                         # reachability information
-                        self.reach (req, resp)
+                        self.reach (req, resp, qual)
                 # Make sure nexthop is set if known.
-                self.nexthop (req, resp)
+                #self.nexthop (req, resp)
         elif isinstance (req, nicepackets.NiceReadCircuit):
+            qual = getattr (req, "adjacent_node", None)
+            if qual:
+                if qual.code < 0:
+                    # Some plural entity, error
+                    return
+                qual = qual.value
             if req.entity.code > 0:
                 # read one circuit
                 cn = req.entity.value.upper ()
@@ -551,15 +597,26 @@ class BaseRouter (Element):
                     c = self.circuits[cn]
                 except KeyError:
                     return
-                c.nice_read (req, resp)
+                c.nice_read (req, resp, qual)
             else:
                 # Read active or known circuits.  We handle those the
                 # same because all our circuits are always on.
                 for c in self.circuits.values ():
-                    c.nice_read (req, resp)
+                    c.nice_read (req, resp, qual)
             return resp
-        
-    def reach (self, req, resp):
+        elif isinstance (req, nicepackets.P2NiceReadLineStatus):
+            if req.entity.known ():
+                # Known lines, loop
+                for c in self.circuits.values ():
+                    c.nice_read (req, resp)
+            else:
+                try:
+                    c = self.p2lines[req.entity]
+                except KeyError:
+                    return
+                c.nice_read (req, resp)
+            
+    def reach (self, req, resp, qual = None):
         pass
 
     def nexthop (self, req, resp):
@@ -577,6 +634,8 @@ class EndnodeRouting (BaseRouter):
         super ().__init__ (parent, config)
         if len (self.circuits) != 1:
             raise ValueError ("End node must have 1 circuit, found {}".format (len (self.circuits)))
+        # Definitely not offering intercept service
+        config.routing.no_intercept = True
         # Remember that one circuit for easier access
         for c in self.circuits.values ():
             self.circuit = c
@@ -594,6 +653,9 @@ class EndnodeRouting (BaseRouter):
             logging.trace ("Sending {} byte packet: {}", len (pkt), pkt)
         self.circuit.datalink.counters.orig_sent += 1
         if dest != self.nodeid:
+            if not isinstance (dest, Nodeid):
+                # Loop node, supply our own address as dest
+                pkt.dstnode = self.nodeid
             ret = self.circuit.send (pkt, None, tryhard)
             if not ret and rqr:
                 # Could not send (point to point circuit not up or up
@@ -610,13 +672,11 @@ class EndnodeRouting (BaseRouter):
 
     def dispatch (self, item):
         """A received packet is sent up to NSP if it is for this node,
-        and ignored otherwise.
+        and ignored otherwise.  Note that the only thing that gets here
+        is data packets (hellos are handled in route_eth or route_ptp).
         """
-        if logging.tracing:
-            logging.trace ("{}: processessing work item {}", self.name, item)
-        if isinstance (item, (ShortData, LongData)):
-            if item.dstnode == self.nodeid:
-                self.selfadj.send (item)
+        if item.dstnode == self.nodeid:
+            self.selfadj.send (item)
 
     def html (self, what):
         header = self.circuit.html_header ()
@@ -647,33 +707,50 @@ class Phase2Routing (BaseRouter):
     
     def send (self, pkt, dest, rqr = False, tryhard = False):
         """Send NSP packet to the given destination. rqr and
-        tryhard are ignored in Phase II.
+        tryhard are ignored in Phase II except that rqr controls how to
+        handle "unreachable".  
         TODO: Intercept support.
         """
         try:
-            a = self.adjacencies[dest]
+            if isinstance (dest, Nodeid):
+                # Normal node
+                a = self.adjacencies[dest]
+                destaddr = dest
+            else:
+                # Loop node
+                a = dest.loopadj
+                destaddr = self.nodeid
+                if not a or a.nodeid != destaddr:
+                    # No adjacency, or not to self, call it unreachable.
+                    if rqr:
+                        pkt = ShortData (rts = 1, rqr = 0, payload = pkt,
+                                         srcnode = destaddr, src = None,
+                                         dstnode = destaddr)
+                        self.dispatch (pkt)
+                        return True
+                    return False
             # Destination matches this adjacency, send
             if logging.tracing:
                 logging.trace ("Sending {} byte packet to {}: {}",
                                len (pkt), a, pkt)
             pkt = ShortData (payload = pkt, srcnode = self.nodeid,
-                             dstnode = dest, src = None)
+                             rqr = 1, rts = 0,
+                             dstnode = destaddr, src = None)
             a.circuit.datalink.counters.orig_sent += 1
             # For now, destination is also nexthop.  If we do intercept,
             # that will no longer be true.
-            a.circuit.send (pkt, dest)
+            a.circuit.send (pkt, destaddr)
         except KeyError:
             logging.trace ("{} unreachable: {}", dest, pkt)
 
     def dispatch (self, item):
         """A received packet is sent up to NSP if it is for this node,
-        and ignored otherwise.
+        and ignored otherwise.  Note that the only thing that gets here
+        is data packets (hellos are handled in route_ptp).
         TODO: Intercept support.
         """
-        if isinstance (item, (ShortData, LongData)):
-            if item.dstnode == self.nodeid:
-                item.rts = False
-                self.selfadj.send (item)
+        if item.dstnode == self.nodeid:
+            self.selfadj.send (item)
 
     def html (self, what):
         header = self.PtpCircuit.html_header ()
@@ -735,6 +812,7 @@ class L1Router (BaseRouter):
         self.minhops, self.mincost = allocvecs (rconfig.maxnodes)
         self.oadj = [ UNREACHABLE ] * (self.maxnodes + 1)
         BaseRouter.__init__ (self, parent, config)
+        self.oadj[self.tid] = self.selfadj
         self.l1info = dict ()
         # Create the special routeinfo column that is used
         # to record information for all the endnode adjacencies
@@ -765,19 +843,22 @@ class L1Router (BaseRouter):
                     tid = self.nodeid.tid
                     self.selfadj.routeinfo.hops[tid] = 0
                     self.selfadj.routeinfo.cost[tid] = 0
-                self.setsrm (0, self.maxnodes)
-                self.route (0, self.maxnodes)
+                adj.circuit.setsrm (0, self.maxnodes)
         else:
-            # End node and Phase II node
+            # End node or Phase II node.  Since Phase II nodes can't
+            # route (we don't count intercept as routing for our
+            # purposese here) handle it like an endnode.
             adj.routeinfo = None
             ri = self.l1info[ENDNODE]
             tid = adj.nodeid.tid
             if ri.hops[tid] != INFHOPS and ri.oadj[tid] != adj \
-              and not ri.oadj[tid]:
-                # We already have an endnode here.  Curious.
+              and not ri.oadj[tid] and adj.ntype != PHASE2:
+                # We already have an endnode here.  Curious.  They are
+                # supposed to have just one circuit.  Phase II may
+                # have multiple, so don't complain for those.
                 logging.debug ("Possible duplicate endnode {} on {} and {}",
                                adj.nodeid, adj.circuit,
-                               ri.oadj[tid].circuit)
+                               ri.adjacencies[tid].circuit)
             ri.hops[tid] = 1
             ri.cost[tid] = adj.circuit.cost
             ri.adjacencies[tid] = adj
@@ -834,12 +915,13 @@ class L1Router (BaseRouter):
                                 **evtpackethdr (item))
         
     def dispatch (self, item):
-        if isinstance (item, L1Routing):
+        if isinstance (item, (ShortData, LongData)):
+            self.forward (item)
+        else:
+            # Only other possibility is L1Routing
             adj = item.src
             if adj.nodeid.area == self.homearea:
                 self.routemsg (item, adj.routeinfo, self.route, self.maxnodes)
-        elif isinstance (item, (ShortData, LongData)):
-            self.forward (item)
             
     def setsrm (self, tid, endtid = None):
         for c in self.circuits.values ():
@@ -1179,22 +1261,24 @@ class L1Router (BaseRouter):
             ret.append (self.html_matrix (False))
         return ret
 
-    def reach (self, req, resp):
+    def reach (self, req, resp, qual = None):
         for i in range (1, self.maxnodes + 1):
             a = self.oadj[i]
             if a is self.selfadj:
                 continue
             ni = Nodeid (self.homearea, i)
             if a:
+                if qual and a.circuit.name != qual:
+                    continue
                 r = resp[ni]
                 r.state = 4    # reachable
                 r.adj_circuit = a.circuit
-                nxt = self.node.nodeinfo (a.nodeid)
-                r.next_node = nxt
-                if req.info == 1:
+                if req.stat ():
                     r.hops = self.minhops[i]
                     r.cost = self.mincost[i]
-            elif req.info == -1 or ni in resp:
+                else:
+                    r.next_node = self.node.nodeinfo (a.nodeid)
+            elif req.entity.code == -1 or ni in resp:
                 r = resp[ni]
                 r.state = 5    # unreachable
 
@@ -1265,8 +1349,7 @@ class L2Router (L1Router):
         # will handle that (by not doing L1 routing work).
         super ().adj_up (adj)
         if adj.ntype == L2ROUTER:
-            self.setasrm (1, self.maxarea)
-            self.aroute (1, self.maxarea)
+            adj.circuit.setasrm (1, self.maxarea)
 
     def adj_down (self, adj):
         """Take the appropriate actions for an adjacency that has
@@ -1381,7 +1464,7 @@ class L2Router (L1Router):
     def nice_read (self, req, resp):
         if isinstance (req, nicepackets.NiceReadArea):
             # Read area
-            if req.info > 1:
+            if not req.sumstat ():
                 # characteristics or counters, no such thing
                 return
             if req.mult ():
@@ -1396,7 +1479,7 @@ class L2Router (L1Router):
                         else:
                             r.adj_circuit = a.circuit
                             r.next_node = self.node.nodeinfo (a.nodeid)
-                        if req.info == 1:
+                        if req.stat ():
                             # status
                             r.hops = self.aminhops[i]
                             r.cost = self.amincost[i]
@@ -1413,7 +1496,7 @@ class L2Router (L1Router):
                     else:
                         r.adj_circuit = a.circuit
                         r.next_node = self.node.nodeinfo (a.nodeid)
-                    if req.info == 1:
+                    if req.stat ():
                         # status
                         r.hops = self.aminhops[i]
                         r.cost = self.amincost[i]
@@ -1520,9 +1603,9 @@ class Update (Element, timers.Timer):
         srm = self.srm
         minhops = self.minhops
         mincost = self.mincost
-        seg = pkttype.segtype
         if pkttype is not PhaseIIIRouting:
             # Phase 4 (segmented) format
+            seg = pkttype.segtype
             ret = list ()
             p = None
             previd = -999

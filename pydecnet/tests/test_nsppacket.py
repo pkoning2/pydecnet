@@ -13,7 +13,8 @@ class test_packets (DnTest):
 
     def test_ackdata (self):
         p = b"\x04\x03\x00\x05\x01\x02\x80"
-        ackdat = self.short (p, nsp.AckData, maxlen = 6)
+        ackdat = self.short (p, nsp.NspHdr, maxlen = 6)
+        self.assertIsInstance (ackdat, nsp.AckData)
         self.assertEqual (ackdat.dstaddr, 3)
         self.assertEqual (ackdat.srcaddr, 261)
         self.assertEqual (ackdat.acknum.num, 2)
@@ -27,7 +28,8 @@ class test_packets (DnTest):
         self.assertEqual (p, bytes (p2))
         # With cross-channel field
         p = b"\x04\x03\x00\x05\x01\x02\x80\x05\xb0"
-        ackdat = nsp.AckData (p)
+        ackdat = nsp.NspHdr (p)
+        self.assertIsInstance (ackdat, nsp.AckData)
         self.assertEqual (ackdat.dstaddr, 3)
         self.assertEqual (ackdat.srcaddr, 261)
         self.assertEqual (ackdat.acknum.num, 2)
@@ -45,12 +47,14 @@ class test_packets (DnTest):
         self.assertEqual (p, bytes (p2))
         # Invalid qual subfield is not an error but the field is ignored
         p = b"\x04\x03\x00\x05\x01\x05\x80\x07\xc0"
-        ackdat = nsp.AckData (p)
+        ackdat = nsp.NspHdr (p)
+        self.assertIsInstance (ackdat, nsp.AckData)
         self.assertIsNone (ackdat.acknum2)
 
     def test_ackother (self):
         p = b"\x14\x03\x00\x05\x01\x02\x80"
-        ackoth = self.short (p, nsp.AckOther, maxlen = 6)
+        ackoth = self.short (p, nsp.NspHdr, maxlen = 6)
+        self.assertIsInstance (ackoth, nsp.AckOther)
         self.assertEqual (ackoth.dstaddr, 3)
         self.assertEqual (ackoth.srcaddr, 261)
         self.assertEqual (ackoth.acknum.num, 2)
@@ -64,7 +68,8 @@ class test_packets (DnTest):
         self.assertEqual (p, bytes (p2))
         # With cross-channel field
         p = b"\x14\x03\x00\x05\x01\x02\x80\x05\xb0"
-        ackoth = nsp.AckOther (p)
+        ackoth = nsp.NspHdr (p)
+        self.assertIsInstance (ackoth, nsp.AckOther)
         self.assertEqual (ackoth.dstaddr, 3)
         self.assertEqual (ackoth.srcaddr, 261)
         self.assertEqual (ackoth.acknum.num, 2)
@@ -82,19 +87,22 @@ class test_packets (DnTest):
         self.assertEqual (p, bytes (p2))
         # Invalid qual subfield is not an error but the field is ignored
         p = b"\x14\x03\x00\x05\x01\x05\x80\x07\xc0"
-        ackoth = nsp.AckOther (p)
+        ackoth = nsp.NspHdr (p)
+        self.assertIsInstance (ackoth, nsp.AckOther)
         self.assertIsNone (ackoth.acknum2)
 
     def test_ackconn (self):
         p = b"\x24\x03\x00"
-        ackconn = self.short (p, nsp.AckConn)
+        ackconn = self.short (p, nsp.NspHdr)
+        self.assertIsInstance (ackconn, nsp.AckConn)
         self.assertEqual (ackconn.dstaddr, 3)
         p2 = nsp.AckConn (dstaddr = 3)
         self.assertEqual (p, bytes (p2))
         
     def test_data (self):
         p = b"\x60\x03\x00\x05\x01\x07\x00payload"
-        dat = self.short (p, nsp.DataSeg, maxlen = 6)
+        dat = self.short (p, nsp.NspHdr, maxlen = 6)
+        self.assertIsInstance (dat, nsp.DataSeg)
         self.assertTrue (dat.bom)
         self.assertTrue (dat.eom)
         self.assertEqual (dat.dstaddr, 3)
@@ -105,7 +113,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.payload, b"payload")
         # Ditto but no payload
         p0 = b"\x60\x03\x00\x05\x01\x07\x00"
-        dat = self.short (p0, nsp.DataSeg, maxlen = 6)
+        dat = self.short (p0, nsp.NspHdr, maxlen = 6)
+        self.assertIsInstance (dat, nsp.DataSeg)
         self.assertTrue (dat.bom)
         self.assertTrue (dat.eom)
         self.assertEqual (dat.dstaddr, 3)
@@ -120,7 +129,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With one acknum
         p = b"\x00\x03\x00\x05\x01\x09\x80\x07\x00payload"
-        dat = self.short (p, nsp.DataSeg, maxlen = 8)
+        dat = self.short (p, nsp.NspHdr, maxlen = 8)
+        self.assertIsInstance (dat, nsp.DataSeg)
         self.assertFalse (dat.bom)
         self.assertFalse (dat.eom)
         self.assertEqual (dat.dstaddr, 3)
@@ -138,7 +148,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With two acknums
         p = b"\x40\x03\x00\x05\x01\x09\x80\x06\xa0\x07\x00payload"
-        dat = self.short (p, nsp.DataSeg, maxlen = 10)
+        dat = self.short (p, nsp.NspHdr, maxlen = 10)
+        self.assertIsInstance (dat, nsp.DataSeg)
         self.assertFalse (dat.bom)
         self.assertTrue (dat.eom)
         self.assertEqual (dat.dstaddr, 3)
@@ -159,7 +170,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # Verify that high order bits in segnum are ignored
         p = b"\x60\x03\x00\x05\x01\x07\x60payload"
-        dat = nsp.DataSeg (p)
+        dat = nsp.NspHdr (p)
+        self.assertIsInstance (dat, nsp.DataSeg)
         self.assertTrue (dat.bom)
         self.assertTrue (dat.eom)
         self.assertEqual (dat.dstaddr, 3)
@@ -171,7 +183,8 @@ class test_packets (DnTest):
         
     def test_intmsg (self):
         p = b"\x30\x03\x00\x05\x01\x07\x00payload"
-        dat = self.short (p, nsp.IntMsg, maxlen = 6)
+        dat = self.short (p, nsp.NspHdr, maxlen = 6)
+        self.assertIsInstance (dat, nsp.IntMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertIsNone (dat.acknum)
@@ -184,7 +197,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With one acknum
         p = b"\x30\x03\x00\x05\x01\x09\x80\x07\x00payload"
-        dat = self.short (p, nsp.IntMsg, maxlen = 8)
+        dat = self.short (p, nsp.NspHdr, maxlen = 8)
+        self.assertIsInstance (dat, nsp.IntMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertEqual (dat.acknum.num, 9)
@@ -200,7 +214,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With two acknums
         p = b"\x30\x03\x00\x05\x01\x09\x80\x06\xa0\x07\x00payload"
-        dat = self.short (p, nsp.IntMsg, maxlen = 10)
+        dat = self.short (p, nsp.NspHdr, maxlen = 10)
+        self.assertIsInstance (dat, nsp.IntMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertEqual (dat.acknum.num, 9)
@@ -219,7 +234,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # Verify that high order bits in segnum are ignored
         p = b"\x30\x03\x00\x05\x01\x07\x60payload"
-        dat = nsp.IntMsg (p)
+        dat = nsp.NspHdr (p)
+        self.assertIsInstance (dat, nsp.IntMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertIsNone (dat.acknum)
@@ -229,7 +245,8 @@ class test_packets (DnTest):
         
     def test_lsmsg (self):
         p = b"\x10\x03\x00\x05\x01\x07\x00\x06\xfd"
-        dat = self.short (p, nsp.LinkSvcMsg)
+        dat = self.short (p, nsp.NspHdr)
+        self.assertIsInstance (dat, nsp.LinkSvcMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertIsNone (dat.acknum)
@@ -245,7 +262,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With one acknum
         p = b"\x10\x03\x00\x05\x01\x09\x80\x07\x00\x06\x05"
-        dat = nsp.LinkSvcMsg (p)
+        dat = nsp.NspHdr (p)
+        self.assertIsInstance (dat, nsp.LinkSvcMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertEqual (dat.acknum.num, 9)
@@ -264,7 +282,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # With two acknums
         p = b"\x10\x03\x00\x05\x01\x09\x80\x06\xa0\x07\x00\x05\x05"
-        dat = nsp.LinkSvcMsg (p)
+        dat = nsp.NspHdr (p)
+        self.assertIsInstance (dat, nsp.LinkSvcMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertEqual (dat.acknum.num, 9)
@@ -286,7 +305,8 @@ class test_packets (DnTest):
         self.assertEqual (dat.encode (), p)
         # Verify that high order bits in segnum are ignored
         p = b"\x10\x03\x00\x05\x01\x07\x60\x00\x04"
-        dat = nsp.LinkSvcMsg (p)
+        dat = nsp.NspHdr (p)
+        self.assertIsInstance (dat, nsp.LinkSvcMsg)
         self.assertEqual (dat.dstaddr, 3)
         self.assertEqual (dat.srcaddr, 261)
         self.assertIsNone (dat.acknum)
@@ -309,7 +329,8 @@ class test_packets (DnTest):
 
     def test_ci (self):
         p = b"\x18\x00\x00\x03\x00\x05\x02\x04\x02payload"
-        ci = self.short (p, nsp.ConnInit, maxlen = 8)
+        ci = self.short (p, nsp.NspHdr, maxlen = 8)
+        self.assertIsInstance (ci, nsp.ConnInit)
         self.assertEqual (ci.subtype, nsp.NspHdr.CI)
         self.assertEqual (ci.srcaddr, 3)
         self.assertEqual (ci.fcopt, 1)
@@ -322,7 +343,8 @@ class test_packets (DnTest):
         self.assertEqual (bytes (ci), p)
         # Ditto but Retransmitted CI
         pr = b"\x68\x00\x00\x03\x00\x05\x02\x04\x02payload"
-        ci = self.short (pr, nsp.ConnInit, maxlen = 8)
+        ci = self.short (pr, nsp.NspHdr, maxlen = 8)
+        self.assertIsInstance (ci, nsp.ConnInit)
         self.assertEqual (ci.subtype, nsp.NspHdr.RCI)
         self.assertEqual (ci.srcaddr, 3)
         self.assertEqual (ci.fcopt, 1)
@@ -336,7 +358,8 @@ class test_packets (DnTest):
 
     def test_cc (self):
         p = b"\x28\x0b\x00\x03\x00\x05\x02\x04\x02\x07payload"
-        cc = self.short (p, nsp.ConnConf, maxlen = 9)
+        cc = self.short (p, nsp.NspHdr, maxlen = 9)
+        self.assertIsInstance (cc, nsp.ConnConf)
         self.assertEqual (cc.dstaddr, 11)
         self.assertEqual (cc.srcaddr, 3)
         self.assertEqual (cc.fcopt, 1)
@@ -352,14 +375,16 @@ class test_packets (DnTest):
     def test_di (self):
         # No payload, just a reason code
         p = b"\x38\x0b\x00\x03\x00\x05\x00\x00"
-        di = self.short (p, nsp.DiscInit)
+        di = self.short (p, nsp.NspHdr)
+        self.assertIsInstance (di, nsp.DiscInit)
         self.assertEqual (di.dstaddr, 11)
         self.assertEqual (di.srcaddr, 3)
         self.assertEqual (di.reason, 5)
         self.assertEqual (di.data_ctl, b"")
         # With session control payload
         p = b"\x38\x0b\x00\x03\x00\x05\x00\x07payload"
-        di = nsp.DiscInit (p)
+        di = nsp.NspHdr (p)
+        self.assertIsInstance (di, nsp.DiscInit)
         self.assertEqual (di.dstaddr, 11)
         self.assertEqual (di.srcaddr, 3)
         self.assertEqual (di.reason, 5)
@@ -371,7 +396,10 @@ class test_packets (DnTest):
 
     def test_dc (self):
         p = b"\x48\x0b\x00\x03\x00\x05\x00"
-        dc = self.short (p, nsp.DiscConf)
+        dc = self.short (p, nsp.NspHdr)
+        # It should be precisely DiscConf, not one of its subclasses
+        # for the special reason codes listed below.
+        self.assertEqual (type (dc), nsp.DiscConf)
         self.assertEqual (dc.dstaddr, 11)
         self.assertEqual (dc.srcaddr, 3)
         self.assertEqual (dc.reason, 5)
@@ -382,21 +410,24 @@ class test_packets (DnTest):
         # predefined reason codes
         # No Resources (1)
         p = b"\x48\x0b\x00\x03\x00\x01\x00"
-        dc = self.short (p, nsp.NoRes)
+        dc = self.short (p, nsp.NspHdr)
+        self.assertEqual (type (dc), nsp.NoRes)
         self.assertEqual (dc.dstaddr, 11)
         self.assertEqual (dc.srcaddr, 3)
         dc = nsp.NoRes (dstaddr = 11, srcaddr = 3)
         self.assertEqual (dc.encode (), p)
         # Disconnect Complete (42)
         p = b"\x48\x0b\x00\x03\x00\x2a\x00"
-        dc = self.short (p, nsp.DiscComp)
+        dc = self.short (p, nsp.NspHdr)
+        self.assertEqual (type (dc), nsp.DiscComp)
         self.assertEqual (dc.dstaddr, 11)
         self.assertEqual (dc.srcaddr, 3)
         dc = nsp.DiscComp (dstaddr = 11, srcaddr = 3)
         self.assertEqual (dc.encode (), p)
         # No Link Terminate (41)
         p = b"\x48\x0b\x00\x03\x00\x29\x00"
-        dc = self.short (p, nsp.NoLink)
+        dc = self.short (p, nsp.NspHdr)
+        self.assertEqual (type (dc), nsp.NoLink)
         self.assertEqual (dc.dstaddr, 11)
         self.assertEqual (dc.srcaddr, 3)
         dc = nsp.NoLink (dstaddr = 11, srcaddr = 3)

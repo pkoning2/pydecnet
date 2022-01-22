@@ -246,5 +246,84 @@ class TestPacket (DnTest):
         self.assertEqual (a.fieldlabel ("fn"), "Fn")
         self.assertEqual (a.fieldlabel ("field123"), "Parameter #123")
 
+class IndexBase (packet.IndexedPacket):
+    classindexkey = "index"
+    classindex = dict ()
+
+    _layout = (( packet.B, "index", 1 ),)
+    
+class Index1 (IndexBase):
+    index = 1
+
+class Index2 (IndexBase):
+    index = 2
+
+class Index3 (Index1):
+    index = 3
+
+class Index1s (Index1):
+    pass
+
+class IndexMany (IndexBase):
+    classindexkeys = irange (5, 9)
+
+class TestIndexing (DnTest):
+    def test_indexing (self):
+        p = IndexBase (b"\001")
+        self.assertIs (type (p), Index1)
+        p = IndexBase (b"\002")
+        self.assertIs (type (p), Index2)
+        p = IndexBase (b"\003")
+        self.assertIs (type (p), Index3)
+
+    def test_index_specific (self):
+        p = Index1s (b"\001")
+        self.assertIs (type (p), Index1s)
+
+    def test_index_mismatch (self):
+        with self.assertRaises (DecodeError):
+            p = IndexBase (b"\042")
+        #self.assertIs (type (p), IndexBase)
+
+    def test_index_mult (self):
+        self.assertEqual (set (IndexMany.classindexkeys), { 5, 6, 7, 8, 9 })
+        for i in range (4, 10):
+            if i == 4:
+                with self.assertRaises (DecodeError):
+                    p = IndexBase (byte (i))
+                    #self.assertIs (type (p), IndexBase)
+            else:
+                p = IndexBase (byte (i))
+                self.assertIs (type (p), IndexMany)
+
+class IndexBaseM (packet.IndexedPacket):
+    classindexkey = "index"
+    classindexmask = 0x0f
+    classindex = nlist (128)
+
+    _layout = (( packet.B, "index", 1 ),)
+
+class IndexM1 (IndexBaseM):
+    index = 1
+
+class IndexM2 (IndexBaseM):
+    index = 2
+
+class TestIndexingMasked (DnTest):
+    def test_indexing (self):
+        p = IndexBaseM (b"\x01")
+        self.assertIs (type (p), IndexM1)
+        p = IndexBaseM (b"\x72")
+        self.assertIs (type (p), IndexM2)
+
+    def test_index_specific (self):
+        p = IndexM1 (b"\x41")
+        self.assertIs (type (p), IndexM1)
+
+    def test_index_mismatch (self):
+        with self.assertRaises (DecodeError):
+            p = IndexBaseM (b"\x49")
+        #self.assertIs (type (p), IndexBaseM)
+
 if __name__ == "__main__":
     unittest.main ()

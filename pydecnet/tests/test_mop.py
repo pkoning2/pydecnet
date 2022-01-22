@@ -70,8 +70,8 @@ class TestMop (DnTest):
                                b"\xc8\x00\x09\x08Unittest")
         self.node.addwork (w)
         # Use the api, but called directly (don't go through the
-        # trouble of bringing up the http server)
-        ret = c.sysid.get_api ()
+        # trouble of bringing up the API server)
+        ret = c.sysid.api ()["sysid"]
         self.assertEqual (len (ret), 1)
         reply = ret[0]
         self.assertEqual (reply["srcaddr"], macid)
@@ -87,7 +87,7 @@ class TestMop (DnTest):
                                b"\xc8\x00\x09\x08New text"
                                b"\xca\x00\x0cSW dependent")
         self.node.addwork (w)
-        ret = c.sysid.get_api ()
+        ret = c.sysid.api ()["sysid"]
         self.assertEqual (len (ret), 1)
         reply = ret[0]
         self.assertEqual (reply["srcaddr"], macid)
@@ -115,7 +115,7 @@ class TestMop (DnTest):
                                        b"\xd0\x00\x04 \x00\x00\x02"
                                        b"\xd1\x00\x14\xa2z\xa2\x1b\x00\x00\x00\x00\x03\x00\x00\x00\x80\x00\x86\x00\x02\x02\x01\x00")
         self.node.addwork (w)
-        ret = c.sysid.get_api ()
+        ret = c.sysid.api ()["sysid"]
         self.assertEqual (len (ret), 1)
         reply = ret[0]
         self.assertEqual (reply["srcaddr"], macid)
@@ -146,7 +146,7 @@ class TestMop (DnTest):
                                         b"\x90\x01\x01\x01"
                                         b"\x91\x01\x02\x06\x01")
         self.node.addwork (w)
-        ret = c.sysid.get_api ()
+        ret = c.sysid.api ()["sysid"]
         self.assertEqual (len (ret), 1)
         reply = ret[0]
         self.assertEqual (reply["srcaddr"], macid)
@@ -162,7 +162,7 @@ class TestMop (DnTest):
                                         b"d\x00\x01%"
                                         b"\xc8\x00")
         self.node.addwork (w)
-        ret = c.sysid.get_api ()
+        ret = c.sysid.api ()["sysid"]
         self.assertEqual (len (ret), 1)
         reply = ret[0]
         self.assertEqual (reply["srcaddr"], macid)

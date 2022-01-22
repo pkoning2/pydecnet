@@ -1,0 +1,72 @@
+Protocol description for "poor man's routing" or "passthrough" object
+
+This is object 123, implemented by an application typically called
+"PMR" or "PSTHRU" or PASSTHROUGH".  It implements an application layer
+relay to allow a sending node to reach a destination that is not
+directly reachable (by regular DECnet routing mechanisms).  Examples
+include Phase II nodes connecting to distant nodes, Phase III nodes
+connecting out of area, or Phase IV nodes in a "hidden area" network
+connecting from/to a hidden area node.
+
+The protocol was never documented in a published spec, and
+implementations of PMR were either internal to DEC or released as
+"unsupported" items in the DECnet kits.  The description given here is
+reverse engineered from PMR.BAS, the DECnet/E implementation, with a
+bit of help from the TOPS-20 PSTHRU.MAC source code and the (brief)
+documentation in PSTHRU.MEM.
+
+A typical PMR-using application accepts destination specifications of
+the form A::B::C:: indicating the connection is to C, poor man's
+routed through A and B.
+
+A connection using PMR is created by a two-step process:
+
+1. Connect to the PMR object at the first node in the path (A in the
+example above)
+2. Send that PMR a connection path message, which is a DECnet data
+message, which specifies the remainder of the path (B::C:: in the
+example given above) and the specific destination object to connect
+to.
+
+Successful completion of step 2 is indicated by an "ack" message;
+failure by a "nak" message.  If step 2 is successful, there is now a
+bidirectional connection between source and destination, and data
+messages now flow transparently in both directions.  When either side
+disconnects, the entire path is disconnected.
+
+There is no support for connect data in DECnet/E; the connection to
+the final object is made with an empty connect data field.  Similarly,
+there is no support for returning the connect confirm data to the
+source node.  The TOPS-20 code is hard to read so I'm not sure but it
+seems to suggest that the connect data (from the connect to the PMR
+object, not from the subsequent request in the data message) is passed
+along. Also, the TOPS-20 code clearly states that when PMR issues a
+connect request, it supplies as source process descriptor the value
+that it received in the incoming connect request.  The result is that
+the far end will see a connect request from the original source
+process, not from some PMR object on the way.
+
+It appears from the DECnet/E code that there also is no support for
+sending interrupt messages.  However, the TOPS-20 version does forward
+interrupt messages.
+
+The PMR connection path message consists of three parts:
+
+1. A hop count, one byte, initially zero
+2. A string of node names, each ending in ::
+3. A destination object spec
+
+The PMR ack message consists of:
+
+1. The ack code: a byte of 1
+2. The nodes in the path, as a string of names each ending in ::
+
+The PMR nak message consists of:
+
+1. The nak code: a byte of 2
+2. The error message (a text string)
+
+There are two cases for the destination object specification: connect
+to an object by number, or connect by name.  For connect by number,
+the object spec has the form "<num>=", for example "25=".  For connect
+by name, it is "TASK=<name>" for example "TASK=MIRROR". 

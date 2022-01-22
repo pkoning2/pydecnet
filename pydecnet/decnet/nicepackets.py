@@ -3,6 +3,8 @@
 """NICE protocol message formats
 """
 
+import re
+
 from .common import *
 from .nice_coding import *
 
@@ -42,6 +44,29 @@ retcode_text = {
     -128 :  None
 }
 
+p2retcode_text = {
+    1 : None,
+    -1 : "Invalid function code or option",
+    -2 : "Invalid message format",
+    -3 : "Insufficient status",
+    -4 : "NICE protocol error",
+    -5 : "NICE process program error",
+    -8 : "Invalid line ID",
+    -9 : "Invalid line state",
+    -10 : "Line communications error",
+    -11 : "Invalid node ID",
+    -12 : "Invalid server node ID",
+    -13 : "Invalid file",
+    -14 : "Invalid configuration file",
+    -15 : "Resource error",
+    -16 : "Invalid parameter value",
+    -17 : "Line protocol error",
+    -18 : "File I/O error",
+    -19 : "Network communications error",
+    -20 : "No room for new entry",
+    -21 : "Remote NCU process not available"
+}
+    
 # Detail code dictionary for "file" related errors
 file_text = {
     0 :  "Permanent database",
@@ -313,6 +338,10 @@ class ReplyDict (KPdict):
         # Like items() but in sorted order by key
         return sorted (self.items ())
 
+class P2ReplyDict (ReplyDict):
+    def makeitem (self, k):
+        return self.replyclass ()
+    
 class NodeReplyDict (ReplyDict):
     def makeitem (self, k):
         ret = super ().makeitem (k)
@@ -352,10 +381,52 @@ class NiceReply (packet.Packet):
                ( packet.A, "message", 255 ))
     replydict = ReplyDict
 
-    def __init__ (self, *args):
-        self.detail = 0xffff
-        super ().__init__ (*args)
+    # Dummy values for the row formatting machinery
+    rowheader = None
+    rowformat = None
+    rowfields = ()
+    
+    def fixsubstates (self, *names):
+        for sname, ssname, ssvdict in names:
+            s = getattr (self, sname, None)
+            ss = getattr (self, ssname, None)
+            if s is not None:
+                s.substate = ss
+                s.ssvdict = ssvdict
+                if ss is not None:
+                    delattr (self, ssname)
 
+class CState (C1):
+    # This class is used for a "state" value that has an associated
+    # "substate", to print the two together.  For this to work, the
+    # NiceReply.fixstates method has to be invoked for those
+    # attributes; see the class definition of CircuitReply for an
+    # example.
+    def format (self, vdict = {}):
+        ret = super ().format (vdict)
+        if self.substate:
+            ret = "{}-{}".format (ret, self.substate.format (self.ssvdict))
+        return ret
+
+class NiceReplyHeader (NiceReply):
+    # Use this class to decode the header (only) of a NICE reply that
+    # may be an error with the detail and/or message fields omitted
+    # (since they are optional and not always sent).  Don't use this
+    # as a base class because the decoder will mess up the handling of
+    # subclass decoding.
+
+    @classmethod
+    def decode (cls, buf, *decodeargs):
+        ret = cls ()
+        ret.detail = 0xffff
+        ret.message = ""
+        ret.retcode, buf = packet.SIGNED.decode (buf, 1)
+        if buf:
+            ret.detail, buf = packet.B.decode (buf, 2)
+        if buf:
+            ret.message, buf = packet.A.decode (buf, 255)
+        return ret, b""
+    
 # NICE codes and corresponding strings for node types.  Note that
 # these are different from node type as encoded in routing layer
 # protocol messages.
@@ -495,6 +566,13 @@ class NodeReply (NiceReply):
                  ( 2785, DU2, "Maximum declared objects" ))
                  + node_counters)
 
+    rowheader = ( "Node            State        Links   Delay  Circuit      Next Node",
+                  "Node            State        Links  Delay  Type           Cost  Hops  Circuit" )
+    rowformat = ( "{0.entity!s:<16s}{0.state:<13s}{0.active_links:<8s}{0.delay:<7s}{0.adj_circuit:<13s}{0.next_node}",
+                  "{0.entity!s:<16s}{0.state:<13s}{0.active_links:<7s}{0.delay:<7s}{0.adj_type:<15s}{0.cost:<6s}{0.hops:<6s}{0.adj_circuit:<13s}" )
+    rowfields = ((0, 600, 601, 822, 830),
+                 (0, 600, 601, 810, 820, 821, 822))
+
 # RSX:
 # Parameter #522             = %H'00' 
 # Parameter #523             = %H'00' 
@@ -523,21 +601,69 @@ class NodeReply (NiceReply):
 #    Alias maximum links = 32, Path split policy = Enabled
 #    Maximum Declared Objects = 31
 
+# R/W params, used both in show replies and set requests
+circuit_set_params = (( 0, CState, "State", None,
+                           ( "On", "Off", "Service" )),
+                      ( 100, C1, "Service", None, ( "Enabled", "Disabled" )),
+                      ( 110, DU2, "Counter timer" ),
+                      ( 811, DU2, "Originating queue limit" ),
+                      ( 900, DU1, "Cost" ),
+                      ( 901, DU1, "Maximum routers" ),
+                      ( 902, DU1, "Router priority" ),
+                      ( 906, DU2, "Hello timer" ),
+                      ( 907, DU2, "Listen timer" ),    # For Phase III (RO in 4)
+                      ( 910, C1, "Blocking", None,
+                              ( "Enabled", "Disabled" )),
+                      ( 920, DU1, "Maximum recalls" ),
+                      ( 921, DU2, "Recall timer" ),
+                      ( 930, AI, "Number" ),
+                      ( 1010, CState, "Polling state", None,
+                              ( "Automatic", "Active",
+                                "Inactive", "Dying", "Dead" )),
+                      ( 1100, CM, "Owner", None, ( C1, DUNode, AI )),
+                      ( 1110, AI, "Line" ),
+                      ( 1111, C1, "Usage", None,
+                              ( "Permanent", "Incoming", "Outgoing" )),
+                      ( 1112, C1, "Type", None,
+                              { 0 : "DDCMP point",
+                                1 : "DDCMP control",
+                                2 : "DDCMP tributary",
+                                3 : "X.25",
+                                4 : "DDCMP DMC",
+                                6 : "Ethernet",
+                                7 : "CI",
+                                8 : "QP2 (DTE20)",
+                                9 : "BISYNC" }),
+                      ( 1120, AI, "Dte" ),
+                      ( 1121, DU2, "Channel" ),
+                      ( 1122, DU2, "Maximum data" ),
+                      ( 1123, DU1, "Maximum window" ),
+                      ( 1140, DU1, "Tributary" ),
+                      ( 1141, DU2, "Babble timer" ),
+                      ( 1142, DU2, "Transmit timer" ),
+                      ( 1145, DU1, "Maximum buffers" ),
+                      ( 1146, DU1, "Maximum transmits" ),
+                      ( 1150, DU1, "Active base" ),
+                      ( 1151, DU1, "Active increment" ),
+                      ( 1152, DU1, "Inactive base" ),
+                      ( 1153, DU1, "Inactive increment" ),
+                      ( 1154, DU1, "Inactive threshold" ),
+                      ( 1155, DU1, "Dying base" ),
+                      ( 1156, DU1, "Dying increment" ),
+                      ( 1157, DU1, "Dying threshold" ),
+                      ( 1158, DU1, "Dead threshold" ))
+
 class CircuitReply (NiceReply):
     entity_class = CircuitEntity
 
     _layout = ( ( CircuitEntity, "entity" ),
                 ( NICE, True,
-                 ( 0, C1, "State", None,
-                      ( "On", "Off", "Service", "Cleared" )),
                  ( 1, C1, "Substate", None,
                       ( "Starting", "Reflecting", "Looping",
                         "Loading", "Dumping", "Triggering",
                         "Autoservice", "Autoloading",
                         "Autodumping", "Autotriggering",
                         "Synchronizing", "Failed" )),
-                 ( 100, C1, "Service", None, ( "Enabled", "Disabled" )),
-                 ( 110, DU2, "Counter timer" ),
                  ( 120, HI, "Service physical address" ),
                  ( 121, C1, "Service substate" ),
                  ( 200, CMNode, "Connected node" ),
@@ -546,65 +672,39 @@ class CircuitReply (NiceReply):
                  ( 800, CMNode, "Adjacent node" ),
                  ( 801, CMNode, "Designated router" ),
                  ( 810, DU2, "Block size" ),
-                 ( 811, DU2, "Originating queue limit" ),
-                 ( 900, DU1, "Cost" ),
-                 ( 901, DU1, "Maximum routers" ),
-                 ( 902, DU1, "Router priority" ),
-                 ( 906, DU2, "Hello timer" ),
-                 ( 907, DU2, "Listen timer" ),
-                 ( 910, C1, "Blocking", None, ( "Enabled", "Disabled" )),
-                 ( 920, DU1, "Maximum recalls" ),
-                 ( 921, DU2, "Recall timer" ),
-                 ( 930, AI, "Number" ),
                  ( 1000, CM, "User", None, ( C1, DUNode, AI )),
-                 ( 1010, C1, "Polling state", None,
-                         ( "Automatic", "Active",
-                           "Inactive", "Dying", "Dead" )),
                  ( 1011, C1, "Polling substate", None,
                          { 1 : "Active",
                            2 : "Inactive",
                            3 : "Dying",
-                           4 : "Dead" }),
-                 ( 1100, CM, "Owner", None, ( C1, DUNode, AI )),
-                 ( 1110, AI, "Line" ),
-                 ( 1111, C1, "Usage", None,
-                         ( "Permanent", "Incoming", "Outgoing" )),
-                 ( 1112, C1, "Type", None,
-                         { 0 : "DDCMP point",
-                           1 : "DDCMP control",
-                           2 : "DDCMP tributary",
-                           3 : "X.25",
-                           4 : "DDCMP DMC",
-                           6 : "Ethernet",
-                           7 : "CI",
-                           8 : "QP2 (DTE20)",
-                           9 : "BISYNC" }),
-                 ( 1120, AI, "Dte" ),
-                 ( 1121, DU2, "Channel" ),
-                 ( 1122, DU2, "Maximum data" ),
-                 ( 1123, DU1, "Maximum window" ),
-                 ( 1140, DU1, "Tributary" ),
-                 ( 1141, DU2, "Babble timer" ),
-                 ( 1142, DU2, "Transmit timer" ),
-                 ( 1145, DU1, "Maximum buffers" ),
-                 ( 1146, DU1, "Maximum transmits" ),
-                 ( 1150, DU1, "Active base" ),
-                 ( 1151, DU1, "Active increment" ),
-                 ( 1152, DU1, "Inactive base" ),
-                 ( 1153, DU1, "Inactive increment" ),
-                 ( 1154, DU1, "Inactive threshold" ),
-                 ( 1155, DU1, "Dying base" ),
-                 ( 1156, DU1, "Dying increment" ),
-                 ( 1157, DU1, "Dying threshold" ),
-                 ( 1158, DU1, "Dead threshold" ))
-                 + circuit_counters)
-    
+                           4 : "Dead" }))
+                 + circuit_set_params + circuit_counters)
+
+    rowheader = ( "Circuit         State             Loop Node        Adjacent Node",
+                  "Circuit         State             Loop Node        Adjacent Node    Block Size" )
+    rowformat = ( "{0.entity!s:<16s}{0.state:<18s}{0.loopback_name:<17s}{0.adjacent_node:<17s}",
+                   "{0.entity!s:<16s}{0.state:<18s}{0.loopback_name:<17s}{0.adjacent_node:<17s}{0.block_size}" )
+    rowfields = ((0, 400, 800), (0, 400, 800, 810))
+
+    def check (self):
+        self.fixsubstates (("state", "substate",
+                                ( "Starting", "Reflecting", "Looping",
+                                  "Loading", "Dumping", "Triggering",
+                                  "Autoservice", "Autoloading",
+                                  "Autodumping", "Autotriggering",
+                                  "Synchronizing", "Failed" )),
+                           ("polling_state", "polling_substate",
+                                { 1 : "Active",
+                                  2 : "Inactive",
+                                  3 : "Dying",
+                                  4 : "Dead" }))
+                           
 class LineReply (NiceReply):
     entity_class = LineEntity
     
     _layout = ( ( LineEntity, "entity" ),
                 ( NICE, True,
-                 ( 0, C1, "State", None,
+                 ( 0, CState, "State", None,
                       ( "On", "Off", "Service", "Cleared" )),
                  ( 1, C1, "Substate", None,
                       ( "Starting", "Reflecting", "Looping",
@@ -644,6 +744,18 @@ class LineReply (NiceReply):
                  ( 1160, HI, "Hardware address" ))
                  + line_counters)
 
+    rowheader = "Line            State"
+    rowformat = "{0.entity!s:<16s}{0.state}"
+    rowfields = (0,)
+
+    def check (self):
+        self.fixsubstates (("state", "substate",
+                                ( "Starting", "Reflecting", "Looping",
+                                  "Loading", "Dumping", "Triggering",
+                                  "Autoservice", "Autoloading",
+                                  "Autodumping", "Autotriggering",
+                                  "Synchronizing", "Failed" )))
+
 class LoggingReply (NiceReply):
     entity_class = LoggingEntity
     
@@ -658,6 +770,15 @@ class C1Fun (C1):
 class C1Mon (C1):
     vlist = ( "#0", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+class DU1_2d (DU1):
+    fmt = "{0:0>2d}"
+
+class CMEtime (CM3):
+    delim = ":"
+
+class CMTS (CM5):
+    delim = "- ::"
     
 class ModuleReply (NiceReply):
     entity_class = ModuleEntity
@@ -665,11 +786,11 @@ class ModuleReply (NiceReply):
     _layout = ( ( ModuleEntity, "entity" ),
                 ( NICE, True,
                  ( 100, AI, "Circuit" ),
-                 ( 110, C1, "Surveillance" ),
-                 ( 111, CM3, "Elapsed time", None, ( DU2, DU1, DU1 )),
+                 ( 110, C1, "Surveillance", None, ("Enabled", "Disabled") ),
+                 ( 111, CMEtime, "Elapsed time", None, ( DU2, DU1_2d, DU1_2d )),
                  ( 120, HI, "Physical address" ),
-                 ( 130, CM5, "Last report", None,
-                        ( DU1, C1Mon, DU1, DU1, DU1 )),
+                 ( 130, CMTS, "Last report", None,
+                        ( DU1, C1Mon, DU1, DU1_2d, DU1_2d )),
                  ( 1001, CMVersion, "Maintenance version", "version" ),
                  ( 1002, CM10, "Functions", None, [ C1Fun ] * 10),
                  ( 1003, HI, "Console user", "console_user" ),
@@ -696,17 +817,31 @@ class AreaReply (NiceReply):
                  ( 822, AI, "Circuit", "adj_circuit" ),
                  ( 830, CMNode, "Next Node" )))
 
+    rowheader = ( "Area    State        Circuit      Next Node",
+                  "Area    State        Cost  Hops  Circuit      Next Node" )
+    rowformat = ( "{0.entity!s:<8s}{0.state:<13s}{0.adj_circuit:<13s}{0.next_node}",
+                  "{0.entity!s:<8s}{0.state:<13s}{0.cost:<6s}{0.hops:<6s}{0.adj_circuit:<13s}{0.next_node}" )
+    rowfields = ((0, 822, 830),
+                 (0, 820, 821, 822, 830))
+
 # Entity encoding in requests.  This is as opposed to
 # nice_coding.EntityBase which is for replies and for event messages.
-class ReqEntityBase (Field, packet.Indexed):
+class ReqEntityBase (packet.IndexedField):
     classindex = { }
     classindexkey = "e_type"
 
+    numeric = False
+    counter = False
+    
     def __init__ (self, code, value = None):
         super ().__init__ ()
+        if isinstance (code, str):
+            value = code
+        if isinstance (value, str):
+            code = len (value)
         self.code = code
         self.value = value
-            
+        
     @classmethod
     def defaultclass (cls, x):
         raise DecodeError ("Invalid entity code {}".format (x))
@@ -726,7 +861,7 @@ class ReqEntityBase (Field, packet.Indexed):
             return cls (code, s), b[1 + code:]
         raise DecodeError
 
-    def encode (self):
+    def encode (self, *x):
         c = self.code
         if c < 0:
             return byte (c & 0xff)
@@ -740,13 +875,25 @@ class ReqEntityBase (Field, packet.Indexed):
     def __str__ (self):
         en = self.__class__.__name__[:-9]
         if self.code < 0:
-            mult = ( None, "known", "active",
-                     "loop", "adjacent", "significant" )[-self.code]
+            mult = ( None, "Known", "Active",
+                     "Loop", "Adjacent", "Significant" )[-self.code]
             return "{} {}s".format (mult, en)
         return "{} {}".format (en, self.value)
     
 class NodeReqEntity (ReqEntityBase):
     e_type = 0
+
+    def __init__ (self, code, value = None):
+        if isinstance (code, str):
+            value = code
+        if isinstance (value, str):
+            try:
+                n = Nodeid (value)
+                code = 0
+                value = n
+            except ValueError:
+                pass
+        super ().__init__ (code, value)
 
     @classmethod
     def decode (cls, b, *x):
@@ -765,7 +912,7 @@ class NodeReqEntity (ReqEntityBase):
         v.__class__ = cls
         return v, b
 
-    def encode (self):
+    def encode (self, *x):
         if self.code == 0:
             return byte (0) + self.value.to_bytes (2, "little")
         return super ().encode ()
@@ -787,6 +934,7 @@ class ModuleReqEntity (ReqEntityBase): e_type = 4
     
 class AreaReqEntity (ReqEntityBase):
     e_type = 5
+    numeric = True
 
     @classmethod
     def decode (cls, b, *x):
@@ -801,85 +949,147 @@ class AreaReqEntity (ReqEntityBase):
             raise DecodeError ("String format invalid for area entity")
         return cls (code), b[1:]
 
-    def encode (self):
+    def encode (self, *x):
         if self.code == 0:
             return byte (0) + byte (self.value)
         elif self.code > 0:
             raise ValueError ("Area number must be integer, not string")
         return super ().encode ()
 
+# OS-specific entities.
+class RSXProcessReqEntity (ReqEntityBase): e_type = 5
+class RSXObjReqEntity (AreaReqEntity): e_type = 7
+class RSXAliasReqEntity (ReqEntityBase): e_type = 8
+class RSXSysReqEntity (ReqEntityBase):
+    e_type = 6
+
+class RSTSLinkReqEntity (ReqEntityBase):
+    e_type = 6
+    numeric = True
+    
+    @classmethod
+    def decode (cls, b, *x):
+        require (b, 2)
+        code = b[0]
+        if not code:
+            require (b, 3)
+            return cls (code, int.from_bytes (b[:2], LE)), b[2:]
+        if code >= 128:
+            code -= 256
+        if code > 0:
+            raise DecodeError ("String format invalid for link entity")
+        return cls (code), b[1:]
+
+    def encode (self):
+        if self.code == 0:
+            return byte (self.code) + self.value.to_bytes (2, LE)
+        elif self.code > 0:
+            raise ValueError ("Link number must be integer, not string")
+        return super ().encode ()
+
+class RSTSObjReqEntity (NodeReqEntity): e_type = 7
+
+class VMSLinkReqEntity (RSTSLinkReqEntity): e_type = 7
+class VMSObjReqEntity (RSTSObjReqEntity): e_type = 4
+
+# Qualifiers are encoded like request entities but since they go into
+# NICE data blocks we need to supply a dummy type code in the encode
+# method which the common code will then strip off.
+
+class NodeQualEntity (NodeReqEntity):
+    def encode (self, *x):
+        return b"\x00" + super ().encode ()
+
+class StringQualEntity (CircuitReqEntity):
+    def encode (self, *x):
+        return b"\x00" + super ().encode ()
+
+# Base class for NICE request packets.  This is used both for Phase II
+# and for Phase III/IV -- the packet formats are rather different but
+# the packet function codes (first byte) are distinct between the two
+# protocol versions.
+class NiceRequestHeader (packet.IndexedPacket):
+    classindex = { }
+    classindexkey = "function"
+    
+    _layout = (( packet.B, "function", 1 ),)
+
 # Loop node parameters
-loop_params = (( NICE, False,
-                 ( 10, HI, "Physical Address" ),
-                 ( 150, DU2, "Loop Count" ),
-                 ( 151, DU2, "Loop Length" ),
-                 ( 152, C1, "Loop With", None,
-                         ( "Zeroes",
-                           "Ones",
-                           "Mixed" ) ),
-                 ( 153, HI, "Loop Assistant Physical Address" ),
-                 ( 154, C1, "Loop Help", None,
-                         ( "Transmit",
-                           "Receive",
-                           "Full" ) ),
-                 # TODO: the next two should be NodeReqEntity, but
-                 # that doesn't work at the moment, the NICE packet
-                 # format machinery isn't flexible enough.
-                 ( 155, AI, "Loop node" ),
-                 ( 156, AI, "Loop assistant node" )),)
+loop_params = (( 150, DU2, "Count", "loop_count" ),
+               ( 151, DU2, "Length", "loop_length" ),
+               ( 152, C1, "With", "loop_with",
+                       ( "Zeroes",
+                         "Ones",
+                         "Mixed" )))
+
+loop_circ_params = (( 10, HI, "Physical Address" ),
+                    ( 153, HI, "Assistant Physical Address", "assistant_pa" ),
+                    ( 154, C1, "Help", "loop_help",
+                            ( "Transmit",
+                              "Receive",
+                              "Full" ) ),
+                    # TODO: the next two should be NodeReqEntity, but
+                    # that doesn't work at the moment, the NICE packet
+                    # format machinery isn't flexible enough.
+                    ( 155, AI, "Node", "loop_node" ),
+                    ( 156, AI, "Assistant node" ))
 
 # Base class for NICE Test packets
-class NiceTestHeader (packet.Packet):
+class NiceTestHeader (NiceRequestHeader):
     function = 18
 
-    _layout = (( packet.B, "function", 1 ),
-               ( packet.BM,
+    classindex = { }
+    classindexkey = "test_type"
+
+    _layout = (( packet.BM,
                  ( "test_type", 0, 3 ),
                  ( "access_ctl", 7, 1 )),)
 
 class NiceLoopNodeBase (NiceTestHeader):
     test_type = 0
     
-    _layout = (( NodeReqEntity, "node" ),)
+    classindex = { }
+    classindexkey = "access_ctl"
+
+    _layout = (( NodeReqEntity, "entity" ),)
     
 class NiceLoopNode (NiceLoopNodeBase):
     username = password = account = b""
+    access_ctl = 0
 
-    _layout = loop_params
+    _layout = (( NICE, False ) + loop_params,) 
     
 class NiceLoopNodeAcc (NiceLoopNodeBase):
     access_ctl = 1
 
     _layout = (( packet.A, "username", 39 ),
                ( packet.A, "password", 39 ),
-               ( packet.A, "account", 39 )) + loop_params
+               ( packet.A, "account", 39 ),
+               ( NICE, False ) + loop_params )
+
+class NiceLoopLine (NiceTestHeader):
+    test_type = 1
+
+    _layout = (( LineReqEntity, "entity" ),
+               ( NICE, False ) + loop_params )
 
 class NiceLoopCircuit (NiceTestHeader):
     test_type = 3
 
-    _layout = (( CircuitReqEntity, "circuit" ),) + loop_params
-                   
+    _layout = (( CircuitReqEntity, "entity" ),
+               ( NICE, False ) + loop_params + loop_circ_params )
+
 # Base class for NICE Read Information request packets
-class NiceReadInfoHdr (packet.Packet):
+class NiceReadInfoHdr (NiceRequestHeader):
     function = 20
     
     classindex = { }
-
-    @classmethod
-    def classindexkey (cls):
-        return cls.instanceindexkey (cls)
+    classindexkey = "entity_type"
         
-    def instanceindexkey (self):
-        try:
-            return self.entity_class.e_type
-        except AttributeError:
-            return None
-        
-    _layout = (( packet.B, "function", 1 ),
-               ( packet.BM,
+    _layout = (( packet.BM,
                  ( "permanent", 7, 1 ),
                  ( "info", 4, 3 ),
-                 ( "entity_type", 0, 3 )))
+                 ( "entity_type", 0, 3 )),)
 
     def makereplydict (self, node):
         rc = self.replyclass
@@ -934,16 +1144,19 @@ class NiceReadInfoHdr (packet.Packet):
         return self.entity.code < -5
 
 # For most of these we don't actually expect any additional data, but
-# set the "payload" slot to permit it.  Module does use it.  The spec
-# makes it sound like NICE coded data but it isn't, so we'll
-# special-case the parsing for those cases that are supported.
+# set the "payload" slot to permit it.  Module does use it.  
 class NiceReadNode (NiceReadInfoHdr):
     entity_class = NodeReqEntity
     entity_type = entity_class.e_type
     replyclass = NodeReply
 
     _layout = (( NodeReqEntity, "entity" ),
-               packet.Payload )
+               ( NICE, False,
+                 ( 501, StringQualEntity, "Circuit" ),
+                 # Bug workaround: the spec is clear that 501 is the
+                 # correct code but VMS wants this one.  So use the
+                 # qualifier "vms circuit" when talking to VMS.
+                 ( 822, StringQualEntity, "VMS Circuit" )))
         
 class NiceReadLine (NiceReadInfoHdr):
     entity_class = LineReqEntity
@@ -967,7 +1180,8 @@ class NiceReadCircuit (NiceReadInfoHdr):
     replyclass = CircuitReply
 
     _layout = (( CircuitReqEntity, "entity" ),
-               packet.Payload )
+               ( NICE, False,
+                 ( 800, NodeQualEntity, "Adjacent node" )))
         
 class NiceReadModule (NiceReadInfoHdr):
     entity_class = ModuleReqEntity
@@ -975,7 +1189,17 @@ class NiceReadModule (NiceReadInfoHdr):
     replyclass = ModuleReply
 
     _layout = (( ModuleReqEntity, "entity" ),
-               packet.Payload )
+               ( NICE, False,
+                 # Configurator
+                 ( 100, StringQualEntity, "Circuit" ),
+                 ( 120, HI, "Physical address" ),
+                 # X.25 Access
+                 ( 1110, StringQualEntity, "Network" ),
+                 # X.25 Protocol
+                 ( 1100, StringQualEntity, "DTE" ),
+                 ( 1101, StringQualEntity, "Group" ),
+                 # X.25 Server
+                 ( 300, StringQualEntity, "Destination" )))
         
 class NiceReadArea (NiceReadInfoHdr):
     entity_class = AreaReqEntity
@@ -985,26 +1209,73 @@ class NiceReadArea (NiceReadInfoHdr):
     _layout = (( AreaReqEntity, "entity" ),
                packet.Payload )
 
+# Base class for NICE Change Parameter request packets
+class NiceSetParamHdr (NiceRequestHeader):
+    function = 19
+    
+    classindex = { }
+    classindexkey = "entity_type"
+        
+    _layout = (( packet.BM,
+                 ( "permanent", 7, 1 ),
+                 ( "info", 4, 3 ),
+                 ( "entity_type", 0, 3 )),)
+
+    def makereplydict (self, node):
+        rc = self.replyclass
+        return rc.replydict (rc, node)
+
+    # The following methods reference self.entity which has to be
+    # defined in each subclass.
+    def mult (self):
+        return self.entity.code < 0
+
+    def one (self):
+        return self.entity.code >= 0
+
+    def known (self):
+        # This includes the node wildcard cases
+        return self.entity.code in (-1, -6, -7)
+
+    def act (self):
+        return self.entity.code == -2
+
+    def loop (self):
+        return self.entity.code == -3
+    
+    def adj (self):
+        return self.entity.code == -4
+    
+    def sig (self):
+        return self.entity.code == -5
+
+    def sigact (self):
+        return self.entity.code == -2 or self.entity.code == -5
+
+    def wild (self):
+        return self.entity.code < -5
+
+class NiceSetCircuit (NiceSetParamHdr):
+    entity_class = CircuitReqEntity
+    entity_type = entity_class.e_type
+
+    #replyclass = CircuitSetReply
+
+    # These are somewhat different from the (read info) response since
+    # status (read-only or output only) values are omitted.
+    _layout = (( CircuitReqEntity, "entity" ),
+                ( NICE, False ) + circuit_set_params )
+    
 # Base class for NICE Read Information request packets
-class NiceZeroCtrHdr (packet.Packet):
+class NiceZeroCtrHdr (NiceRequestHeader):
     function = 21
     
     classindex = { }
-
-    @classmethod
-    def classindexkey (cls):
-        return cls.instanceindexkey (cls)
+    classindexkey = "entity_type"
         
-    def instanceindexkey (self):
-        try:
-            return self.entity_class.e_type
-        except AttributeError:
-            return None
-        
-    _layout = (( packet.B, "function", 1 ),
-               ( packet.BM,
+    _layout = (( packet.BM,
                  ( "readzero", 7, 1 ),
-                 ( "entity_type", 0, 3 )))
+                 ( "entity_type", 0, 3 )),)
 
     def makereplydict (self, node):
         rc = self.replyclass
@@ -1077,3 +1348,602 @@ class NiceZeroModule (NiceZeroCtrHdr):
 
     _layout = (( ModuleReqEntity, "entity" ),
                packet.Payload )
+
+# System-specific responses
+class RSXObjEntity (AreaEntity):
+    label = "Object"
+    
+class RSXProcessEntity (StringEntityBase):
+    label = "Process"
+
+class RSXAliasEntity (StringEntityBase):
+    label = "Alias"
+
+class RSTSObjEntity (AreaEntity):
+    label = "Object"
+    
+class RSTSLinkEntity (EntityBase, int):
+    label = "Link"
+    def encode (self):
+        return self.bytes (2, LE)
+
+    @classmethod
+    def decode (cls, buf):
+        return cls (int.from_bytes (buf[:2], LE)), buf[2:]
+
+class VMSObjEntity (StringEntityBase):
+    label = "Object"
+
+class VMSLinkEntity (RSTSLinkEntity): 
+    label = "Link"
+
+    def encode (self):
+        return b'\x00' + self.bytes (2, LE)
+
+    @classmethod
+    def decode (cls, buf):
+        if buf[0]:
+            raise DecodeError ("Code is not zero")
+        return cls (int.from_bytes (buf[1:3], LE)), buf[3:]
+
+class CCopies (C1):
+    def format (self, tlist = None):
+        if not self:
+            return "Single"
+        return "{:d}".format (self)
+    
+class NiceRSXObjReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = RSXObjEntity
+    _layout = (( RSXObjEntity, "entity" ),
+               ( NICE, True,
+                 ( 400, AI, "Active name" ),
+                 ( 410, DU2, "Active links" ),
+                 ( 500, AI, "Name" ),
+                 ( 510, CCopies, "Copies" ),
+                 ( 511, C1, "User", None,
+                         ( "Default", "Login" )),
+                 ( 520, C1, "Verification", None,
+                         ( "On", "Off", "Inspect" ))))
+    rowheader = "Object  Name    Copies  User     Verification"
+    rowformat = "{0.entity!s:<8s}{0.name:<8s}{0.copies:<8s}{0.user:<9s}{0.verification}"
+    rowfields = (500, 510, 511, 520)
+    
+class NiceRSXProcessReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = RSXProcessEntity
+    _layout = (( RSXProcessEntity, "entity" ),
+               ( NICE, True,
+                 ( 0, C1, "State", None,
+                       ( "On", "Off" )),
+                 ( 10, AI, "Location" ),
+                 ( 20, DU2, "Maximum controllers" ),
+                 ( 21, DU2, "Maximum lines" ),
+                 ( 30, AI, "Partition" )))
+
+    rowheader = "Process  State"
+    rowformat = "{0.entity!s:<9s}{0.state}"
+    rowfields = (0,)
+
+class NiceRSXSystemReply (NiceReply):
+    replydict = ReplyDict
+    _layout = (( NICE, True,
+                 ( 10, DU2, "Active control buffers" ),
+                 ( 20, DU2, "Active small buffers" ),
+                 ( 30, DU2, "Active large buffers" ),
+                 ( 110, DU2, "Maximum control buffers" ),
+                 ( 120, DU2, "Maximum small buffers" ),
+                 ( 130, DU2, "Maximum large buffers" ),
+                 ( 131, DU2, "Large buffer size" ),
+                 ( 140, DU2, "Minimum receive buffers" ),
+                 ( 160, DU2, "Extended pool bytes" ),
+                 ( 162, DU2, "Extended pool segments" ),
+                 ( 164, DU2, "Maximum extended pool segments" ),
+                 ( 0, CTR2, "Seconds since last zeroed" ),
+                 ( 10, CTR2, "Control buffer allocation failed" ),
+                 ( 20, CTR2, "Small buffer allocation failed" ),
+                 ( 30, CTR2, "Large buffer allocation failed" ),
+                 ( 40, CTR2, "Receive buffer allocation failed" )),)
+    entity = ""
+    
+class AIFile (AI):
+    # For RSTS file names to remove the embedded spaces that make
+    # things look confusing.
+    def format (self, tlist = None):
+        return super ().format (tlist).replace (" ", "")
+    
+class NiceRSTSObjReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = RSTSObjEntity
+    _layout = (( RSTSObjEntity, "entity" ),
+               ( NICE, True,
+                 ( 500, AI, "Name" ),
+                 ( 2100, AIFile, "File" ),
+                 ( 2101, DU2, "Parameter 1" ),
+                 ( 2102, DU2, "Parameter 2" ),
+                 ( 2103, C1, "Type" ),
+                 ( 2104, C1, "Verification", None,
+                         ( "Program", "Off", "On" ))))
+
+    rowheader = ( "Object  Name",
+                  None,
+                  "Object  Name    File name            Verification  Parameters" )
+    rowformat = ( "{0.entity!s:<8s}{0.name:<8s}",
+                  None,
+                  "{0.entity!s:<8s}{0.name:<8s}{0.file:<21s}{0.verification:<14s}{0.parameter_1:>5s} {0.parameter_2:>5s}" )
+    rowfields = ((500,), (), (500, 2100, 2101, 2102, 2104))
+    
+class NiceRSTSLinkReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = RSTSLinkEntity
+    _layout = (( RSTSLinkEntity, "entity" ),
+               ( NICE, True,
+                 ( 2131, DU2, "RLA" ),
+                 ( 2132, DU1, "User link address" ),
+                 ( 2133, C1, "Link state", None,
+                          ( "-", "CI Delivered", "CI sent", "CI received",
+                            "CC sent", "Run", "DI pending", "DI sent" )),
+                 ( 2134, CMNode, "Node" ),
+                 ( 2135, AI, "Receiver name" ),
+                 ( 2136, DU1, "Receiver job number" ),
+                 ( 2137, DU1, "Receiver RIB number" ),
+                 ( 2138, C1, "Local flow control", None,
+                          ( "None", "Segment", "Message" )),
+                 ( 2139, C1, "Remote flow control", None,
+                          ( "None", "Segment", "Message" ) ),
+                 ( 2140, DU1, "Local data request count" ),
+                 ( 2141, DU1, "Remote data request count" ),
+                 ( 2142, DU1, "Local interrupt request count" ),
+                 ( 2143, DU1, "Remote interrupt request count" )))
+    rowheader = " LLA   RLA   State        Node             Name     Job"
+    rowformat = "{0.entity!s:>5s} {0.rla:>5s}  {0.link_state:<13s}{0.node:<17s}{0.receiver_name:<7s}{0.receiver_job_number:>3s}"
+    rowfields = (2131, 2133, 2134, 2135, 2136)
+    
+class NiceVMSObjReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = VMSObjEntity
+    _layout = (( VMSObjEntity, "entity" ),
+               ( NICE, True,
+                 ( 513, DU1, "Number" ),
+                 ( 530, AI, "File ID" ),
+                 ( 535, H4, "Process ID" ),
+                 ( 550, AI, "User ID" ),
+                 ( 560, C1, "Proxy access", None,
+                        ( "?", "Incoming", "Outgoing" ) ),
+                 ( 565, C1, "Alias outgoing", None,
+                        ( "Enabled", "Disabled" ) ),
+                 ( 566, C1, "Alias incoming", None,
+                        ( "Enabled", "Disabled" ) ),))
+
+class NiceVMSLinkReply (NiceReply):
+    replydict = ReplyDict
+    entity_class = VMSLinkEntity
+    _layout = (( VMSLinkEntity, "entity" ),
+               ( NICE, True,
+                 ( 0, C1, "State", None, { 5 : "Run" } ),
+                 ( 101, H4, "PID" ),
+                 ( 102, CMNode, "Remote node" ),
+                 ( 110, DU2, "Delay" ),
+                 ( 120, DU2, "Remote link" ),
+                 ( 121, AI, "Remote user" ),
+                 ( 130, AIFile, "Username" ),
+                 ( 131, AI, "Process name" )))
+    rowheader = ( " Link       Node           PID     Process     Remote link  Remote user",
+                  " Link       Node           PID     Process     Remote link  State" )
+    rowformat = ( "{0.entity!s:>5s}  {0.remote_node:<18s}{0.pid:<10s}{0.process_name:<18s}{0.remote_link:>5s}  {0.remote_user}",
+                  "{0.entity!s:>5s}  {0.remote_node:<18s}{0.pid:<10s}{0.process_name:<18s}{0.remote_link:>5s}  {0.state}" )
+    rowfields = ((102, 101, 131, 120, 121),
+                 (102, 101, 131, 120, 0))
+
+# System-specific requests.
+# Base class for NICE Read Information request packets
+class NiceSysSpecific (NiceRequestHeader):
+    function = 22
+    
+    classindex = { }
+    classindexkey = "os"
+        
+    _layout = (( packet.B, "os", 1 ),)
+
+    def makereplydict (self, node):
+        rc = self.replyclass
+        return rc.replydict (rc, node)
+
+    # The following methods reference self.entity which has to be
+    # defined in each subclass.
+    def mult (self):
+        return self.entity.code < 0
+
+    def one (self):
+        return self.entity.code >= 0
+
+    def known (self):
+        # This includes the node wildcard cases
+        return self.entity.code in (-1, -6, -7)
+
+    def act (self):
+        return self.entity.code == -2
+
+    def sig (self):
+        return self.entity.code == -5
+
+    def sigact (self):
+        return self.entity.code == -2 or self.entity.code == -5
+
+    def wild (self):
+        return self.entity.code < -5
+
+class NiceRSXSpecific (NiceSysSpecific):
+    os = 2
+
+    classindex = { }
+    classindexkey = "sfunction"
+        
+    _layout = (( packet.B, "sfunction", 1 ),)
+
+class NiceRSXShowBase (NiceRSXSpecific):
+    sfunction = 20
+    
+    classindex = { }
+    classindexkey = "entity_type"
+        
+    _layout = (( packet.BM,
+                 ( "permanent", 7, 1 ),
+                 ( "info", 4, 3 ),
+                 ( "entity_type", 0, 3 )),)
+
+class NiceRSXShowObject (NiceRSXShowBase):
+    entity_class = RSXObjReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceRSXObjReply
+
+    _layout = (( RSXObjReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceRSXShowProcess (NiceRSXShowBase):
+    entity_class = RSXProcessReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceRSXProcessReply
+
+    _layout = (( RSXProcessReqEntity, "entity" ),
+               packet.Payload )
+
+class NiceRSXShowSystem (NiceRSXShowBase):
+    entity_class = RSXSysReqEntity
+    entity_type = 6
+    replyclass = NiceRSXSystemReply
+    _addslots = ("entity",)
+
+class NiceRSTSSpecific (NiceSysSpecific):
+    os = 1
+
+    classindex = { }
+    classindexkey = "sfunction"
+        
+    _layout = (( packet.B, "sfunction", 1 ),)
+
+class NiceRSTSShowBase (NiceRSTSSpecific):
+    sfunction = 20
+    
+    classindex = { }
+    classindexkey = "entity_type"
+        
+    _layout = (( packet.BM,
+                 ( "permanent", 7, 1 ),
+                 ( "info", 4, 3 ),
+                 ( "entity_type", 0, 3 )),)
+
+class NiceRSTSShowObject (NiceRSTSShowBase):
+    entity_class = RSTSObjReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceRSTSObjReply
+
+    _layout = (( RSTSObjReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceRSTSShowLink (NiceRSTSShowBase):
+    entity_class = RSTSLinkReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceRSTSLinkReply
+
+    _layout = (( RSTSLinkReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceVMSSpecific (NiceSysSpecific):
+    os = 4
+
+    classindex = { }
+    classindexkey = "sfunction"
+        
+    _layout = (( packet.B, "sfunction", 1 ),)
+
+class NiceVMSShowBase (NiceVMSSpecific):
+    sfunction = 20
+    
+    classindex = { }
+    classindexkey = "entity_type"
+        
+    _layout = (( packet.BM,
+                 ( "permanent", 7, 1 ),
+                 ( "info", 4, 3 ),
+                 ( "entity_type", 0, 3 )),)
+
+class NiceVMSShowObject (NiceVMSShowBase):
+    entity_class = VMSObjReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceVMSObjReply
+
+    _layout = (( VMSObjReqEntity, "entity" ),
+               packet.Payload )
+        
+class NiceVMSShowLink (NiceVMSShowBase):
+    entity_class = VMSLinkReqEntity
+    entity_type = entity_class.e_type
+    replyclass = NiceVMSLinkReply
+
+    _layout = (( VMSLinkReqEntity, "entity" ),
+               packet.Payload )
+        
+# Phase II NICE encoding.  This is quite different from the extensible
+# encoding used in Phase III and Phase IV, and the message code
+# numbers are distinct.
+
+# Phase II first reply (header of the following sequence)
+# Base class for NICE reply packets.  These need to be subclassed for
+# each entity code in the reply header.
+class P2NiceReply1 (packet.Packet):
+    _layout = (( packet.SIGNED, "retcode", 1 ),)
+
+class P2NiceReply3 (P2NiceReply1):
+    retcode = 1
+    
+    _layout = (( packet.B, "count", 2 ),)
+    
+# Base class for NICE Read Information reply packets
+class P2NiceReadInfoReply (packet.Packet):
+    replydict = P2ReplyDict
+
+    _layout = (( packet.B, "type", 1 ),)
+
+    # Dummy values for the row formatting machinery
+    rowheader = None
+    rowformat = None
+    rowfields = ()
+    
+# Line ID in request and response.  Believe it or not, the unit
+# numbers are in octal.
+_line_re = re.compile (r"([a-z]+)[-_]([0-7]+)(?:[-_]([0-7]+))?$", re.I)
+
+class P2LineEntity (packet.Field, bytes):
+    numeric = False
+    devnames = {
+      0 : "DP",    # DP11-DA
+      2 : "DU",    # DU11-DA synchronous line interface
+      4 : "DL",    # DL11-C, -E or -WA asynchronous line interface
+      6 : "DQ",    # DQ11-DA
+      8 : "DA",    # DA11-B or -AL UNIBUS link
+      10 : "DUP",  # DUP11-DA synchronous line interface
+      12 : "DMC",  # DMC11-DA/AR, -FA/AR, -MA/AL or -MD/AL interprocessor link
+      14 : "DLV",  # DLV11, MXV11 asynchronous line interface
+      16 : "DL",   # DL11-A
+      20 : "DTE",  # DTE20 PDP-11 to KL10 interface
+      22 : "DV",   # DV11-AA/BA synchronous line multiplexer
+      28 : "KDP",  # KMC11/DUP11-DA synchronous line multiplexer
+      30 : "KDZ"   # KMC11/DZ11-A, -B, -C, or -D asynchronous line multiplexer
+    }
+    devcodes = { v : k for (k, v) in devnames.items () }
+
+    def __new__ (cls, buf, alt = None):
+        if isinstance (buf, str):
+            if buf == "*":
+                return bytes.__new__ (cls, b"\000")
+            m = _line_re.match (buf)
+            if m:
+                dev, ctl, unit = m.groups ()
+                try:
+                    dev = cls.devcodes[dev.upper ()]
+                    ctl = int (ctl, 8)
+                    if unit:
+                        unit = int (unit, 8)
+                    else:
+                        unit = 0
+                    if ctl <= 255 and unit <= 255:
+                        return bytes.__new__ (cls, (1, dev, ctl, unit, 0))
+                except Exception:
+                    pass
+            # Not a device string of the standard TOPS-20 pattern.  If
+            # "alt" is supplied, make up a placeholder ID.  If not,
+            # encode as a string format ID (which TOPS-20 V4.1 does
+            # not support).
+            if alt is None:
+                dname = packet.A (buf)
+                return bytes.__new__ (cls, b"\002" + dname.encode (255))
+            # The alternate is DTE_0_n where n is the alternate value.
+            # Why DTE?  It makes very little sense, but as input
+            # values TOPS-20 only accepts DMC, DTE, DUP, and KDP.
+            return bytes.__new__ (cls, (1, cls.devcodes["DTE"], 0, alt, 0))
+        return bytes.__new__ (cls, buf)
+    
+    def __format__ (self, arg):
+        return "Line = {!s}".format (self)
+        
+    def __str__ (self):
+        if self[0] == 0:
+            return "*"
+        if self[0] == 1:
+            ret = "{}_{:o}".format (self.devnames[self[1]], self[2])
+            if self[3]:
+                ret += "_{:o}".format (self[3])
+            return ret
+        return str (self[2:], "ascii")
+    
+    def encode (self):
+        return makebytes (self)
+
+    def known (self):
+        return self[0] == 0
+    
+    @classmethod
+    def decode (cls, buf):
+        code = buf[0]
+        if not 0 <= code <= 2:
+            raise ValueError ("Invalid Line ID code {}", ret.code)
+        if code == 1:
+            val = buf[:5]
+            buf = buf[5:]
+        elif code == 2:
+            l = buf[1]
+            val = buf[:2 + l]
+            buf = buf[2 + l:]
+        else:
+            val = buf[:1]
+            buf = buf[1:]
+        return cls (val), buf
+    
+class P2NiceReadExecStatusReply (P2NiceReadInfoReply):
+    type = 1
+    entity = "Executor"
+
+    _layout = (( packet.A, "name", 6 ),
+               ( packet.B, "id", 1 ),
+               ( packet.B, "state", 1 ),
+               ( packet.RES, 2 ),
+               ( packet.A, "defhost", 6 ),
+               ( Version, "routing_version" ),
+               ( Version, "comm_version" ),
+               ( packet.A, "system", 40 ))
+
+# Line CTR2 but with a one-byte ID.
+class P2CTR2 (CTR2):
+    def encode (self, pnum):
+        # Note that pnum comes in with the counter flag set
+        return byte (pnum & 0xff) + \
+               min (self, self.maxval).to_bytes (self.bytecnt, "little")
+
+    # Don't use the NICE checktype, we want to force values to be this
+    # type.
+    @classmethod
+    def checktype (cls, name, v, tlist = None):
+        """If v is not already an instance of cls, make it an
+        instance of cls.
+        """
+        if not isinstance (v, cls):
+            v = cls (v)
+        return v
+
+class P2NICE (NICE):
+    """Layout element for Phase II NICE parameter-number data.  This
+    uses a single byte parameter number, the encoding is given by the
+    table (not in the packet) and counters and non-counters can't be
+    mixed.  The first argument is True for a counters packet, False
+    otherwise.
+    """
+    @classmethod
+    def decodepnum (cls, buf, ctr, pdict):
+        """Decode the parameter number.  Returns a tuple consisting of
+        parameter code, parameter number, parameter class, field name,
+        values dict, and remaining buffer.  The parameter code is fixed
+        at the one we use in the limited code here (CTR2) because Phase
+        II NICE messages are not self-describing, unlike the later
+        version of the protocol.
+        """
+        # For now we only handle counters
+        param = buf[0] | 0x8000
+        buf = buf[1:]
+        try:
+            pcls, fn, vals = pdict[param]
+        except KeyError:
+            raise DecodeError ("Unknown parameter {} in request".format (param))
+        return P2CTR2.code, pcls, fn, vals, buf
+
+class P2NiceReadLineCountersReply (P2NiceReadInfoReply):
+    type = 4
+
+    _layout = (( P2LineEntity, "entity" ),
+               ( P2NICE, True,
+                 ( 0, P2CTR2, "Seconds since last zeroed", "time_since_zeroed" ),
+                 ( 1, P2CTR2, "Data blocks received", "pkts_recv" ),
+                 ( 2, P2CTR2, "Data blocks sent", "pkts_sent" ),
+                 ( 3, P2CTR2, "Data errors outbound" ),
+                 ( 4, P2CTR2, "Data errors inbound" ),
+                 ( 5, P2CTR2, "Remote reply timeouts" ),
+                 ( 6, P2CTR2, "Local reply timeouts" ),
+                 ( 6, P2CTR2, "Selection errors" ),
+                 ( 8, P2CTR2, "Buffer unavailable" )),)
+
+class P2NiceReadLineStatusReply (P2NiceReadInfoReply):
+    type = 5
+    # This allows attributes to be set that aren't in the layout.
+    # Those will be ignored but it simplifies code that sets
+    # attributes defined in later versions of NICE.
+    _addslots = ( "__dict__", )
+
+    # Information for tabular output
+    rowheader = "Line ID         State           Adjacent Node"
+    rowformat = "{0.entity!s:<16s}{0.state!s:<16s}{0.adjacent_node}"
+    rowfields = (0, 1)
+    
+    # Status codes:
+    ON = 0
+    OFF = 1
+    MAINT = 4
+    ILOOP = 5
+    ELOOP = 6
+
+    # Note: these use the same names as in the Phase III/IV circuit
+    # status reply.
+    _layout = (( P2LineEntity, "entity" ),
+               ( packet.B, "state", 1 ),
+               ( packet.RES, 2 ),
+               ( packet.A, "adjacent_node", 6 ))
+    
+# Base class for NICE Read Information request packets
+class P2NiceReadInfoHdr (NiceRequestHeader):
+    function = 8
+    
+    classindex = { }
+    classindexkey = "type"
+        
+    _layout = (( packet.B, "type", 1 ),)
+
+    def makereplydict (self, node):
+        rc = self.replyclass
+        return rc.replydict (rc, node)
+
+    def sum (self):
+        return True
+
+    stat = sum
+    sumstat = sum
+
+    def char (self):
+        return False
+
+    counters = char
+    events = char
+
+class P2NiceReadExecStatus (P2NiceReadInfoHdr):
+    type = 1
+    replyclass = P2NiceReadExecStatusReply
+
+class P2NiceReadLineCounters (P2NiceReadInfoHdr):
+    type = 4
+    replyclass = P2NiceReadLineCountersReply
+
+    _layout = (( P2LineEntity, "entity" ),)
+
+    def sum (self):
+        return False
+
+    stat = sum
+    sumstat = sum
+
+    def counters (self):
+        return True
+
+class P2NiceReadLineStatus (P2NiceReadInfoHdr):
+    type = 5
+    replyclass = P2NiceReadLineStatusReply
+
+    _layout = (( P2LineEntity, "entity" ),)
+

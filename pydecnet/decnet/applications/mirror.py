@@ -13,6 +13,10 @@ This module also serves as sample code for writing standalone program
 applications in Python.  For the corresponding built-in module version
 of MIRROR (which is the one that is the default built-in object 25) see
 modules/mirror.py.  
+
+This version uses the raw JSON encoded API to the PyDECnet session
+layer.  For versions that use the "connector" wrapper classes, see
+mirror2.py and mirror3.py.
 """
 
 import sys
@@ -31,7 +35,7 @@ def main (argv):
     stdout carries a stream of JSON objects (one per line) which contain
     requests from the program to Session control.
 
-    stderror may be used for logging.  (TODO: should this be a config
+    stderr may be used for logging.  (TODO: should this be a config
     option?)  Normally it carries JSON objects (one per line) that are
     used as arguments for a logging.log call in pydecnet.  If a line is
     not a valid JSON encoded object, it is instead logged as a plain
@@ -102,7 +106,7 @@ def main (argv):
             # Exception: outgoing connect requests have a different
             # set of arguments, refer to the documentation in api.txt
             # for details.
-            req = { "handle" : conn, "mtype" : "data", "data" : msg }
+            req = { "handle" : conn, "type" : "data", "data" : msg }
             msg = encode (req)
             print (msg, flush = True)
         elif mtype == "connect":
@@ -120,7 +124,7 @@ def main (argv):
             # two byte integer.  We have no limit so send 65535.
             i = 65535
             msg = str (i.to_bytes (2, "little"), "latin1")
-            req = { "handle" : conn, "mtype" : "accept",
+            req = { "handle" : conn, "type" : "accept",
                     "data" : msg }
             msg = encode (req)
             print (msg, flush = True)

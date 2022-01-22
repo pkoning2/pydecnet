@@ -17,7 +17,7 @@ from decnet import logging
 class stest (DnTest):
     phase = 4
     process = False
-    
+
     def setUp (self):
         super ().setUp ()
         self.node.phase = 4
@@ -50,6 +50,7 @@ class test_inbound_noconn (stest):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06reject"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.node.addwork (w)
@@ -63,6 +64,7 @@ class test_inbound_noconn (stest):
         p = b"\x00\x15\x01\x00\x04PAUL\x00"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.node.addwork (w)
@@ -76,6 +78,7 @@ class test_inbound_noconn (stest):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x05crash"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         # Force an exception in "abort" because that's what will
         # happen if you try this when the connection is in CR state.
         m.abort.side_effect = nsp.WrongState
@@ -96,6 +99,7 @@ class test_inbound (stest):
         p = b"\x01\x00\x06TESTER\x01\x00\x04PAUL\x02\x06accept"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.node.addwork (w)
@@ -437,6 +441,7 @@ class test_outbound (stest):
 class test_random (stest):
     def test_random (self):
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         for i in range (5000):
             pkt = nsp.ConnInit (payload = randpkt (8, 64))
             w = Received (owner = self.s, connection = m,

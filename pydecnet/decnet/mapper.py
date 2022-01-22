@@ -596,13 +596,14 @@ def decode_neighbors (l):
     return ret
 
 class MapNode (MapItem):
-    def __init__ (self, name, num, ntype, loc = ""):
+    def __init__ (self, name, num, ntype, loc = "", ident = ""):
         super ().__init__ ()
         self.name = name
         self.id = NiceNode (num, name)
         self.adj = dict ()
         self.loc = loc
         self.type = ntype
+        self.ident = ident
         
     def __hash__ (self):
         return hash (self.id)
@@ -745,6 +746,8 @@ execchar = nicepackets.NiceReadNode ()
 # Entity: node number, executor (number 0)
 execchar.entity = nicepackets.NodeReqEntity (0, 0)
 execchar.info = 2    # Characteristics
+# Ditto but for Phase II
+p2exec = nicepackets.P2NiceReadExecStatus ()
 # Read known circuits.  (Known, not active, so we can get the set of
 # configured circuits and remove any that are no longer defined on the
 # node.)
@@ -752,6 +755,9 @@ knocirc = nicepackets.NiceReadCircuit ()
 # Entity: known circuits
 knocirc.entity = nicepackets.CircuitReqEntity (-1)
 knocirc.info = 1    # Status
+# Ditto but for Phase II
+p2line = nicepackets.P2NiceReadLineStatus ()
+p2line.entity = nicepackets.P2LineEntity ("*")
 # Read active nodes
 actnode = nicepackets.NiceReadNode ()
 # Entity: active nodes
@@ -803,14 +809,22 @@ class NodePoller (Element, statemachine.StateMachine):
         if isinstance (item, session.Accept):
             # Ok, we're connected
             self.curnode.update (True, self.pollts)
-            try:
-                self.nmlversion = Version (item.message)
-            except Exception:
-                self.nmlversion = None
+            if not item.message:
+                # No connect data, so Phase II
+                self.phase2 = True
+                self.nmlversion = "Phase II"
+            else:
+                self.phase2 = False
+                try:
+                    self.nmlversion = Version (item.message)
+                except Exception:
+                    self.nmlversion = None
             maplogger.trace ("connection made to {}, NML version {}",
                            self.curnode, self.nmlversion)
             # Issue the read exec characteristics
-            return self.next_request (execchar, self.procexec)
+            if self.phase2:
+                return self.next_request (p2exec, self.procp2exec, "Phase II executor")
+            return self.next_request (execchar, self.procexec, "Executor characteristics")
         elif isinstance (item, session.Reject):
             maplogger.trace ("connection to {} rejected, reason {}, data {}",
                              self.curnode, item.reason, item.message)
@@ -831,6 +845,43 @@ class NodePoller (Element, statemachine.StateMachine):
 
     def polling (self, item):
         if isinstance (item, session.Data):
+            if self.phase2:
+                if self.respcount is None:
+                    # First message, the status and response count
+                    retcode = item.message[0]
+                    if retcode > 127:
+                        retcode -= 256
+                    if retcode != 1:
+                        # Error return, give up now
+                        maplogger.trace ("Poll {} received error {}: {}",
+                                         self.nodeid, retcode, item.message)
+                        return self.finished ()
+                    try:
+                        msg = nicepackets.P2NiceReply3 (item.message)
+                    except Exception:
+                        maplogger.exception ("Error parsing first message: {}",
+                                             item.message)
+                        return self.finished ()
+                    self.respcount = msg.count
+                else:
+                    # NICE data packet.
+                    try:
+                        msg = self.replyclass (item.message)
+                        maplogger.trace ("Poll {} received Phase II msg {}",
+                                         self.nodeid, msg)
+                    except Exception:
+                        maplogger.exception ("Error parsing as {}: {}",
+                                           self.replyclass, item.message)
+                        return self.finished ()
+                    self.replies.append (msg)
+                    # Count down packets remaining
+                    self.respcount -= 1
+                if self.respcount:
+                    self.node.timers.start (self, NICETIMEOUT)
+                    return
+                else:
+                    # Done with the replies for this request, handle it.
+                    return self.handler (self.replies)
             # First just look at the retcode field, because some
             # messages (code 2 and -128 for example) have no payload
             # and won't parse if we try to treat them as a full read
@@ -873,6 +924,8 @@ class NodePoller (Element, statemachine.StateMachine):
                 # Done with the replies for this request, handle it.
                 return self.handler (self.replies)
         elif isinstance (item, session.Disconnect):
+            maplogger.trace ("Poll {} disconnected, reason {}, data {}",
+                             self.nodeid, item.reason, item.message)
             self.conn = False
         elif isinstance (item, timers.Timeout):
             # Timeout.  It would be nice to keep going but that isn't
@@ -885,10 +938,12 @@ class NodePoller (Element, statemachine.StateMachine):
             maplogger.debug ("Unexpected item {}".format (item))
         return self.finished ()
         
-    def next_request (self, req, handler):
+    def next_request (self, req, handler, what):
         # Set up the next request
-        # We don't use payloads in the requests we send
-        req.payload = b""
+        maplogger.trace ("Poll {} requesting {}", self.nodeid, what)
+        if not self.phase2:
+            # We don't use payloads in the requests we send
+            req.payload = b""
         try:
             self.conn.send_data (req)
         except NSPException:
@@ -897,6 +952,7 @@ class NodePoller (Element, statemachine.StateMachine):
         self.replies = list ()
         self.replyclass = req.replyclass
         self.mult = False
+        self.respcount = None
         self.node.timers.start (self, NICETIMEOUT)
         return self.polling
 
@@ -906,6 +962,7 @@ class NodePoller (Element, statemachine.StateMachine):
                 self.conn.disconnect ()
             except WrongState:
                 pass
+        maplogger.trace ("Poll {} finished", self.nodeid)
         # Tell the parent we're done.
         done = PollDone (self.parent, nodeid = self.nodeid, todo = self.todo)
         self.node.addwork (done)
@@ -921,22 +978,48 @@ class NodePoller (Element, statemachine.StateMachine):
             # argument, but Linux doesn't necessarily send it.
             nt = getattr (ret, "type", None)
             self.curnode.type = nt
+            self.curnode.ident = getattr (ret, "identification", "")
             if not self.curnode.name:
                 # We don't know the name.  Use what the node tells us.
                 try:
-                    self.curnode.name = ret.entity.ename.nodename
+                    self.curnode.name = ret.entity.nodename
                 except Exception:
                     pass
         else:
             maplogger.error ("{} replies to read exec char from {}",
                            len (ret), self.nodeid)
-        return self.next_request (knocirc, self.procknocirc)
+        return self.next_request (knocirc, self.procknocirc, "Known circuits")
 
+    def procp2exec (self, ret):
+        # Handle completion of Phase II read exec status
+        if len (ret) == 1:
+            ret = ret[0]
+            # Save the information we want from the received
+            # status.  
+            self.curnode.ident = ret.system
+            # We now know its node type.  We don't do this just based
+            # on the NML version at connect, because sometimes a
+            # malfunctioning Linux node will accept the connection
+            # without version data and then show it's broken by not
+            # sending a valid NICE reply.  Such nodes of course are
+            # not Phase II...
+            self.curnode.type = nicepackets.PHASE2
+            if not self.curnode.name:
+                # We don't know the name.  Use what the node tells us.
+                try:
+                    self.curnode.name = ret.name
+                except Exception:
+                    pass
+        else:
+            maplogger.error ("{} replies to read exec char from {}",
+                           len (ret), self.nodeid)
+        return self.next_request (p2line, self.procp2line, "Known lines")
+        
     def procknocirc (self, ret):
         # Handle completion of read known circuits
         circuits = set ()
         for r in ret:
-            circ = r.entity.ename
+            circ = r.entity
             circuits.add (circ)
             nodeid = getattr (r, "adjacent_node", None)
             if nodeid:
@@ -977,14 +1060,39 @@ class NodePoller (Element, statemachine.StateMachine):
             # by "adjacent nodes", but RSTS badly messes up the
             # implementation of that request.
             return self.finished ()
-        return self.next_request (actnode, self.procactnode)
+        return self.next_request (actnode, self.procactnode, "Active nodes")
+
+    def procp2line (self, ret):
+        # Handle completion of Phase II read known lines
+        circuits = set ()
+        for r in ret:
+            circ = str (r.entity)
+            circuits.add (circ)
+            nodename = r.adjacent_node
+            if nodename:
+                # There is a neighbor node name, look it up
+                try:
+                    n = m.nodenames[nodename]
+                except KeyError:
+                    # We have a name but don't know the number...
+                    n = MapNode (nodename, 0, None)
+                nodeid = n.id                    
+                a = self.parent.mapadj (self.curnode, circ, nodeid)
+                nowup = a.update (True, self.pollts)
+                # If we're doing a full network scan, or if this
+                # circuit/adj up event actually changed the state from
+                # down to up.
+                if self.parent.fullscan or nowup:
+                    self.todo.add (nodeid)
+        # That's all we can ask of Phase II nodes
+        return self.finished ()
 
     def procactnode (self, ret):
         # Handle completion of read active nodes
         for r in ret:
             # Pick up some attributes
-            nodeid = Nodeid (r.entity.ename)
-            nodename = getattr (r.entity.ename, "nodename", "")
+            nodeid = Nodeid (r.entity)
+            nodename = getattr (r.entity, "nodename", "")
             ntype = getattr (r, "adj_type", None)
             circ = getattr (r, "adj_circuit", None)
             links = getattr (r, "active_links", 0)
@@ -1084,7 +1192,7 @@ class Mapper (Element, statemachine.StateMachine):
         # saved data.
         self.update_map ()
         # Register as a logging monitor
-        monevt = set (evt.classindexkey () for evt in handlers)
+        monevt = set ((evt.event_class, evt.event_code) for evt in handlers)
         for n in self.nodelist:
             n.register_monitor (self, monevt)
         # All set, get the mapper going in one minute
@@ -1126,7 +1234,7 @@ class Mapper (Element, statemachine.StateMachine):
         # and adjacent node information, so we treat them as equivalent.
         src = evt.source
         node = self.mapnode (src)
-        circ = str (evt.entity_type.ename)
+        circ = str (evt.entity_type)
         adj = self.getadjnode (evt)
         adjnode = self.mapnode (adj)
         maplogger.trace ("circuit {} to {} down on {}", circ, adjnode, node)
@@ -1148,7 +1256,7 @@ class Mapper (Element, statemachine.StateMachine):
     def circ_up (self, evt, nowts):
         src = evt.source
         node = self.mapnode (src)
-        circ = str (evt.entity_type.ename)
+        circ = str (evt.entity_type)
         adj = self.getadjnode (evt)
         adjnode = self.mapnode (adj)
         maplogger.trace ("circuit {} to {} up on {}", circ, adjnode, node)
@@ -1166,7 +1274,7 @@ class Mapper (Element, statemachine.StateMachine):
 
     @handler (events.reach_chg)
     def reach_chg (self, evt, nowts):
-        nodeid = evt.entity_type.ename
+        nodeid = evt.entity_type
         node = self.mapnode (nodeid)
         if evt.status == 0:
             # Reachable.  Poll this node to get its data
@@ -1371,7 +1479,7 @@ class Mapper (Element, statemachine.StateMachine):
         l2paths = dict ()
         l1paths = dict ()
         nodedata = list ()
-        nodehdr = [ "Node", "Type", "Location", "Last down", "Last up" ]
+        nodehdr = [ "Node", "Type", "Location", "Last down", "Last up", "Identification" ]
         for k, n in sorted (m.nodes.items ()):
             l1 = getattr (n, "latlong", DEF_LOC)
             # Add this node to the location
@@ -1388,7 +1496,7 @@ class Mapper (Element, statemachine.StateMachine):
             ld = strflocaltime (n.last_down)
             lu = strflocaltime (n.last_up)
             nh = n.health ()
-            noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu ]
+            noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu, n.ident ]
             circuits = list ()
             for k, a in sorted (n.adj.items ()):
                 try:

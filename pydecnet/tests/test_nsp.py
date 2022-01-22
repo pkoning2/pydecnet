@@ -1433,23 +1433,23 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check log message
-        args = self.assertDebug ("Invalid packet")
-        self.assertEqual (args[1], p)
+        args = self.assertTrace ("Ill formatted NSP")
         # Ack with extra bytes after the valid data
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x00\x80\x00\x00"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check log message
-        args = self.assertDebug ("Invalid packet")
-        self.assertEqual (args[1], p)
-        # Send a NOP
+        args = self.assertTrace ("Ill formatted NSP")
+        # Send a NOP.  NOP is bad because it's handled in the routing
+        # layer (for Phase II -- we don't expect it for Phase III or
+        # later).
         p = b"\x08abcdef"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check log message
-        self.assertTrace ("NSP NOP")
+        self.assertTrace ("Ill formatted NSP")
         # CI message with bad destination address
         p = b"\x18\x01\x00\x03\x00" + self.services + self.info + \
             b"\x00\x01payload"
@@ -1457,15 +1457,13 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check log message, this is also just a decode error
-        args = self.assertDebug ("Invalid packet")
-        self.assertEqual (args[1], p)
+        args = self.assertTrace ("Ill formatted NSP")
         # Packet (ack) with wrong source link address
         p = b"\x04" + lla.to_bytes (2, "little") + b"\x99\x00\x00\x80"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
         args = self.assertTrace ("Packet with bad address")
-        self.assertEqual (bytes (args[1]), p)
         # Ditto but data segment
         d = b"\x60" + lla.to_bytes (2, "little") + \
             b"\x73\x00\x01\x00inbound data"
@@ -1499,8 +1497,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check logs
-        args = self.assertDebug ("Invalid packet")
-        self.assertEqual (args[1], p)
+        args = self.assertTrace ("Ill formatted NSP")
         # Incoming Link Service with invalid fcmod
         p = b"\x10" + lla.to_bytes (2, "little") + \
             b"\x03\x00\x01\x00\x03\x00"
@@ -1508,8 +1505,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Check logs
-        args = self.assertDebug ("Invalid packet")
-        self.assertEqual (args[1], p)
+        args = self.assertTrace ("Ill formatted NSP")
         # Packet to unknown local link address
         p = b"\x04" + (lla + 1).to_bytes (2, "little") + b"\x03\x00\x00\x80"
         w = Received (owner = self.nsp, src = self.remnode,

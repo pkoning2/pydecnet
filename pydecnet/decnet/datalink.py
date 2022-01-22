@@ -47,6 +47,7 @@ class DatalinkLayer (Element):
         super ().__init__ (owner)
         self.config = config
         self.circuits = dict ()
+        self.p2lines = dict ()
         datalinks = { d.__name__ : d for d in Datalink.leafclasses () }
         for name, c in config.circuit.items ():
             try:
@@ -58,6 +59,9 @@ class DatalinkLayer (Element):
             try:
                 dl = kind (self, name, c)
                 self.circuits[name] = dl
+                p2id = nicepackets.P2LineEntity (name, len (self.p2lines))
+                self.p2lines[p2id] = dl
+                dl.p2id = p2id
                 logging.debug ("Initialized {} datalink {}", kindname, name)
             except Exception:
                 logging.exception ("Error initializing {} datalink {}",
@@ -103,6 +107,18 @@ class DatalinkLayer (Element):
                 # same because all our circuits are always on.
                 for c in self.circuits.values ():
                     c.nice_read_line (req, resp)
+            return resp
+        if isinstance (req, nicepackets.P2NiceReadLineCounters):
+            if req.entity.known ():
+                # Known lines, loop
+                for c in self.circuits.values ():
+                    c.nice_read_line (req, resp)
+            else:
+                try:
+                    c = self.p2lines[req.entity]
+                except KeyError:
+                    return
+                c.nice_read_line (req, resp)
             return resp
 
 class Datalink (Element, metaclass = ABCMeta):
@@ -160,15 +176,17 @@ class Datalink (Element, metaclass = ABCMeta):
 
     def nice_read_line (self, req, resp):
         r = resp[str (self.name)]
-        if req.info < 2:
+        if req.sumstat ():
             # summary or status
             r.state = 0    # on
-        elif req.info == 2:
+        elif req.char ():
             r.duplex = 0    # full
             r.protocol = self.nice_protocol
-        elif req.info == 3:
+        elif req.counters ():
             # counters
             self.counters.copy (r)
+        if isinstance (req, nicepackets.P2NiceReadLineCounters):
+            r.entity = req.entity
             
 class Port (Element, metaclass = ABCMeta):
     """Abstract base class for a DECnet datalink port
@@ -184,10 +202,10 @@ class Port (Element, metaclass = ABCMeta):
         pass
 
     def nice_read_port (self, req, r):
-        if req.info == 2:
+        if req.char ():
             # Characteristics
             r.type = self.parent.port_type
-        elif req.info == 3:
+        elif req.counters ():
             # Counters
             self.counters.copy (r)
 

@@ -2,6 +2,7 @@
 
 from tests.dntest import *
 
+from decnet import packet
 from decnet import session
 from decnet import logging
 
@@ -48,7 +49,7 @@ class test_packets (DnTest):
             userfoo, x = session.EndUser.decode (p)
         # Type 3
         p = b"\x03\x00\x11\x00\x22\x01\x03BAR"
-        with self.assertRaises (session.BadEndUser):
+        with self.assertRaises ((packet.DecodeError,session.BadEndUser)):
             userbar,x = session.EndUser.decode (p)
         # Oversized name
         p = b"\x01\x00\x11AAAAAAAAAAAAAAAAA"

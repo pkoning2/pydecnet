@@ -165,15 +165,15 @@ class FramerTest (DnTest):
             # Raw doesn't have sync so don't look for it
             return ret
         for i in range (8):
-            if ret.sync:
+            if ret and ret.sync:
                 self.start_stat = ret
                 break
             time.sleep (0.1)
-            ret = self.get_stat ()
+            ret = self.rcvstat ()
         else:
             self.print_stat (self.start_stat)
             if mode != 1:
-                self.assertNotEqual (ret.freq, 0, "Modem clock not present")
+                self.assertNotEqual (ret and ret.freq, 0, "Modem clock not present")
             self.fail ("No received data, check loopback connection")
         return ret
 

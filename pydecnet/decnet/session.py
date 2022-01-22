@@ -29,14 +29,17 @@ SvnFileRev = "$LastChangedRevision$"
 # General errors for this layer
 class SessException (DNAException): pass
 class UnexpectedPkt (SessException): "Unexpected NSP packet"
-
+class InUse (SessException): "Object number or name already registered"
+    
 # Packet parse errors
 class BadEndUser (DecodeError): "Invalid value in EndUser field"
 
 # Reason codes for connect reject
 APPLICATION = 0     # Application reject (or disconnect)
+UNK_NODE = 2        # Unrecognized node name
 NO_OBJ = 4          # Destination end user does not exist
 BAD_FMT = 5         # Connect Init format error
+BAD_NODE = 10       # Invalid node name format
 BAD_AUTH = 34       # Authorization data not valid (username/password)
 BAD_ACCT = 36       # Account not valid
 OBJ_FAIL = 38       # Object failed
@@ -45,6 +48,21 @@ AUTH_LONG = 43      # Authorization data fields too long
 
 # Reason codes for disconnect
 ABORT = 9           # Connection aborted
+
+reject_text = {
+    BAD_NODE :  "Invalid node name format",
+    UNK_NODE :  "Unrecognized node name",
+    UNREACH :  "Node unreachable",
+    1 :  "Network resources",
+    APPLICATION :  "Rejected by object",
+    BAD_FMT :  "Invalid object name format",
+    NO_OBJ :  "Unrecognized object",
+    BAD_AUTH :  "Access control rejected",
+    AUTH_LONG :  "Access control data too long",
+    BAD_ACCT :  "Account not valid",
+    OBJ_FAIL :  "Node or object failed",
+    ABORT :  "Abort by object",
+}
 
 # Work items sent up to the application.  All have fields "connection"
 # (the SessionConnection) and "message" (the application data).
@@ -74,22 +92,15 @@ class Reject (ApplicationWork):
 class ConnectInit (ApplicationWork):
     "Connect Initialize message"
     name = "connect"
-class ConnectConfirm (ApplicationWork):
-    "Connect confirm message"
-    name = "confirm"
 class Exited (ApplicationWork):
     "Application process has exited"
     name = "exited"
 
-class EndUser (packet.Packet):
-    classindex = { }
+class EndUser (packet.IndexedPacket):
+    classindex = nlist (3)
     classindexkey = "fmt"
     _layout = (( packet.B, "fmt", 1 ),
                ( packet.B, "num", 1 ))
-
-    @classmethod
-    def defaultclass (cls, idx):
-        raise BadEndUser ("Invalid EndUser format code {}".format (idx))
 
 class EndUser0 (EndUser):
     fmt = 0
@@ -188,43 +199,90 @@ class SessionConnInit (packet.Packet):
             if self.auth or self.userdata:
                 raise MissingData
             
-class SessionObject (Element):
-    def __init__ (self, parent, number, name = "", module = "", file = "",
-                  auth = "off", arg = [ ]):
+class ObjectListener (Element):
+    def __init__ (self, parent, number, name = "", auth = "off"):
         super ().__init__ (parent)
         if auth != "off" and not pam:
             raise ArgumentError ("authentication requested but python-pam is not installed")
-        self.argument = arg
         self.number = number
+        name = name.upper ()
         self.name = name
-        self.module = module
-        self.file = file
         self.auth = auth.lower () != "off"
         if not self.number and not self.name:
             raise ArgumentError ("At least one of name and number must be specified")
         if len (self.name) > 16:
             raise ValueError ("Name too long")
-        self.name = self.name.upper ()
-        if self.file:
-            f = shutil.which (self.file)
-            if not f:
-                raise ValueError ("File {} not found or not executable".format (self.file))
-            self.file = f
-            # None here means we're dealing with a process to be run.
-            self.app_class = None
-        elif self.module:
-            mod = importlib.import_module (self.module)
-            self.app_class = mod.Application
-        else:
-            raise ArgumentError ("Either file or module must be specified")
         if name:
             parent.obj_name[name] = self
         if number:
             parent.obj_num[number] = self
 
+    def disconnect (self):
+        # Used for listeners, i.e., object name and/or number entries
+        # allocated dynamically by applications.  They call
+        # "disconnect" to remove that registration.  --disable also
+        # calls this.
+        if self.number:
+            del self.parent.obj_num[self.number]
+        if self.name:
+            del self.parent.obj_name[self.name]
+
     def __str__ (self):
         return "object {}".format (self.name or self.number)
+
+class ApiListener (ObjectListener):
+    def __init__ (self, parent, apiconnector, number, name = "", auth = "off"):
+        if name in parent.obj_name or number in parent.obj_num:
+            raise InUse
+        super ().__init__ (parent, number, name, auth)
+        self.apiconnector = apiconnector
+        apiconnector.conns[id (self)] = self
+
+    @property
+    def what (self):
+        return "Application h={}".format (id (self.apiconnector))
+
+    def connector (self):
+        return self.apiconnector
+
+class SessionObject (ObjectListener):
+    def __init__ (self, parent, number, name = "", auth = "off", arg = [ ]):
+        super ().__init__ (parent, number, name, auth)
+        self.argument = arg
+
+class ModuleObject (SessionObject):
+    def __init__ (self, parent, module, number, name = "",
+                  auth = "off", arg = [ ]):
+        super ().__init__ (parent, number, name, auth, arg)
+        self.module = module
+        mod = importlib.import_module (self.module)
+        self.app_class = mod.Application
+
+    @property
+    def what (self):
+        return "Module {}".format (self.module)
     
+    def connector (self):
+        logging.trace ("starting object {} ({})", self.number, self.name)
+        return ModuleConnector (self.parent, self, self.app_class)
+
+class FileObject (SessionObject):
+    def __init__ (self, parent, file, number, name = "",
+                  auth = "off", arg = [ ]):
+        super ().__init__ (parent, number, name, auth, arg)
+        f = shutil.which (file)
+        if not f:
+            raise ValueError ("File {} not found or not executable".format (self.file))
+        self.file = f
+    
+    @property
+    def what (self):
+        return "File {}".format (self.file)
+    
+    def connector (self):
+        logging.trace ("starting object {} ({})", self.number, self.name)
+        return ProcessConnector (self.parent, self)
+
 class DefObj (dict):
     def __init__ (self, name, num, module, auth = "off"):
         self.name = name.upper ()
@@ -236,15 +294,15 @@ class DefObj (dict):
 defobj = ( DefObj ("NML", 19, "decnet.modules.nml"),
            DefObj ("MIRROR", 25, "decnet.modules.mirror"),
            DefObj ("EVTLOG", 26, "decnet.modules.evl"),
+           DefObj ("TOPOL", 0, "decnet.modules.topol"),
          )
 
 class SessionConnection (Element):
-    def __init__ (self, parent, nspconn, localuser, remuser):
+    def __init__ (self, parent, nspconn, **kw):
         super ().__init__ (parent)
         self.nspconn = nspconn
-        self.localuser = localuser
-        self.remuser = remuser
         self.remotenode = nspconn.destnode
+        self.__dict__.update (kw)
         
     def accept (self, data = b""):
         data = makebytes (data)
@@ -285,34 +343,47 @@ class Session (Element):
         self.obj_num = dict ()
         self.obj_name = dict ()
         self.conns = dict ()
+        self.apiconnectors = dict ()
         for d in defobj:
             # Add default (built-in) objects
-            obj = SessionObject (self, d.number, d.name, d.module,
-                                 auth = d.auth)
+            obj = ModuleObject (self, d.module, d.number, d.name, auth = d.auth)
         # Add objects from the config
         for obj in config.object:
             if obj.disable:
                 try:
-                    o2 = self.obj_num[obj.number]
-                    del self.obj_num[o2.number]
-                    del self.obj_name[o2.name]
+                    if obj.number:
+                        o2 = self.obj_num[obj.number]
+                    else:
+                        o2 = self.obj_name[obj.name]
+                    o2.disconnect ()
                 except KeyError:
                     logging.debug ("Disabling object {} which is not a built-in object",
-                                   obj.number)
+                                   obj.number or obj.name)
             else:
-                obj = SessionObject (self, obj.number, obj.name,
-                                     obj.module, obj.file, obj.authentication,
-                                     obj.argument)
+                if obj.file:
+                    if obj.module:
+                        raise ValueError ("Only one of --file and --module is allowed")
+                    obj = FileObject (self, obj.file, obj.number, obj.name,
+                                      obj.authentication, obj.argument)
+                elif obj.module:
+                    obj = ModuleObject (self, obj.module, obj.number, obj.name,
+                                        obj.authentication, obj.argument)
+                else:
+                    raise ValueError ("Object needs one of --file, --module, or --disable")
         for k, v in sorted (self.obj_num.items ()):
-            if v.module:
-                logging.debug ("Session control object {0.number} ({0.name}) module {0.module}", v)
-            else:
-                logging.debug ("Session control object {0.number} ({0.name}) file {0.file}",
-                               v)
+            logging.debug ("Session control object {0.number} ({0.name}) module {0.what}", v)
         for k, v in sorted (self.obj_name.items ()):
             if not v.number:
-                logging.debug ("Session control object {0.name} file {0.file}", v)
-
+                logging.debug ("Session control object {0.name} module {0.what}", v)
+        parent.register_api ("session", self.api, self.end_api)
+        # Special one for internal interface to NML.  This goes via
+        # here because we have to hook NML to a ModuleConnector so it
+        # can do session control calls.
+        global nml
+        from .modules import nml    # to avoid import loops
+        # TODO: end_api for NICE?
+        parent.register_api ("ncp", self.nice_api)
+        
     def start (self):
         logging.debug ("Starting Session Control")
         self.nsp = self.parent.nsp
@@ -320,16 +391,41 @@ class Session (Element):
     def stop (self):
         logging.debug ("Stopping Session Control")
 
-    def get_api (self):
-        return { "version" : "2.0.0" }    # ?
+    def api (self, client, reqtype, tag, args):
+        cc = self.apiconnectors.get (client, None)
+        if not cc:
+            cc = self.apiconnectors[client] = ApiConnector (self, client)
+        return cc.api (reqtype, tag, args)
 
+    def end_api (self, client):
+        try:
+            cc = self.apiconnectors[client]
+            cc.close ()
+        except Exception:
+            pass
+
+    def nice_api (self, client, reqtype, tag, args):
+        c = ModuleConnector (self, None, nml.Application)
+        return c.app.api (client, reqtype, tag, args)
+    
     def connect (self, client, dest, remuser, conndata = b"",
                  username = b"", password = b"", account = b"",
                  srcname = LocalUser, proxy = False):
-        if isinstance (remuser, int):
-            remuser = EndUser (num = remuser)
+        if isinstance (srcname, EndUser):
+            pass
+        elif isinstance (srcname, int):
+            srcname = EndUser0 (num = srcname)
+        elif isinstance (srcname, str):
+            srcname = EndUser1 (name = srcname)
+        elif isinstance (srcname, (list, tuple)) and len (srcname) == 3:
+            g, u, n = srcname
+            srcname = EndUser2 (group = g, user = u, name = n)
         else:
-            remuser = EndUser (name = remuser)
+            raise BadEndUser
+        if isinstance (remuser, int):
+            remuser = EndUser0 (num = remuser)
+        else:
+            remuser = EndUser1 (name = remuser)
         sc = SessionConnInit (srcname = srcname, dstname = remuser,
                               connectdata = conndata, rqstrid = username,
                               passwrd = password, account = account)
@@ -339,7 +435,8 @@ class Session (Element):
             sc.proxy_uic = 0
         nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
-                                                       srcname, remuser)
+                                                       srcname = srcname,
+                                                       dstname = remuser)
         ret.client = client
         return ret
 
@@ -350,9 +447,7 @@ class Session (Element):
         items = [ (0, o.name, o) for o in self.obj_name.values () if not o.number ]
         items.extend ([ (o.number, o.name, o) for o in self.obj_num.values () ])
         items.sort ()
-        items = [ (n if n else "", m,
-                   "Module" if o.module else "File",
-                   o.module if o.module else o.file,
+        items = [ (n if n else "", m, *o.what.split (" ", 1),
                    "On" if o.auth else "Off") for n, m, o in items ]
         return html.tbsection (title, hdr, items)
 
@@ -403,6 +498,23 @@ class Session (Element):
                                    spkt.dstname)
                     nspconn.reject (NO_OBJ)
                     return
+                # Give the remote node address and, if known, name to
+                # the application.
+                dest = nspconn.destnode
+                if dest.nodename:
+                    pw = { "destination" : [ int (dest), dest.nodename ] }
+                else:
+                    pw = { "destination" : int (dest) }
+                # Supply the source descriptor
+                if spkt.srcname.fmt == 0:
+                    pw["srcuser"] = spkt.srcname.num
+                elif spkt.srcname.fmt == 1:
+                    pw["srcuser"] = spkt.srcname.name
+                else:
+                    # Format 2
+                    pw["srcuser"] = [ spkt.srcname.group,
+                                      spkt.srcname.user,
+                                      spkt.srcname.name ]
                 if sesobj.auth:
                     # Authentication required.  We don't look at
                     # Account, but the other two fields must be
@@ -412,35 +524,36 @@ class Session (Element):
                        not pamobj.authenticate (spkt.rqstrid, spkt.passwrd):
                         logging.debug ("Authentication reject for username {}",
                                        spkt.rqstrid)
-                        pw = dict ()
+                        if spkt.rqstrid:
+                            pw["username"] = spkt.rqstrid
                         if spkt.passwrd:
-                            pw["password"] = 0
+                            pw["password"] = 1
                         if spkt.account:
                             pw["account"] = spkt.account
                         s = spkt.srcname
                         d = spkt.dstname
+                        # FIXME: this should generate the correct
+                        # format for the particular source/dest
+                        # specification, not unconditionally CM-4.
                         so = (s.num, s.group, s.user, s.name)
                         do = (d.num, d.group, d.user, d.name)
                         self.node.logevent (events.acc_rej, 
                                             source_process = so,
-                                            destination_process = do,
-                                            user = spkt.rqstrid, **pw)
+                                            destination_process = do, **pw)
                         nspconn.reject (BAD_AUTH)
                         return
-                conn = SessionConnection (self, nspconn,
-                                          spkt.dstname, spkt.srcname)
+                # Pass up authentication parameters (without the
+                # actual password) if authentication was requested and
+                # acceptable.
+                conn = SessionConnection (self, nspconn, 
+                                          dstname = spkt.dstname,
+                                          srcname = spkt.srcname, **pw)
                 self.conns[nspconn] = conn
                 data = spkt.connectdata
-                awork = ConnectInit (self, message = data, connection = conn)
-                # TODO: find api user in "listen" mode
-                logging.trace ("starting object {0.num} ({0.name})",
-                               spkt.dstname)
-                cls = sesobj.app_class
+                awork = ConnectInit (self, message = data, connection = conn, **pw)
+                # Have the object deliver a suitable connector
                 try:
-                    if cls:
-                        c = ModuleConnector (self, sesobj, cls)
-                    else:
-                        c = ProcessConnector (self, sesobj)
+                    c = sesobj.connector ()
                     conn.client = c
                     conn.client.dispatch (awork)
                 except FileNotFoundError:
@@ -489,8 +602,12 @@ class Session (Element):
 # Below we have the machinery that connection the session control core
 # to applications, whether implemented as a module or as a separate
 # process.  This is architecturally part of session control.
-class ApplicationWork (Work):
-    name = "Outgoing request"
+class FromApplicationWork (Work):
+    name = "Request from application"
+
+def api (fun):
+    fun.is_api = True
+    return fun
 
 class BaseConnector (Element):
     """Base class for the interface between Session Control and an
@@ -531,51 +648,21 @@ class BaseConnector (Element):
         except Exception as e:
             if not isinstance (e, ApplicationExited):
                 logging.exception ("Unhandled exception in {}".format (self.object))
-            for conn in self.conns.values ():
+            for conn in list (self.conns.values ()):
+                if isinstance (conn, ApiListener):
+                    # Not an actual connection but "bind" state -- an
+                    # object number and/or name registered at run time
+                    # by the application.  Just free it.
+                    conn.disconnect ()
+                    continue
                 try:
-                    conn.nspconn.abort (OBJ_FAIL)
+                        conn.nspconn.abort (OBJ_FAIL)
                 except nsp.WrongState:
                     try:
                         conn.nspconn.reject (OBJ_FAIL)
                     except nsp.WrongState:
                         pass
                 del self.parent.conns[conn.nspconn]
-            del self.conns
-
-    # The methods below are called by the file based (JSON encoded)
-    # applications, so they refer to connections via handles, and data
-    # arrives at latin-1 encoded strings (which are basically bytes, but
-    # not the same type).
-    def accept (self, handle, data = ""):
-        conn = self.conns[handle]
-        return conn.accept (bytes (data, "latin1"))
-
-    def reject (self, handle, data = ""):
-        conn = self.conns[handle]
-        conn.reject (bytes (data, "latin1"))
-        del self.conns[handle]
-    
-    def disconnect (self, handle, data = ""):
-        conn = self.conns[handle]
-        conn.disconnect (bytes (data, "latin1"))
-        del self.conns[handle]
-
-    def abort (self, handle, data = ""):
-        conn = self.conns[handle]
-        conn.abort (bytes (data, "latin1"))
-        del self.conns[handle]
-
-    def interrupt (self, handle, data):
-        conn = self.conns[handle]
-        return conn.interrupt (bytes (data, "latin1"))
-
-    def data (self, handle, data):
-        conn = self.conns[handle]
-        return conn.send_data (bytes (data, "latin1"))
-
-    def setsockopt (self, handle, **kwds):
-        conn = self.conns[handle]
-        return conn.setsockopt (**kwds)
 
     def connect (self, dest, remuser, data = b"",
                  username = b"", password = b"", account = b"",
@@ -585,13 +672,6 @@ class BaseConnector (Element):
                                     srcname, proxy)
         self.conns[id (conn)] = conn
         return conn
-
-# The application API into Session Control consists of all the callable
-# items in the ApplicationConnector class, except for the internal ones
-# (the ones starting with _).
-BaseConnector.api = frozenset (k for (k, v) in BaseConnector.__dict__.items ()
-                               if k[0] != '_' and k != "dispatch"
-                               and callable (v))
 
 class ModuleConnector (BaseConnector):
     """A connector for applications implemented as Python modules and
@@ -616,8 +696,134 @@ class InternalConnector (BaseConnector):
 
     def dispatch2 (self, item):
         self.app.dispatch (item)
-            
-class ProcessConnector (BaseConnector):
+
+class DictConnector (BaseConnector):
+    """This class has an interface like that of a "module" type
+    application object, but instead of implementing an application
+    itself, it converts that interface to a stream of dict objects going
+    in each direction.  It is a base class used by the ProcessConnector
+    (for "file" type objects) and as a helper class for the PyDECnet API
+    server.
+    """
+    # The methods below are called via JSON-encoded requests, so they
+    # refer to connections via handles, and data arrives at latin-1
+    # encoded strings (which are basically bytes, but not the same
+    # type).
+    @api
+    def accept (self, handle, data = ""):
+        conn = self.conns[handle]
+        conn.accept (bytes (data, "latin1"))
+
+    @api
+    def reject (self, handle, data = ""):
+        conn = self.conns[handle]
+        conn.reject (bytes (data, "latin1"))
+        del self.conns[handle]
+    
+    @api
+    def disconnect (self, handle, data = ""):
+        conn = self.conns[handle]
+        conn.disconnect (bytes (data, "latin1"))
+        del self.conns[handle]
+
+    @api
+    def abort (self, handle, data = ""):
+        conn = self.conns[handle]
+        conn.abort (bytes (data, "latin1"))
+        del self.conns[handle]
+
+    @api
+    def interrupt (self, handle, data):
+        conn = self.conns[handle]
+        conn.interrupt (bytes (data, "latin1"))
+
+    @api
+    def data (self, handle, data):
+        conn = self.conns[handle]
+        conn.send_data (bytes (data, "latin1"))
+
+    @api
+    def setsockopt (self, handle, **kwds):
+        conn = self.conns[handle]
+        conn.setsockopt (**kwds)
+
+    @api
+    def connect (self, dest, remuser, data = "",
+                 username = "", password = "", account = "",
+                 srcname = None, proxy = False):
+        data = bytes (data, "latin1")
+        username = bytes (username, "latin1")
+        password = bytes (password, "latin1")
+        account = bytes (account, "latin1")
+        if srcname is None:
+            srcname = LocalUser
+        elif isinstance (srcname, int):
+            srcname = EndUser0 (num = srcname)
+        else:
+            srcname = EndUser1 (name = srcname)
+        try:
+            conn = super ().connect (dest, remuser, data,
+                                     username, password, account,
+                                     srcname, proxy)
+        except nsp.UnknownNode:
+            return dict (type = "reject", reason = UNK_NODE)
+        handle = id (conn)
+        return dict (handle = handle, type = "connecting")
+
+    @api
+    def bind (self, num = 0, name = "", auth = "off"):
+        try:
+            obj = ApiListener (self.parent, self, num, name, auth)
+        except Exception as e:
+            return dict (error = str (e))
+        return dict (handle = id (obj), type = "bind")
+
+    def dispatch2 (self, item):
+        if isinstance (item, Exited):
+            raise ApplicationExited
+        elif isinstance (item, FromApplicationWork):
+            # Process work from the process, a request to Session
+            # Control.
+            args = item.args
+            try:
+                action = getattr (self, args.pop ("type"))
+                assert action.is_api
+            except (AssertionError, KeyError, AttributeError):
+                raise AttributeError ("Invalid API request", args) from None
+            logging.trace ("Application SC {} request:\n{}",
+                           action.__name__, repr (args))
+            try:
+                ret = action (**args)
+            except DNAException as e:
+                ret = dict (error = str (e))
+            if ret is not None:
+                logging.trace ("action returns {}", repr (ret))
+                tag = getattr (item, "tag", None)
+                if tag is not None:
+                    ret["tag"] = tag
+                self.send_dict (ret)
+        else:
+            # Process work sent up from the Session Control layer. 
+            handle = id (item.connection)
+            msg = bytes (item.message)
+            mtype = item.name
+            jdict = dict (handle = handle, data = msg, type = mtype)
+            if mtype == "connect":
+                # Put in additional items, if present
+                jdict["destination"] = item.destination
+                if hasattr (item, "username"):
+                    jdict["username"] = item.username
+                if hasattr (item, "password"):
+                    jdict["password"] = item.password
+                if hasattr (item, "account"):
+                    jdict["account"] = item.account
+            try:
+                jdict["reason"] = item.reason
+            except AttributeError:
+                pass
+            self.send_dict (jdict)
+        
+class ProcessConnector (DictConnector):
     """This class has an interface like that of a "module" type
     application object, but instead of implementing an application
     itself, it converts that interface to a full duplex JSON stream, via
@@ -631,8 +837,7 @@ class ProcessConnector (BaseConnector):
     logging facility.
     """
     def __init__ (self, parent, obj):
-        self.conns = dict ()
-        super ().__init__ (parent,obj)
+        super ().__init__ (parent, obj)
         self.sp = None
         self.othread = self.ethread = None
         self.enc = DNJsonEncoder ().encode
@@ -676,52 +881,19 @@ class ProcessConnector (BaseConnector):
         self.ethread.start ()
         logging.trace ("obj returncode {}", self.sp.returncode)
 
-    def connect (self, dest, remuser, data = b"",
-                 username = b"", password = b"", account = b""):
-        # Override "connect" so we can return the result to the
-        # subprocess.  The other API calls don't have any interesting
-        # return value so for those we don't bother.
-        conn = super ().connect (dest, remuser, data,
-                                 username, password, account)
-        handle = id (conn)
-        jdict = dict (handle = handle, type = "connecting")
+    def send_dict (self, jdict):
         jdict = self.enc (jdict)
         logging.trace ("sc json data to {}: {}", self.object, jdict)
         print (jdict, file = self.sp.stdin)
-
+        
     def dispatch2 (self, item):
         if isinstance (item, Exited):
             self.sp.stdin.close ()
-            raise ApplicationExited
-        elif isinstance (item, ApplicationWork):
-            # Process work from the process, a request to Session
-            # Control.
-            args = item.args
-            action = args["mtype"]
-            if action not in self.api:
-                raise AttributeError ("Invalid API request")
-            del args["mtype"]
-            logging.trace ("Application SC {} request:\n{}",
-                           action, repr (args))
-            action = getattr (self, action)
-            action (**args)
-        else:
-            # Process work sent up from the Session Control layer. 
-            handle = id (item.connection)
-            msg = bytes (item.message)
-            mtype = item.name
-            jdict = dict (handle = handle, data = msg, type = mtype)
-            try:
-                jdict["reason"] = item.reason
-            except AttributeError:
-                pass
-            jdict = self.enc (jdict)
-            logging.trace ("sc json data to {}: {}", self.object, jdict)
-            print (jdict, file = self.sp.stdin)
+        super ().dispatch2 (item)
         
     def ohandler (self, parent, opipe):
         """Read JSON requests from stdout and turn them into
-        ApplicationWork items.
+        FromApplicationWork items.
         """
         logging.trace ("object stdout thread started")
         while not self.othread.stopnow:
@@ -744,7 +916,7 @@ class ProcessConnector (BaseConnector):
                 break
             logging.trace ("json request to sc: {}", req)
             req = self.dec (req)
-            work = ApplicationWork (parent, args = req)
+            work = FromApplicationWork (parent, args = req)
             parent.node.addwork (work)
         logging.trace ("object stdout thread done")
             
@@ -755,19 +927,45 @@ class ProcessConnector (BaseConnector):
         """
         logging.trace ("object stderr thread started")
         while not self.ethread.stopnow:
-            req = epipe.readline ().rstrip ("\n")
+            req = epipe.readline ()
             if not req:
                 epipe.close ()
                 break
-            logging.trace ("app stderr data: {}", req)
+            req = req.rstrip ("\n")
+            # Don't log the raw request because we'll log the resulting
+            # processed log request below.
             try:
                 reqd = self.dec (req)
                 lv = reqd["level"]
                 msg = reqd["message"]
                 args = reqd.get ("args", [ ])
-                logging.log (lv, msg, *args)
+                kwargs = reqd.get ("kwargs", { })
+                logging.log (lv, msg, *args, **kwargs)
             except Exception:
                 logging.debug ("Application {} debug message: {}",
                                parent.object, req)
         logging.trace ("object stderr thread done")
-    
+
+class ApiConnector (DictConnector):
+    """This class is similar to ProcessConnector but it connects to the
+    general PyDECnet API, implementing the "session" subsystem API.
+    """
+    def __init__ (self, parent, client):
+        super ().__init__ (parent, "API connector")
+        self.apiclient = client
+        self.parent.apiconnectors[client] = self
+
+    def close (self):
+        work = Exited (self)
+        self.node.addwork (work)
+        del self.parent.apiconnectors[self.apiclient]
+        
+    def api (self, reqtype, tag, args):
+        args["type"] = reqtype
+        work = FromApplicationWork (self, args = args, tag = tag)
+        self.node.addwork (work)
+
+    def send_dict (self, jdict):
+        jdict["api"] = "session"
+        jdict["system"] = self.parent.node.nodename
+        self.apiclient.send_dict (jdict)

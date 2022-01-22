@@ -10,6 +10,8 @@ from tests.dntest import *
 from decnet import datalink
 from decnet import ddcmp
 
+SYN4 = bytes ([ ddcmp.SYN ] * 4)
+
 class TestPackets (DnTest):
     def test_start (self):
         "DDCMP Start packet"
@@ -969,7 +971,7 @@ class DdcmpTcplisten (DdcmpTcp):
     def sendpdu (self, pdu):
         # Override the base class version to send the packet with SYN
         # and DEL wrapping
-        self.socket.sendall (ddcmp.SYN4 + makebytes (pdu) + ddcmp.DEL1)
+        self.socket.sendall (SYN4 + makebytes (pdu) + ddcmp.DEL1)
 
 class TestDdcmpTcplisten (DdcmpTcplisten, CommonTests, TcpTests):
     "TCP tests, listen (conn ction outbound)"

@@ -1,17 +1,32 @@
 #!/usr/bin/env python3
 
-# Similar to apitest.py, but using the Requests package
+"Test some PyDECnet API functions using the simple connector"
 
-import requests
-import warnings
+import json
 
-warnings.simplefilter ("ignore")
+pencoder = json.JSONEncoder (indent = 3, separators = (",", " : "))
 
-# Read the list of systems.  verify is False because my test certificate
-# isn't completely correct, which is fine when used just for testing.
-resp = requests.get ("https://127.0.0.1:8443/api", verify = False)
-print ("headers:")
-print (" ", "\n  ".join (str (h) for h in resp.headers.items ()))
-print ("list of systems returned by API:")
-ret = resp.json ()
-print (" ", "\n  ".join (ret))
+def json_pp (d, hdr = None):
+    "Pretty-print d as a JSON value"
+    if hdr:
+        print (hdr)
+    print (pencoder.encode (d))
+
+def exch (hdr = None, **d):
+    json_pp (d, hdr)
+    rc, resp = api.exch (**d)
+    json_pp (resp.__dict__, "Reply")
+    
+from decnet.connectors import SimpleApiConnector
+
+# Recv the list of systems
+api = SimpleApiConnector ()
+
+exch ("system list:")
+exch ("nsp get:", api = "nsp")
+exch ("mop get:", api = "mop")
+exch ("mop get sysid data", api = "mop", type = "sysid", circuit = "eth-0")
+exch ("mop circuit loop request:", api = "mop", type = "loop", circuit = "eth-0")
+exch ("mop circuit get counters request:", api = "mop", type = "counters", circuit = "eth-0", dest = "52-50-38-90-e0-f7")
+
+api.close ()

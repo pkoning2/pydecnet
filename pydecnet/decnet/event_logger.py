@@ -30,9 +30,10 @@ MYVERSION = ( 4, 0, 0 )
 # implementations (class codes 31 through 479).  We'll use class 480 and
 # above ("Customer specific") for PyDECnet if it needs any product
 # specific events at some point.
-KNOWN_EVENTS = frozenset ((cl, e)
-                          for (cl, e) in Event.classindex
-                          if e is not None and not (31 < cl < 480))
+KNOWN_EVENTS = frozenset ((ecl, eco)
+                          for (ecl, ec) in Event.classindex.items ()
+                           for eco, e in enumerate (ec.classindex)
+                            if ecl is not None)
 CONNRETRY = 30
 QLIMIT = 50        # Max items in remote sink send queue
 
@@ -112,7 +113,7 @@ class EventFilter (set):
 
     The representation of a filter is a set, with elements that are:
     1. an event -- a pair of integers, the class and type numbers
-    2. a qualified event: pair of event and entity
+    2. a qualified event: pair of entity and event
     """
     def __init__ (self, entity = None, events = None):
         if events:
@@ -146,7 +147,7 @@ class EventFilter (set):
     
     def format (self, prefix = "", width = 60):
         """Format the filter as standard NCP output."""
-        if not self:
+        if 1:#not self:
             return ""
         width -= len (prefix)
         ret = list ()
@@ -200,7 +201,7 @@ class EventFilter (set):
             if ent is None:
                 # Supply a placeholder entity if the caller didn't.
                 e.entity_type = NoEntity ()
-            code = e.classindexkey ()
+            code = (e.event_class, e.event_code)
             return code in self or (ent, code) in self
         return super ().__contains__ (e)
     

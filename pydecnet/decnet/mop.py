@@ -157,7 +157,9 @@ class TIME (Field):
                                     0, 0, -1, "", tzoff))
         return ret, buf[10:]
     
-class MopHdr (packet.Packet):
+class MopHdr (packet.IndexedPacket):
+    classindex = { }
+    classindexkey = "code"
     _layout = ( ( packet.B, "code", 1 ), )
 
 class SysId (MopHdr):
@@ -284,11 +286,6 @@ class LoopReply (packet.Packet):
                 packet.Payload )
     function = 1
 
-# Dictionary of packet codes to packet layout classes
-packetformats = { c.code : c for c in globals ().values ()
-                  if type (c) is packet.packet_encoding_meta
-                  and hasattr (c, "code") }
-
 class Mop (Element):
     """The MOP layer.  It doesn't do much, other than being the
     parent of the per-datalink MOP objects.
@@ -301,6 +298,7 @@ class Mop (Element):
         self.circuits = EntityDict ()
         dlcirc = self.node.datalink.circuits
         self.console_config = False
+        self.connections = dict ()
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
             if dl.use_mop:
@@ -311,7 +309,8 @@ class Mop (Element):
                         self.console_config = True
                 except Exception:
                     logging.exception ("Error initializing MOP circuit {}", name)
-
+        parent.register_api ("mop", self.api, self.end_api)
+        
     def start (self):
         logging.debug ("Starting MOP layer")
         for name, c in self.circuits.items ():
@@ -361,8 +360,37 @@ class Mop (Element):
                     ret.append (c.sysid.html (what))
         return sb, html.main (*ret)
 
-    def get_api (self):
-        return { "circuits" : self.circuits.get_api () }
+    def api (self, client, reqtype, tag, args):
+        if reqtype == "get":
+            return { "circuits" : [ c.api () for c in self.circuits.values () ] }
+        c = args.get ("circuit", None)
+        h = args.get ("handle", None)
+        if c is None and h is None:
+            return dict (error = "neither circuit nor handle specified")
+        if h is not None:
+            conn = self.connections.get (h, None)
+            if conn is None:
+                return dict (error = "unknown handle")
+            return conn.api (client, tag, reqtype, args)
+        c = self.circuits.get (c.upper (), None)
+        if c is None:
+            return dict (error = "invalid circuit argument")
+        if reqtype == "sysid":
+            return c.sysid.api ()
+        if reqtype == "loop":
+            return c.loop.api (client, tag, args)
+        if reqtype == "counters":
+            return c.request_counters.api (client, tag, args)
+        if reqtype == "connect":
+            # Only "connect" comes here; the other console client
+            # requests are relative to an open connection and have a
+            # "handle" argument, so they are taken care of above.
+            return c.console.api (client, tag, reqtype, args)
+        return dict (error = "Unsupported operation", type = reqtype)
+
+    def end_api (self, client):
+        for conn in list (self.connections.values ()):
+            conn.end_api (client)
 
     def nice_read (self, req, resp):
         if not isinstance (req, nicepackets.NiceReadModule) or \
@@ -372,34 +400,23 @@ class Mop (Element):
         # module name "configurator"
         if req.one () and req.entity.value.upper () != "CONFIGURATOR":
             return
-        # We expect payload carrying a circuit qualifier.  The spec
-        # makes it look like this is encoded in NICE data item
-        # encoding but that is not actually accurate.  If there is no
-        # payload we treat that as "known circuits".
-        ce = nicepackets.CircuitReqEntity (-1)
-        if req.payload:
-            p = req.payload
-            require (p, 3)
-            c = int.from_bytes (p[:2], "little")
-            if c != 100:
-                return -6    # Unrecognized parameter
-            c = p[2]
-            if c >= 128:
-                c -= 256
-            ce.code = c
-            if c > 0:
-                # Specific string
-                require (p, 3 + c)
-                ce.value = str (p[3:3 + c], "latin1")
-        # Parsed the circuit(s) to return, check
-        if ce.code > 0:
-            try:
-                c = self.circuits[ce.value]
-                clist = [ c ]
-            except KeyError:
-                return
-        else:
+        # See if there is a circuit qualifier
+        try:
+            c = req.circuit
+            if c.code < 0:
+                # Plural entity
+                if c.code == -1:
+                    # Known
+                    clist = self.circuits.values ()
+                else:
+                    return
+            else:
+                clist = [ self.circuits[c.value] ]
+        except AttributeError:
             clist = self.circuits.values ()
+        except KeyError:
+            # Circuit not in self.circuits, error
+            return
         # Looks ok, start collecting data
         ret = [ ]
         for c in clist:
@@ -448,6 +465,59 @@ class Mop (Element):
             r1.elapsed_time = ( dh, dm, ds )
         resp["CONFIGURATOR"] = ret
                 
+class MopConnection (Element, timers.Timer):
+    def __init__ (self, parent, circuit, client, tag):
+        Element.__init__ (self, parent)
+        timers.Timer.__init__ (self)
+        self.mop = parent.mop
+        self.circuit = circuit
+        self.client = client
+        self.tag = tag
+        self.rnum = None
+        self.mop.connections[id (self)] = self
+        
+    def request (self, pkt, dest, port, receipt = None, timeout = 3):
+        self.rnum = self.circuit.request (self, pkt, dest, port, receipt)
+        self.node.timers.start (self, timeout)
+
+    def cancel (self):
+        try:
+            del self.mop.connections[id (self)]
+        except KeyError:
+            pass
+        if self.rnum:
+            self.circuit.done (self.rnum)
+            self.node.timers.stop (self)
+            self.rnum = None
+
+    def end_api (self, client):
+        if client == self.client:
+            self.cancel ()
+            
+class CounterConnection (MopConnection):
+    def start (self, req):
+        dest = Macaddr (req["dest"])
+        timeout = int (req.get ("timeout", 3))
+        if timeout < 1:
+            return { "status" : "invalid timeout" }
+        pkt = RequestCounters ()
+        self.request (pkt, dest, self.parent.port, timeout = timeout)
+        # Request successfully initiated; the reply is asynchronous
+        return None
+    
+    def dispatch (self, work):
+        self.cancel ()
+        ret = dict (system = self.node.nodename,
+                    api = "mop", tag = self.tag)
+        if isinstance (work, timers.Timeout):
+            ret["status"] = "timeout"
+        else:
+            ret["status"] = "ok"
+            for t, n, *x in Counters._layout:
+                if t == packet.CTR:
+                    ret[n] = getattr (work, n)
+            ret["time_since_zeroed"] = int (work.time_since_zeroed)
+        self.client.send_dict (ret)
         
 class MopCircuit (Element):
     """The parent of the protocol handlers for the various protocols
@@ -455,16 +525,16 @@ class MopCircuit (Element):
     """
     def __init__ (self, parent, name, datalink, config):
         super ().__init__ (parent)
+        self.mop = parent
         self.config = config
         self.name = name
         self.datalink = datalink
         self.mop = parent
         self.loop = self.sysid = None
-        self.conn_clients = dict ()
         self.carrier_client_dest = dict ()
         self.carrier_server = None
         self.console_verification = config.console
-        self.console = ConnApiHelper (self, CarrierClient)
+        self.console = None
         
     def getentity (self, name):
         if name == "counters":
@@ -487,6 +557,7 @@ class MopCircuit (Element):
             consport.add_multicast (CONSMC)
             self.sysid = SysIdHandler (self, consport)
             self.request_counters = CounterHandler (self, consport)
+            self.console = CarrierClient (self, consport)
             # No console carrier server just now
             self.carrier_server = None
             services = list ()
@@ -534,40 +605,16 @@ class MopCircuit (Element):
         """
         rnum = item.receipt
         if rnum:
-            try:
-                self.requests[rnum].dispatch (item)
-                del self.requests[rnum]
-            except KeyError:
-                pass
+            e = self.requests.pop (rnum, None)
+            if e:
+                e.dispatch (item)
 
     def done (self, rnum):
         """Indicate that we're done with the request whose receipt
         number is rnum.
         """
-        try:
-            del self.requests[rnum]
-        except KeyError:
-            pass
+        self.requests.pop (rnum, None)
         
-    def exchange (self, pkt, dest, port, timeout = 3, receipt = None):
-        """Perform a request/response exchange.  "pkt" is the request to
-        send.  The receipt number will be filled in.  "dest" is the
-        packet destination address. "port" is the datalink port to send
-        to.
-
-        This method must not be called from the main node thread, only 
-        from worker threads such as the HTTPS API threads.
-
-        The response packet is returned, or None to indicate timeout.
-        """
-        listener = WorkHandler ()
-        try:
-            rnum = self.request (listener, pkt, dest, port, receipt = receipt)
-            ret = listener.wait ()
-        finally:
-            self.done (rnum)
-        return ret
-    
     def dispatch (self, work):
         if isinstance (work, datalink.Received):
             buf = work.packet
@@ -576,13 +623,11 @@ class MopCircuit (Element):
                 return
             logging.trace ("MOP packet received on {}: {}",
                            self.name, bytes (buf))
-            header = MopHdr (buf[:1])
-            msgcode = header.code
             try:
-                parsed = packetformats[msgcode] (buf)
+                parsed = MopHdr (buf)
             except KeyError:
                 logging.debug ("MOP packet with unknown message code {} on {}",
-                               msgcode, self.name)
+                               buf[0], self.name)
                 return
             except DNAException:
                 logging.exception ("MOP packet parse error\n {}", bytes (buf))
@@ -631,7 +676,7 @@ class MopCircuit (Element):
             return [ self.name, self.consport.macaddr, self.datalink.hwaddr,
                      services ]
 
-    def get_api (self):
+    def api (self):
         return { "name" : self.name,
                  "hwaddr" : self.datalink.hwaddr,
                  "macaddr" : self.consport.macaddr,
@@ -643,28 +688,17 @@ class CounterHandler (Element):
     def __init__ (self, parent, port):
         super ().__init__ (parent)
         self.port = port
-        
-    def post_api (self, data):
+        self.mop = parent.mop
+
+    def api (self, client, tag, req):
         """Get counters.
         Input: dest (MAC address), optional timeout in seconds (default: 3)
         Output: status (a string: timeout or ok).  If ok, the counters.
         """
-        logging.trace ("processing POST API call, counter request")
-        dest = Macaddr (data["dest"])
-        timeout = int (data.get ("timeout", 3))
-        if timeout < 1:
-            return { "status" : "invalid timeout" }
-        pkt = RequestCounters ()
-        reply = self.parent.exchange (pkt, dest, self.port, timeout)
-        if reply is None:
-            return { "status" : "timeout" }
-        ret = { "status" : "ok" }
-        for t, n, *x in Counters._layout:
-            if t == packet.CTR:
-                ret[n] = getattr (reply, n)
-        ret["time_since_zeroed"] = int (reply.time_since_zeroed)
-        return ret
-        
+        logging.trace ("processing API call, counter request")
+        conn = CounterConnection (self, self.parent, client, tag)
+        return conn.start (req)
+    
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
@@ -673,8 +707,9 @@ class SysIdHandler (Element, timers.Timer):
     def __init__ (self, parent, port):
         Element.__init__ (self, parent)
         timers.Timer.__init__ (self)
+        self.mop = parent.mop
         # Send the initial ID fairly soon after startup
-        self.node.timers.start (self, self.id_self_delay () // 30)
+        self.node.timers.start (self, self.id_self_delay () / 30)
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
@@ -682,7 +717,7 @@ class SysIdHandler (Element, timers.Timer):
         logging.debug ("Initialized sysid handler for {}", parent.name)
 
     def id_self_delay (self):
-        return random.randint (8 * 60, 12 * 60)
+        return random.uniform (8 * 60, 12 * 60)
     
     def dispatch (self, pkt):
         if isinstance (pkt, packet.Packet):
@@ -787,8 +822,8 @@ class SysIdHandler (Element, timers.Timer):
                 return html.detail_section (title, header, rows)
             return html.tbsection (title, header, rows)
         
-    def get_api (self):
-        logging.trace ("processing GET API call on sysid listener")
+    def api (self):
+        logging.trace ("processing API call on sysid listener")
         ret = list ()
         for k, v in self.heard.items ():
             item = dict ()
@@ -819,73 +854,53 @@ class SysIdHandler (Element, timers.Timer):
             for k in v.xfields ():
                 item[k] = getattr (v, k)
             ret.append (item)
-        return ret
+        return { "sysid" : ret }
 
 class ConsolePost (Work):
     pass
 
-class CarrierClient (Element, statemachine.StateMachine):
-    """The client side of the console carrier protocol.
+class CarrierClientConnection (MopConnection, statemachine.StateMachine):
+    """A MOP connection object for the client side of the console
+    carrier protocol.
     """
-    API_TIMEOUT = 120
+    CONNPOLLINTERVAL = 0.2
+    DATAPOLLMIN = 0.1
+    DATAPOLLMAX = 2
     
-    def __init__ (self, parent, data, listener):
-        Element.__init__ (self, parent)
+    def __init__ (self, parent, circuit, client, tag):
+        MopConnection.__init__ (self, parent, circuit, client, tag)
         statemachine.StateMachine.__init__ (self)
-        self.listener = listener
-        self.last_post = time.time ()
-        self.port = parent.consport
-        self.handle = random.getrandbits (64)
-        self.outputq = queue.Queue ()
+        self.port = circuit.consport
+        logging.trace ("Created console carrier client connection, handle {}", id (self))
+        self.dtime = Backoff (self.DATAPOLLMIN, self.DATAPOLLMAX)
+
+    def start (self, data):
+        logging.trace ("Starting connection {}", id (self))
         try:
             dest = Macaddr (data["dest"])
             self.verification = scan_ver (data["verification"])
         except KeyError:
-            self.listener.dispatch ({ "status" : "missing arguments" })
-            return
+            return { "error" : "missing arguments" }
         except ValueError:
-            self.listener.dispatch ({ "status" : "Invalid argument value" })
-            return
+            return { "error" : "Invalid argument value" }
         dest = Macaddr (data["dest"])
-        if dest in self.parent.carrier_client_dest:
-            self.listener.dispatch ({ "status" : "destination busy" })
-            return
+        if dest in self.circuit.carrier_client_dest:
+            return { "error" : "destination busy" }
         self.dest = dest
-        self.parent.conn_clients[self.handle] = self
-        self.parent.carrier_client_dest[dest] = self
+        self.circuit.carrier_client_dest[dest] = self
         self.msg = RequestId ()
         self.sendmsg ()
-        logging.debug ("Initialized console carrier client for {}, handle {}",
-                       parent.name, self.handle)
+        logging.trace ("Initialized console carrier client for {}, handle {}",
+                       self.circuit.name, id (self))
+        return dict (handle = id (self), type = "connecting")
 
-    def post_api (self, data):
-        if not data.get ("data", None) and not data.get ("close", False):
-            # Not close and no data, so it's read
-            if self.state == self.active:
-                try:
-                    ret = self.outputq.get (timeout = 60)
-                except queue.Empty:
-                    ret = { "status" : "ok", "data" : "" }
-            else:
-                try:
-                    ret = self.outputq.get_nowait ()
-                except Queue.Empty:
-                    ret = { "status" : "closed" }
-            return ret
-        listen = WorkHandler ()
-        w = ConsolePost (self, data = data, listener = listen)
-        self.node.addwork (w)
-        ret = listen.wait (timeout = 60)
-        return ret
-    
-    def sendmsg (self, tries = 5, receipt = None):
+    def sendmsg (self, tries = 5, receipt = None, timeout = CONNPOLLINTERVAL):
         self.retries = tries
-        self.node.timers.stop (self)
-        self.node.timers.start (self, 1)
         if isinstance (self.msg, ConsoleCommand):
             self.port.send (self.msg, self.dest)
         else:
-            self.parent.request (self, self.msg, self.dest, self.port, receipt = receipt)
+            self.node.timers.start (self, timeout)
+            self.circuit.request (self, self.msg, self.dest, self.port, receipt = receipt)
 
     def close (self):
         """End this console carrier session.  Stop any timer and remove
@@ -894,13 +909,22 @@ class CarrierClient (Element, statemachine.StateMachine):
         self.node.timers.stop (self)
         self.msg = self.msg2 = self.listener = None
         try:
-            del self.parent.conn_clients[self.handle]
+            del self.circuit.carrier_client_dest[self.dest]
         except KeyError:
             pass
-        try:
-            del self.parent.carrier_client_dest[self.dest]
-        except KeyError:
-            pass
+        # Do the base class cleanup
+        super ().cancel ()
+
+    def cancel (self):
+        # API client went away, clean up
+        work = ConsolePost (self, type = "disconnect")
+        self.node.addwork (work)
+        
+    def sendreply (self, msg):
+        msg["system"] = self.node.nodename
+        msg["api"] = "mop"
+        msg["handle"] = id (self)
+        self.client.send_dict (msg)
         
     def s0 (self, item):
         """Initial state: await SysId response, make sure console
@@ -920,10 +944,12 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.sendmsg ()
                 return self.reserve
             if not item.carrier:
-                self.listener.dispatch ({ "status" : "no console carrier support" })
+                self.sendreply ({ "type" : "reject",
+                                  "status" : "no console carrier support" })
             else:
-                self.listener.dispatch ({ "status" : "console carrier reserved",
-                                          "client" : str (item.console_user) })
+                self.sendreply ({ "type" : "reject",
+                                  "status" : "console carrier reserved",
+                                  "client" : str (item.console_user) })
             self.close ()
         elif isinstance (item, timers.Timeout):
             # Timeout, try again if not at the limit
@@ -931,7 +957,7 @@ class CarrierClient (Element, statemachine.StateMachine):
             if self.retries:
                 self.sendmsg (self.retries)
             else:
-                self.listener.dispatch ({ "status" : "no reply" })
+                self.sendreply ({ "type" : "reject", "status" : "no reply" })
                 self.close ()
             
     def reserve (self, item):
@@ -942,17 +968,17 @@ class CarrierClient (Element, statemachine.StateMachine):
             # run the two-way console data stream.
             if item.carrier_reserved:
                 if item.console_user != self.port.macaddr:
-                    self.listener.dispatch ({ "status" : "console carrier reserved",
-                                              "client" : str (item.console_user) })
+                    self.sendreply ({ "type" : "reject",
+                                      "status" : "console carrier reserved",
+                                      "client" : str (item.console_user) })
                     self.node.timers.stop (self)
                     self.listener = None
-                    return self.s0
+                    return self.close ()
                 self.seq = 0
                 self.msg = None      # No poll message yet
                 self.pendinginput = b""
                 self.sendpoll ()
-                self.listener.dispatch ({ "status" : "ok",
-                                          "handle" : self.handle })
+                self.sendreply ({ "type" : "accept" })
                 self.listener = None
                 return self.active
         elif isinstance (item, timers.Timeout):
@@ -964,7 +990,7 @@ class CarrierClient (Element, statemachine.StateMachine):
                 self.port.send (self.msg2, self.dest)
                 self.sendmsg (self.retries)
             else:
-                self.listener.dispatch ({ "status" : "no reply" })
+                self.sendreply ({ "type" : "reject", "status" : "no reply" })
                 self.close ()
 
     def sendpoll (self):
@@ -974,11 +1000,13 @@ class CarrierClient (Element, statemachine.StateMachine):
         if not self.msg:
             tries = 5
             self.seq ^= 1
+            if self.pendinginput:
+                # There's keyboard input to send, make the poll go fast.
+                self.dtime.reset ()
             indata = self.pendinginput[:self.cmdsize]
             self.pendinginput = self.pendinginput[self.cmdsize:]
             self.msg = ConsoleCommand (seq = self.seq, payload = indata)
-        self.node.timers.stop (self)
-        self.node.timers.start (self, 1)
+        self.node.timers.start (self, self.dtime.next ())
         self.sendmsg (tries)
 
     def sendrelease (self):
@@ -995,8 +1023,11 @@ class CarrierClient (Element, statemachine.StateMachine):
             self.retries = 5
             data = item.payload
             if data:
+                # Reset the poll timer to minimum
+                self.dtime.reset ()
+                self.node.timers.start (self, self.dtime.next ())
                 data = str (data, encoding = "latin1")
-                self.outputq.put ({ "status" : "ok", "data" : data })
+                self.sendreply ({ "type" : "data", "data" : data })
             self.msg = None
             # If there is more data to send, do so now
             if self.pendinginput:
@@ -1007,33 +1038,24 @@ class CarrierClient (Element, statemachine.StateMachine):
             # both, retransmit if it isn't time to give up.  If there is
             # no currently pending message, send the next one.
             self.retries -= 1
-            if time.time () - self.last_post > self.API_TIMEOUT:
-                logging.debug ("Closing console client {} due to API timeout", self.dest)
-                self.outputq.put ({ "status" : "api timeout" })
-                self.sendrelease ()
-                return self.release
             if self.retries:
                 self.sendpoll ()
             else:
-                self.outputq.put ({ "status" : "no response" })
+                self.sendreply ({ "type" : "disconnect",
+                                  "status" : "no response" })
                 self.close ()
         elif isinstance (item, ConsolePost):
-            data = item.data
-            listener = item.listener
-            if data.get ("close", False):
+            if item.type in ("disconnect", "abort", "close"):
                 # Close request -- release the console
                 self.sendrelease ()
-                listener.dispatch ({ "status" : "ok" })
-                self.outputq.put ({ "status" : "closed", "data" : "" })
                 return self.release
             # Input request, post it and say ok
-            newinput = bytes (data["data"], encoding = "latin1")
+            newinput = item.data
             if self.pendinginput or self.msg:
                 self.pendinginput += newinput
             else:
                 self.pendinginput = newinput
                 self.sendpoll ()
-                listener.dispatch ({ "status" : "ok" })
 
     def release (self, item):
         """Verify that release was successful.
@@ -1042,7 +1064,7 @@ class CarrierClient (Element, statemachine.StateMachine):
             # If the reservation succeeded, switch to active state to
             # run the two-way console data stream.  
             if not (item.carrier_reserved and item.console_user == self.dest):
-                logging.debug ("Console client closed for {}", self.dest)
+                logging.trace ("Console client closed for {}", self.dest)
                 self.close ()
         elif isinstance (item, timers.Timeout):
             # Timeout, try again if not at the limit
@@ -1055,11 +1077,37 @@ class CarrierClient (Element, statemachine.StateMachine):
             else:
                 logging.debug ("Release request timed out for node {}", self.dest)
                 self.close ()
-        elif isinstance (item, ConsolePost):
-            # data read or redundant close request when already closing,
-            # say so.
-            item.listener.dispatch ({ "status" : "closed" })
             
+    def api (self, client, tag, reqtype, req):
+        try:
+            conn = self.mop.connections[req.get ("handle", None)]
+        except KeyError:
+            return { "error" : "no such console connection" }
+        if reqtype == "data":
+            data = req.get ("data", "")
+            data = data.encode ("latin1")
+            work = ConsolePost (conn, type = reqtype, data = data)
+        elif reqtype == "disconnect" or reqtype == "abort":
+            work = ConsolePost (conn, type = reqtype)
+        else:
+            return { "error" : "invalid request" }
+        self.node.addwork (work)
+
+class CarrierClient (Element):
+    """The owner of all the console carrier client connections.
+    """
+    def __init__ (self, parent, port):
+        super ().__init__ (parent)
+        self.port = port
+        self.mop = parent.mop
+
+    def api (self, client, tag, reqtype, req):
+        """Open a console carrier client connection
+        Input: dest (MAC address), optional timeout in seconds (default: 3)
+        """
+        conn = CarrierClientConnection (self, self.parent, client, tag)
+        ret = conn.start (req)
+        return ret
 
 class CarrierServer (Element, timers.Timer):
     """The server side of the console carrier protocol.
@@ -1083,7 +1131,7 @@ class CarrierServer (Element, timers.Timer):
             if pid:
                 # Parent process.  Save the pty fd and set it
                 # to non-blocking mode
-                logging.debug ("Started console server for {} {} process {}",
+                logging.trace ("Started console server for {} {} process {}",
                                parent.name, self.remote, pid)
                 self.pendingoutput = b""
                 self.pty = fd
@@ -1099,7 +1147,7 @@ class CarrierServer (Element, timers.Timer):
 
     def release (self):
         self.node.timers.stop (self)
-        logging.debug ("Closed console server for {} {}",
+        logging.trace ("Closed console server for {} {}",
                        self.parent.name, self.remote)
         if self.pty:
             try:
@@ -1109,10 +1157,11 @@ class CarrierServer (Element, timers.Timer):
         self.parent.carrier_server = None
 
     def dispatch (self, item):
-        if isinstance (item, timers.Timer):
+        if isinstance (item, timers.Timeout):
             # Reservation timeout, clear any reservation
             if self.pty:
                 self.release ()
+            self.parent.carrier_server = None
         elif isinstance (item, packet.Packet):
             # Some received packet.
             res = self.remote
@@ -1124,7 +1173,6 @@ class CarrierServer (Element, timers.Timer):
                 self.release ()
             elif isinstance (item, ConsoleCommand):
                 # Command/poll message.
-                self.node.timers.stop (self)
                 self.node.timers.start (self, self.reservation_timer)
                 if item.seq == self.seq:
                     # Retransmit, so resend the previous message
@@ -1152,12 +1200,108 @@ class CarrierServer (Element, timers.Timer):
                     self.pendingoutput = b""
                     self.port.send (self.response, res)
     
-class LoopHandler (Element, timers.Timer):
+class LoopConnection (MopConnection):
+    def dispatch (self, work):
+        self.cancel ()
+        ret = dict (system = self.node.nodename,
+                    api = "mop", tag = self.tag)
+        if isinstance (work, timers.Timeout):
+            if not self.waiting:
+                if self.nml:
+                    # NML quits on timeout; send it the number not looped
+                    self.client.mop_loop_done (self.packets - len (self.delays))
+                    return
+                # Record a timeout
+                self.delays.append (-1)
+                if len (self.delays) == self.packets:
+                    return self.finished ()
+        else:
+            # Got a reply, record the time it took
+            self.delays.append (time.time () - self.sent)
+            if self.multidest:
+                self.firsthop = work.src
+            if len (self.delays) == self.packets:
+                return self.finished ()
+            if not self.fast:
+                self.waiting = True
+                self.node.timers.start (self, 1)
+                return
+        # Finished with a message, and we're not done yet.
+        self.send_req ()
+
+    def start (self, data, nml):
+        if not data:
+            # In case request data was omitted entirely, substitute an
+            # empty dictionary, which will do the right thing (all
+            # defaults apply).
+            data = { }
+        dest = data.get ("dest", LOOPMC)
+        if not isinstance (dest, list):
+            dest = [ dest ]
+        if not dest:
+            dest = [ LOOPMC ]
+        dest = [ Macaddr (d) for d in dest ]
+        self.multidest = dest == [ LOOPMC ]
+        if not self.multidest:
+            for d in dest:
+                if d.ismulti ():
+                    return { "status" : "invalid address" }
+        if len (dest) > 3:
+            return  { "status" : "too many addresses" }
+        # Add self as the last hop
+        dest.append (self.parent.port.macaddr)
+        self.timeout = int (data.get ("timeout", 3))
+        self.packets = int (data.get ("packets", 1))
+        if nml:
+            self.fast = True
+            self.payload = data["payload"]
+        else:
+            self.payload = b"Python! " * 12
+            self.fast = data.get ("fast", False)
+        if self.timeout < 1 or self.packets < 1:
+            return { "status" : "invalid arguments" }
+        ret = { "status" : "ok" }
+        self.delays = list ()
+        self.firsthop, *self.destlist = dest
+        self.nml = nml
+        # Build the message and make sure it's valid length
+        loopmsg, rnum = self.buildloop (self.destlist, self.payload)
+        if len (loopmsg) > 1500:
+            # Supply the upper limit, for the case of one hop (no assist)
+            return { "status" : "payload too long", "limit" : 1500 - 8 - 10 }
+        # Send the first request
+        self.send_req ()
+        
+    def send_req (self):
+        loopmsg, rnum = self.buildloop (self.destlist, self.payload)
+        self.waiting = False
+        self.sent = time.time ()
+        self.request (loopmsg, self.firsthop, self.parent.port, rnum,
+                      timeout = self.timeout)
+
+    def finished (self):
+        if self.nml:
+            self.client.mop_loop_done (self.firsthop)
+        else:
+            ret = dict (system = self.node.nodename,
+                        api = "mop", tag = self.tag, status = "ok",
+                        dest = self.firsthop, delays = self.delays)
+            self.client.send_dict (ret)
+
+    def buildloop (self, destlist, payload):
+        rnum = self.parent.parent.receipt.next ()
+        ret = LoopReply (receipt = rnum, payload = payload)
+        for dest in reversed (destlist):
+            ret = LoopFwd (dest = dest, payload = ret)
+        ret = LoopSkip (payload = ret)
+        return ret, rnum
+
+class LoopHandler (Element):
     """Handler for loopback protocol
     """
     def __init__ (self, parent, datalink):
-        Element.__init__ (self, parent)
-        timers.Timer.__init__ (self)
+        super ().__init__ (parent)
+        self.mop = parent.mop
         self.port = port = datalink.create_port (self, LOOPPROTO, pad = False)
         port.add_multicast (LOOPMC)
         self.pendingreq = None
@@ -1187,7 +1331,7 @@ class LoopHandler (Element, timers.Timer):
                 f.src = item.src
                 self.parent.deliver (f)
                 
-    def post_api (self, data, nml = False):
+    def api (self, client, tag, data, nml = False):
         """Perform a loop operation.
         Input: dest (MAC addresses), optional "timeout" in seconds (default: 3),
                optional "packets" -- count of packets (default: 1).
@@ -1207,68 +1351,9 @@ class LoopHandler (Element, timers.Timer):
                 If there is something wrong with the inputs, the return
                 value is a dict with element "status" containing
                 an error message.
+                Error results are delivered as the return value of this 
+                call, but success results are sent asynchronously via
+                send_dict to the API client, or mop_loop_done to NML.
         """
-        if not data:
-            # In case POST data was omitted entirely, substitute an
-            # empty dictionary, which will do the right thing (all
-            # defaults apply).
-            data = { }
-        dest = data.get ("dest", LOOPMC)
-        if not isinstance (dest, list):
-            dest = [ dest ]
-        if not dest:
-            dest = [ LOOPMC ]
-        dest = [ Macaddr (d) for d in dest ]
-        multidest = dest == [ LOOPMC ]
-        if not multidest:
-            for d in dest:
-                if d.ismulti ():
-                    return { "status" : "invalid address" }
-        if len (dest) > 3:
-            return  { "status" : "too many addresses" }
-        # Add self as the last hop
-        dest.append (self.port.macaddr)
-        timeout = int (data.get ("timeout", 3))
-        packets = int (data.get ("packets", 1))
-        if nml:
-            fast = True
-            payload = data["payload"]
-        else:
-            payload = b"Python! " * 12
-            fast = data.get ("fast", False)
-        if timeout < 1 or packets < 1:
-            return { "status" : "invalid arguments" }
-        ret = { "status" : "ok" }
-        delays = list ()
-        for i in range (packets):
-            loopmsg, rnum = self.buildloop (dest[1:], payload)
-            if len (loopmsg) > 1500:
-                return { "status" : "payload too long" }
-            sent = time.time ()
-            reply = self.parent.exchange (loopmsg, dest[0],
-                                          self.port, timeout, receipt = rnum)
-            if reply is None:
-                if nml:
-                    return packets - i
-                delays.append (-1)
-            else:
-                delays.append (time.time () - sent)
-                if multidest:
-                    dest[0] = reply.src
-                    ret["dest"] = str (dest[0])
-                if not fast:
-                    if i < packets - 1:
-                        time.sleep (1)
-        else:
-            if nml:
-                return dest[0]
-        ret["delays"] = delays
-        return ret
-
-    def buildloop (self, destlist, payload):
-        rnum = self.parent.receipt.next ()
-        ret = LoopReply (receipt = rnum, payload = payload)
-        for dest in reversed (destlist):
-            ret = LoopFwd (dest = dest, payload = ret)
-        ret = LoopSkip (payload = ret)
-        return ret, rnum
+        conn = LoopConnection (self, self.parent, client, tag)
+        return conn.start (data, nml)

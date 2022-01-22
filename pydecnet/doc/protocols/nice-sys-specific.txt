@@ -1,0 +1,284 @@
+System specific requests
+
+System specific requests start with 0x16 then the OS code, rest is
+unspecified.  Typical pattern seems to be that rest is a normal NICE
+encoded request, e.g., 0x14 for "show" which is the code for the
+standard "read information" message.
+
+OS codes (from netman40.txt):
+         1        RSTS
+         2        RSX family
+         3        TOPS-10/20
+         4        VMS
+         5        RT
+         6        CT
+         7        Communications Server
+
+VMS:
+
+show known links: 16 04 14 07 ff
+
+show known objects: 16 04 14 04 ff
+
+RSX:
+
+show known objects: 16 02 14 07 ff
+reply: 01 00 00 00 00 00 f4 01 40 00 fe 01 81 00 ff 01 81 00 08 02 81 01
+
+show known process: 16 02 14 05 ff
+
+show system: 16 02 14 06
+
+show alias ALL: 16 02 14 08 03 41 4c 4c  .....ALL
+
+show known alias: 16 02 14 08 ff
+
+DECnet/10,20 : the source code suggests that there aren't any system
+specific functions.
+
+RSTS:
+
+from mandf.mac:
+
+	ME$LNK	= 6.			;LINK			(RSTS)	;1.56
+	ME$OBJ	= 7.			;OBJECT			  (RSTS & RSX)
+ 
+	ME$AL2  = 3.			;ALIAS				(RSX)
+	ME$OB2	= 4.			;OBJECT				(RSX)
+	ME$PRO	= 5.			;PROCESS			(RSX)
+	ME$SYS	= 6.			;SYSTEM				(RSX)
+	ME$ALI  = 8.			;ALIAS				(RSX)
+
+
+System specific parameter codes used in standard "read information"
+replies:
+
+RSTS:
+
+Node (executor only):
+	MC$NRN	= 2100.+100.		;CURRENT NO. OF REACHABLE NODES (RSTS)
+	MC$NRM	= 2100.+101.		;MAX COUNT OF REACHABLE NODES   (RSTS)
+
+Node:
+	MP$RPA	= 2300.+00.		;RECEIVE PASSWORD		(RSX)
+	MP$TPA	= 2300.+01.		;TRANSMIT PASSWORD		(RSX)
+	MP$VER	= 2300.+10.		;VERIFICATION STATE		(RSX)
+ 
+;	MP$RPA	= 2900.+00.		;RECEIVE PASSWORD		(RT)
+;	MP$TPA	= 2900.+01.		;TRANSMIT PASSWORD		(RT)
+;	MP$VER	= 2900.+10.		;VERIFICATION STATE		(RT)
+ 
+	MP$ROP	= 2100.+20.		;RECEIVE PASSWORD ORG		(RSTS)
+	MP$RAP	= 2100.+21.		;RECEIVE PASSWORD ANS		(RSTS)
+	MP$TOP	= 2100.+22.		;TRANSMIT PASSWORD ORG		(RSTS)
+	MP$TAP	= 2100.+23.		;TRANSMIT PASSWORD ANS		(RSTS)
+;ads	MP$AKA	= 2100.+24.		;ALIAS NAME		(RSTS)	;4.01
+	MP$DAC	= 2100.+25.		;DEFAULT ACCOUNT		(RSTS)
+	MP$DTQ	= 2100.+26.		;DATA XMIT QUEUE MAX		(RSTS)
+	MP$INQ	= 2100.+27.		;INT/LS XMIT QUEUE MAX		(RSTS)
+	MP$VOL	= 2100.+28.		;VOLATILE PARAM FILE NAME	(RSTS)
+	MP$MRN	= 2100.+29.		;MAXIMUM NODE RECORD NUMBER  (RSTS,IV)
+	MP$BPS	= 2100.+44.		;MAXIMUM BUFFER POOL SIZE    (RSTS,IV)
+
+Line:
+	MP$VRF	= 2100.+11.		;VERIFICATION			(RSTS)
+ 
+	MP$OWN  = 2300.			;OWNER				(RSX)
+	MP$CCS  = 2300.+10.		;CONTROLLER CSR			(RSX)
+	MP$UCS  = 2300.+11.		;UNIT CSR			(RSX)
+	MP$VEC  = 2300.+12.		;VECTOR				(RSX)
+	MP$PRI  = 2300.+13.		;PRIORITY			(RSX)
+	MP$MDE	= 2300.+21.		;DEAD POLLING RATIO		(RSX)
+	MP$LLO  = 2300.+30.		;LOCATION			(RSX)
+;*D	MP$CCS	= 2900.+10.		;CONTROLLER CSR			(RT)
+;*D	MP$UCS	= 2900.+11.		;UNIT CSR			(RT)
+;*D	MP$VEC	= 2900.+12.		;VECTOR				(RT)
+;*D	MP$PRI	= 2900.+13.		;PRIORITY			(RT)
+
+;
+; LINE VERIFICATION MODE VALUES	(RSTS)
+;
+	LV$OFF	= 0.			;OFF (NO VERIFICATION)		(RSTS)
+	LV$ORG	= 1.			;USE ORIGINATE PASSWORDS	(RSTS)
+	LV$ANS	= 2.			;USE ANSWER PASSWORDS		(RSTS)
+
+Circuit:
+	MP$RES	= 2100.+10.		;AUTORESTART			(RSTS)
+ 
+	MP$MAC	= 2300.+20.		;MULTIPOINT ACTIVE RATIO	(RSX)
+
+;
+;    OBJECT
+;
+	MP$OAN	= 400.			;ACTIVE NAME			(RSX)
+	MP$OAC	= 410.			;ACTIVE LINKS			(RSX)
+	MP$ONA	= 500.			;NAME			  (RSTS, RSX)
+	MP$OCO	= 510.			;COPIES				(RSX)
+	MP$OUS	= 511.			;USER				(RSX)
+	MP$OVE	= 520.			;VERIFICATION		        (RSX)
+ 
+	MP$FIL	= 2100.+00.		;FILESPEC			(RSTS)
+	MP$PA1	= 2100.+01.		;PARAMETER 1			(RSTS)
+	MP$PA2	= 2100.+02.		;PARAMETER 2			(RSTS)
+	MP$OBT	= 2100.+03.		;TYPE				(RSTS)
+	MP$OVA	= 2100.+04.		;Verification			(RSTS)
+;
+;    LINK	(RSTS)
+;
+	MP$LLA	= 2100.+30.		;LOCAL LINK ADDRESS		(RSTS)
+	MP$RLA	= 2100.+31.		;REMOTE LINK ADDRESS		(RSTS)
+	MP$ULA	= 2100.+32.		;USER LINK ADDRESS		(RSTS)
+	MP$LST	= 2100.+33.		;LINK STATE			(RSTS)
+	MP$LND	= 2100.+34.		;LINK NODE NUMBER & NAME	(RSTS)
+	MP$LOB	= 2100.+35.		;LINK OBJECT NAME		(RSTS)
+	MP$LJB	= 2100.+36.		;LINK OBJECT JOB NUMBER		(RSTS)
+	MP$RIB	= 2100.+37.		;LINK OBJECT RIB NUMBER		(RSTS)
+	MP$LFL	= 2100.+38.		;LOCAL FLOW CONTROL OPTION	(RSTS)
+	MP$RFL	= 2100.+39.		;REMOTE FLOW CONTROL OPTION	(RSTS)
+	MP$LDR	= 2100.+40.		;LOCAL DATA REQUEST COUNT	(RSTS)
+	MP$RDR	= 2100.+41.		;REMOTE DATA REQUEST COUNT	(RSTS)
+	MP$LIR	= 2100.+42.		;LOCAL INTERRUPT REQ. COUNT	(RSTS)
+	MP$RIR	= 2100.+43.		;REMOTE INTERRUPT REQ. COUNT	(RSTS)
+;
+;    PROCESS	(RSX)
+;
+	MP$PLO	= 10.			;LOCATION			(RSX)
+	MP$PCO	= 20.			;MAXIMUM CONTROLLERS		(RSX)
+	MP$PLI	= 21.			;MAXIMUM LINES			(RSX)
+	MP$PAR	= 30.			;PARTITION			(RSX)
+;
+;    SYSTEM	(RSX)
+;
+	MP$ACB	= 10.			;ACTIVE CONTROL BUFFERS		(RSX)
+	MP$ASB	= 20.			;ACTIVE SMALL BUFFERS		(RSX)
+	MP$ALB	= 30.			;ACTIVE LARGE BUFFERS		(RSX)
+	MP$MCB	= 110.			;MAXIMUM CONTROL BUFFERS	(RSX)
+	MP$MSB	= 120.			;MAXIMUM SMALL BUFFERS		(RSX)
+	MP$MLB	= 130.			;MAXIMUM LARGE BUFFERS		(RSX)
+	MP$LBS	= 131.			;LARGE BUFFER SIZE		(RSX)
+	MP$NRB	= 140.			;MINIMUM RECEIVE BUFFERS 	(RSX)
+	MP$NPT	= 2900.+00.		;NET POOL: TOTAL BYTES		(RT)
+	MP$NPF	= 2900.+10.		;NET POOL: NUMBER OF FRAGMENTS	(RT)
+	MP$NPL	= 2900.+20.		;NET POOL: LARGEST FRAGMENT	(RT)
+;
+;    TRACE (RSX)
+;
+	MP$TST  = 100.			;STATE				(RSX)
+	MP$TFL  = 110.			;FILE				(RSX)
+	MP$BUF  = 120.			;BUFFER				(RSX)
+	MP$TLN  = 130.			;LINE				(RSX)
+;
+; NODE PASSWORD VALUES
+;
+	MP$SET	= 0.			;PASSWORD SET
+;
+; OBJECT USER VALUES
+;
+	MO$DEF	= 0.			;DEFAULT
+	MO$LOG	= 1.			;LOGIN
+;
+; OBJECT VERIFICATION VALUES	-- RSX
+;
+	MO$ON	= 0.			;ON
+	MO$OFF	= 1.			;OFF
+	MO$INS	= 2.			;INSPECT
+;
+; OBJECT VERIFICATION VALUES	-- RSTS
+;
+	MO$PRG	= 0			;PROGRAM--OLD STYLE
+	MO$VOF	= 2			;VERIFICATION OFF
+	MO$VON	= 4			;VERIFICATION ON
+;;; the actual values are 0, 1, and 2 respectively.
+;
+; LINK STATE VALUES	(RSTS)
+;
+	ML$RES	= 0.			;RESERVED			(RSTS)
+	ML$CID	= 1.			;CI DELIVERED			(RSTS)
+	ML$CIS	= 2.			;CI SENT			(RSTS)
+	ML$CIR	= 3.			;CI RECEIVED			(RSTS)
+	ML$CCS	= 4.			;CC SENT			(RSTS)
+	ML$RUN	= 5.			;RUN				(RSTS)
+	ML$DIP	= 6.			;DI PENDING			(RSTS)
+	ML$DIS	= 7.			;DI SENT			(RSTS)
+;
+; LINK FLOW CONTROL VALUES	(RSTS)
+;
+	ML$NON	= 0.			;NO FLOW CONTROL		(RSTS)
+	ML$SEG	= 1.			;SEGMENT FLOW CONTROL		(RSTS)
+	ML$MSG	= 2.			;MESSAGE FLOW CONTROL		(RSTS)
+;
+; NUMERIC VALUES.
+;
+	MN$UNL	= 377			;"UNLIMITED"
+
+From RSX manual:
+
+Alias parameters:
+
+100 Scope
+110 Destination
+
+Circuit:
+
+900 Level 1 cost
+904 Level 2 cost
+2320 Multipoint active
+
+Circuit counters:
+
+900 Peak adjacency
+
+Line:
+2300 Owner
+2310 Controller CSR
+2311 Unit CSR
+2312 Vector
+2313 Priority
+2321 Multipoint dead
+2330 Location
+
+PCL counters:
+2410 Attempts to become master
+2411 Process errors
+  0: Unrecognized receiver error
+  1: Unrecognized station error
+  2: Flag format error
+  3: Multiplexer address error
+2412 Device errors
+  0: Transmitter underrun
+  1: Transmitter overflow / UNIBUS timeout
+  2: Receiver overrun
+  3: Receiver overflow / UNIBUS timeout
+  4: Interrupt timeout
+
+Events:
+64.1 Routing database corrupt
+64.2 Routing database restored
+68.14 Normal usage terminated
+93.0 State change
+94.0 DCE detected packet error
+
+Node parameters:
+2300 Receive password
+2301 Transmit password
+2310 Verification state
+
+Node counters
+2300 Node maximum logical links active
+2310 Total received connect resource errors
+
+Process parameters (additional to above)
+0 State
+
+System counters
+0 Seconds since last zeroed
+10 Control buffer allocation failed
+20 Small buffer allocation failed
+30 Large buffer allocation failed
+40 Receive buffer allocation failed
+
+X.25 Access module
+
+2310 Destination
+2320 Number
+2330 Scope

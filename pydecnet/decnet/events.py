@@ -23,28 +23,84 @@ from .nice_coding import *
 # Base date/time for time code in event message (1 Jan 1977)
 jbase = datetime.datetime (1977, 1, 1)
 
-class EventBase (packet.Packet):
-    """Base class for DECnet events.  This defines the standard header
-    through the entity field.
+class EventEntityBase (packet.IndexedField):
+    """Base class for entities in event logger messages.
     """
+    classindex = { }
+    classindexkey = "enum"
+
+    @staticmethod
+    def instanceindexkey (buf):
+        return buf[0]
+    
+    @classmethod
+    def decode (cls, buf):
+        cls2 = cls.findclassb (buf)
+        return super (__class__, cls2).decode (buf[1:])
+
+    def encode (self):
+        return byte (self.enum) + super ().encode ()
+    
+    @classmethod
+    def defaultclass (cls, code):
+        """This method is called when findclass() is asked for a class
+        that is not in the index.  If so, we'll make up a new Event
+        Entity class based on StringEntityBase, and return that.
+        """
+        name = "EventEntity{}".format (code)
+        doc = "Entity #{}".format (code)
+        cdict = { "label" : doc, "enum" : code }
+        # Note that the metaclass will add the new class to the
+        # classindex, so we do this work only once for any given
+        # entity code.
+        c = type (name, (__class__, StringEntityBase), cdict)
+        return c
+
+class NoEntityBase (Field):
+    _singleton = None
+ 
+    # We'll make this a singleton class.  Not that it's really
+    # necessary, but why not.
+    def __new__ (cls):
+        if cls._singleton is None:
+            cls._singleton = super (__class__, cls).__new__ (cls)
+        return cls._singleton
+
+    @classmethod
+    def decode (cls, buf):
+        return cls (), buf
+
+    def encode (self):
+        return b""
+    
+    def __str__ (self):
+        return ""
+
+    def __format__ (self, arg):
+        return ""
+
+# Put this one first so LineEntity will override its index entry.
+class CircuitEventEntity (EventEntityBase, CircuitEntity):
+    enum = 3
+    # Also can decode miscoded fields in DECnet/E events, where
+    # messages supposed to be for circuit entities are coded as having
+    # a line entity instead.
+    classindexkeys = (1, 3)
+class NoEntity (EventEntityBase, NoEntityBase): enum = 255
+class NodeEventEntity (EventEntityBase, NodeEntity): enum = 0
+class LineEventEntity (EventEntityBase, LineEntity): enum = 1
+class LoggingEventEntity (EventEntityBase, LoggingEntity): enum = 2
+class ModuleEventEntity (EventEntityBase, ModuleEntity): enum = 4
+class AreaEventEntity (EventEntityBase, AreaEntity): enum = 5
+    
+class Event (packet.IndexedPacket):
+    """Base class for DECnet events.  This defines the standard header
+    up to but not including the entity field.
+    """
+    classindexkey = "event_class"
     classindex = { }
     loglevel = logging.INFO
     
-    @classmethod
-    def classindexkey (cls):
-        return cls.instanceindexkey (cls)
-
-    def instanceindexkey (self):
-        return self.event_class, self.event_code
-
-    @classmethod
-    def defaultclass (cls, idx):
-        ecls, ecode = idx
-        try:
-            return cls.classindex[(ecls, None)]
-        except KeyError:
-            return cls.classindex[(None, None)]
-        
     _layout = (( packet.B, "function", 1 ),
                ( packet.BM,
                  ( "console", 0, 1 ),
@@ -61,6 +117,17 @@ class EventBase (packet.Packet):
                ( NiceNode, "source" ))
     function = 1
 
+    @classmethod
+    def defaultclass (cls, idx):
+        # The default class is the one indexed by None in the
+        # classindex, if there is one, otherwise the class used for
+        # the decode.  But if the classindex is a list (as is done for
+        # the event code lookup) the base class is used as default.
+        idx = cls.classindex
+        if isinstance (idx, dict):
+            return idx.get (None, cls)
+        return cls
+    
     def __new__ (cls, entity = None, *args, **kwargs):
         return super (__class__, cls).__new__ (cls)
 
@@ -104,19 +171,16 @@ class EventBase (packet.Packet):
         if not self.ms_absent:
             ts = "{}.{:03d}".format (ts, self.milliseconds)
         if self.__doc__:
-            l1 = "Event type {}.{}, {}".format (self.event_class,
-                                                self.event_code,
-                                                self.__doc__)
+            doc = ", " + self.__doc__
         else:
-            l1 = "Event type {}.{}".format (self.event_class, self.event_code)
-        ret = [ l1, "  From node {}, occurred {}".format (self.source, ts) ]
+            doc = ""
+        hdr = "Event type {0.event_class}.{0.event_code}{1[doc]}\n" \
+              "From node {0.source}, occurred {1[ts]}"
         # "s" means "short" for node entity, just plain string for
         # others.
-        e = "{:s}".format (self.entity_type)
-        if e:
-            ret.append ("  {}".format (e))
-        ret.append (NICE.format (self))
-        return '\n'.join (ret)
+        return NICE.format (self, compact = True, hdr = hdr,
+                            add = ("{:s}".format (self.entity_type),),
+                            doc = doc, ts = ts)
 
     def setparams (self, **kwds):
         for k, v in kwds.items ():
@@ -131,24 +195,19 @@ class EventBase (packet.Packet):
                 pass
             setattr (self, k, v)
 
-class Event (EventBase):
-    event_class = None
-    event_code = None
-    
 class DefaultEvent (Event):
     # This is the event class used for decoding any event message with a
     # class code we do not know.  It accepts any NICE data but doesn't
     # know any of the parameter codes.
-    #
-    # Note that this definition must come after any other event base
-    # classes or default classes that don't define a particular class or
-    # code, so this one ends up as the default class to use for
-    # decoding.
+    classindexkeys = ( None, )
     _layout = (( EventEntityBase, "entity_type" ),
                ( NICE, True ))
 
 class NetmanBase (Event):
     event_class = 0
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     nicedef = ( NICE, True,
                 ( 0, C1, "Service", None, ( "Load", "Dump" )),
                 ( 1, CM, "Status", None, ( C1, C2, AI )),
@@ -168,17 +227,20 @@ class NetmanBase (Event):
                     "Tertiary loader",
                     "System" )))
 
-class NetmanEvent (NetmanBase):
-    _layout = (( NoEntity, "entity_type" ),
-               NetmanBase.nicedef ) 
-                     
 class NetmanDefaultEvent (NetmanBase):
+    # This is the event class used for decoding any event message with
+    # a network management (class 0) event code we do not know.  It
+    # accepts any NICE data but doesn't know any of the parameter
+    # codes.
+    classindexkeys = range (32)
     _layout = (( EventEntityBase, "entity_type" ),
                NetmanBase.nicedef ) 
                      
-class events_lost (NetmanEvent):
+class events_lost (NetmanBase):
     "Event records lost"
     event_code = 0
+    _layout = (( NoEntity, "entity_type" ),
+               NetmanBase.nicedef ) 
     
 class node_ctrs (NetmanBase):
     "Automatic node counters"
@@ -186,10 +248,11 @@ class node_ctrs (NetmanBase):
     _layout = (( NodeEventEntity, "entity_type" ),
                ( NICE, True ) + node_counters )
 
-# TODO: counters
-class line_ctrs (NetmanEvent):
+class line_ctrs (NetmanBase):
     "Automatic line counters"
     event_code = 2
+    _layout = (( LineEventEntity, "entity_type" ),
+               ( NICE, True ) + line_counters )
 
 class circ_svc (NetmanBase):
     "Automatic service"
@@ -197,24 +260,19 @@ class circ_svc (NetmanBase):
     _layout = (( CircuitEventEntity, "entity_type" ),
                NetmanBase.nicedef ) 
 
-# TODO
-class line_zero (NetmanEvent):
+class line_zero (line_ctrs):
     "Line counters zeroed"
     event_code = 4
 
-class node_zero (NetmanBase):
+class node_zero (node_ctrs):
     "Node counters zeroed",    
     event_code = 5
-    _layout = (( NodeEventEntity, "entity_type" ),
-               ( NICE, True ) + node_counters )
 
-class circ_loop (NetmanBase):
+class circ_loop (circ_svc):
     "Passive loopback"
     event_code = 6
-    _layout = (( CircuitEventEntity, "entity_type" ),
-               NetmanBase.nicedef ) 
 
-class circ_svcabt (circ_loop):
+class circ_svcabt (circ_svc):
     "Aborted service request"
     event_code = 7
 
@@ -232,6 +290,9 @@ class ctrs_zero (auto_ctrs):
 se_state = ( "On", "Off", "Shut", "Restricted" )
 class SessionEvent (Event):
     event_class = 2
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, C1, "Reason", None,
@@ -256,7 +317,6 @@ class SessionEvent (Event):
                                  "shut" : 2,
                                  "restricted" : 3, } }
 
-
 class node_state (SessionEvent):
     "Local node state change"
     event_code = 0
@@ -268,6 +328,9 @@ class acc_rej (SessionEvent):
     
 class EclEvent (Event):
     event_class = 3
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, CM, "Message", None, ( H1, DU2, DU2, HI ) ),
@@ -290,8 +353,12 @@ class db_reuse (EclEvent):
     "Data base reused"
     event_code = 2
 
-class RoutingEvent (Event):
+class RoutingBase (Event):
     event_class = 4
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
+class RoutingEvent (RoutingBase):
     _layout = (( CircuitEventEntity, "entity_type" ),
                ( NICE, True,
                ( 0, CM, "Packet header", "eth_packet_header",
@@ -406,9 +473,8 @@ class init_oper (RoutingEvent):
     "Initialization failure, operator fault"
     event_code = 13
 
-class reach_chg (Event):
+class reach_chg (RoutingBase):
     "Node reachability change"
-    event_class = 4
     event_code = 14
     _layout = (( NodeEventEntity, "entity_type" ),
                ( NICE, True,
@@ -423,9 +489,8 @@ class adj_rej (RoutingEvent):
     "Adjacency rejected"
     event_code = 16
 
-class area_chg (Event):
+class area_chg (RoutingBase):
     "Area reachability change"
-    event_class = 4
     event_code = 17
     _layout = (( AreaEventEntity, "entity_type" ),
                ( NICE, True,
@@ -444,8 +509,12 @@ class adj_oper (RoutingEvent):
 dl_state = ( "Halted", "IStrt", "AStrt", "Running", "Maintenance" )
 dl_state11 = ( "On", "Off", "Shut" )
 
-class DlEvent (Event):
+class DlBase (Event):
     event_class = 5
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
+class DlEvent (DlBase):
     _layout = (( CircuitEventEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, C1, "Old state", None, dl_state ),
@@ -485,7 +554,10 @@ class DlEvent (Event):
                      "Unrecognized frame destination")),
                  ( 17, DU2, "Distance" ),
                  ( 18, CM3, "Ethernet header", None, ( HI, HI, HI )),
-                 ( 19, H1, "Hardware status" )))
+                 ( 19, H1, "Hardware status" ))
+                 # Circuit counters are documented as event arguments
+                 # for events 5.3, 5.4, and 5.5.
+                 + circuit_counters)
 
     _values = { "old_state" :  { "halted" : 0,
                                  "istrt" : 1,
@@ -566,9 +638,8 @@ class line_coll (DlEvent):
     "Collision detect check failed"
     event_code = 16
 
-class mod_dteup (Event):
+class mod_dteup (DlBase):
     "DTE up"
-    event_class = 5
     event_code = 17
     _layout = (( ModuleEventEntity, "entity_type" ),
                ( NICE, True,
@@ -580,6 +651,9 @@ class mod_dtedown (mod_dteup):
 
 class PhyEvent (Event):
     event_class = 6
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( LineEventEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, O2, "Device register" ),
@@ -613,6 +687,9 @@ class line_perf (PhyEvent):
 
 class RstsAppEvent (Event):
     event_class = 33
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, C1, "Access", None, ( "Local", "Remote" )),
@@ -640,6 +717,9 @@ class rsts_fal (RstsAppEvent):
 
 class RstsSessionEvent (Event):
     event_class = 34
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True,
                  ( 0, C1, "Reason", None,
@@ -668,6 +748,9 @@ class rsts_spawn_fail (RstsSessionEvent):
 
 class RsxEvent (Event):
     event_class = 64
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True ))
 
@@ -681,6 +764,9 @@ class rsx_rdb_restored (RsxEvent):
 
 class rsx_93 (Event):
     event_class = 93
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True ))
 
@@ -690,6 +776,9 @@ class rsx_state_change (rsx_93):
 
 class rsx_94 (Event):
     event_class = 94
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True ))
     
@@ -703,6 +792,9 @@ class rsx_dce_err (rsx_94):
 
 class VmsEvent (Event):
     event_class = 128
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True ))
 
@@ -724,6 +816,9 @@ class vms_proc_term (VmsEvent):
 
 class VmsDnsEvent (Event):
     event_class = 353
+    classindexkey = "event_code"
+    classindex = nlist (32)
+
     _layout = (( NoEntity, "entity_type" ),
                ( NICE, True ))
 
@@ -739,11 +834,9 @@ class vms_dns_advert (VmsDnsEvent):
 # for updating the description in config.txt.
 def printEventLevels ():
     levels = collections.defaultdict (list)
-    for k, v in EventBase.classindex.items ():
-        ec, en = k
-        if en is None:
-            continue
-        levels[v.loglevel].append (v)
+    for ec, vc in Event.classindex.items ():
+        for en, v  in vc.classindex.items ():
+            levels[v.loglevel].append (v)
     for l, elist in sorted (levels.items ()):
         print ("\nLevel {}".format (logging.logging.getLevelName (l)))
         for v in elist:

@@ -19,9 +19,10 @@ import collections
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
-DNVERNUM = "1.0"
-DNVERSION = "DECnet/Python V{}".format (DNVERNUM)
-CYEAR = "2021"
+DNVERNUM = "1.1"
+# Beta ("T") version for now
+DNVERSION = "DECnet/Python T{}".format (DNVERNUM)
+CYEAR = "2022"
 AUTHORS = "Paul Koning"
 
 # Defaults
@@ -117,9 +118,14 @@ def makebytes (v):
 def byte (n):
     return bytes ((n,))
 
+def nlist (n, ent = None):
+    return [ ent ] * n
+
+def irange (first, last):
+    return range (first, last + 1)
+
 def require (buf, minlen):
     if len (buf) < minlen:
-        logging.debug ("Not {} bytes left in packet buffer", minlen)
         raise MissingData
 
 class Field:
@@ -148,11 +154,31 @@ class Field:
     """
     __slots__ = ()
     lastfield = False
+    classindexmask = 0
 
     @abc.abstractmethod
     def encode (self):
         pass
 
+    def format (self, x):
+        return str (self)
+
+    @classmethod
+    def length (cls, *args):
+        # Return the length of this field, if constant, otherwise None
+        return None
+    
+    @classmethod
+    def makegetindex (cls, name, off, fname, *args):
+        # If "name" is not the field name of this field (or one of the
+        # field names in a field group), return the field length and
+        # None.  If it is, return 0 and a function that will return
+        # that field given the buffer, as an int.
+        #
+        # The default always says "no name match".  This is also the
+        # right answer for fields that are not integers.
+        return cls.length (*args), None
+    
     @classmethod
     def checktype (cls, name, val, *args):
         """This method is called prior to encoding the value.  The "val"
@@ -332,8 +358,7 @@ class Nodeid (Field, int):
 
     @classmethod
     def decode (cls, buf):
-        if len (buf) < 2:
-            raise MissingData
+        require (buf, 2)
         return cls (buf[:2]), buf[2:]
 
     def encode (self):
@@ -448,8 +473,7 @@ class Macaddr (Field, bytes):
 
     @classmethod
     def decode (cls, buf):
-        if len (buf) < 6:
-            raise MissingData
+        require (buf, 6)
         return cls (buf[:6]), buf[6:]
 
     def encode (self):
@@ -509,8 +533,7 @@ class Ethertype (Field, bytes):
 
     @classmethod
     def decode (cls, buf):
-        if len (buf) < 2:
-            raise MissingData
+        require (buf, 2)
         return cls (buf[:2]), buf[2:]
 
     def encode (self):
@@ -561,8 +584,7 @@ class Version (Field, bytes):
 
     @classmethod
     def decode (cls, buf):
-        if len (buf) < 3:
-            raise MissingData
+        require (buf, 3)
         return cls (buf[:3]), buf[3:]
 
     def encode (self):
@@ -612,9 +634,7 @@ class Timestamp (Field):
         """Decode delta t from a packet.  This doesn't really work 
         well because of time skew but it's a reasonable approximation.
         """
-        if len (buf) < flen:
-            logging.debug ("Not {} bytes left for integer field", flen)
-            raise MissingData
+        require (buf, flen)
         return cls (int.from_bytes (buf[:flen], LE)), buf[flen:]
 
     def __format__ (self, format):
@@ -687,44 +707,6 @@ class StopThread (threading.Thread):
                     logging.trace ("Thread {} stopped", self.name)
         return True
 
-class WorkHandler (object):
-    """A simple object that accepts a work item as Element would, and
-    delivers it to another thread that's waiting for it.
-    """
-    def __init__ (self):
-        self.sem = threading.Semaphore (value = 0)
-        self.item = None
-        
-    def dispatch (self, work):
-        logging.trace ("WorkHandler work posted {}", repr (work))
-        self.item = work
-        self.sem.release ()
-
-    def wait (self, timeout = 2):
-        if self.sem.acquire (timeout = timeout):
-            return self.item
-        # Timeout
-        return None
-
-class ConnApiHelper (Element):
-    """A helper class to implement the API for a connection class.
-    """
-    def __init__ (self, parent, connclass):
-        super ().__init__ (parent)
-        self.connclass = connclass
-        
-    def post_api (self, data):
-        if "handle" in data:
-            try:
-                conn = self.parent.conn_clients[data["handle"]]
-            except KeyError:
-                return { "status" : "unknown handle" }
-            conn.last_post = time.time ()
-            return conn.post_api (data)
-        listen = WorkHandler ()
-        conn = self.connclass (self.parent, data, listen)
-        return listen.wait (timeout = 60)
-    
 class BaseCounters (object):
     """Base class for counters.  This handles the time-since-zeroed
     element, and provides a method for copying the counters to another

@@ -1,0 +1,769 @@
+#!/usr/bin/env python3
+
+"""Simple NCP application for DECnet/Python
+
+Copyright (C) 2022 by Paul Koning
+
+This is a basic but useable implementation of NCP in Python, using the
+DECnet API in the DECnet/Python stack.  It supports both the very
+primitive NICE protocol in Phase II as well as the standard NICE
+protocol of Phase III and IV.  In addition, it supports all the
+system-specific NICE functions for which I have been able to find
+useable documentation.
+
+The command syntax generally conforms to the DECnet Network Management
+standard.  Some consistency checks are not implemented and are left to
+the listener to enforce; for example, you can say "SHOW ADJACENT
+CIRCUITS" even though "ADJACENT" is not an information type applicable
+to anything other than nodes.  The syntax is the Phase IV style, even
+for Phase II requests, i.e., it does not use the Phase II keyword
+order.  So you'd say "SHOW KNOWN LINES STATUS", not "SHOW STATUS KNOWN
+LINES" as is the Phase II pattern.
+
+At the moment only SHOW, LIST, and LOOP commands are implemented, as
+well as the internal commands SET EXECUTOR NODE, CLEAR EXECUTOR NODE,
+TELL, and EXIT.
+
+By default the LIST/SHOW output is tabular where this fits well and
+where VMS and RSX do this, and in line form otherwise.  The line form
+is the "compact" form as in RSX, i.e., several items per line if they
+are short.  But counters always display one per line.  To suppress the
+compact form and get line output one item per line, use the -l switch.
+To suppress tabular output and use line output for everything
+(matching the RSTS/E format), use -ll.
+"""
+
+import sys
+import os
+import readline
+import re
+import argparse
+import traceback
+
+from decnet.common import *
+from decnet.nicepackets import *
+from decnet import connectors
+from decnet.session import reject_text
+from decnet.logging import dump_packet
+
+dnparser = argparse.ArgumentParser ()
+dnparser.add_argument ("cmd", nargs = "*", help = "Command to execute")
+dnparser.add_argument ("-D", "--debug", action = "store_true",
+                       default = False, help = "Show debug output")
+dnparser.add_argument ("-l", "--long", action = "count",
+                       default = 0,
+                       help = """Always print one parameter per line
+                              for name = value output.  If repeated,
+                              print one parameter per line always,
+                              suppressing tabular output.""")
+
+class NCPError (Exception):
+    "General NCP error"
+
+    def __str__ (self):
+        return self.__doc__.format (*self.args)
+    
+class ConnFail (NCPError): "Error connecting to NML"
+class UnxReply (NCPError): "Unexpected reply from NML"
+class Badkw (NCPError): "Unrecognized keyword {}"
+class Extra (NCPError): "Extraneous token(s) {}"
+class Incomplete (NCPError): "Incomplete command"
+class TellNest (NCPError):
+    "TELL or SET EXECUTOR NODE or CLEAR EXECUTOR NODE invalid after TELL"
+class Unsupported2 (NCPError): "{} not supported in Phase II"
+class NYI (NCPError): "Not yet implemented"
+    
+VERSION = b"\x04\x00\x00"
+
+qtok_re = re.compile (r"""((?:"[^"]*")|(?:'[^']*'))|(\S+)""")
+
+# Formatting classes.  These have the same field names as the actual
+# Phase II response packets, but in a NICE code table.  This is so we
+# can give this class to NICE.format to display the response data.
+# For that to work the field names in the NICE code tables here have
+# to match the field names in the actual data layout packet class.
+# The classes defined here are not used otherwise, in particular they
+# do not represent any real protocol encoding of any message.
+class P2FmtReadExecStatusReply (packet.Packet):
+    _layout = ((NICE, True,
+                ( 0, AI, "Name" ),
+                ( 1, DU1, "ID" ),
+                ( 2, C1, "State",  None, ( "On", "Off", "Shut" ) ),
+                ( 3, AI, "Default host", "defhost" ),
+                ( 4, CMVersion, "Routing version" ),
+                ( 5, CMVersion, "Communication version", "comm_version" ),
+                ( 6, AI, "System" )),)
+
+class P2FmtReadLineStatusReply (P2NiceReadInfoReply):
+    _layout = (( P2LineEntity, "entity" ),
+               ( NICE, True,
+                 ( 0, C1, "State", None,
+                       ( "On", "Off", "Maintenance",
+                         "Controller Loop", "Cable Loop" ) ),
+                 ( 1, AI, "Adjacent node" )))
+p2linestathdr = "Line ID         State           Adjacent Node"
+p2linestatfmt = "{0.entity!s:<16s}{0.state!s:<16s}{0.adjacent_node}"
+
+# Container class for access control parameters
+class acc:
+    username = password = account = ""
+    
+class i3dict (dict):
+    """A dictionary that matches on 3-character case insensitive
+    abbreviations of the key but verifies that the whole supplied key is
+    correct.
+
+    Not all standard dict methods are implemented since some aren't needed.
+    """
+    def __init__ (self, other = None, **kwargs):
+        if other:
+            if isinstance (other, dict):
+                for k, v in other.items ():
+                    self[k] = v            
+            else:
+                for k, v in other:
+                    self[k] = v            
+        for k, v in kwargs.items ():
+            self[k] = v
+            
+    def __contains__ (self, key):
+        try:
+            self[key]
+            return True
+        except KeyError:
+            return False
+
+    def __delitem__ (self, key):
+        try:
+            self[key]
+            super ().__delitem__ (key[:3].lower ())
+        except KeyError:
+            raise KeyError (key) from None
+
+    def __getitem__ (self, key):
+        keyl = key.lower ()
+        try:
+            k, v = super ().__getitem__ (keyl[:3])
+        except KeyError:
+            raise KeyError (key) from None
+        if not k.startswith (keyl):
+            raise KeyError (key)
+        return v
+
+    def __setitem__ (self, key, val):
+        keyl = key.lower ()
+        super ().__setitem__ (keyl[:3], (keyl, val))
+
+    def __str__ (self):
+        return str ({ k : v  for (k, v) in self.items () })
+
+    __repr__ = __str__
+
+    @classmethod
+    def fromkeys (cls, i, val = None):
+        raise NotImplementedError
+    
+    def keys (self):
+        for k, v in super ().items ():
+            yield v[0]
+            
+    def values (self):
+        for v in super ().values ():
+            yield v[1]
+            
+    def items (self):
+        yield from super ().values ()
+
+    def pop (self, *args):
+        raise NotImplementedError
+
+    popitem = pop
+
+    def setdefault (self, key, val):
+        key = key.lower ()
+        return super ().setdefault (keyl[:3], (key, val))
+
+def i3eq (a, b):
+    "Compare token a with expected b, or list of a with expected list b"
+    if isinstance (a, str):
+        return b.startswith (a.lower ())
+    if len (a) < len (b):
+        return False
+    for ae, be in zip (a, b):
+        if not i3eq (ae, be):
+            return False
+    return True
+
+def makeparsetree (msgclass, index = None, **extra):
+    # Build a tree of i3dict objects to match the NICE parameter names
+    # defined for this packet type.  Returns the i3dict that is the
+    # root of the tree (the one matching the first of possibly several
+    # tokens).  Non-leaf entries have another i3dict as the value for
+    # the key; leaf entries have a field descriptor.
+    #
+    # The field descriptor is a tuple.  For parameters that don't have
+    # named values, the tuple contains parameter class and packet
+    # attribute name.  For parameters with named values, the tree
+    # building extends to the names of the values, and the tuple
+    # contains the associated (integer) value and the packet attribute
+    # name.
+    ret = i3dict ()
+    if index is not None:
+        for i in msgclass.classindexkeys:
+            index[i] = (msgclass, ret)
+    if msgclass:
+        ftype, fname, niceargs = msgclass._codetable[-1]
+        resp, pdict, flist = niceargs
+        assert issubclass (ftype, NICE)
+        for param, pcls, fn, desc, vals in flist:
+            desc = desc.split (" ")
+            d = ret
+            for nonleaf in desc[:-1]:
+                try:
+                    d2 = d[nonleaf]
+                except KeyError:
+                    d[nonleaf] = d2 = i3dict ()
+                d = d2
+            last = desc[-1]
+            if vals and issubclass (pcls, C1):
+                # Build a subtree for each named value.
+                try:
+                    d2 = d[last]
+                except KeyError:
+                    d[last] = d2 = i3dict ()
+                if isinstance (vals, dict):
+                    it = vals.items ()
+                else:
+                    it = enumerate (vals)
+                for n, s in it:
+                    s = s.split (" ")
+                    for nonleaf in s[:-1]:
+                        try:
+                            d3 = d2[nonleaf]
+                        except KeyError:
+                            d2[nonleaf] = d3 = i3dict ()
+                        d2 = d3
+                    d2[s[-1]] = (n, fn)
+            else:
+                d[last] = (pcls, fn)
+    # Extra parameters are given as keywords with the value class.
+    # Here we assume those names are a single word.
+    for k, v in extra.items ():
+        if not isinstance (v, tuple):
+            v = (v, k.lower ())
+        ret[k] = v
+    return ret
+
+# Parse tree for entities, general case
+rsxedict2 = i3dict (objects = RSXObjReqEntity,
+                    processes = RSXProcessReqEntity)
+
+rsxedict = i3dict (known = (rsxedict2, -1),
+                   object = RSXObjReqEntity,
+                   system = RSXSysReqEntity (0, 0),
+                   process = RSXProcessReqEntity)
+
+rstsedict2 = i3dict (objects = RSTSObjReqEntity,
+                    links = RSTSLinkReqEntity)
+
+rstsedict = i3dict (known = (rstsedict2, -1),
+                   object = RSTSObjReqEntity,
+                   link = RSTSLinkReqEntity)
+
+vmsedict2 = i3dict (objects = VMSObjReqEntity,
+                    links = VMSLinkReqEntity)
+
+vmsedict = i3dict (known = (vmsedict2, -1),
+                   object = VMSObjReqEntity,
+                   link = VMSLinkReqEntity)
+
+sysspecific = i3dict (rsx = (NiceRSXShowBase, rsxedict),
+                      rsts = (NiceRSTSShowBase, rstsedict),
+                      vms = (NiceVMSShowBase, vmsedict))
+
+edict2 = i3dict (nodes = NodeReqEntity,
+                lines = LineReqEntity,
+                logging = LoggingReqEntity,
+                circuits = CircuitReqEntity,
+                modules = ModuleReqEntity,
+                areas = AreaReqEntity)
+
+edict = i3dict (known = (edict2, -1),
+                active = (edict2, -2),
+                loop = (edict2, -3),
+                adjacent = (edict2, -4),
+                significant = (edict2, -5),
+                executor = NodeReqEntity (0, 0),
+                node = NodeReqEntity,
+                line = LineReqEntity,
+                logging = LoggingReqEntity,
+                circuit = CircuitReqEntity,
+                module = ModuleReqEntity,
+                area = AreaReqEntity)
+
+p2edict2 = i3dict (lines = P2LineEntity)
+
+p2edict = i3dict (known = (p2edict2, "*"),
+                  executor = NodeReqEntity (0, 0),
+                  line = P2LineEntity)
+
+# Parse dictionary for loop command entities
+loopedict = i3dict (node = NodeReqEntity,
+                    line = LineReqEntity,
+                    circuit = CircuitReqEntity)
+
+# Parse dictionary for information kinds
+info = i3dict (summary = 0,
+               status = 1,
+               characteristics = 2,
+               counters = 3,
+               events = 4)
+
+p2info = i3dict (status = 0,
+                 counters = 3)
+
+loopindex = { }
+loopnodeparams = makeparsetree (NiceLoopNode, index = loopindex,
+                                user = (AI, "username"),
+                                password = AI, account = AI)
+looplineparams = makeparsetree (NiceLoopLine, index = loopindex)
+loopcircparams = makeparsetree (NiceLoopCircuit, index = loopindex)
+accessparams = makeparsetree (None, user = (AI, "username"),
+                              password = AI, account = AI)
+
+def parseargs (pd, rest, pkt, partial = False):
+    # Parse "rest" according to parse tree "pd" into "pkt".  Return a
+    # pair of the resulting packet and the remaining token list.  If
+    # partial is False (the default) the entire input must be
+    # processed, in that case the remaining token list will always be
+    # empty.
+    # Instead of a parse tree for "pd", a packet instance or class may
+    # be supplied, which will be converted into a parse tree.
+    if isinstance (pd, type) and issubclass (pd, packet.Packet) or \
+       isinstance (pd, packet.Packet):
+        if isinstance (pd, type):
+            pd = makeparsetree (pd)
+        else:
+            pd = makeparsetree (type (pd))
+    d = pd
+    while rest:
+        tok, *rest2 = rest
+        try:
+            d2 = d[tok]
+            rest = rest2
+        except KeyError:
+            if partial and d is pd:
+                # Unrecognized keyword, not in the middle, ok
+                break
+            raise Badkw (tok)
+        if isinstance (d2, i3dict):
+            d = d2
+            continue
+        pcls, fn = d2
+        d = pd
+        if isinstance (pcls, int):
+            setattr (pkt, fn, pcls)
+        else:
+            tok, *rest = rest
+            setattr (pkt, fn, pcls (tok))
+    if d is not pd:
+        # Input ended in mid-keyword
+        raise Incomplete
+    return pkt, rest
+
+def print_error (rh):
+    # Error reply
+    if version == 2:
+        msg = retcode_text[rh.retcode]
+        print ("Error reply from NML:", msg)
+    else:
+        msg = retcode_text[rh.retcode]
+        try:
+            detail = detail_text[rh.retcode][rh.detail]
+        except KeyError:
+            if rh.detail == 0xffff:
+                detail = ""
+            else:
+                detail = "Detail #{}".format (rh.detail)
+        print ("Error reply from NML:", msg)
+        if detail:
+            print (" ", detail)
+        if rh.message:
+            print (" ", rh.message)
+
+def docmd (rest):
+    "Execute the supplied tokens"
+    tok, *rest = rest
+    try:
+        act, perm = cmd[tok]
+    except KeyError:
+        raise Badkw (tok)
+    try:
+        act (perm, rest)
+    except Exception as e:
+        if isinstance (e, KeyError):
+            e = Badkw (e.args[0])
+        if isinstance (e, ValueError) and str (e).startswith ("not enough"):
+            e = Incomplete ()
+        print ("Error processing command:\n", e)
+        traceback.print_exc ()
+        
+def dotell (perm, rest):
+    global dest, conn, version
+    savedest = dest
+    saveconn = conn
+    savever = version
+    newdest, *rest = rest
+    cparams, rest = parseargs (accessparams, rest, acc (), True)
+    tok, *rest = rest
+    try:
+        act, perm = cmd[tok]
+    except KeyError:
+        raise Badkw (tok)
+    if act == dotell or (not perm and (act == doset or act == doclear)
+                         and i3eq (rest, ("executor", "node"))):
+        raise TellNest
+    try:
+        conn = None
+        doconnect (newdest, cparams)
+        act (perm, rest)
+    finally:
+        doconnect (None, None)
+        dest = savedest
+        conn = saveconn
+        version = savever
+
+def doset (perm, rest):
+    if not perm and i3eq (rest, ("executor", "node")):
+        # Set executor node
+        try:
+            newdest = rest[2].upper ()
+            cparams, x = parseargs (accessparams, rest[3:], acc ())
+            doconnect (newdest, cparams)
+            return
+        except Exception as e:
+            # Drop back to local
+            doconnect (None, None)
+    raise NYI
+
+def doshow (perm, rest):
+    if version == 2:
+        if perm:
+            raise Unsupported2 ("LIST")
+        ent, rest = getent (rest, p2edict)
+        if rest:
+            what, *rest2 = rest
+            if rest2:
+                raise Extra (' '.join (rest2))
+            what = p2info[what]
+        else:
+            what = 0
+        # Figure out what to send
+        req = None
+        if isinstance (ent, NodeReqEntity):
+            if what == 0:
+                req = P2NiceReadExecStatus ()
+        else:
+            if what:
+                req = P2NiceReadLineCounters ()
+            else:
+                req = P2NiceReadLineStatus ()
+            req.entity = ent
+        if not req:
+            raise Unsupported2 ("Request")
+            return
+    else:
+        showcls = NiceReadInfoHdr
+        entdict = edict
+        try:
+            showcls, entdict = sysspecific[rest[0]]
+            rest = rest[1:]
+        except KeyError:
+            pass
+        ent, rest = getent (rest, entdict)
+        if rest:
+            what, *rest2 = rest
+            try:
+                what = info[what]
+                rest = rest2
+            except KeyError:
+                what = None
+        else:
+            what = 0
+        req = showcls.findclass (ent.e_type) ()
+        if rest:
+            # Try to parse any qualifiers
+            req, rest = parseargs (req, rest, req, True)
+        # Look for a possible information type after qualifiers
+        if rest:
+            if what is not None:
+                raise Extra (' ',join (rest))
+            what, *rest2 = rest
+            if rest2:
+                raise Extra (' '.join (rest2))
+            try:
+                what = info[what]
+            except KeyError:
+                raise Badkw (what)
+        if what is None:
+            what = 0    # default to Summary
+        req.permanent = perm
+        req.info = what
+        req.entity_type = ent.e_type
+        req.entity = ent
+    if debug:
+        print ("request:")
+        print (dump_packet (bytes (req)))
+    reply = req.replyclass
+    hdr = rowfmt = None
+    rowfields  = ()
+    if long < 2:
+        # Not -ll
+        h = reply.rowheader
+        if h:
+            fmt = reply.rowformat
+            fn = reply.rowfields
+            if isinstance (fmt, (tuple, list)):
+                if len (fmt) > what:
+                    hdr = h[what]
+                    rowfmt = fmt[what]
+                    rowfields = fn[what]
+            elif what < 2:
+                hdr = h
+                rowfmt = fmt
+                rowfields = fn
+    compact = not (long or what >= 3)
+    empty = first = True
+    for r in reqresp (req):
+        empty = False
+        if debug:
+            print ("reply:")
+            print (dump_packet (r))
+            continue
+        rh = NiceReplyHeader (r)
+        if rh.retcode < 0:
+            print_error (rh)
+            # It doesn't make much sense to see an error in a
+            # multiple-reply sequence, but RSTS does this if the
+            # request was for a multiple.  Since that's just
+            # redundant, drop out of the loop after the error message.
+            break
+        else:
+            if first:
+                print ()
+            r = reply (r)
+            if isinstance (r, P2NiceReadExecStatusReply):
+                if not r.defhost:
+                    r.defhost = "(none)"
+                print (NICE.format (r, fmtclass = P2FmtReadExecStatusReply,
+                                        compact = not long))
+            elif isinstance (r, P2NiceReadLineStatusReply):
+                if first:
+                    print (hdr)
+                print (NICE.format (r, fmtclass = P2FmtReadLineStatusReply,
+                                    omit = (0, 1),
+                                    compact = not long, hdr = rowfmt))
+            else:
+                an = getattr (r, "adjacent_node", None)
+                if hdr:
+                    if isinstance (r, NodeReply) and r.entity.executor:
+                        print (NICE.format (r, compact = compact,
+                                            add = ("{}".format (r.entity),)))
+                        continue
+                    if first:
+                        print (hdr)
+                    print (NICE.format (r, compact = compact,
+                                        hdr = rowfmt, omit = rowfields))
+                else:
+                    if not first:
+                        print ()
+                    print (NICE.format (r, compact = compact,
+                                        add = ("{}".format (r.entity),)))
+        first = False
+    if empty:
+        print ("\nNo information")
+    else:
+        print ()
+
+def doclear (perm, rest):
+    if not perm and i3eq (rest, ("executor", "node")):
+        # Clear executor node
+        doconnect (None, None)
+        return
+    raise NYI
+
+def doloop (perm, rest):
+    ent, rest = getent (rest, loopedict)
+    pcls, pd = loopindex[ent.e_type]
+    req, x = parseargs (pd, rest, pcls ())
+    if not req:
+        return
+    req.entity = ent
+    for r in reqresp (req):
+        rh = NiceReplyHeader (r)
+        if rh.retcode < 0:
+            # Error reply
+            try:
+                rh = NiceLoopErrorReply (r)
+                testdata = rh.notlooped
+            except Exception:
+                testdata = None
+            print_error (rh)
+            if testdata:
+                print ("  Messages not looped:", testdata)
+        else:
+            r = NiceLoopReply (r)
+            print (NICE.format (r))
+
+def dozero (perm, rest):
+    raise NYI
+
+cmd = i3dict (tell = (dotell, None),
+              set = (doset, False),
+              define = (doset, True),
+              show = (doshow, False),
+              list = (doshow, True),
+              clear = (doclear, False),
+              purge = (doclear, True),
+              loop = (doloop, None),
+              zero = (dozero, None))
+
+def getent (tokens, d = edict):
+    tok, *rest = tokens
+    ent = d[tok]
+    if isinstance (ent, ReqEntityBase):
+        # Executor or other singleton entity
+        return ent, rest
+    tok2, *rest = rest
+    if isinstance (ent, tuple):
+        # Plural entity
+        edict2, pcode = ent
+        ent = edict2[tok2]
+        ent = ent (pcode)
+    else:
+        if ent is NodeReqEntity:
+            try:
+                id = Nodeid (tok2)
+                return ent (0, id), rest
+            except Exception:
+                pass
+        elif ent.numeric:
+            return ent (0, int (tok2)), rest
+        if ent is P2LineEntity:
+            ent = ent (tok2.upper ())
+        else:
+            ent = ent (1, tok2.upper ())
+    return ent, rest
+
+def doconnect (newdest, cparams):
+    global dest, conn, version
+    if conn:
+        conn.disconnect ()
+        dest = None
+        version = 4
+    if newdest is None:
+        version = 4
+        conn = None
+    else:
+        conn, resp = connector.connect (dest = newdest, remuser = 19,
+                                        username = cparams.username,
+                                        password = cparams.password,
+                                        account = cparams.account,
+                                        data = VERSION)
+        if not conn:
+            reason = reject_text.get (resp.reason, resp.reason)
+            raise ConnFail (reason)
+        dest = newdest
+        version = resp and resp[0] or 2
+
+def reqresp (req):
+    # This is an iterator that sends the request and yields the
+    # responses as they arrive.
+    req = req.encode ()
+    if conn:
+        # DECnet connection to remote NML
+        conn.data (req)
+        more = True
+        mult = False
+        while more:
+            rep = conn.recv ()
+            if rep.type != "data":
+                raise UnxReply ("Unexpected reply type", rep.type)
+            retcode = rep[0]
+            if retcode > 127:
+                retcode -= 256
+            if retcode == -128 and version > 2:
+                break
+            elif version == 2 and more is True:
+                more = rep[1] + (rep[2] << 8)
+                continue
+            elif retcode == 2:
+                assert not mult
+                mult = True
+                continue
+            else:
+                yield rep
+                if version == 2:
+                    more -= 1
+                else:
+                    more = mult
+    else:
+        # Local request
+        rc, resp = connector.exch (api = "ncp", type = "nice", data = req)
+        yield from (bytes (s, "latin1") for s in resp.data)
+
+def main ():
+    global connector, conn, dest, version, debug, long
+    connector = connectors.SimpleApiConnector ()
+    conn = None
+    dest = None   # local
+    version = 4
+    p = dnparser.parse_args ()
+    long = p.long
+    debug = p.debug
+    if p.cmd:
+        try:
+            docmd (p.cmd)
+        finally:
+            connector.close ()
+        return
+    histfile = os.path.expanduser ("~/.ncp_history")
+    try:
+        readline.read_history_file (histfile)
+    except IOError:
+        pass
+    limit = -1
+    try:
+        limit = int (os.getenv ("NCPHISTSIZE", "500"))
+    except ValueError:
+        pass
+    readline.set_history_length (limit)
+    try:
+        while True:
+            if dest is None:
+                prompt = "NCP> "
+            else:
+                prompt = "{}::NCP> ".format (dest)
+            cmd = input (prompt)
+            if cmd:
+                # Upcase everything except string values enclosed in quotes.
+                cmdu = list ()
+                for m in qtok_re.finditer (cmd):
+                    q, nq = m.groups ()
+                    if q:
+                        cmdu.append (q)
+                    elif nq:
+                        cmdu.append (nq.upper ())
+                if i3eq (cmdu[0], "exit"):
+                    break
+                docmd (cmdu)
+    except EOFError:
+        print ()
+        if conn:
+            conn.disconnect ()
+    finally:
+        connector.close ()
+        readline.write_history_file (histfile)
+        
+if __name__ == "__main__":
+    main ()

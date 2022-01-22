@@ -20,6 +20,8 @@ class Adjacency (Element, timers.Timer):
     """DECnet adjacency class.  Its parent (owner) is the circuit
     to which this adjacency belongs.  
     """
+    rphase = 4        # Default, for Ethernet adj
+
     def __init__ (self, circuit, info):
         """Create an adjacency based on the information in the hello
         message that announced the node (broadcast circuit) or the

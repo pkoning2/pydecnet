@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+
+from decnet.common import *
+from decnet import connectors
+from decnet.session import reject_text
+
+def main (dest):
+    c = connectors.SimpleApiConnector ()
+    conn, resp = c.connect (dest = dest, remuser = 25)
+    if conn:
+        tdata = b"\x00testing 1 2 3"
+        edata = b"\x01" + tdata[1:]
+        conn.data (tdata)
+        resp = conn.recv ()
+        if resp == edata:
+            print ("good reply")
+        else:
+            print ("expected", edata, "got", resp)
+        conn.disconnect ()
+    else:
+        reason = reject_text.get (resp.reason, resp.reason)
+        print ("connect reject, reason", reason)
+    c.close ()
+
+if __name__ == "__main__":
+    dest = sys.argv[1]
+    main (dest)
+    

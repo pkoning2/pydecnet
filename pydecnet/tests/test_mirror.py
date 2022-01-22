@@ -44,6 +44,7 @@ class test_mirror (DnTest):
         p = b"\x00\x19\x01\x00\x04PAUL\x00"
         ci = nsp.ConnInit (payload = p)
         m = unittest.mock.Mock ()
+        m.destnode = self.node.nicenode
         w = Received (owner = self.s, connection = m,
                       packet = ci, reject = False)
         self.node.addwork (w)

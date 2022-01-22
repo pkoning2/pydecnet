@@ -1,147 +1,210 @@
-PyDECnet uses JSON over HTTPS for its API.  It uses the GET method to
-retrieve information, and POST to make a request, to change something,
-or to operate on a "connection".
+DECnet/Python API  V3.0
 
-Responses and POST request data are encoded using JSON.  For fields
-that contain byte string data (such as packet contents), these are
-sent as strings, interpreted as Latin-1 text which means each
-character encodes the corresponding byte value.
+PyDECnet has two APIs, a general one and a session control only one.
+The general API is available to any external application, provided the
+API feature is enabled in the configuration files.  The session
+control API is used by session control when communicating with objects
+defined as "file" type objects, i.e., those that are handled by
+starting a subprocess.
 
-Node addresses are encoded as an integer.  For phase II and III, that
-is the node number; for Phase IV it is the combined node and area
-number in the usual form (area number in the upper 6 bits of the 16
-bit value).  MAC addresses (Ethernet addresses) are encoded as
-strings, 6 hex byte fields separated by hyphens in the usual
-representation used by DEC (not colons as is used in some other
-conventions).  For example: "2a-f1-0d-7b-4e-95" or
-"aa-00-04-00-0b-08".  Similarly, Ethernet protocol types are encoded
-as strings, 2 hex byte fields, for example "60-03".
+The general API communicates with PyDECnet via a Unix domain socket.
+The session control API communicates via a set of three pipes that are
+bound (in the subprocess) to stdin, stdout, and stderr.
+
+There are two sets of helper APIs to wrap a higher level (procedural)
+interface around the JSON interface.  For documentation on those
+"connectors", see doc/api-connectors.txt
+
+API data flow
+
+Both APIs use a bidirectional stream of JSON encoded operations.  Each
+operation is sent as a single text line, which carries a JSON encoded
+dictionary object.  In the documentation below the JSON messages are
+shown in pretty-printed form, but note that this is NOT a legal
+formatting for API requests since the entire JSON message must be on a
+single line (no embedded newline codes).
+
+JSON is a text encoding.  To represent binary (bytes) data, it is
+carried as a string obtained by decoding the bytes data as "latin1" --
+which is a one-to-one mapping of the 256 byte values onto the same
+character codes.
+
+Standard keys
+
+The general API supports PyDECnet instances running multiple nodes; if
+that is done, the specific node to which the request is targeted is
+named by the "system" key in the request dictionary.  Within a node,
+multiple components support API requests; the component to receive the
+particular request is named by the "api" key.
+
+Except for the "get system list" request (see below) all general API
+requests must include the "api" key, and if the PyDECnet instance has
+multiple nodes, they must also include the "system" key.
+
+Both APIs identify the requested operation or action by the "type"
+key.  If omitted, the default action is "get".
+
+Since the API is a full duplex data stream, it is possible, depending
+on what is being done, for messages to arrive at the API client
+related to several concurrent activities.  A simple example is an API
+using a DECnet connection, where incoming messages will appear as API
+messages as they arrive.  It may also happen if request/response
+exchanges are made where the response is asynchronous, for example a
+"loop" operation.  To allow responses to be associated correctly with
+requests, every request may include a "tag" key.  If it does, the
+response for that request (if it has one) will include that same tag.
+The client is responsible for avoiding duplicate tag values.
+
+Except for the "get systems list" response, general API responses
+(messages from PyDECnet to the client) always include the "system",
+"api" and "type" keys corresponding to what was specified or defaulted
+in the request.  A "tag" key is included in the response if it was
+present in the request.  For clarity, the example responses below
+generally omit the standard keys.
+
+Connections
 
 "Connections" are objects that live beyond a single request.  The
 typical example is a DECnet Session Control connection, but MOP
 Console Carrier client instances are also connections since they have
 similar properties.  Connections live for some time, and represent a
-full duplex data stream.  HTTP is not well adapted to dealing with
-this.  The use pattern in this API is to have separate requests (POST)
-for the receive and for the transmit streams of the full duplex
-connnection.  Both refer to the connection by a "handle" which is
-returned when the connection is created.  Transmit is a POST with
-handle and a data argument; the request completes as soon as the data
-has been buffered (it does not wait for transmission or delivery).
-Receive is a post with handle but no data argument; the request blocks
-until data arrives, or after 60 seconds.  If you are dealing with a
-connection that has a request/response or similar "half duplex" data
-flow, a single stream of API requests, receive or transmit as needed
-at that point, will work.  For applications where data can flow in
-both directions at the same time, such as a remote terminal
-application, you will probably need to use two separate API flows, one
-for the each direction.  API requests have to arrive at least once
-every 120 seconds or the connection will be deleted due to API timeout
-(this is to compensate for the fact that there is no client connection
-for the API to which PyDECnet connection liveness can be tied).
+full duplex data stream as opposed to a sequence of request/response
+exchanges.
 
-Note that dictionary fields in the replies are not in any particular
-order (since that does not affect the meaning).  Similarly, unless
-stated otherwise, lists entries are not in a specific order.
+Messages associated with a connection are identified by a "handle" key
+in the message; the value is an integer which is unique during the
+life of that connection.  PyDECnet allocates a new connection when it
+processes a connection create, and reports the new handle in the
+resulting message to the client (the response message to a client
+connect request, or the connect message for incoming connections).
+All subsequent messages for that connection must include that same
+handle.  The connection is deallocated and its handle released when
+the connection is closed.
 
-The API uses URLs starting with /api, followed by additional path
-elements to indicate what specifically is to be read or operated on.
+Connection life cycle
 
-If a GET is done with a URL consisting only of /api, a dictionary of
-systems is returned, with the system name as key and a short
-description of what the system is as the value.  For example:
+The process of creating a connection differs for the inbound (DECnet
+only) vs. outbound case.  Once the connection is active, data can flow
+in either direction in "data" messages, in the case of DECnet
+connections, also in "interrupt" messages.
+
+A connection is closed by a "disconnect" or "abort" request; both
+close the connection but (in the case of DECnet connections) generate
+different disconnect reason codes to the other end.  A connection can
+also be closed by PyDECnet with a "disconnect" message which includes
+a disconnect reason code.
+
+Outbound connections
+
+An outbound connection is created by a "connect" message.  Once the
+arguments have been validated and a connection handle has been
+allocated, PyDECnet responds with a "connecting" message with the
+handle.  At this point, protocol operation to establish the
+communication has started.
+
+Successful creation of the connection with the destination is
+indicated by an "accept" message; failure by a "reject" message
+(which frees the connection handle).
+
+Inbound connections (DECnet only)
+
+An inbound connection is reported by a "connect" message which
+includes the connection handle for the new connection.  The API client
+has to respond to the message by sending "accept" to accept the
+connection, or "reject" to refuse it (which releases the connection).
+
+Description of the general API
+
+Get system list
+
+A general API request containing an empty dictionary (or actually, a
+request that does not contain an "api" key) produces a response that
+is a dictionary keyed by the system named, with as value a list of the
+valid "api" values for that node.  Example:
 
 {
-   "ERNIE" : [
-      "Area router",
-      1026
-   ],
-   "br-0" : "Bridge"
+   "PYTS41" : [
+      "mop",
+      "routing",
+      "nsp"
+   ]
 }
 
-For any other request, if there are multiple systems in this PyDECnet
-process (as in the example shown) the system to operate on must be
-named by a URL argument such as "?system=ERNIE".  The system name is
-case insensitive.
+API for "mop"
 
-The next URL path component after /api indicates which top level
-component to access.  Valid values are: mop, routing, bridge.  The
-requests supported by each component are given below.
+The MOP API supports request types "get", "loop", "counters" and
+"connect".
 
-API for MOP
+Get request for MOP
 
-GET request for MOP
-
-A GET of /api/mop returns basic information about this MOP, in
-particular the circuits (data links) it handles.  For example:
+A "get" request returns information about the circuits handled by MOP,
+for example:
 
 {
    "circuits" : [
-      "ETH-102"
-   ]
+      {
+         "name" : "ETH-0",
+         "hwaddr" : "aa-00-03-00-42-73",
+         "macaddr" : "aa-00-04-00-29-a4",
+         "services" : [
+            "loop",
+            "counters"
+         ]
+      }
+   ],
+   "system" : "PYTS41",
+   "api" : "mop"
 }
 
-GET requests for a specific MOP data link
+Sysid request for MOP
 
-GET /api/mop/circuits returns a list of circuit names, for example:
-
-[
-   "ETH-201"
-]
-
-GET /api/mop/circuits/<circuitname> returns information about that circuit.
-For example:
+A "sysid" request returns the current contents of the SysID message
+listener for the circuit specified by the "circuit" key in the
+request, which is required.  This is only valid for Ethernet circuits.
+The return item "sysid" contains a list of entries, each of which is a
+dictionary with keys naming the SysID message fields.  For example:
 
 {
-   "name" : "ETH-102",
-   "macaddr" : "52-99-bc-a7-67-89",
-   "services" : [
-      "loop"
-   ]
+   "sysid" : [
+      {
+         "srcaddr" : "52-50-38-90-e0-f7",
+         "console_user" : "",
+         "reservation_timer" : 0,
+         "hwaddr" : "52-50-38-90-e0-f7",
+         "device" : "PCL11-B UNIBUS multiple CPU link",
+         "processor" : "Communication Server",
+         "datalink" : "CSMA-CD",
+         "software" : "DECnet/Python",
+         "services" : [
+            "loop",
+            "counters"
+         ]
+      }
+   ],
+   "system" : "PYTS41",
+   "api" : "mop"
 }
 
-You can also use * for the circuit name to get a list of items, one
-for each circuit in this MOP.
+Loop request for MOP
 
-GET /api/mop/circuits/<circuitname>/sysid returns the current contents
-of the SysID message listener for that circuit.  This is only valid
-for Ethernet circuits.  The return value is a list of entries, each of
-which is a dictionary with keys naming the SysID message fields.  For
-example:
-
-[
-   {
-      "processor" : "Communication Server",
-      "reservation_timer" : 0,
-      "device" : "PCL11-B UNIBUS multiple CPU link",
-      "datalink" : "CSMA-CD",
-      "hwaddr" : "ce-e6-14-13-4f-11",
-      "console_user" : "",
-      "software" : "DECnet/Python",
-      "srcaddr" : "ce-e6-14-13-4f-11"
-   }
-]
-
-POST requests for MOP
-
-MOP allows the following POST requests, addressed to a specific
-circuit, which must be Ethernet:
-
-POST /api/mop/circuits/<circuitname>/loop
-
-This requests an Ethernet loop operation.  The POST data is a JSON
-encoded dictionary carrying the request parameters:
+A "loop" request performs an Ethernet loop operation.  The request
+must include the "circuit" key to specify the name of the Ethernet
+circuit to use, and it may include optional parameters to control the
+specific operation.  
 
 {
-  "dest" : "2e-ca-55-6b-f1-57",
-  "packets" : 3,
-  "timeout" : 3,
-  "fast" : true
+   "api" : "mop",
+   "type" : "loop",
+   "circuit" : "eth-0",
+   "dest" : "2e-ca-55-6b-f1-57",
+   "packets" : 3,
+   "timeout" : 3,
+   "fast" : true
 }
 
-All parameters are optional.
+All parameters except "circuit" are optional.
 
-Dest is either a single destination address, a string in the usual
+"dest" is either a single destination address, a string in the usual
 form for Ethernet addresses, or a list of up to three addresses.  If
 omitted, the loopback assistance multicast address CF-00-00-00-00-00
 is used. If more than one address is specified, or the destination
@@ -152,14 +215,14 @@ while lists of 2 or 3 entries can be used to implement the "loopback
 assistant" mechanisms described in the spec, i.e., testing
 connectivity via some intermediate station.
 
-Packets is the number of loop request/response operations to perform,
-default is 1.  Timeout is the response timeout for each request sent,
-in seconds, default is 3.  Fast is a Boolean, default is false.  If
-false, there is a one second delay after each successful loop exchange
-(not after a timeout because we already waited for the timeout delay);
-if true, the next request is sent immediately upon receipt of the
-preceding reply, which should be done with caution because of the
-added load on the network.
+"packets" is the number of loop request/response operations to
+perform, default is 1.  "timeout" is the response timeout for each
+request sent, in seconds, default is 3.  "fast" is a Boolean, default
+is false.  If false, there is a one second delay after each successful
+loop exchange (not after a timeout because we already waited for the
+timeout delay); if true, the next request is sent immediately upon
+receipt of the preceding reply, which should be done with caution
+because of the added load on the network.
 
 The reply is a dictionary containing the overall operation status and
 a list of round trip delays, in seconds (floating point).  Timeout is
@@ -182,69 +245,62 @@ For example:
    ]
 }
 
-POST /api/mop/circuits/<circuitname>/console
+Console carrier request for MOP
 
-This begins, continues, or terminates a console carrier session.  To
-continue or terminate a session, the session handle returned by the
-request to begin the session must be included.  For the request to
-begin a session, the POST data is a JSON encoded dictionary carrying
-the request parameters: "dest" (the destination MAC address) and
-"verification" (the MOP console carrier verification string,
-essentially an access password.  Both are required.  For example:
+A "connect" request opens a MOP console carrier connection.  If the
+connection can be made, a connection object is allocated and its
+handle is included in the response.  That starts the full-duplex data
+flow for the console.  Subsequent input to the console is sent as
+"data" type messages on the connection, and console output arrives
+from PyDECnet in "data" messages.  To close the connection, issue a
+"disconnect" request to the connection.
+
+The "connect" request to begin a session must contain parameters
+"circuit" (the Ethernet circuit on which to make the connection),
+"dest" (the destination MAC address) and "verification" (the MOP
+console carrier verification string, essentially an access password.
+All are required.  For example:
 
 {
+   "api" : "mop",
+   "type" : "connect",
+   "circuit" : "eth-0",
    "verification" : "Plugh",
    "dest" : "aa-00-04-00-0b-08"
 }
 
-The response is status and, if successful, the session handle:
+If the arguments are valid, a connection state is allocated for the
+console carrier connection, which is returned in a "connecting" message:
 
 {
    "handle" : 8246003421459976741,
-   "status" : "ok"
+   "type" : "connecting"
 }
 
-Once the session is created, the API user must issue subsequent
-requests within 60 seconds, and when the last pending request
-completes must issue another within 60 seconds.  If not, the session
-times out and is closed.
+At this point the console carrier protocol has started.  The next
+message will be an "accept" if console carrier operation with the
+specified destination was accepted, or "reject" if it was not.
 
-To read or write a console carrier session, the POST data is a JSON
-encoded dictionary containing the handle returned by the session
-begin.  For a write, it contains a "data" argument with the data to
-send; a read omits that argument.  The return is a dictionary
-containing status, and in the case of a read, the data.  Data may be
-null if the read timed out (but status is still ok in that case).
+After "accept", data messages (with "type" : "data") can flow in
+either directory to deliver console input or output.  To end the
+console carrier session, issue a "disconnect" request.
 
-{
-   "data" : "login: ",
-   "status" : "ok"
-}
+Get counts request for MOP
 
-To terminate a console carrier session, the POST data is a JSON
-encoded dictionary with handle and the "close" flag, for example:
-
-{
-   "handle" : 8246003421459976741,
-   "close" : 1
-}
-
-On completion, the console session has been closed, including the
-release of the console reservation at the destination.
-
-POST /api/mop/circuits/<circuitname>/counters
-
-This operation issues a MOP Request Counters message to a station on
+The "counters" operation issues a MOP Request Counters message to a station on
 the specified Ethernet.  The request data is a JSON encoded dictionary
 specifying the request parameters:
 
 {
-  "dest" : "f2-63-1f-8d-f8-94",
-  "timeout" : 2
+   "api" : "mop",
+   "type" : "counters",
+   "circuit" : "eth-0",
+   "dest" : "f2-63-1f-8d-f8-94",
+   "timeout" : 2
 }
 
 Timeout is an optional timeout for the request, in seconds.  Default
-is 3 seconds.
+is 3 seconds.  The other parameters are required.
 
 The reply is a JSON encoded dictionary reporting the counters obtained
 from the station, or an error status indicating failure to obtain the
@@ -257,17 +313,26 @@ information.  For example:
 or
 
 {
-   "pkts_sent" : 0,
-   "bytes_sent" : 0,
-   "ctr_zero_time" : 65535,
-   "unk_dest" : 0,
-   "bytes_recd" : 0,
-   "mcpkts_recd" : 0,
-   "mcbytes_recd" : 0,
    "status" : "ok",
-   "pkts_recd" : 0
+   "bytes_recv" : 20307435,
+   "bytes_sent" : 287272492,
+   "pkts_recv" : 43851,
+   "pkts_sent" : 774216,
+   "mcbytes_recv" : 20273556,
+   "mcpkts_recv" : 43408,
+   "pkts_deferred" : 0,
+   "pkts_1_collision" : 0,
+   "pkts_mult_collision" : 0,
+   "send_fail" : 0,
+   "recv_fail" : 0,
+   "unk_dest" : 0,
+   "data_overrun" : 0,
+   "no_sys_buf" : 0,
+   "no_user_buf" : 0,
+   "time_since_zeroed" : 65535,
 }
 
+TODO: update from here on
 API for Routing
 
 GET for routing
@@ -394,17 +459,155 @@ value.  For example:
    "aa-00-04-00-0b-08" : "ETH-42"
 }
 
+API for NCP
+
+NML, the NICE protocol server, is reachable over a regular DECnet
+connection, so long as the object (number 19) has not been disabled in
+the configuration.  For local use, an equivalent API is also available
+through the "ncp" API.  This works in all cases, it does not depend on
+the NML object being defined.
+
+An NCP request has the general form:
+
+{
+    "type" : "nice",
+    "data":"\x12\x00\x06PYTHON",
+    "api" : "ncp"
+}
+
+The "data" parameter is a NICE request in its encoded form, as a
+latin-1 string so each byte corresponds to a character.  The request
+shown here corresponds to the NCP command "LOOP NODE PYTHON".
+
+The response is similar in structure, except that the "data" parameter
+is a list consisting of all the NICE response messages that make up
+the complete response to the request.  For many requests the response
+contains just one message, but for "show" commands where multiple
+items are returned (say, for "show known circuits") the list will have
+multiple entries.  Note that the empty "start of multiple responses
+(status 2) and "end of multiple responses (status -128) NICE protocol
+messages are omitted; only actual information responses are included
+in the list.  For example:
+
+{
+    "api" : "ncp",
+    "data":["\x01\xff\xff\x00"]
+}
+
+The response shown here is a "success" status.
+
 API for Session
 
-POST requests to the session layer implement the session control API,
-allowing DECnet applications to be written as programs that request
-service from the session layer via the API.  Such programs may request
-outbound connections, or handle inbound ones, or both.  A simple
-example can be found in samples/mirror.py, which implements the
-standard Mirror protocol via the API.  Note that normally Mirror is a
-built-in object (its code is in decnet/applications/mirror.py) but it
-is possible to override that by specifying a file to execute instead,
-using:
+The PyDECnet session layer has two slightly different APIs.
 
-  object --number 25 --file samples/mirror.py
-  
+Session control accepts messages from the general API directed to api
+key "session".  It also supports the session control specific API over
+pipes, used for the case of DECnet session control objects implemented
+as executable files with the "--file" switch in an "object"
+configuration line.  Those are run as subprocesses, with messages from
+PyDECnet arriving on the "stdin" file descriptor of that subprocess,
+and messages to PyDECnet are written to "stdout".  The pipe API is
+implicitly limited to session control of a particular node, so the
+"system" and "api" keys are not applicable and must not be included.
+
+The session control API requests (in the "type" key) are: "connect",
+"accept", "reject", "data", "interrupt", "disconnect", "abort" and
+"setsockopt".  Messages from PyDECnet to the API client have type keys
+"connecting", "connect", "accept", "reject", "data", "interrupt" and
+"disconnect". The "connect" request to PyDECnet (a request to initiate
+a new connection) is a request/response exchange where the request
+does not include a connection handle (the response does, representing
+the newly allocated connection).  All other messages in both
+directions are associated with a connection and therefore include a
+"handle" parameter, and none of these produce any response.
+
+The "connect" message has some additional parameters.  The access
+control related parameters are present only if access control
+validation is set to "on" for this object, and the parameter values
+were valid.
+
+"destination" -- the remote node number or, if the node name is known,
+a two-item list consisting of node number and node name.
+
+"username" -- the access control user name, if present and valid.
+"password" -- 1 if a password was present and valid.
+"account" -- the access control account string, if present and valid.
+
+Session control outbound connection request
+
+The request has a number of parameters, mostly optional:
+
+{
+    "type" : "connect",
+    "dest" : "MIM",
+    "remuser" : 19,
+    "data" : "conndata",
+    "srcname" : "MyApiUser",
+    "proxy" : false,
+    "username" : "nobody",
+    "password" : "magic",
+    "account" : "abc123"
+}
+
+"dest" is the destination node name or node number.  "remuser" is the
+destination object name or number.  Both are required.  The other
+parameters are optional.  "srcname" is the source user identification,
+defaults is "ApiUser".  "proxy" is true for proxy requests (details
+TBS), default is false.  Username, password, and account are the
+DECnet standard access control credentials; each defaults to empty.
+
+The response is a message with the newly allocated connection handle
+and type "connecting".  The outcome of the connect request is reported
+in a subsequent message, either "accept" if the destination process
+accepted the connection, or "reject" if the connection could not be
+made.
+
+Session control object bind request
+
+This request allows an application to register for inbound connections
+to a specified object number and/or object name.  It corresponds
+roughly to the TCP socket "bind" operation.  The request parameters
+are:
+
+{
+    "type" : "bind",
+    "num" : 25,
+    "name" : "MIRROR",
+    "auth" : "off"
+}
+
+"num" is the object numberm, "name" is the object name to be
+registered.  At least one must be given.  The name, if given, is
+converted to upper case.  The number and/or name must not already be
+in use by another object.  For example, the registration attempt shown
+above will typically fail because object 25 (MIRROR) is registered as
+an internal PyDECnet object by default.  But if
+"object --number 25 --disable" is present in the configuration, those
+identifiers are available.
+
+The response is a message with type "bind" and a handle.  That handle
+is not a normal connection handle but it is a reference to the bind
+state.  To release the binding, issue a "disconnect" request on that
+handle.  In any case, any bindings are freed when the API is closed.
+
+The other session API requests perform operations on an open socket.
+The socket is identified by the "handle" key which is required.
+"type" is the operation.  Defined operations are:
+
+accept -- respond to a "connect" message by accepting the connection.
+"data" specified optional accept data, 0 to 16 bytes.
+
+reject -- responds to a "connect" message by rejecting the connection.
+
+data -- sends normal data, given  by the "data" key.
+
+interrupt -- sends interrupt data, given by the "data" key.
+
+disconnect -- closes the connection.
+
+abort -- closes the connection with an "aborted" reason code.
+
+If a connection is still open when the API is closed (the Unix socket
+connection from application to PyDECnet is closed, or the application
+process exited) those connections will be disconnected with reason
+code 38, "Object failed".

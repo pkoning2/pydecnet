@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+
+""" MOP console sample carrier client.
+
+"""
+
+import termios
+import tty
+import sys
+import select
+from fcntl import *
+import os
+import asyncio
+import traceback
+import getpass
+
+from decnet import async_connectors
+
+async def kbinit ():
+    global reader, writer, oldtty, oldflags
+    reader = await async_connectors.make_read_stream (sys.stdin)
+    writer = await async_connectors.make_write_stream (sys.stdout)
+    oldtty = termios.tcgetattr (sys.stdin)
+    infd = sys.stdin.fileno ()
+    tty.setraw (infd)
+    tty.setcbreak (infd)
+
+def kbrestore():
+    termios.tcsetattr (sys.stdin, termios.TCSADRAIN, oldtty)
+
+async def kbhandler (conn):
+    try:
+        await kbinit ()
+        while True:
+            kbdata = await reader.read (512)
+            if b'\x1d' in kbdata:
+                # Ctrl-] (as in telnet) -- done
+                return
+            # send to MOP
+            conn.data (kbdata)
+    finally:
+        try:
+            conn.close ()
+        except Exception:
+            pass
+        kbrestore ()
+
+async def tthandler (conn):
+    while True:
+        ttdata = await conn.recv ()
+        if ttdata.type != "data":
+            print ("connection lost", ttdata)
+            break
+        writer.write (ttdata)
+        await writer.drain ()
+
+async def consolehandler (conn):
+    kb = asyncio.create_task (kbhandler (conn))
+    tt = asyncio.create_task (tthandler (conn))
+    done, pending = await asyncio.wait ((kb, tt),
+                                        return_when = asyncio.FIRST_COMPLETED)
+    for t in done:
+        try:
+            t.exception ()
+        except BaseException:
+            print ("Exception in", t)
+            traceback.print_exc ()
+    for t in pending:
+        t.cancel ()
+    try:
+        conn.disconnect ()
+    except Exception:
+        pass
+    
+async def main (args):
+    if len (args) < 3:
+        print ("usage: rctest circuit destaddr [ sysname ]")
+        sys.exit (0)
+    port = sys.argv[1]
+    dest = sys.argv[2]
+    try:
+        sysname = sys.argv[3]
+    except IndexError:
+        sysname = None
+    verification = getpass.getpass ("Verification: ")
+    api = async_connectors.AsyncApiConnector ()
+    await api.start ()
+    conn, resp = await api.connect (api = "mop", system = sysname,
+                                   circuit = port, dest = dest,
+                                   verification = verification)
+    if conn:
+        print ("Connected to", dest)
+        await consolehandler (conn)
+    else:
+        msg = getattr (resp, "error", "") or getattr (resp, "status", "")
+        print ("connect failure:", msg)
+
+if __name__ == "__main__":
+    sys.exit (asyncio.run (main (sys.argv)))

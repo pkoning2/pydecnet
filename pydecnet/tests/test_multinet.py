@@ -76,8 +76,8 @@ class TestMultinetUDP (MultinetBase, MultinetCommonTests):
         self.loglevel = logging.ERROR
         super ().setUp ()
         self.assertEqual (logging.warning.call_count, 1)
-        # Revert to the default logging level, set in the class
-        self.setloglevel (self.__class__.loglevel)
+        # Revert to the default logging level, from the dntest module
+        self.setloglevel (loglevel)
         self.socket = socket.socket (socket.AF_INET, socket.SOCK_DGRAM,
                                      socket.IPPROTO_UDP)
         self.socket.setsockopt (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -113,8 +113,8 @@ class TestMultinetUDPnodest (MultinetBase):
         self.loglevel = logging.ERROR
         super ().setUp ()
         self.assertEqual (logging.warning.call_count, 1)
-        # Revert to the default logging level, set in the class
-        self.setloglevel (self.__class__.loglevel)
+        # Revert to the default logging level, from the dntest module
+        self.setloglevel (loglevel)
         self.rport.open ()
     
     def test_xmit (self):

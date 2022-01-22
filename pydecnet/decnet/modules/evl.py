@@ -40,7 +40,7 @@ class Application (Element):
                 # an Event object, then send it to the event logger
                 # module, which will write the events to the local log
                 # sinks selected by the sink flags in the message.
-                e, x = events.EventBase.decode (msg)
+                e, x = events.Event.decode (msg)
                 self.node.logremoteevent (e)
             except DecodeError:
                 logging.exception ("Error parsing event {}", msg)

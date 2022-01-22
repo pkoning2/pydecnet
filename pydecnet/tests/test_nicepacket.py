@@ -23,6 +23,12 @@ class AllTypes (packet.Packet):
                 ( 40, HI, "Hex string" ),
                 ( 41, AI, "ASCII string" ),
                 ( 51, C1, "Coded 1", None, ( "foo", "bar", "baz" ) ),
+                ( 1, CTR1, "Counter 1" ),
+                ( 2, CTR2, "Counter 2" ),
+                ( 4, CTR4, "Counter 4" ),
+                ( 11, CTM1, "Mapped counter 1" ),
+                ( 12, CTM2, "Mapped counter 2", None, ( "hcrc", "one", "two" )),
+                ( 14, CTM4, "Mapped counter 4" ),
                 ),)
         
 class TestNiceResp (DnTest):
@@ -51,17 +57,26 @@ class TestNiceResp (DnTest):
             b"\x26\x00\x22\xaa\xbb" \
             b"\x28\x00\x20\x05\xaa\x02\x03\x00\x00" \
             b"\x29\x00\x40\x0dGood Morning!" \
-            b"\x33\x00\x81\x01"
+            b"\x33\x00\x81\x01" \
+            b"\x04\xe0\x01\x02\x03\x00" \
+            b"\x0c\xd0\x05\x01\xff\xff"
         e, b2 = AllTypes.decode (b)
         self.assertIsInstance (e, AllTypes)
         self.assertEqual (b2, b"")
         self.assertEqual (e.octal_1, 0o00431401)
         self.assertEqual (e.hex_1, 0xbbaa)
         self.assertEqual (e.coded_1, 1)
+        self.assertEqual (e.counter_4, 197121)
+        self.assertEqual (e.mapped_counter_2, 65535)
+        self.assertEqual (e.mapped_counter_2.map, 0x105)
         es = NICE.format (e)
         self.assertRegex (es, r"Signed 1 = 734233fff0")
         self.assertRegex (es, r"ASCII string = Good Morning!")
         self.assertRegex (es, r"Coded 1 = bar")
+        self.assertRegex (es, r">65534 Mapped counter 2")
+        self.assertRegex (es, r"hcrc")
+        self.assertRegex (es, r"two")
+        self.assertRegex (es, r"Qualifier #8")
         # Check encoding
         self.assertEqual (b, bytes (e))
 
@@ -70,7 +85,9 @@ class TestNiceResp (DnTest):
         # Note that unknown fields are encoded last, so we'll send
         # them in last as well and in order, so the check on encoding
         # works.
-        b = b"\x33\x00\x81\x42\x64\x00\x40\x05Hello"
+        b = b"\x33\x00\x81\x42" \
+            b"\x64\x00\x40\x05Hello" \
+            b"\x65\x00\xc2\x40\x07Goodbye\x31\x0c"
         e, b2 = AllTypes.decode (b)
         self.assertIsInstance (e, AllTypes)
         self.assertEqual (b2, b"")
@@ -78,6 +95,7 @@ class TestNiceResp (DnTest):
         self.assertEqual (e.field100, "Hello")
         es = NICE.format (e)
         self.assertRegex (es, r"Parameter #100 = Hello")
+        self.assertRegex (es, r"Parameter #101 = Goodbye 014")
         self.assertRegex (es, r"Coded 1 = #66")
         # Check encoding
         self.assertEqual (b, bytes (e))
@@ -128,3 +146,105 @@ class TestNiceReq (DnTest):
         self.assertEqual (e.entity.e_type, 3)    # Circuit
         self.assertEqual (e.entity.value, "ETH-0")
         
+class TestP2Nice (DnTest):
+    "Phase II NICE protocol"
+    def test_show_exe_req (self):
+        "read local (executor) status"
+        b = b"\x08\x01"
+        e = nicepackets.P2NiceReadExecStatus (b)
+        # No fields to check
+        # Check encode
+        self.assertEqual (b, bytes (e))
+
+    def test_show_exec_resp (self):
+        "read local (executor) status response"
+        b = b"\x01\x04TEST\x2a\x00\x00\x00\x03DEF\x03\x00\x01\x03\x01\x00\x05Ident"
+        e = nicepackets.P2NiceReadExecStatusReply (b)
+        self.assertEqual (e.name, "TEST")
+        self.assertEqual (e.id, 42)
+        self.assertEqual (e.state, 0)
+        self.assertEqual (e.defhost, "DEF")
+        self.assertEqual (e.routing_version, Version (3, 0, 1))
+        self.assertEqual (e.comm_version, Version (3, 1, 0))
+        self.assertEqual (e.system, "Ident")
+        # Check encode
+        self.assertEqual (b, bytes (e))
+
+    def test_show_line_req (self):
+        "read line requests"
+        with self.subTest (what = "status known lines"):
+            b = b"\x08\x05\x00"
+            e = nicepackets.P2NiceReadLineStatus (b)
+            self.assertTrue (e.entity.known ())
+            # Check encode
+            self.assertEqual (b, bytes (e))
+        with self.subTest (what = "counters known lines"):
+            b = b"\x08\x04\x00"
+            e = nicepackets.P2NiceReadLineCounters (b)
+            self.assertTrue (e.entity.known ())
+            # Check encode
+            self.assertEqual (b, bytes (e))
+        with self.subTest (what = "status line DMC_3"):
+            b = b"\x08\x05\x01\x0c\x03\x00\x00"
+            e = nicepackets.P2NiceReadLineStatus (b)
+            self.assertFalse (e.entity.known ())
+            self.assertEqual (str (e.entity), "DMC_3")
+            # Check encode
+            self.assertEqual (b, bytes (e))
+        with self.subTest (what = "counters line STR-12345"):
+            # (Note that TOPS-20 doesn't support string format line IDs)
+            b = b"\x08\x04\x02\x09STR-12345"
+            e = nicepackets.P2NiceReadLineCounters (b)
+            self.assertFalse (e.entity.known ())
+            self.assertEqual (str (e.entity), "STR-12345")
+            # Check encode
+            self.assertEqual (b, bytes (e))
+
+    def test_show_line_stat_resp (self):
+        "read line status response"
+        b = b"\x05\x01\x0c\x02\x00\x00\x01\x00\x00\x03ARK"
+        e = nicepackets.P2NiceReadLineStatusReply (b)
+        self.assertEqual (str (e.entity), "DMC_2")
+        self.assertEqual (e.state, 1)
+        self.assertEqual (e.adjacent_node, "ARK")
+        # Check encode
+        self.assertEqual (b, bytes (e))
+
+    def test_show_line_counters_reply (self):
+        "read line counters response"
+        b = b"\x04\x01\x0c\x02\x04\x00\x01\x12\x00\x02\x00\x01"
+        e = nicepackets.P2NiceReadLineCountersReply (b)
+        self.assertEqual (str (e.entity), "DMC_2_4")
+        self.assertEqual (e.pkts_recv, 18)
+        self.assertEqual (e.pkts_sent, 256)
+        # Check encode
+        self.assertEqual (b, bytes (e))
+        
+    def test_line_ent (self):
+        "Line entity handling"
+        with self.subTest (what = "known"):
+            l = nicepackets.P2LineEntity ("*")
+            self.assertEqual (bytes (l), b"\x00")
+            self.assertTrue (l.known ())
+            l = nicepackets.P2LineEntity (b"\x00")
+            self.assertEqual (str (l), "*")
+            self.assertTrue (l.known ())
+        with self.subTest (what = "standard dev"):
+            l = nicepackets.P2LineEntity ("DMC_13_2")
+            self.assertEqual (bytes (l), b"\x01\x0c\x0b\x02\x00")
+            self.assertFalse (l.known ())
+            l = nicepackets.P2LineEntity (b"\x01\x14\x11\x09\x00")
+            self.assertEqual (str (l), "DTE_21_11")
+            self.assertFalse (l.known ())
+        with self.subTest (what = "string"):
+            l = nicepackets.P2LineEntity ("MUL-123")
+            self.assertEqual (bytes (l), b"\x02\x07MUL-123")
+            self.assertFalse (l.known ())
+            l = nicepackets.P2LineEntity (b"\x02\x07MUL-123")
+            self.assertEqual (str (l), "MUL-123")
+            self.assertFalse (l.known ())
+        with self.subTest (what = "alias"):
+            l = nicepackets.P2LineEntity ("MUL-123", 10)
+            self.assertEqual (bytes (l), b"\x01\x14\x00\x0a\x00")
+            self.assertEqual (str (l), "DTE_0_12")
+            self.assertFalse (l.known ())

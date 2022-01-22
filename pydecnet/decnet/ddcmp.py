@@ -78,7 +78,7 @@ class Seq (Field, modulo.Mod, mod = 256):
         return cls (buf[0]), buf[1:]
 
     def encode (self):
-        return self.to_bytes (1, packet.LE)
+        return byte (self)
 
     def __bytes__ (self):
         return self.encode ()
@@ -90,7 +90,6 @@ DLE = 0o220        # DLE - start of maintenance message
 SYN = 0o226        # SYN - synchronization code
 DEL = 0o377        # DEL - pad after message trailer
 
-SYN4 = bytes ([ SYN ] * 4)
 DEL1 = byte (DEL)
 DEL2 = DEL1 + DEL1
 
@@ -136,7 +135,7 @@ nak_map = {
     R_BUF : (False, BUF_UNAVAIL),
     R_SHRT : (False, BUF_SML) }
 
-class DMHdr (packet.Packet):
+class DMHdr (packet.IndexedPacket):
     "DDCMP packet common part -- the header including the header CRC"
     # For incoming packets, the caller may have checked the header
     # CRC, since that is part of packet framing (in stream input
@@ -278,7 +277,7 @@ class CtlMsg (DMHdr):
                ( Seq, "num" ),
                ( packet.B, "addr", 1 ))
 
-    classindex = { }
+    classindex = nlist (8)
     classindexkey = "type"
     soh = ENQ
 
@@ -331,65 +330,70 @@ class _DDCMP (datalink.PtpDatalink):
     counter_class = DdcmpCounters
     
     """An implementation of the DDCMP protocol.  This conforms to the
-    Digital Network Architecture DDCMP protocol spec, V4.1 (AA-K175A-TK).
-    It is also interoperable with the DDCMP implementation in SIMH,
-    see the source code in pdp11_dmc.c.
+    Digital Network Architecture DDCMP protocol spec, V4.1
+    (AA-K175A-TK).  It is also interoperable with the DDCMP
+    implementation in SIMH, see the source code in pdp11_dmc.c.
 
-    The current implementation supports point to point full duplex mode
-    only.  Half duplex and multipoint could be added but probably will
-    not be since there is no obvious point in doing so.
+    The current implementation supports point to point full duplex
+    mode only.  Half duplex and multipoint could be added but probably
+    will not be since there is no obvious point in doing so.
 
-    Communication can be over UDP or TCP, or using a serial line (UART).
-    If UDP, each packet corresponds exactly to a DDCMP message.  In TCP
-    or on a serial line, the byte stream carries the DDCMP messages and
-    this module will do packet framing using the "header CRC" method.
-    SYN bytes are accepted but ignored while looking for start of
-    packet.  On TCP, each transmitted packet is preceded by 4 SYN bytes.
+    Communication can be over UDP or TCP, or using a serial line
+    (UART).  If UDP, each packet corresponds exactly to a DDCMP
+    message.  In TCP or on a serial line, the byte stream carries the
+    DDCMP messages and this module will do packet framing using the
+    "header CRC" method.  SYN bytes are accepted but ignored while
+    looking for start of packet.  SYN bytes are never sent; they are
+    not needed for simulated links and the spec says not to send them
+    on an async line.  In the case of the DDCMP framer, SYN handling
+    is done by the framer and the host is not involved.  On a real
+    serial port, each frame is followed by an all-ones byte (DEL) per
+    spec, but this is not done on UDP, nor on TCP unless Telnet mode
+    is specified.
 
-    The device parameter is of the form proto:lport:host:rport.  Proto is
-    "tcp", "udp" or "telnet".  Lport is the local port number (an integer).
-    Host is the peer host name or address.  Rport is the peer port number.
-    If TCP is used, the local port number is bound and outbound connections
-    are attempted to the peer; whichever side establishes a connection first
-    will have that connection used.  This matches what SIMH does in the
-    sim_tmxr.c module.  (TBD: how are race conditions resolved?)  Incoming
-    connections are accepted only from the specified peer.
+    The device parameter is of the form proto:lport:host:rport.  Proto
+    is "tcp", "udp" or "telnet".  Lport is the local port number (an
+    integer).  Host is the peer host name or address.  Rport is the
+    peer port number.  If TCP is used, the local port number is bound
+    and outbound connections are attempted to the peer; whichever side
+    establishes a connection first will have that connection used.
+    This matches what SIMH does in the sim_tmxr.c module.  (TBD: how
+    are race conditions resolved?)  Incoming connections are accepted
+    only from the specified peer.
 
     Alternatively, if module "pyserial" is installed, "proto" can also
     be "serial".  In that case, the device parameter takes the form
-    serial:devname[:speed[:uart]] where devname is the device name of a
-    UART port supported by pyserial, and speed is the line speed.  It
-    defaults to 9600 if omitted.  On a BeagleBone system, the uart
+    serial:devname[:speed[:uart]] where devname is the device name of
+    a UART port supported by pyserial, and speed is the line speed.
+    It defaults to 9600 if omitted.  On a BeagleBone system, the uart
     argument may be supplied to have the specified UART port on the
-    system configured for use by Linux.  This requires the Adafruit_BBIO
-    module to be installed.
+    system configured for use by Linux.  This requires the
+    Adafruit_BBIO module to be installed.
 
-    If UDP is used, traffic is between the specified local port and the
-    peer address/port.  Incoming packets are accepted only from that peer.
+    If UDP is used, traffic is between the specified local port and
+    the peer address/port.  Incoming packets are accepted only from
+    that peer.
 
-    TELNET is a variant of TCP; in this mode, all-ones bytes are escaped
-    according to TELNET protocol rules.  This supports connections via
-    telnet servers to async ports running DDCMP.  That includes SIMH
-    terminal connections accessed via TCP when in Telnet mode rather
-    than raw mode.  Note that SIMH allows terminal ports to be
-    configured with the "notelnet" attach argument, to suppress the
-    default Telnet encapsulation.  This is slightly more efficient and
-    is the preferred way of connecting to SIMH for DDCMP on serial
+    TELNET is a variant of TCP; in this mode, all-ones bytes are
+    escaped according to TELNET protocol rules.  This supports
+    connections via telnet servers to async ports running DDCMP.  That
+    includes SIMH terminal connections accessed via TCP when in Telnet
+    mode rather than raw mode.  Note that SIMH allows terminal ports
+    to be configured with the "notelnet" attach argument, to suppress
+    the default Telnet encapsulation.  This is slightly more efficient
+    and is the preferred way of connecting to SIMH for DDCMP on serial
     ports.
 
     In TCP and serial modes, message resynchronization is done by the
     "Header CRC" method: the byte stream is searched for a valid start
-    of header byte, and if the bytes starting at that point constitute a
-    header with a valid Header CRC, it is assumed that we have framed
-    the message correctly.  The transmitted byte stream contains four
-    SYN bytes before each message (in TCP mode only) and one DEL byte
-    after it, in conformance with the DDCMP spec recommendations.
-    Resynchronization is only needed after an error; once sync has been
-    established, it is presumed to remain in effect until an error
-    occurs.  For example, a Header CRC error will be detected and
-    counted as such if the link is in sync (but a second Header CRC
-    error immediately following will not be, since at that point sync is
-    not established).
+    of header byte, and if the bytes starting at that point constitute
+    a header with a valid Header CRC, it is assumed that we have
+    framed the message correctly.  Resynchronization is only needed
+    after an error; once sync has been established, it is presumed to
+    remain in effect until an error occurs.  For example, a Header CRC
+    error will be detected and counted as such if the link is in sync
+    (but a second Header CRC error immediately following will not be,
+    since at that point sync is not established).
 
     In UDP mode, framing is implicit: each UDP packet contains a DDCMP
     message.  The message may be preceded and/or followed by fill bytes
@@ -1192,9 +1196,10 @@ class _TcpDDCMP (_DDCMP):
         # Just encode the message; CRCs are handled by the encoder.
         msg = msg.encode ()
         try:
-            msg = SYN4 + msg + DEL1
             if self.telnet:
-                msg = msg.replace (DEL1, DEL2)
+                # Add a DEL after the frame in Telnet mode since
+                # presumably we're talking to a real terminal.
+                msg = msg.replace (DEL1, DEL2) + DEL2
             if logging.tracing:
                 logging.tracepkt ("Sending packet on {}",
                                   self.name, pkt = msg)
@@ -1434,7 +1439,7 @@ class FramerOff (FramerCmd):
 FRAMER_MODES = (
     ( "rs232_dte", RS232_MODEM_CLK, 0 ),
     ( "rs232_dce", RS232_LOCAL_CLK, 0 ),
-    ( "internal", INT_MODEM, 0 ),
+    ( "integral", INT_MODEM, 0 ),
     ( "coax", INT_MODEM, 0 ),
     ( "loopback", INT_MODEM, 1 ))
     
@@ -1630,7 +1635,7 @@ class DDCMP (datalink.Datalink):
             # Legacy configuration via device argument, convert that
             api, dev = config.device.split (":", 1)
             config.mode = api = api.lower ()
-            if api == "serial" or api == "framer":
+            if api in ("serial", "framer", "sync"):
                 config.device = dev
             else:
                 x, *rest = config.device.split (":")
@@ -1645,7 +1650,7 @@ class DDCMP (datalink.Datalink):
             c = _TcpDDCMP
         elif api == "udp":
             c = _UdpDDCMP
-        elif api == "framer":
+        elif api == "sync" or api == "framer":
             c = _FramerDDCMP
         else:
             raise ValueError ("Unknown DDCMP circuit subtype {}".format (api))

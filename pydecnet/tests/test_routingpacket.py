@@ -5,8 +5,9 @@ from decnet.routing_packets import *
 
 class test_shortdata (DnTest):
     def test_decode (self):
-        s = self.short (b"\x02\x03\x04\x01\x08\x11abcdef payload", ShortData,
-                        maxlen = 5)
+        s = self.short (b"\x02\x03\x04\x01\x08\x11abcdef payload",
+                        RoutingPacketBase, maxlen = 5)
+        self.assertIsInstance (s, ShortData)
         self.assertEqual (s.rqr, 0)
         self.assertEqual (s.rts, 0)
         self.assertEqual (s.dstnode, Nodeid (1, 3))
@@ -25,7 +26,8 @@ class test_longdata (DnTest):
     def test_decode (self):
         s = self.short (b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04"
                         b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00"
-                        b"abcdef payload", LongData, maxlen = 20)
+                        b"abcdef payload", RoutingPacketBase, maxlen = 20)
+        self.assertIsInstance (s, LongData)
         self.assertEqual (s.rqr, 0)
         self.assertEqual (s.rts, 0)
         self.assertEqual (s.ie, 1)
@@ -46,7 +48,8 @@ class test_longdata (DnTest):
 class test_ptpinit (DnTest):
     def test_decode (self):
         s = self.short (b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x20\x00\x00",
-                        PtpInit)
+                        RoutingPacketBase)
+        self.assertIsInstance (s, PtpInit)
         self.assertEqual (s.srcnode, Nodeid (1, 2))
         self.assertEqual (s.ntype, 3)
         self.assertEqual (s.verif, 1)
@@ -56,7 +59,9 @@ class test_ptpinit (DnTest):
         self.assertEqual (s.reserved, b"")
         
     def test_decode3 (self):
-        s = self.short (b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00", PtpInit3)
+        s = self.short (b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00",
+                        RoutingPacketBase)
+        self.assertIsInstance (s, PtpInit3)
         self.assertEqual (s.srcnode, Nodeid (2))
         self.assertEqual (s.ntype, 3)
         self.assertEqual (s.verif, 1)
@@ -81,7 +86,8 @@ class test_ptpinit (DnTest):
 
 class test_ptpver (DnTest):
     def test_decode (self):
-        s = self.short (b"\x03\x02\x0c\x04abcd", PtpVerify)
+        s = self.short (b"\x03\x02\x0c\x04abcd", RoutingPacketBase)
+        self.assertIsInstance (s, PtpVerify)
         self.assertEqual (s.srcnode, Nodeid (3, 2))
         self.assertEqual (s.fcnval, b"abcd")
 
@@ -92,7 +98,8 @@ class test_ptpver (DnTest):
         
 class test_ptphello (DnTest):
     def test_decode (self):
-        s = self.short (b"\x05\x02\x00\x04abcd", PtpHello)
+        s = self.short (b"\x05\x02\x00\x04abcd", RoutingPacketBase)
+        self.assertIsInstance (s, PtpHello)
         self.assertEqual (s.srcnode, Nodeid (2))
         self.assertEqual (s.testdata, b"abcd")
 
@@ -106,7 +113,8 @@ class test_rhello (DnTest):
         s = self.short (b"\x0b\x02\x00\x01\xaa\x00\x04\x00\x02\x04\x02"
                         b"\x10\x02\x40\x00\x80\x00\x00"
                         b"\x0f\x00\x00\x00\x00\x00\x00\x00"
-                        b"\x07\xaa\x00\x04\x00\x07\x04\x9f", RouterHello)
+                        b"\x07\xaa\x00\x04\x00\x07\x04\x9f", RoutingPacketBase)
+        self.assertIsInstance (s, RouterHello)
         self.assertEqual (s.tiver, Version (2, 0, 1))
         self.assertEqual (s.id, Nodeid (1, 2))
         self.assertEqual (s.ntype, 2)
@@ -137,7 +145,8 @@ class test_ehello (DnTest):
         s = self.short (b"\x0d\x02\x00\x03\xaa\x00\x04\x00\x01\x0c\x03\x04\x02"
                         b"\x00\x00\x00\x00\x00\x00\x00\x00\x00"
                         b"\xaa\x00\x04\x00\xff\x0c\x14\x00\x00\x06abcdef",
-                        EndnodeHello)
+                        RoutingPacketBase)
+        self.assertIsInstance (s, EndnodeHello)
         self.assertEqual (s.tiver, Version (2, 0, 3))
         self.assertEqual (s.id, Nodeid (3, 1))
         self.assertEqual (s.ntype, 3)
@@ -164,10 +173,12 @@ class routingmsg (DnTest):
 class test_p3routing (routingmsg):
     def test_decode (self):
         s = self.short (b"\x07\x03\x00\x00\xff\x7f\x06\x08\x05\x88",
-                        PhaseIIIRouting)
+                        RoutingPacketBase)
+        self.assertIsInstance (s, PhaseIIIRouting)
         self.assertEqual (s.srcnode, 3)
-        self.assertEqual (s.segments, [ RouteSegEntry (cost = 1023, hops = 31),
-                                        RouteSegEntry (cost = 6, hops = 2) ])
+        self.assertEqual (list (s.segments),
+                          [ RouteSegEntry (cost = 1023, hops = 31),
+                            RouteSegEntry (cost = 6, hops = 2) ])
         self.assertEqual (list (s.entries (self.circ)), [ (1, (32, 1028)),
                                                           (2, (3, 11)) ])
 
@@ -185,7 +196,8 @@ class test_p3routing (routingmsg):
 class test_l1routing (routingmsg):
     def test_decode (self):
         s = self.short (b"\x07\x03\x00\x00\x02\x00\x05\x00\xff\x7f"
-                        b"\x06\x08\x0d\x88", L1Routing)
+                        b"\x06\x08\x0d\x88", RoutingPacketBase)
+        self.assertIsInstance (s, L1Routing)
         self.assertEqual (s.srcnode, 3)
         e = [ L1Segment (count = 2, startid = 5,
                          entries = [ RouteSegEntry (cost = 1023, hops = 31),
@@ -221,7 +233,8 @@ class test_l1routing (routingmsg):
 class test_l2routing (routingmsg):
     def test_decode (self):
         s = self.short (b"\x09\x03\x00\x00\x02\x00\x05\x00\xff\x7f"
-                        b"\x06\x08\x0d\x88", L2Routing)
+                        b"\x06\x08\x0d\x88", RoutingPacketBase)
+        self.assertIsInstance (s, L2Routing)
         self.assertEqual (s.srcnode, 3)
         e = [ L2Segment (count = 2, startid = 5,
                          entries = [ RouteSegEntry (cost = 1023, hops = 31),
@@ -255,7 +268,8 @@ class test_l2routing (routingmsg):
 class test_ph2init (DnTest):
     def test_decode (self):
         s = self.short (b"\x58\x01\x07\x04TEST\x00\x00\x04\x02\x01\x02\x40\x00"
-                        b"\x00\x00\x00\x03\x01\x00\x00", NodeInit)
+                        b"\x00\x00\x00\x03\x01\x00\x00", RoutingPacketBase)
+        self.assertIsInstance (s, NodeInit)
         self.assertEqual (s.srcnode, 7)
         self.assertEqual (s.nodename, "TEST")
         self.assertEqual (s.int, 0)
@@ -274,11 +288,12 @@ class test_ph2init (DnTest):
                       sysver = "TESTING")
         b = bytes (s)
         self.assertEqual (b, b"\x58\x01\x11\x03FOO\x00\x01\x04\x02\xff\x01"
-                          b"\x80\x00\x00\x00\x00\x03\x01\x00\x07TESTING")
+                          b"\x80\x00\x03\x01\x00\x03\x01\x00\x07TESTING")
         
 class test_ph2verify (DnTest):
     def test_decode (self):
-        s = self.short (b"\x58\x02\x00PASSWORD", NodeVerify)
+        s = self.short (b"\x58\x02\x00PASSWORD", RoutingPacketBase)
+        self.assertIsInstance (s, NodeVerify)
         self.assertEqual (s.password, b"PASSWORD")
 
     def test_encode (self):
@@ -288,7 +303,8 @@ class test_ph2verify (DnTest):
         
 class test_ph2nop (DnTest):
     def test_decode (self):
-        s = NopMsg (b"\x08TESTDATA")
+        s = RoutingPacketBase (b"\x08TESTDATA")
+        self.assertIsInstance (s, NopMsg)
         self.assertEqual (s.payload, b"TESTDATA")
 
     def test_encode (self):

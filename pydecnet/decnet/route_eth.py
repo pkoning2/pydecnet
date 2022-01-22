@@ -128,42 +128,21 @@ class LanCircuit (timers.Timer):
                     logging.debug ("Double padded packet received on {}",
                                    self.name)
                     return
-            if hdr & 1:
-                # Routing control packet.  Figure out which one
-                code = (hdr >> 1) & 7
-                try:
-                    work = bccontrolpackets[code] (buf, src = work.src)
-                except KeyError:
-                    logging.debug ("Unknown routing control packet {} from {}",
-                                   code, self.name)
-                    return
-                except packet.DecodeError:
-                    # If parsing the packet raises a DecodeError
-                    # exception, log that event
-                    self.node.logevent (events.fmt_err,
-                                        entity = events.CircuitEventEntity (self),
-                                        packet_beginning = buf[:6])
-                    return
-            else:
-                code = hdr & 7
-                try:
-                    if code == 6:
-                        work = LongData (buf, src = work.src)
-                    elif code == 2:
-                        # Short data is not expected, but it is accepted
-                        # just for grins (and because the spec allows it).
-                        work = ShortData (buf, src = work.src)
-                    else:
-                        logging.debug ("Unknown routing packet {} from {}",
-                                       code, self.name)
-                        return
-                except packet.DecodeError:
-                    # If parsing the packet raises a DecodeError
-                    # exception, log that event
-                    self.node.logevent (events.fmt_err,
-                                        entity = events.CircuitEventEntity (self),
-                                        packet_beginning = buf[:6])
-                    return
+            pcls = self.pktindex[hdr]
+            if not pcls:
+                # Not a packet we're interested in, ignore it
+                logging.trace ("Unknown routing packet {} from {}",
+                               hdr, self.name)
+                return
+            try:
+                work = pcls (buf, src = work.src)
+            except packet.DecodeError:
+                # If parsing the packet raises a DecodeError
+                # exception, log that event
+                self.node.logevent (events.fmt_err,
+                                    entity = events.CircuitEventEntity (self),
+                                    packet_beginning = buf[:6])
+                return
         return work
 
     def up (self, **kwargs):
@@ -188,7 +167,7 @@ class LanCircuit (timers.Timer):
         return [ self.name, self.datalink.macaddr, self.cost,
                  self.config.priority, self.t3, dr ]
     
-    def nice_read (self, req, resp):
+    def nice_read (self, req, resp, qual = None):
         if isinstance (req, nicepackets.NiceReadNode) and \
            req.sumstat () and not req.loop ():
             for a in sorted (self.adjacencies.values (),
@@ -196,16 +175,15 @@ class LanCircuit (timers.Timer):
                 neighbor = a.adjnode ()
                 r = resp[neighbor]
                 r.adj_circuit = str (self)
-                if req.sum ():
-                    # Set next hop if summary.
-                    r.next_node = neighbor
-                else:
+                if req.stat ():
                     # status
                     r.adj_type = a.ntype + 2
                     # Fill in hops/cost in case we're not getting this
                     # from the routing table.
                     r.hops = 1
                     r.cost = self.cost
+                else:
+                    r.next_node = neighbor
         elif isinstance (req, nicepackets.NiceReadCircuit):
             cn = str (self)
             if req.counters ():
@@ -213,12 +191,15 @@ class LanCircuit (timers.Timer):
                 self.datalink.nice_read_port (req, r)
                 return
             # Pick up all adjacencies if status or characteristics or
-            # there is only one.  That last point is non-standard but
-            # it seems like a good idea.
-            all = req.stat () or req.char () or len (self.adjacencies) == 1
+            # there is only one, and no qualifier was given.  That
+            # last point is non-standard but it seems like a good
+            # idea.
+            all = req.stat () or req.char () or \
+                  (qual is None and len (self.adjacencies) == 1)
             ret = [ ]
             for a in self.adjacencies.values ():
-                if all or a.ntype != ENDNODE:
+                if (all or a.ntype != ENDNODE) and \
+                   (qual is None or qual == a.adjnode ()):
                     r = resp.makeitem (cn)
                     r.adjacent_node = a.adjnode ()
                     if req.stat ():
@@ -228,14 +209,15 @@ class LanCircuit (timers.Timer):
                     ret.append (r)
             if ret:
                 r = ret[0]
+            elif qual:
+                # Qualified read and nothing found, that's an error
+                return
             else:
                 ret = r = resp.makeitem (cn)
             if req.sumstat ():
                 # summary or status
                 r.state = 0   # on
             elif req.char ():
-                if self.loop_node:
-                    r.loopback_name = self.loop_node
                 r.hello_timer = self.t3
                 r.cost = self.cost
                 self.extrachar (r)
@@ -250,6 +232,18 @@ class LanCircuit (timers.Timer):
                     r.designated_router = dr
             self.datalink.nice_read_port (req, r)
             resp[cn] = ret
+        elif isinstance (req, nicepackets.P2NiceReadLineStatus):
+            cn = str (self)
+            r = resp[cn]
+            r.entity = self.p2id
+            r.state = r.ON
+            if self.dr:
+                if self.isdr:
+                    dr = self.node.nodeinfo (self.parent.nodeid)
+                elif self.dr:
+                    dr = self.dr.adjnode ()
+                r.adjacent_node = str (dr)
+                
 
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop
@@ -292,6 +286,7 @@ class EndnodeLanCircuit (LanCircuit):
                                    testdata = 50 * b'\252')
         self.datalink.add_multicast (ALL_ENDNODES)
         self.dr = None
+        self.pktindex = pktindex (ShortData, LongData, RouterHello)
         # Common code looks for this:
         self.adjacencies = dict ()
         self.prevhops = dict ()
@@ -388,8 +383,9 @@ class EndnodeLanCircuit (LanCircuit):
             pass
         
     def send (self, pkt, nexthop, tryhard = False):
-        """Send pkt to nexthop.  Always returns True because it always
-        works (we don't know of "unreachable").
+        """Send pkt to nexthop.  Normally returns True because it always
+        works (we don't know of "unreachable").  Exception: sending to
+        self returns False if we don't have a router adjacency.
         """
         if nexthop:
             super ().send (pkt, nexthop)
@@ -409,6 +405,8 @@ class EndnodeLanCircuit (LanCircuit):
             if self.dr:
                 # Send to the DR adjacency
                 self.dr.send (pkt)
+            elif dstnode == self.parent.nodeid:
+                return False
             else:
                 super ().send (pkt, Macaddr (dstnode))
         return True
@@ -438,6 +436,12 @@ class RoutingLanCircuit (LanCircuit):
                                   ntype = parent.ntype,
                                   blksize = ETHMTU, id = parent.nodeid,
                                   timer = self.t3)
+        if parent.ntype == L1ROUTER:
+            self.pktindex = pktindex (ShortData, LongData, RouterHello,
+                                      EndnodeHello, L1Routing)
+        else:
+            self.pktindex = pktindex (ShortData, LongData, RouterHello,
+                                      EndnodeHello, L1Routing, L2Routing)
         self.minrouterblk = ETHMTU
 
     def extrachar (self, r):

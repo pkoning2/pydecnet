@@ -25,9 +25,9 @@ line, and any includes mentioned.  After the config file has been
 fully parsed, execution begins provided no errors were found during
 config file reading.  Each top level config file defines either a
 DECnet node (instance of "routing"), an Ethernet bridge, or the HTTP
-access feature.  So each config file must contain either a "routing",
-a "bridge", or an "http" component -- one but not more than one of
-these. 
+and API access features.  So each config file must contain either a
+"routing", a "bridge", or one or both of the "api" and "http"
+components -- but no other combination of these.
 
 Each config file line resembles a Unix command invocation, with
 GNU-style flexible order:
@@ -74,9 +74,8 @@ second occurrence)
 Component "http"
 
 This optional component enables HTTP and/or HTTPS access for
-monitoring, and if specified, for the JSON based API.  It has several
-optional switches.  If there is no "http" component in any config
-file, HTTP(S) is disabled.
+monitoring.  It has several optional switches.  If there is no "http"
+component in any config file, HTTP(S) is disabled.
 
 --http-port: an integer in the range 0..65535, the TCP port number for
 the HTTP listener.  Default is 8000.  The value 0 disables HTTP.
@@ -94,12 +93,6 @@ only if the platform has dual-stack support (which Windows, Linux,
 and Mac OS all do) as described in RFC 3493.  If neither switch is
 present, both IPv4 and IPv6 are accepted; if only one is, then only
 that IP protocol is accepted.
-
---api: enables the JSON API.  If omitted, JSON requests (to the "api"
-URL) are rejected.  
-
---insecure-api: allows the JSON API (if enabled by --api) on the HTTP
-port.  By default, JSON is allowed only on the HTTPS port.
 
 --local-address: local IP address to use, for both HTTP and HTTPS.
 Defaults to accepting any local address (i.e., HTTP and HTTPS
@@ -119,6 +112,23 @@ excessive load on network nodes due to polling from too many places.
 One or two mappers per network is sufficient.
 
 TODO: define authorization mechanisms.
+
+Component "api"
+
+This optional component enables the Unix socket based general API,
+documented in detail in doc/api.txt.  If there is no "api" component
+in any config file, the general API is disabled.  The "api" component
+may be combined with "http" in a config file, but neither may be
+combined with "routing" or "bridge".
+
+name: an optional file name argument specifies the name of the Unix
+socket to be used for the API.  The default is /tmp/decnetapi.sock.
+
+--mode: an octal integer in the range 000 to 777, which specifies the
+file mode for the socket.  The default is 666, which allows any
+process on the system to read and write the socket.  You can use more
+restrictive modes to limit access to the API via the standard Unix
+access rules.
 
 Component "routing"
 
@@ -314,22 +324,23 @@ types, are:
        installed, the additional field :uartport can be added, which
        is the port name of the UART device to be used.
 
-       framer: DDCMP over a synchronous connection using the USB to
-       DDCMP sync framer board.  The device argument is the device
-       name (an Ethernet interface, which will be accessed using the
-       pcap library) followed by :mode and then optionally :speed.
-       Mode is "rs232_dte", "rs232_dce" or "internal" for RS-232
-       signalling with modem-supplied clocks, RS-232 signaling with
-       framer supplying the clock, and "internal modem" (high speed
-       coax connection) respectively.  "coax" is also accepted as a
-       synonym for "internal".  Speed is the data rate in bits
-       per second; this is required in rs232_dce and internal modes,
-       not applicable for the rs232_dte (modem supplied clock) case.
-       The interface name may be given as "*" if there is exactly one
+       sync: DDCMP over a synchronous connection using the USB to
+       DDCMP sync framer board.  ("framer" can be used as a synonym
+       for "sync".)  The device argument is the device name (an
+       Ethernet interface, which will be accessed using the pcap
+       library) followed by :mode and then optionally :speed.  Mode is
+       "rs232_dte", "rs232_dce" or "integral" for RS-232 signalling
+       with modem-supplied clocks, RS-232 signaling with framer
+       supplying the clock, and "integral modem" (high speed coax
+       connection) respectively.  "coax" is also accepted as a synonym
+       for "integral".  Speed is the data rate in bits per second;
+       this is required in rs232_dce and internal modes, not
+       applicable for the rs232_dte (modem supplied clock) case.  The
+       interface name may be given as "*" if there is exactly one
        framer connected to the system; in that case its interface name
-       will be looked up.
-       For more information on the framer including documentation,
-       firmware, and design files, see https://github.com/pkoning2/ddcmp
+       will be looked up.  For more information on the framer
+       including documentation, firmware, and design files, see
+       https://github.com/pkoning2/ddcmp
 
        udp: DDCMP over UDP.
 
@@ -388,7 +399,9 @@ for the remote node, initialization is rejected.
 
 --loop-node: Loop node name to associate with this circuit.  The name
 must not already be in use as a regular node name.  If omitted, no
-loop node name is assigned to this circuit.
+loop node name is assigned to this circuit.  Loop nodes are only valid
+for point to point circuits (Multinet or DDCMP), not for Ethernet-type
+circuits (Ethernet or GRE).
 
 --mop: applies only to bridge circuits.  By default, only DECnet
 packets are accepted from and sent to this circuit.  If --mop is

@@ -34,6 +34,7 @@ from . import node
 from . import events
 from . import logging
 from . import http
+from . import apiserver
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -132,7 +133,7 @@ def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
     """
-    global nodes, httpserver
+    global nodes, httpserver, api
     # Handle SIGTERM as a sign to quit
     signal.signal (signal.SIGTERM, sighandler)
     # Initialize DNFULLVERSION
@@ -176,8 +177,10 @@ def main ():
     # First start up the logging machinery
     logging.start (p)
 
-    logging.log (99, "Starting DECnet/Python {}-{}",
-                 http.DNVERSION, http.DNREV)
+    # Level 99 amounts to "Log regardless of logging level"
+    logging.log (99, "Starting DECnet/Python {}-{}\n Python {}",
+                 http.DNVERSION, http.DNREV,
+                 "\n   ".join (sys.version.splitlines ()))
     logging.info (" command line: {}".format (" ".join (sys.argv)))
     logging.flush ()
 
@@ -187,21 +190,30 @@ def main ():
     # Initialize all the nodes
     nodes = [ ]
     httpserver = None
+    api = None
     for c in configs:
         if hasattr (c, "routing") or hasattr (c, "bridge"):
             nodes.append (node.Node (c))
         else:
-            if httpserver:
-                print ("Duplicate http interface definition")
-                sys.exit (1)
-            if c.http.http_port or c.http.https_port:
-                httpserver = c.http
+            if hasattr (c, "http"):
+                if httpserver:
+                    print ("Duplicate http interface definition")
+                    sys.exit (1)
+                if c.http.http_port or c.http.https_port:
+                    httpserver = c.http
+            if hasattr (c, "api"):
+                if api:
+                    print ("Duplicate api interface definition")
+                    sys.exit (1)
+                api = c.api
+            
     if not nodes:
         print ("At least one routing or bridge instance must be configured")
         sys.exit (1)
     if httpserver:
         httpserver = http.Monitor (httpserver, nodes)
-        
+    if api:
+        api = apiserver.ApiServer (api, nodes)
     # Before starting the various layers and elements, become daemon
     # if requested.  This means we don't have to worry about file
     #  descriptors used by DECnet -- none are open yet.  The exception
@@ -241,6 +253,9 @@ def main ():
     for n in nodes:
         n.start ()
     logging.flush ()
+    # Start the API server, if present
+    if api:
+        api.start ()
     try:
         if httpserver:
             httpserver.start ()
@@ -261,6 +276,8 @@ def main ():
         else:
             logging.info ("Exiting due to Ctrl/C")
     finally:
+        if api:
+            api.stop ()
         # Stop nodes in reverse of the order in which they were started.
         # Note that the last node (the one that owns the main thread)
         # was already stopped by the time we get here.

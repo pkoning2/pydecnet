@@ -1,0 +1,52 @@
+This describes the TOPS-20 V4 "topology notification" protocol used by
+TOPS-20 Phase II DECnet to obtain information about the network
+topology from its neighbors.  It appears to be intended mostly to ask
+the PDP-11 front end processor for that information, but it is also
+used in 2020 systems where the request is directed at whatever node
+happens to be adjacent.
+
+In the description below, "client" means the TOPS-20 system initiating
+the request, and "server" is the other node (front end or other
+neighbor) answering.
+
+Connect initiate is by object name: "TOPOL".
+
+The protocol sends and receives data in 8-bit bytes.
+
+After connecting, the client sends 5 bytes:
+
+Request code: 1
+Version code: 6
+Version data: 01 00 00
+
+The server replies with its data, which must fit in a page.  The
+client reads 8-bit bytes, 2048 bytes max.  The message starts with a 5
+byte header, which must match exactly.
+
+Response code: 2
+Version code: 6
+Version data: 01 00 00
+
+Next is the count of items returned:
+
+Count code: 7
+Count value: <one byte>
+
+Next are the data items, as many as the count says.  Each begins with
+an item code:
+
+1: node name
+2: node number
+3. node state
+4: line ID
+5: line state
+(6: version info -- invalid as a topology item, used only in header)
+(7: node units to follow -- invalid as a topology item)
+
+Following the item code is the item, encoded as follows:
+
+1. Node name: counted string: one byte length, n bytes ASCII name
+2. Node number: extensible value (7 bits per byte with "more" flag)
+3. Note state: one byte, encoded ???
+4. Line ID: counted string.  Not used (skipped) by client.
+5. Line status: one byte, encoded ???.  Not used by client.

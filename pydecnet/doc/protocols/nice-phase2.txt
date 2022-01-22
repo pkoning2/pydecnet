@@ -1,0 +1,149 @@
+There appears to be a NICE protocol (remote management access) in
+Phase II, but there is no spec for it.  The following is reverse
+engineerd from TOPS-20 V4.1, which has client and server support for
+this protocol.
+
+Phase II NICE uses the same object number (19) as Phase III/IV.  The
+connect data is absent (in Phase III/IV it contains a 3-byte version
+number).
+
+For each connection a single command is sent.  Once the response has
+been received, the TOPS-20 client disconnects.  The server (NCU) does
+not require this behavior; the comments state that several requests
+may be sent on a single connection, one at a time.
+
+Each NICE request starts with a one-byte function code.  The code
+points assigned in Phase II are distinct from (lower than) the ones in
+the Phase III and IV NICE protocol.
+
+Some of the operations described below have code points assigned but
+are not implemented in TOPS-20 V4.1.
+
+Function codes:
+
+1: Log data
+2: Request downline load
+3: Request upline dump
+4: Trigger boot
+5: Loopback
+6: Request loop test
+7: Set parameter
+8: Read information
+9: Zero counters
+14: Line service
+
+The second byte (?) supplies additional detail of the requested
+function:
+
+Function 8 (read information):
+0: Local node counters (not implemented)
+1: Local node status
+2: Remote note counters (not implemented)
+3: Remote node status (not implemented)
+4: Line counters
+5: Line status
+6: Routing paths (not implemented)
+
+For functions 4 and 5 additional bytes specify what line(s) to operate
+on:
+0: known lines
+1: specific line, coded ID
+2: specific line, counted string ID (not implemented)
+
+The coded ID consists of the line device code (almost the same as the
+MOP Phase III/IV device codes, for example 28 for KMC-DUP) followed by
+3 bytes.  The third byte appears to be unused (the comments suggest is
+is reserved for "station" number, i.e., tributary address).  The other
+two make up the two numbers in the standard device ID.  For example,
+line KDP_0_1 is coded as 1c 00 01 00.
+
+The device codes are:
+       0    DP    DP11-DA
+       2    DU    DU11-DA synchronous line interface
+       4    DL    DL11-C, -E or -WA asynchronous line interface
+       6    DQ    DQ11-DA (OBSOLETE)
+       8    DA    DA11-B or -AL UNIBUS link
+      10    DUP   DUP11-DA synchronous line interface
+      12    DMC   DMC11-DA/AR, -FA/AR, -MA/AL or -MD/AL interprocessor link
+  *   14    DLV   DLV11, MXV11 asynchronous line interface
+  *   16          DL11-A
+      20    DTE   DTE20 PDP-11 to KL10 interface
+      22    DV    DV11-AA/BA synchronous line multiplexer
+      28    KDP   KMC11/DUP11-DA synchronous line multiplexer
+      30    KDZ   KMC11/DZ11-A, -B, -C, or -D asynchronous line multiplexer
+
+Entries marked with * differ from the MOP Phase III/IV device codes.
+
+The response to a NICE request consists of several messages.  The
+first message begins with a status code (one byte, signed).  If the
+operation is Read Information and the status is "success" (+1) there
+are two more bytes, the count of messages to follow (2 bytes little
+endian).
+
+Many of the codes match those in the Phase III/IV NICE, but a few are
+different:
+
++1: Success
+-1: Invalid function code or option
+-2: Invalid message format
+-3: Insufficient status
+-4: NICE protocol error
+-5: NICE process program error
+-8: Invalid line ID
+-9: Invalid line state
+-10: Line communications error
+-11: Invalid node ID
+-12: Invalid server node ID
+-13: Invalid file
+-14: Invalid configuration file
+-15: Resource error
+-16: Invalid parameter value
+-17: Line protocol error
+-18: File I/O error
+-19: Network communications error
+-20: No room for new entry
+-21: Remote NCU process not available
+
+Following the status message are data messages, if the operation was
+"read information".
+
+Local node status reply:
+
+- Type code (one byte: 01)
+- Node name (counted string)
+- Node number (one byte)
+- Status (one byte: 0 = On, 1 = Off, 2 = Shut)
+- Filler (2 bytes: 00 00 -- reserved for "maintenance logging state"
+    and "operator logging state)
+- Default host name (counted string)
+- Routing version (3 bytes)
+- Comm version (3 bytes)
+- System version (counted string)
+
+Line status reply:
+
+- Type code (one byte: 05)
+- Line ID (see above, same coding as line ID in the request)
+- Line status (one byte: 0 = On, 1 = Off, 4 = Maintenance, 5 =
+    Controller loopback, 6 = Cable loopback)
+- Filler (2 bytes: 00 00)
+- Adjacent node name (counted string)
+
+Line counters reply:
+- Type code (one byte: 04)
+- Line ID (see above, same coding as line ID in the request)
+- One or more counters, each encoded as follows:
+-- Counter code, (normally one byte, extensible coded)
+-- Counter value (2 bytes little endian)
+
+Counter codes are:
+
+0: Seconds since zeroed
+1: Blocks received
+2: Blocks sent
+3: Retran, line errors
+4: Received line errors
+5: Retran, not line errors
+6: Receive timeouts
+7: Receive select errors
+8: Resource errors

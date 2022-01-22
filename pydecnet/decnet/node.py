@@ -24,6 +24,7 @@ from . import event_logger
 from . import bridge
 from . import session
 from . import nicepackets
+from . import intercept
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -96,6 +97,14 @@ class Nodeinfo (nsp.NSPNode, NiceNode):
 
     def get_dest (self):
         return Nodeid (self)
+
+    def __eq__ (self, other):
+        if isinstance (other, str):
+            return self.nodename == other
+        return super ().__eq__ (other)
+
+    def __hash__ (self):
+        return super ().__hash__ ()
     
 class LoopNode (Nodeinfo):
     loopnode = True
@@ -128,8 +137,10 @@ class Node (Entity):
     it's certainly possible to create multiple ones (to emulate an
     entire network within a single process).
     """
+    # These are the elements to start, in this order.
     startlist = ( "datalink", "mop", "routing", "nsp",
-                  "session", "bridge", "event_logger" )
+                  "session", "bridge", "event_logger",
+                  "intercept" )
 
     def __init__ (self, config):
         self.node = self
@@ -142,7 +153,7 @@ class Node (Entity):
             self.ident = config.system.identification
         if self.decnet:
             # This is a DECnet node.
-            self.bridge = None
+            self.bridge = self.intercept = None
             self.phase = phases[config.routing.type]
             if self.phase == 4:
                 self.nodeid = config.routing.id
@@ -158,7 +169,8 @@ class Node (Entity):
             self.nicenode = NiceNode (self.nodeid, self.nodename)
         else:
             # bridge, dummy up some attributes
-            self.mop = self.routing = self.nsp = self.session = None
+            self.mop = self.routing = self.nsp = None
+            self.intercept = self.session = None
             self.phase = 0
             self.nodeid = None
             self.nodename = config.bridge.name
@@ -167,27 +179,59 @@ class Node (Entity):
         self.timers = timers.TimerWheel (self, JIFFY, 3600)
         self.workqueue = queue.Queue ()
         self.stats = WorkStats ()
+        self.apis = dict ()
         # We now have a node.
         # Create its child entities in the appropriate order.
         self.event_logger = event_logger.EventLogger (self, config)
         self.datalink = datalink.DatalinkLayer (self, config)
         if self.decnet:
             self.mop = mop.Mop (self, config)
+            # This will be one of several flavors of intercept
+            # support, possibly "no support".
+            self.intercept = intercept.Intercept (self, config)
+            # Routing depends on intercept to be created first
             self.routing = routing.Router (self, config)
             self.nsp = nsp.NSP (self, config)
             self.session = session.Session (self, config)
         else:
             self.bridge = bridge.Bridge (self, config)
 
+    def register_api (self, name, sfun, efun = None):
+        # Register a server function for the named API, and optionally
+        # a clean up "exit" function called if the API client
+        # disconnects.
+        assert name not in self.apis and name != "node"
+        self.apis[name] = (sfun, efun)
+        
     def register_monitor (self, mon, evt):
         # Register the caller as an event monitor sink
         if self.decnet:
             self.event_logger.register_monitor (mon, evt)
             
-    def get_api (self):
-        ##### TEMP
-        return [ n.get_api () for n in self.nodeinfo_byid.values () ]
-            
+    def api (self, client, apiname, reqtype, tag, args):
+        if apiname == "node":
+            if reqtype == "get":
+                # Requesting node database information
+                return { "nodenames" : [ n.get_api () for n in self.nodeinfo_byid.values () ] }
+            return dict (error = "Unsupported node operation", type = reqtype)
+        else:
+            try:
+                s, e = self.apis[apiname]
+            except KeyError:
+                return dict (error = "Unsupported api", api = apiname)
+            try:
+                return s (client, reqtype, tag, args)
+            except Exception as e:
+                logging.exception ("API request {} to {} failed",
+                                   reqtype, apiname)
+                return dict (error = "API exception", exception = e)
+
+    def end_api (self, client):
+        "Called when an API connection is closed"
+        for s, e in self.apis.values ():
+            if e:
+                e (client)
+                
     def addnodeinfo (self, n):
         # Note that duplicate entries (name as well as address) are
         # caught at config read-in.
@@ -236,7 +280,7 @@ class Node (Entity):
         #logging.trace ("Add work {} of {}", work, work.owner)
         self.workqueue.put (work)
         
-    def start (self, mainthread = False):
+    def start (self):
         """Start the node, i.e., its child entities in the right order
         and then the node main loop.
         """
@@ -249,13 +293,10 @@ class Node (Entity):
             c = getattr (self, m)
             if c:
                 c.start ()
-        if mainthread:
-            self.mainloop ()
-        else:
-            t = threading.Thread (target = self.mainloop, name = self.nodename)
-            # Exit the server thread when the main thread terminates
-            t.daemon = True
-            t.start ()
+        t = threading.Thread (target = self.mainloop, name = self.nodename)
+        # Exit the server thread when the main thread terminates
+        t.daemon = True
+        t.start ()
             
     def mainloop (self):
         """Node main loop.  This is intended to be the main loop of
@@ -300,6 +341,7 @@ class Node (Entity):
         self.timers.shutdown ()
         
     def logevent (self, event, entity = None, **kwds):
+        #logging.trace ("Logevent called", stack_info = True)
         if isinstance (event, events.Event):
             event.source = self.nicenode
             event.setparams (**kwds)
@@ -317,10 +359,7 @@ class Node (Entity):
             return self.bridge.description (mobile)
 
     def json_description (self):
-        try:
-            return self.routing.json_description ()
-        except AttributeError:
-            return self.bridge.json_description ()
+        return { self.nodename : list (self.apis) }
 
     def http_get (self, mobile, parts):
         qs = "?system={}".format (self.nodename)
@@ -437,12 +476,17 @@ class Node (Entity):
         self.routing.nice_read (req, resp)
         self.datalink.nice_read (req, resp)
         self.mop.nice_read (req, resp)
+        if isinstance (req, nicepackets.P2NiceReadExecStatus):
+            # Phase II read executor status
+            exe = resp[0]
+            exe.system = self.ident
+            exe.state = 0    # On
         if isinstance (req, (nicepackets.NiceReadNode,
                              nicepackets.NiceZeroNode)) and \
            self.routing.nodeid in resp:
             exe = resp[self.routing.nodeid]
             # Set the "this is the executor" flag in the entity
-            exe.entity.ename.executor = True
+            exe.entity.executor = True
             if req.sum () or req.char ():
                 # summary or characteristics (!)
                 exe.identification = self.ident

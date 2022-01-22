@@ -149,6 +149,7 @@ class Bridge (Element):
                 logging.debug ("Initialized bridge circuit {}", name)
             except Exception:
                 logging.exception ("Error initializing bridge circuit {}", name)
+        node.register_api ("bridge", self.api)
         
     def __str__ (self):
         return "{0.name}".format (self)
@@ -234,9 +235,11 @@ class Bridge (Element):
                               "Bridge {0.name}".format (self),
                               "?system={0.name}".format (self))
 
-    def json_description (self):
-        return { self.name : "Bridge" }
-    
+    def api (self, client, reqtype, tag, args):
+        if reqtype == "get":
+            return self.get_api ()
+        return dict (error = "Unsupported operation", type = reqtype)
+
     def get_api (self):
         return { "circuits" : self.circuits.get_api (),
                  "name" : self.name }

@@ -178,7 +178,30 @@ class DnMemoryHandler (logging.Handler):
             except IndexError:
                 pass
             self.target.flush ()
-            
+
+def dump_packet (pkt):
+    ret = list ()
+    for ln in range (0, len (pkt), 16):
+        n = list ()
+        c = list ()
+        for o in range (16):
+            try:
+                b = pkt[ln + o]
+                n.append ("{:02x}".format (b))
+                ch = chr (b)
+                if ch.isprintable ():
+                    c.append (ch)
+                else:
+                    c.append (".")
+            except IndexError:
+                n.append ("  ")
+            if o == 7:
+                n.append ("")
+        ret.append ("{:04x}/ {} {}".format (ln,
+                                            " ".join (n),
+                                            "".join (c)))
+    return '\n'.join (ret)
+
 # We want not just overall log record formatting, but also message
 # string formatting to be done with "format".  The "style" argument of
 # Formatter doesn't do that, instead we have to override getMessage in
@@ -192,25 +215,7 @@ class DecnetLogRecord (logging.LogRecord):
                 pkt = b"".join (makebytes (p) for p in pkt)
             else:
                 pkt = makebytes (pkt)
-            for ln in range (0, len (pkt), 16):
-                n = list ()
-                c = list ()
-                for o in range (16):
-                    try:
-                        b = pkt[ln + o]
-                        n.append ("{:02x}".format (b))
-                        ch = chr (b)
-                        if ch.isprintable ():
-                            c.append (ch)
-                        else:
-                            c.append (".")
-                    except IndexError:
-                        n.append ("  ")
-                    if o == 7:
-                        n.append ("")
-                ret.append ("{:04x}/ {} {}".format (ln,
-                                                    " ".join (n),
-                                                    "".join (c)))
+            ret.append (dump_packet (pkt))
         return "\n  ".join (ret)
 
 logging.setLogRecordFactory (DecnetLogRecord)

@@ -1,0 +1,323 @@
+This describes the remote terminal protocol, the "old" operating
+system specific protocol used before the DNA CTERM protocol was
+defined.  It was also used after that point by products that could not
+afford to implement CTERM, such as RSTS/E.
+
+DECnet object number is 23.
+
+Note: all two-byte integers are Little Endian (low byte first)
+
+Connect Initiate handshake: no connect data used in either direction.
+Then the daemon sends its config message.  The initiator uses that to
+determine which protocol variant to use.
+
+Network data message -- common layout:
+Offset	Length	Contents
+0	1	Message type code
+1	...	Type-specific data
+
+Message type codes (first byte in every message)
+1	Config message
+2	Control message
+3	USMM
+4	Continue message
+5	Data message
+
+Config message format -- daemon to initiator:
+Offset	Length	Contents
+0	1	Message type (1)
+1	1	Version (1)
+2	1	DEC ECO (1)
+3	1	Customer ECO (0)
+4	2	System type
+6	2	Protocol type
+Note that there is NO LENGTH FIELD in this message.
+
+System type codes:
+1	RT-11
+2	RSTS/E
+3	RSX-11S
+4	RSX-11M
+5	RSX-11D
+6	IAS
+7	VAX/VMS
+8	TOPS-20
+9	TOPS-10
+10	OS8
+11	RTS-8
+12	RSX-11M+
+13..17	reserved
+18	Ultrix-32
+
+Protocol type codes (apparently encoded as a bitmap!):
+1	RSTS/E
+2	RSX
+4	VMS
+8	TOPS-20
+
+
+RSTS variant:
+
+Note that the message formats aren't necessarily identical in both
+directions, though they certainly are similar.
+
+Network data message -- common layout:
+Offset	Length	Contents
+0	1	Message type code
+1	2	Message length (including this common part)
+3	...	Type-specific data
+
+Config message format -- initiator to daemon:
+Offset	Length	Contents
+0	1	Message type (1)
+1	2	Length (3)
+
+Control message format, inbound to daemon:
+Offset	Length	Contents
+0	1	Message type (2)
+1	2	Message Length
+3	1	Menu length
+4...	n	Menu data, starts with bit mask indicating what follows
+...	1	Echo flags, if echo bit set in menu bits
+...	16	Delimiter mask, if delimiter bit set
+...	2	Width, if width bit set
+...	2	Terminal type, if type bit set
+...	2	Fill count (nulls after \r), if fill bit set 
+
+Control message format, sent by daemon:
+Offset	Length	Contents
+0	1	Message type (2)
+1	2	Message Length
+2..4	?	Unused...
+5	1	Echo on/off byte
+
+Control message menu contents:
+Offset	Length	Contents
+0	1	Menu bits
+
+Control message menu bits -- indicate what else is present in the message
+1	Echo field present
+2	Delimiter bit mask present
+4	Width field present
+8	Terminal type field present
+16	Fill field present
+
+Echo flag bits
+1	Turn echo on
+2	Turn echo off
+
+Echo on/off byte
+0	Turn echo on
+1	Turn echo off
+
+Terminal type field bits
+1	Scope (video) terminal
+2	Hardware tab
+4	Lower case input
+8	Lower case output
+16	Xon (^S/^Q flow control)
+32	Hardware form feed
+64	8-bit
+
+Data message (both directions):
+Offset	Length	Contents
+0	1	Message type (5)
+1	2	Message Length
+3	1	Data length
+4...	n	Terminal data
+
+Messages sent by npkdvr to report echo on/off at the controlled terminal:
+echo on message:	2 6 0 1 1 0
+echo off message:	2 6 0 1 1 1
+
+Action taken by npkdvr (the daemon) for received messages:
+
+1. Config message: no action other than to mark the connection running. 
+2. Control message: sets terminal characteristics.
+3. USMM: crashes npkdvr!
+4. Continue message: no action other than to mark connection running.
+5. Data message: send data to the pseudo terminal as terminal input.
+
+RSX variant:
+
+Terminal input handling: echoing is done locally by the client, and
+happens when a read request is processed.  That matches RSX (and VMS)
+convention but differs from the Unix style of processing characters as 
+they are typed.  This local echoing includes handling of rubout (del)
+in either hardcopy or video terminal styles.
+
+Config message format -- initiator to daemon:
+Offset	Length	Contents
+0	1	Message type (1)
+1	1	Version (1)
+2	1	DEC ECO (0)
+3	1	Customer ECO (0)
+4	2	System type (4)
+6	2	Protocol type (2)
+8	2	RP.BUF (92)
+10	2	RC.TBL (20481, i.e., LSB 1, MSB 80)
+12	2	RC.CCT (258, i.e., LSB 2, MSB 1)
+14	2	RC.SCI (259)
+16	2	RC.ACL (260)
+18	2	RC.WBT (5)
+20	2	RC.CAD (262)
+22	2	RC.LUC (263)
+24	2	RC.RNE (264)
+26	2	RC.RTC (265)
+28	2	RC.CRT (266)
+30	2	RC.RIL (267)
+32	2	RC.RWB (268)
+34	2	RC.UNS (269)
+36	2	RC.END (0)
+All those fields after protocol type are listed by the name used in
+the code; I don't know what they mean.  They all appear to be of the
+form LSB = identifier, MSB = value (often a 1 or 0 flag).
+
+Common message format, daemon to initiator:
+Offset	Length	Contents
+0	1	Function code
+1	1	RP.MOD
+2	1	RP.FLG
+3	1	RP.STS
+4	1	RP.IDN
+5	1	RP.RSV
+6	2	RP.RCT
+8	2	RP.TCT
+10	137	RP.DAT
+
+Function code values:
+0	Nop
+1	Config
+2	Dis
+3	Write
+4	Read
+5	Read with prompt
+6	Unsollicited input
+7	Read single character
+8	Kill I/O 
+9	Attach
+10	Get terminal characteristics
+11	Set terminal characteristics
+
+NOP message: 
+If RP.FLG & 0x04 then cancel ^O (re-enable output).  Other than that,
+the message does nothing.
+
+Config message:
+Reply with a config message.
+
+Dis message:
+Prints a debug message containing the values of the RP.FNC, RP.VER,
+and RP.ECO fields; other than that the message is ignored.
+
+Write message: If RP.FLG & 0x04 then cancel ^O (re-enable output).  If
+RP.MOD & 0x01 then do the output in binary (raw) mode, otherwise use
+normal mode, which is 7 bit, not 8 bit, mode.  The data written starts 
+at RP.DAT; the byte count is given by RP.TCT.
+
+If RP.MOD & 0x80 then there is no response; otherwise, a response is
+generated that matches the first 5 bytes of the request except that
+RP.FLG is set to zero.
+
+Read message: Read a line of length given by RP.RCT.  If RP.MOD &
+0x04, read is binary (raw) mode.  If RP.MOD & 0x08, read terminates on 
+any control character (C0 and C1 both); otherwise it terminates only
+on ^c, cr, esc, ^z.  If RP.MOD & 0x10, echo is suppressed.  By
+convention, ^p as the first character typed, or a line exactly equal
+to "EXIT RMT" or "RMT EXIT" disconnects the session.
+
+If the read terminated by ^c, the response is a message of length 4
+bytes with RP.FNC = 12, RP.MOD and RP.FLG zero, and RP.FLG unchanged
+from the request -- followed by a message with header same as the
+request except RP.FLG zero, RP.RCT = the actual byte count (not
+counting the delimiter), RP.TCT zero, RP.STS = 1.  RP.DAT is set to
+the line that was read including the delimiter.
+
+If the line terminated other than by ^c, the response is a message
+matching the request except for RP.FLG zero, RP.RCT - the actual byte
+count (not counting the delimiter), RP.TCT zero.  RP.DAT is set to the 
+line that was read including the delimiter.
+
+Read with prompt: same as regular read except that prompt length is
+given by RP.TCT and the prompt string is in RP.DAT.  The prompt is
+displayed before the line is read.  Responses are as with the regular
+read. 
+
+Unsollicited input message: if RP.MOD & 0x80, unsollicited input is
+disabled, else it is enabled.  If enabled, control/O is cancelled
+(output re-enabled) if RP.FLG & 0x04.  The values of RP.FNC, RP.IDN,
+and RP.RCT are saved for use when unsollicited input is seen.
+
+Unsollicited input checking: the client always looks for ^c
+independent of the unsollicited input enable.  If one is seen, a
+message is sent, length 4 bytes, RP.FNC = 12, and RP.FLG, RP.MOD,
+RP.STS zero.  If unsollicited input is disabled, no other input is
+acted on until a read is posted.  If unsollicited input is enabled, 
+and any keystroke other than ^c is seen, it is processed as if a read
+were posted at that time with RP.FNC, RP.IDN and RP.RFC equal to the
+saved values from the unsollicited input enable message, and RP.MOD,
+RP.FLG, RP.RSV, and RP.TCT equal to zero.
+
+Read single character: if RP.MOD & 0x80, turn off single character
+mode; otherwise enable it.  If enabled, control/O is cancelled (output
+re-enabled) if RP.FLG & 0x04.  Various flags are saved, but in the
+RSTS implementation there appears to be no further action taken on
+this.  (It looks like there was some code to use it, but that is
+commented out.  The general idea seems to be that in this mode,
+unsollicited input is accepted in a single character at a time mode,
+as opposed to the unsollicited input mode where typing a character
+forces a (line mode) read to become active.)
+
+Kill I/O: this generates a response message of length 5, with the same 
+fields as sent except RP.MOD, RP.FLG and RP.STS are set to 0.  Other
+than that, no action is taken.
+
+Attach/detach: if RP.MOD & 0x80, state is set to detached, otherwise
+to attached.  But that state is not used anywhere...
+
+Get terminal characteristics: the request message contains in RP.DAT a 
+sequence of byte pairs.  These pairs are processed in order from the
+start, until a pair is seen whose first byte is zero.  For each pair,
+the first byte is a terminal characteristic index, which must be in
+the range 1..13.  The value of the corresponding current terminal
+setting is then written into the second byte of the pair.  Upon
+completion of this process, RP.FLG is set to zero, and the message is
+returned to the sender.
+
+Set terminal characteristics: similar to the above: RP.DAT contains a
+sequence of byte pairs terminated by a first byte of zero.  Each pair
+consists of a characteristic index (range 1..13) and a new value.
+Once RP.DAT has been scanned, and a reply message sent using the
+request header, length 4, RP.FLG set to zero.  I can't find any code
+that actually takes any action based on the updated terminal
+characteristics.
+
+Terminal characteristics reported by the client code in RSTS:
+Index	Value	Meaning (guess)
+ 1	 80	width
+ 2	 1
+ 3	 1
+ 4	 1
+ 5	 0
+ 6	 0
+ 7	 1
+ 8	 1
+ 9	 0
+ 10	 1
+ 11	 1
+ 12	 0
+ 13	 0
+The code that sets these in the local terminal characteristics array
+is interspersed with the code that forms many of the fields in the
+config message sent by the client, which suggests that the fields in
+the config message correspond to terminal characteristics.  But they
+don't match entirely, for example RC.CAD (item 6, value 1) in the
+config message vs. terminal characteristic 6 which is zero.
+
+
+
+
+TOPS-20 variant:
+
+Messages in this mode are simply terminal data, without any headers.
+Not even a type code...

@@ -29,6 +29,8 @@ from . import logging
 from .nsp import Seq
 from .host import dualstack
 
+defsockname = os.getenv ("DECNETAPI", "/tmp/decnetapi.sock")
+
 SvnFileRev = "$LastChangedRevision$"
 
 class dnparser_message (Exception): pass
@@ -275,11 +277,19 @@ cp.add_argument ("--mop", action = "store_true", default = False,
 cp = config_cmd ("http", "HTTP access")
 cp.add_argument ("--http-port", metavar = "S", default = 8000,
                  type = int, choices = range (65536),
-                 help = "Port number for HTTP access, 0 to disable")
+                 help = """Port number for HTTP access, 0 to disable. 
+                        Default: 8000.""")
+if ssl:
+    cp.add_argument ("--https-port", metavar = "S", default = 8443,
+                     type = int, choices = range (65536),
+                     help = """Port number for HTTPS access, 0 to disable. 
+                            Default: 8443.""")
+else:
+    cp.set_defaults (https_port = None)
 dualstack_switches (cp)
 cp.add_argument ("--local-address", type = IpAddr, dest = "source",
-                 help = """Local IP address to use for the HTTP server
-                        (default: auto-select)""")
+                 help = """Local IP address to use for the HTTP server.
+                        Default: auto-select""")
 # Synonym for the above for older configs
 cp.add_argument ("--source", help = argparse.SUPPRESS)
 cp.add_argument ("--http-root", metavar = "R",
@@ -287,6 +297,9 @@ cp.add_argument ("--http-root", metavar = "R",
                         server.  Must contain the "resources" directory
                         which contains the resource files.  Default:
                         the directory containing the PyDECnet source.""")
+if ssl:
+    cp.add_argument ("--certificate", metavar = "C", default = "decnet.pem",
+                     help = "Name of certificate file for HTTPS.  Default: 'decnet.pem'")
 
 # Restricted use arguments, see config.txt
 cp.add_argument ("--mapper", default = "", help = argparse.SUPPRESS)
@@ -297,25 +310,6 @@ cp.add_argument ("--nodedbserver", default = "mim.update.uu.se",
 cp.add_argument ("--nodedbtz", default = "Europe/Stockholm",
                  help = argparse.SUPPRESS)
 cp.add_argument ("--dbpassword", default = "", help = argparse.SUPPRESS)
-if ssl:
-    cp.add_argument ("--https-port", metavar = "S", default = 8443,
-                     type = int, choices = range (65536),
-                     help = "Port number for HTTPS access, 0 to disable")
-    cp.add_argument ("--certificate", metavar = "C", default = "decnet.pem",
-                     help = "Name of certificate file for HTTPS, default = decnet.pem")
-    cp.add_argument ("--api", action = "store_true", default = False,
-                     help = "Enable JSON API, by default over HTTPS only")
-    cp.add_argument ("--insecure-api", action = "store_true", default = False,
-                     help = "Allow JSON API over HTTP")
-else:
-    # This option exists with or without SSL, but the help text changes.
-    cp.add_argument ("--api", action = "store_true", default = False,
-                     help = """Enable JSON API.  Note that this uses
-                     HTTP (no encryption) because SSL is not available
-                     on this installation.  This may be a security
-                     concern.  Proceed with caution.""")
-    cp.set_defaults (insecure_api = True)
-    cp.set_defaults (https_port = None)
 
 cp = config_cmd ("routing", "Routing layer configuration")
 cp.add_argument ("id", type = Nodeid, metavar = "NodeID",
@@ -346,6 +340,8 @@ cp.add_argument ("--t1", type = int, default = 600,
                  help = "Non-LAN background routing message interval")
 cp.add_argument ("--bct1", type = int, default = 10,
                  help = "LAN background routing message interval")
+cp.add_argument ("--no-intercept", default = False, action = "store_true",
+                 help = "Don't offer Phase II intercept services")
 
 cp = config_cmd ("node", "DECnet node database", collection = Nodes)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,
@@ -374,6 +370,21 @@ cp.add_argument ("--qmax", default = 20, metavar = "Q",
 cp.add_argument ("--retransmits", type = int, default = 5, metavar = "R",
                  choices = range (2, 16),
                  help = "NSP maximum retransmits (range 2..15)")
+
+def parsemode (s):
+    try:
+        return int (s, 8)
+    except ValueError:
+        raise dnparser_error ("Invalid octal number in --mode") from None
+    
+cp = config_cmd ("api", "API access")
+cp.add_argument ("name", default = defsockname, nargs = "?",
+                 help = """File name of Unix socket for API access, 
+                        default '{}'""".format (defsockname))
+cp.add_argument ("--mode", choices = range (0o1000),
+                 type = parsemode, default = 0o666, metavar = "M",
+                 help = """File mode for socket as an octal number,
+                           default 666 (range 000 to 777)""")
 
 cp = config_cmd ("system", "System level configuration")
 cp.add_argument ("--identification", metavar = "ID",
@@ -443,11 +454,12 @@ class Config (object):
         logging.debug ("Reading config {}", f.name)
         self.configfilename = f.name
         
-        # Remove routing, bridge,and http from single_init set, because we
-        # handle those separately.
+        # Remove routing, bridge, http, and api from single_init set,
+        # because we handle those separately.
         single_init.discard ("routing")
         single_init.discard ("bridge")
         single_init.discard ("http")
+        single_init.discard ("api")
         
         # First supply empty dicts for each collection config component
         for name, cls in coll_init:
@@ -513,8 +525,8 @@ class Config (object):
                     logging.error ("Missing config element: {}", name)
                     ok = False
             if hasattr (self, "bridge") + hasattr (self, "routing") + \
-                hasattr (self, "http") != 1:
-                logging.error ("Exactly one of routing, bridge, or http required, config file {}",
+               (hasattr (self, "http") or hasattr (self, "api")) != 1:
+                logging.error ("Exactly one of routing, bridge, or http and/or api required, config file {}",
                                self.configfilename)
                 ok = False
             if not ok:

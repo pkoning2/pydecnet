@@ -10,52 +10,66 @@ from decnet import routing
 from decnet import datalink
 from decnet.node import Nodeinfo
 from decnet.common import NiceNode
+from decnet import intercept
 
 rcount = 5000
 rmin = 0
 rmax = 30
 
 class rtest (DnTest):
-
+    #loglevel = logging.TRACE
     def setUp (self):
         super ().setUp ()
         self.r = unittest.mock.Mock ()
         self.r.node = self.node
         if self.phase == 4:
-            self.r.nodeid = Nodeid (1, 5)
+            self.r.nodeid = self.node.nodeid = Nodeid (1, 5)
             self.node.ntype = routing.L2ROUTER
         else:
-            self.r.nodeid = Nodeid (5)
+            self.r.nodeid = self.node.nodeid = Nodeid (5)
             self.node.ntype = routing.L1ROUTER
         self.r.homearea, self.r.tid = self.r.nodeid.split ()
         info = Nodeinfo (None, self.r.nodeid)
-        info.nodename = "LOCAL"
+        info.nodename = self.node.nodename
         info.counters = routing.ExecCounters (info, self.node)
         self.node.addnodeinfo (info)
         self.r.nodeinfo = info
-        info = Nodeinfo (None, Nodeid (66))
+        if self.phase == 4:
+            info = Nodeinfo (None, Nodeid (1, 66))
+        else:
+            info = Nodeinfo (None, Nodeid (66))
         info.nodename = "REMOTE"
         info.iverif = b"IVERIF"
         info.overif = b"OVERIF"
         self.node.addnodeinfo (info)
-        info = Nodeinfo (None, Nodeid (1, 66))
-        info.nodename = "REMOTE"
+        if self.phase == 4:
+            info = Nodeinfo (None, Nodeid (1, 2))
+        else:
+            info = Nodeinfo (None, Nodeid (2))
         info.iverif = b"IVERIF"
         info.overif = b"OVERIF"
         self.node.addnodeinfo (info)
-        info = Nodeinfo (None, Nodeid (2))
-        info.iverif = b"IVERIF"
-        info.overif = b"OVERIF"
+        if self.phase == 4:
+            info = Nodeinfo (None, Nodeid (1, 130))
+        else:
+            info = Nodeinfo (None, Nodeid (130))
+        info.nodename = "REM130"
         self.node.addnodeinfo (info)
-        info = Nodeinfo (None, Nodeid (1, 2))
-        info.iverif = b"IVERIF"
-        info.overif = b"OVERIF"
         self.node.addnodeinfo (info)
         self.node.enable_dispatcher ()
         self.dl = unittest.mock.Mock ()
         self.cp = unittest.mock.Mock ()
         self.cp.start_works = True
         self.dl.create_port.return_value = self.cp
+        self.node.config = container ()
+        self.node.config.nsp = container ()
+        self.node.config.nsp.max_connections = 1023
+        self.node.config.routing = container ()
+        self.node.config.routing.no_intercept = True
+        self.node.routing = self.r
+        self.node.nsp = unittest.mock.Mock ()
+        self.node.intercept = intercept.Intercept (self.node, self.node.config)
+        self.node.intercept.start ()
         self.config = container ()
         self.config.t1 = 300
         self.config.t3 = 10
@@ -123,7 +137,7 @@ class test_ph2 (rtest):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (66, "REMOTE"))
         self.assertEqual (self.c.rphase, 2)
@@ -133,13 +147,9 @@ class test_ph2 (rtest):
         self.startup ()
         pkt = b"\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
-        self.assertEqual (spkt.srcnode, Nodeid (66))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertState ("ru2")
+        # NOP message is handled (ignored) in route_ptp
+        spkt = self.lastdispatch (0)
         DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, NopMsg)
@@ -148,41 +158,37 @@ class test_ph2 (rtest):
     def test_extadr (self):
         # Phase 2 init has address in an EX-2 field, so if it's 128 or above
         # it takes 2 bytes rather than 1.
-        pkt = b"\x58\x01\x82\x01\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
+        pkt = b"\x58\x01\x82\x01\x06REM130\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (130))
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (130))
         # Deliver an incoming packet
         pkt = b"\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
-        self.assertEqual (spkt.srcnode, Nodeid (130))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertState ("ru2")
+        # NOP message is handled (ignored) in route_ptp
+        spkt = self.lastdispatch (0)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
+        pkt = b"\x42\x04NEMO\x06REM130\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (2, element = self.r)
+        self.assertState ("ru2")
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         # Payload will be just the part after the route header
         self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (130))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertEqual (spkt.visit, 0)
         # Try a bad route header
-        pkt = b"\x42\xf5LOCAL\x06REMOTE\x08\252\252\252"
+        pkt = b"\x42\xf4NEMO\x06REM130\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        self.lastdispatch (2, element = self.r)
+        self.assertState ("ds")
+        self.lastdispatch (1, element = self.r)
         self.assertEvent (events.fmt_err, 
-                          packet_beginning = b"\x42\xf5LOCA")
+                          packet_beginning = b"\x42\xf4NEMO")
 
     def test_send (self):
         self.startup ()
@@ -219,7 +225,7 @@ class test_ph2 (rtest):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x01\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (66, "REMOTE"))
         self.assertEqual (self.c.rphase, 2)
@@ -271,17 +277,17 @@ class test_ph3 (rtest):
         self.assertEqual (p.tiver, tiver_ph3)
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (2))
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (2))
-        self.assertEqual (self.c.ntype, 2)
+        self.assertEqual (self.c.ntype, L1ROUTER) # 2
 
     def test_noverify (self):
         self.startup ()
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
         spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -341,7 +347,7 @@ class test_ph3 (rtest):
         self.assertEqual (p.tiver, tiver_ph3)
         pkt = b"\x01\x02\x00\x07\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3e")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (2))
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (2))
@@ -392,7 +398,7 @@ class test_ph3 (rtest):
         self.assertEqual (p.nodename, b"TEST")
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (66, "REMOTE"))
         self.assertEqual (self.c.rphase, 2)
@@ -400,23 +406,19 @@ class test_ph3 (rtest):
         # Deliver an incoming packet
         pkt = b"\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
-        self.assertEqual (spkt.srcnode, Nodeid (66))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertState ("ru2")
+        # NOP message is handled (ignored) in route_ptp
+        spkt = self.lastdispatch (0)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
+        pkt = b"\x42\x04NEMO\x06REMOTE\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (2, element = self.r)
+        self.assertState ("ru2")
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertEqual (spkt.visit, 0)
         # Hello timer expiration
         DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
@@ -482,16 +484,17 @@ class test_ph4 (rtest):
         self.assertEqual (p.tiver, tiver_ph4)
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
+        self.assertEqual (self.c.ntype, L1ROUTER) # 2
 
     def test_noverify (self):
         self.startup ()
         pkt = b"\x02\x03\x04\x01\x08\x11abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
         spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -501,7 +504,7 @@ class test_ph4 (rtest):
         # ditto but with padding
         pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
         spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -513,7 +516,7 @@ class test_ph4 (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
         spkt = self.lastdispatch (3, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -525,7 +528,7 @@ class test_ph4 (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
         spkt = self.lastdispatch (4, element = self.r)
         self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -589,7 +592,7 @@ class test_ph4 (rtest):
         self.assertEqual (p.tiver, tiver_ph4)
         pkt = b"\x01\x02\x04\x07\x10\x02\x02\x00\x00\x10\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4e")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -638,7 +641,7 @@ class test_ph4 (rtest):
         self.assertEqual (p.nodename, b"TEST")
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (1090, "REMOTE"))
         self.assertEqual (self.c.rphase, 2)
@@ -646,23 +649,19 @@ class test_ph4 (rtest):
         # Deliver an incoming packet
         pkt = b"\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, pkt)
-        self.assertEqual (spkt.srcnode, Nodeid (1, 66))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertState ("ru2")
+        # NOP message is handled (ignored) in route_ptp
+        spkt = self.lastdispatch (0)
         # Deliver an incoming packet, with route header
-        pkt = b"\x42\x05LOCAL\x06REMOTE\x08\252\252\252"
+        pkt = b"\x42\x04NEMO\x06REMOTE\x08\252\252\252"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
-        spkt = self.lastdispatch (2, element = self.r)
+        self.assertState ("ru2")
+        spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"\x08\252\252\252")
         self.assertEqual (spkt.srcnode, Nodeid (1, 66))
         self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 1)
+        self.assertEqual (spkt.visit, 0)
         # Hello timer expiration
         DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
@@ -677,13 +676,14 @@ class test_ph4 (rtest):
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
         self.assertEqual (p.tiver, tiver_ph3)
-        self.assertState ("ru")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
+        self.assertState ("ru3r")
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x02\x03\x00\x01\x00\x11abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
         spkt = self.lastdispatch (1, element = self.r)
         self.assertIsInstance (spkt, ShortData)
         self.assertEqual (spkt.payload, b"abcdef payload")
@@ -699,7 +699,7 @@ class test_ph4 (rtest):
         # Packet with padding should be ignored
         pkt = b"\x88Testing\x02\x03\x04\x01\x08\x11abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
         self.lastdispatch (1, element = self.r)
         self.assertEvent (events.fmt_err, 
                           packet_beginning = b"\x88Testi")
@@ -708,7 +708,7 @@ class test_ph4 (rtest):
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
         spkt = self.lastdispatch (1, element = self.r)
         self.assertEvent (events.fmt_err, 
                           packet_beginning = b"\x88Testi")
@@ -750,7 +750,11 @@ class test_upd1 (rtest):
         # Neighbor 1.2, L2 router
         pkt = b"\x01\x02\x04\x01\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        if self.ntype == L1ROUTER:
+            self.assertState ("ru4l1")
+        else:
+            self.assertState ("ru4l2")
+        self.assertEqual (self.c.ntype, L2ROUTER)  # 1
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -781,7 +785,8 @@ class test_upd2 (test_upd1):
         # Node 2.2, L2 router
         pkt = b"\x01\x02\x08\x01\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l2")
+        self.assertEqual (self.c.ntype, L2ROUTER)  # 1
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (2050))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (2, 2))
@@ -806,7 +811,8 @@ class test_upd2 (test_upd1):
         # Node 1.2, endnode
         pkt = b"\x01\x02\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4e")
+        self.assertEqual (self.c.ntype, ENDNODE)  # 3
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -832,7 +838,8 @@ class test_upd2 (test_upd1):
         # Node 1.2, l1 router
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -859,7 +866,8 @@ class test_upd2 (test_upd1):
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
         p, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (p, PtpInit3)
-        self.assertState ("ru")
+        self.assertState ("ru3r")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -884,7 +892,7 @@ class test_upd2 (test_upd1):
         self.assertEqual (p.nodename, b"TEST")
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 0)
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (1090, "REMOTE"))
         self.assertEqual (self.c.rphase, 2)
@@ -920,7 +928,8 @@ class test_ph4verify (rtest):
         self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x03\x02\x04\x06IVERIF"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         
     def test_wrongverify (self):
@@ -980,7 +989,8 @@ class test_ph4verify (rtest):
         self.assertEqual (v.fcnval, b"OVERIF")
         pkt = b"\x03\x02\x04\x06IVERIF"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
 
     def test_ph2 (self):
@@ -992,12 +1002,12 @@ class test_ph4verify (rtest):
         self.assertEqual (p.nodename, b"TEST")
         self.assertEqual (p.srcnode, 5)
         self.assertEqual (p.verif, 1)
-        self.assertState ("rv")
+        self.assertState ("rv2")
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (1, 66))
         pkt = b"\x58\x02\x00IVERIF\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEvent (events.circ_up,
                           adjacent_node = NiceNode (1090, "REMOTE"))
         
@@ -1014,7 +1024,8 @@ class test_ph4verify (rtest):
         self.assertEqual (self.c.id, Nodeid (1, 2))
         pkt = b"\x03\x02\x00\x06IVERIF"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3r")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
 
     def test_rndrv (self):
@@ -1207,7 +1218,8 @@ class test_ph4restart (rtest):
         self.assertEqual (p.tiver, tiver_ph4)
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEvent (events.circ_up, adjacent_node = NiceNode (1026))
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
@@ -1275,7 +1287,8 @@ class test_ph4restart (rtest):
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x20\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4l1")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
         self.assertEqual (self.c.rphase, 4)
         self.assertEqual (self.c.id, Nodeid (1, 2))
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
@@ -1287,7 +1300,8 @@ class test_ph4restart (rtest):
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertEqual (self.c.ntype, L1ROUTER)  # 2
+        self.assertState ("ru3r")
         self.assertEqual (self.c.rphase, 3)
         self.assertEqual (self.c.id, Nodeid (1, 2))
         self.assertEqual (self.c.datalink.counters.cir_down, 1)
@@ -1300,7 +1314,8 @@ class test_ph4restart (rtest):
         pkt = b"\x58\x01\x42\x06REMOTE\x00\x00\x04\x02\x01\x02\x40\x00" \
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru")
+        self.assertEqual (self.c.ntype, PHASE2)  # 0
+        self.assertState ("ru2")
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (1, 66))
         self.assertEqual (self.c.datalink.counters.cir_down, 1)

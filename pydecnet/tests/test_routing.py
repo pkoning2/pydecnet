@@ -8,6 +8,7 @@ from decnet import route_ptp
 from decnet import datalink
 from decnet.node import Nodeinfo
 from decnet import logging
+from decnet import intercept
 
 rcount = 5000
 rmin = 0
@@ -23,7 +24,9 @@ class rtest (DnTest):
         self.selfinfo.nodename = "testnd"
         self.nodeinfo = unittest.mock.Mock ()
         self.nodeinfo.return_value = self.selfinfo
-        self.config = container ()
+        self.node.config = self.config = container ()
+        self.config.nsp = container ()
+        self.config.nsp.max_connections = 1023
         self.config.routing = container ()
         if self.phase == 4:
             self.config.routing.id = Nodeid (1, 5)
@@ -38,11 +41,20 @@ class rtest (DnTest):
         self.config.routing.maxcost = 20
         self.config.routing.amaxcost = 20
         self.config.routing.maxvisits = 30
+        self.config.routing.no_intercept = True
         self.config.circuit = dict ()
         self.node.datalink = container ()
         self.node.datalink.circuits = dict ()
         self.node.nsp = unittest.mock.Mock ()
         self.node.nodeid = self.config.routing.id
+        p2nodes = ((66, "REMOTE"), (44, "REM44"))
+        for i, n in p2nodes:
+            if self.phase == 4:
+                i += 1024
+            rnode = Nodeinfo (None, Nodeid (i))
+            rnode.name = n
+            self.node.node.nodeinfo_byname[n] = rnode
+            self.node.node.nodeinfo_byid[Nodeid (i)] = rnode
         i = 1
         for n, lan in self.circ:
             self.config.circuit[n] = container ()
@@ -53,12 +65,15 @@ class rtest (DnTest):
             self.config.circuit[n].priority = 32
             self.config.circuit[n].verify = False
             self.config.circuit[n].nr = 30
+            self.config.circuit[n].loop_node = False
             self.node.datalink.circuits[n] = unittest.mock.Mock ()
             if lan:
                 self.node.datalink.circuits[n].__class__ = datalink.BcDatalink
         self.config.routing.type = self.ntype
-        self.r = routing.Router (self, self.config)
+        self.r = self.node.routing = routing.Router (self, self.config)
+        self.node.intercept = intercept.Intercept (self.node, self.config)
         self.r.start ()
+        self.node.intercept.start ()
         i = 1
         for n, lan in self.circ:
             c = self.r.circuits[n]
@@ -70,6 +85,8 @@ class rtest (DnTest):
         self.r.stop ()
         super ().tearDown ()
     
+    def register_api (self, name, sf, ef = None): pass
+
 class test_ethend (rtest):
     ntype = "endnode"
     circ = (( "lan-0", True ),)
@@ -258,7 +275,7 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 4)
@@ -279,7 +296,7 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 4)
@@ -312,7 +329,7 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x04\x02\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 4)
@@ -351,7 +368,7 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 3)
@@ -373,7 +390,7 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 3)
@@ -404,27 +421,23 @@ class test_ptpend (rtest):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru3e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
+        # Long Data header, should be ignored from Phase 3
         pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x05\x00" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"abcdef payload"
         self.node.addwork (Received (owner = self.c1, packet = pkt))
-        self.assertEqual (self.c1.datalink.counters.term_recv, 1)
-        w = self.lastdispatch (1, self.node.nsp, itype = Received)
-        self.assertEqual (w.packet, b"abcdef payload")
-        self.assertEqual (w.src, Nodeid (2, 1))
-        self.assertFalse (w.rts)
+        self.assertEqual (self.c1.datalink.counters.term_recv, 0)
         # Packet with padding, should be ignored as invalid
         pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x05\x04" \
               b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
               b"Other payload"
         self.node.addwork (Received (owner = self.c1, packet = pkt))
-        self.assertEqual (self.c1.datalink.counters.term_recv, 1)
-        self.lastdispatch (1, self.node.nsp, itype = Received)
+        self.assertEqual (self.c1.datalink.counters.term_recv, 0)
         self.assertEvent (events.fmt_err, 
                           packet_beginning = b"\x88Testi")
         # Packet for wrong address is ignored
@@ -433,8 +446,7 @@ class test_ptpend (rtest):
               b"abcdef payload"
         self.node.addwork (Received (owner = self.c1, packet = pkt))
         # Check that last received count doesn't change
-        self.assertEqual (self.c1.datalink.counters.term_recv, 1)
-        self.lastdispatch (1, self.node.nsp, itype = Received)
+        self.assertEqual (self.c1.datalink.counters.term_recv, 0)
         
     def test_send_ph2 (self):
         # Send phase2 init
@@ -442,7 +454,7 @@ class test_ptpend (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 66))
@@ -471,7 +483,7 @@ class test_ptpend (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState ("ru")
+        self.assertState ("ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 66))
@@ -538,7 +550,7 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (66))
@@ -558,7 +570,7 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (44))
@@ -576,7 +588,7 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (66))
@@ -597,7 +609,7 @@ class test_ph2 (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (44))
@@ -639,7 +651,7 @@ class test_ph4l1a (rtest):
         pkt = b"\x01\x02\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEqual (self.eventcount (events.reach_chg), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
@@ -651,7 +663,7 @@ class test_ph4l1a (rtest):
         pkt = b"\x01\x03\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
@@ -757,16 +769,16 @@ class test_ph4l1a (rtest):
         pkt = b"\x01\x02\x00\x03\x10\x02\x01\x03\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru3e")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 2))
         self.assertEqual (self.c1.rphase, 3)
         self.assertEqual (self.c1.id, Nodeid (1, 2))
-        # Make the other neighbor phase 4
+        # Make the other neighbor phase 4 endnode
         pkt = b"\x01\x03\x04\x03\x10\x02\x02\x00\x00\x0a\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru4e")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         #self.assertEqual (self.eventcount (events.reach_chg), 2)
         self.assertEvent (events.circ_up, adjacent_node = Nodeid (1, 3))
@@ -797,7 +809,7 @@ class test_ph4l1a (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 66))
@@ -816,7 +828,7 @@ class test_ph4l1a (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 44))
@@ -833,7 +845,7 @@ class test_ph4l1a (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c1, src = self.c1,
                                     packet = pkt))
-        self.assertState (self.c1, "ru")
+        self.assertState (self.c1, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 1)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 66))
@@ -853,7 +865,7 @@ class test_ph4l1a (rtest):
               b"\x00\x00\x00\x03\x01\x00\x00"
         self.node.addwork (Received (owner = self.c2, src = self.c2,
                                     packet = pkt))
-        self.assertState (self.c2, "ru")
+        self.assertState (self.c2, "ru2")
         self.assertEqual (self.eventcount (events.circ_up), 2)
         self.assertEvent (events.circ_up,
                           adjacent_node = Nodeid (1, 44))

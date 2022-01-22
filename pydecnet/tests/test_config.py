@@ -165,14 +165,12 @@ class TestHttp (Logchecker):
     
     def test_basic (self):
         c = self.ctest ("http").http
-        self.assertFalse (c.api)
         self.assertEqual (c.http_port, 8000)
         self.assertEqual (c.https_port, 8443)
         self.assertEqual (c.certificate, "decnet.pem")
         
     def test_allargs (self):
-        c = self.ctest ("http --api --http-port 99 --https 102 --certificate frob.pem").http
-        self.assertTrue (c.api)
+        c = self.ctest ("http --http-port 99 --https 102 --certificate frob.pem").http
         self.assertEqual (c.http_port, 99)
         self.assertEqual (c.https_port, 102)
         self.assertEqual (c.certificate, "frob.pem")
@@ -194,6 +192,28 @@ class TestHttp_err (Logchecker):
             self.checkerr ("http --https-port -1", "invalid choice")
         self.checkerr ("http --https-port 65536", "invalid choice")
         
+class TestApi (Logchecker):
+    req = ""
+
+    def test_basic (self):
+        c = self.ctest ("api").api
+        self.assertEqual (c.name, config.defsockname)
+        self.assertEqual (c.mode, 0o666)
+
+    def test_allarts (self):
+        c = self.ctest ("api othersocket --mode 123").api
+        self.assertEqual (c.name, "othersocket")
+        self.assertEqual (c.mode, 0o123)
+        
+class TestApi_err (Logchecker):
+    req = ""
+    loglevel = logging.CRITICAL
+    
+    def test_errors (self):
+        self.checkerr ("api --frob", "unrecognized argument")
+        self.checkerr ("api --mode 1000", "invalid choice")
+        self.checkerr ("api --mode 668", "Invalid octal number")
+        
 class TestRouting (Logchecker):
     def test_basic (self):
         c = self.ctest ("routing 1.1").routing
@@ -208,12 +228,13 @@ class TestRouting (Logchecker):
         self.assertEqual (c.maxarea, 63)
         self.assertEqual (c.t1, 600)
         self.assertEqual (c.bct1, 10)
+        self.assertFalse (c.no_intercept)
         
     def test_allargs (self):
         c = self.ctest ("routing 1.2 --type l1router --maxhops 9 " \
                         "--maxcost 42 --amaxhops 11 --amaxcost 49 " \
                         "--maxvisits 17 --maxnodes 999 --maxarea 43 " \
-                        "--t1 124 --bct1 17").routing
+                        "--t1 124 --bct1 17 --no-intercept").routing
         self.assertEqual (c.id, Nodeid (1, 2))
         self.assertEqual (c.type, "l1router")
         self.assertEqual (c.maxhops, 9)
@@ -225,6 +246,7 @@ class TestRouting (Logchecker):
         self.assertEqual (c.maxarea, 43)
         self.assertEqual (c.t1, 124)
         self.assertEqual (c.bct1, 17)
+        self.assertTrue (c.no_intercept)
 
 class TestRouting_err (Logchecker):
     loglevel = logging.CRITICAL

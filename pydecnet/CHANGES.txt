@@ -4,6 +4,51 @@ change or a change that affects how you use or install the
 application.
 
 ----------------------------------------
+DECnet/Python T1.1
+
+This is a beta test version of what will beome DECnet/Python V1.1.
+
+1.1-599: New version since there are significant visible changes in
+this version:
+
+a. New API, using full duplex JSON over Unix sockets. See doc/api.txt
+for detailed descriptions.
+
+b. The API now includes an interface to the Session Control layer, to
+allow applications to send and receive DECnet traffic.  The
+"applications" directory contains several example programs that use
+this feature.  The existing pipe interface used for "file" DECnet
+objects is still in place; it it essentially the session-only subset
+of the general API.  Note that the previous JSON key "mtype" has been
+changed to "type".  The samples (decnet/applications/mirror.py etc.)
+have been updated to reflect this.
+
+c. Two wrappers are provided to simplify writing programs that use the
+API, one for one at a time request/response exchanges, the other using
+the Python "asyncio" framework supporting multiple full duplex flows.
+There are "mirror" sample programs in decnet/applications that show
+both (as well as the original "raw" pipe API).
+
+d. Phase II "intercept" support is much improved.  It appears to work
+properly with TOPS-20 V4.1, at least if there is no packet loss.
+Support for tracking outstanding packets and retransmitting them if
+needed is to be done later.  The current code also does not handle
+connections where only some of the packets have routing headers, which
+is defined in the spec but apparently not used by TOPS-20.
+
+e. Packet parsing performance has been improved across the board.  The
+parsing of routing packets (hops/cost vectors) is more than 10x faster
+than before.
+
+f. The --api and --insecure-api switches on the "http" configuration
+line have been removed.  Instead, API control is via a new "api"
+line.  See doc/config.txt for details.
+
+----------------------------------------
+DECnet/Python V1.0
+
+The latest V1.0 revision is rev 595 (which contains some bugfixes
+beyond the latest change shown below)
 
 1.0-586: Add loop node support (currently only for point to point
 circuits).

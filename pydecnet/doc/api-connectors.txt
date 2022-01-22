@@ -1,0 +1,38 @@
+PyDECnet API connectors
+
+While any application can use the raw JSON interface to communicate
+with either the general or the session control layer API of PyDECnet,
+it may be more convenient to use a wrapper that has a more procedural
+interface.  PyDECnet offers two of these: a "simple" connector that is
+intended for applications that deal with a single operation stream
+with requests and responses arriving in a predictable pattern, and an
+"async" connector that uses the Python "asyncio" multi-tasking
+mechanism to handle multiple full duplex data streams.
+
+Both connector styles come in two variants, one that uses the Unix
+socket based "general" API, and one that uses the subprocess pipes for
+use in file-based DECnet objects to communicate with the session
+control API.  
+
+Simple API
+
+This is found in module decnet.connectors; the two variants are
+SimpleApiConnector and SimplePipeConnector.
+
+Sample code using the simple API can be found in samples/apitest2.py
+and decnet/applications/mirror2.py.  Also, NCP (applications/ncp) uses
+the simple API connector.
+
+Details TBS
+
+Async API
+
+This is found in module decnet.async_connectors; the two variants are
+AsyncApiConnector and AsyncPipeConnector.
+
+Sample code using the simple API can be found in samples/apitest3.py
+and decnet/applications/mirror3.py.  Also, rcclient
+(applications/rcclient), the MOP remote console client program, uses
+the async API.
+
+Details TBS

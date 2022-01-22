@@ -24,6 +24,12 @@ from decnet import timers
 from decnet import datalink
 from decnet import config
 
+# The log level defaults to "CRITICAL" meaning nothing really, but can
+# be overridden by environment variable "LOGLEVEL".  Or it can be
+# overridden in individual testcases by calling "setloglevel" or
+# "trace" methods of the test suite base class.
+loglevel = os.environ.get ("LOGLEVEL", logging.CRITICAL)
+
 def testcases (tests):
     for t in tests:
         if isinstance (t, unittest.TestCase):
@@ -114,6 +120,7 @@ class t_node (node.Node):
     
     def __init__ (self):
         self.node = self
+        self.intercept = self
         self.nodeinfo_byname = dict()
         self.nodeinfo_byid = dict()
         self.addwork = unittest.mock.Mock ()
@@ -128,11 +135,13 @@ class t_node (node.Node):
         self.ecounts = collections.Counter ()
         self.event_logger = event_logger.EventLogger (self, None)
         self.elist = list ()
+        self.apis = dict ()
         self.nicenode = NiceNode (self.nodeid, self.nodename)
         
     def start (self, mainthread = False): pass
     def stop (self): pass
-        
+    def register_api (self, name, sf, ef = None): pass
+
     def logevent (self, event, entity = None, **kwds):
         if isinstance (event, events.Event):
             event.setsource (self.nodeid)
@@ -144,10 +153,12 @@ class t_node (node.Node):
 
     def enable_dispatcher (self, enable = True):
         self.dispatcher.do_dispatch = enable
-        
-class DnTest (unittest.TestCase):
-    loglevel = logging.CRITICAL
 
+    def intfun (self): return 7
+        
+    def intreq (self): return 0
+
+class DnTest (unittest.TestCase):
     def setUp (self):
         """Common setup for DECnet/Python test cases.
         """
@@ -162,10 +173,10 @@ class DnTest (unittest.TestCase):
         lc.log_config = lc.log_file = lc.syslog = lc.chroot = None
         lc.keep = lc.uid = lc.gid = 0
         lc.daemon = False
-        lc.log_level = self.loglevel
+        lc.log_level = loglevel
         logging.start (lc)
         # Make sure the level is set properly.
-        self.setloglevel (self.loglevel)
+        self.setloglevel (loglevel)
         self.lpatches = list ()
         for n in ("critical", "error", "warning", "info", "debug",
                   "trace", "log", "exception"):
