@@ -437,7 +437,8 @@ class NSP (Element):
         sc = self.parent.session
         if what == "status":
             hdr = ("LLA", "State", "Object", "Node", "RLA", "Remote object")
-            for k, c in sorted (self.connections.items ()):
+            for k, c in sorted (self.connections.items (),
+                                key = lambda i: (i[1].destnode, i[0])):
                 ret.append ((k, c.state.__name__, sc.html_localuser (c),
                              c.destnode, c.dstaddr, sc.html_remuser (c)))
         if ret:
