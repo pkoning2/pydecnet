@@ -714,7 +714,8 @@ class Mapdata:
             self.lastupdate = max (n.time for n in self.nodes)
         
     def encode_json (self):
-        return dict (nodes = [ v for k, v in sorted (self.nodes.items ()) ],
+        return dict (nodes = [ v for k, v in sorted (self.nodes.items (),
+                                                     key = lambda x: x[1].id) ],
                      lastupdate = self.lastupdate,
                      lastscan = self.lastscan,
                      lastincremental = self.lastinc)
