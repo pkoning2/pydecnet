@@ -24,6 +24,8 @@ try:
 except ImportError:
     pytz = None
 
+SvnFileRev = "$LastChangedRevision$"
+
 # For some reason datetime.strptime does an import at runtime.  Make
 # that happen now so we have the resulting internal module imported
 # before any chroot is done.
@@ -585,7 +587,10 @@ class MapAdj (MapItem):
 
     def __str__ (self):
         return "adj {} to {}".format (self.circ, self.tonode)
-    
+
+def mapadjkey (a):
+    return a[1].circ, a[1].tonode
+
 def decode_neighbors (l):
     ret = dict ()
     for n in l:
@@ -631,6 +636,9 @@ def obj2dict (o):
             if v is not None and not callable (v):
                 ret[k] = v
     return ret
+
+def mapnodekey (n):
+    return n[1].id
 
 class MapJsonEncoder (json.JSONEncoder):
     def __init__ (self):
@@ -715,7 +723,7 @@ class Mapdata:
         
     def encode_json (self):
         return dict (nodes = [ v for k, v in sorted (self.nodes.items (),
-                                                     key = lambda x: x[1].id) ],
+                                                     key = mapnodekey) ],
                      lastupdate = self.lastupdate,
                      lastscan = self.lastscan,
                      lastincremental = self.lastinc)
@@ -1481,7 +1489,7 @@ class Mapper (Element, statemachine.StateMachine):
         l1paths = dict ()
         nodedata = list ()
         nodehdr = [ "Node", "Type", "Location", "Last down", "Last up", "Identification" ]
-        for k, n in sorted (m.nodes.items ()):
+        for k, n in sorted (m.nodes.items (), key = mapnodekey):
             l1 = getattr (n, "latlong", DEF_LOC)
             # Add this node to the location
             try:
@@ -1499,7 +1507,7 @@ class Mapper (Element, statemachine.StateMachine):
             nh = n.health ()
             noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu, n.ident ]
             circuits = list ()
-            for k, a in sorted (n.adj.items ()):
+            for k, a in sorted (n.adj.items (), key = mapadjkey):
                 try:
                     n2 = m.nodes[a.tonode]
                     l2 = n2.latlong
