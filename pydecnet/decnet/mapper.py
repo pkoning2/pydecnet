@@ -24,8 +24,6 @@ try:
 except ImportError:
     pytz = None
 
-SvnFileRev = "$LastChangedRevision$"
-
 # For some reason datetime.strptime does an import at runtime.  Make
 # that happen now so we have the resulting internal module imported
 # before any chroot is done.
@@ -43,6 +41,8 @@ from . import timers
 from . import nicepackets
 from . import events
 from .nsp import UnknownNode, WrongState, NSPException
+
+SvnFileRev = "$LastChangedRevision$"
 
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )

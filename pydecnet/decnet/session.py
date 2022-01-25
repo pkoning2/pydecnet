@@ -435,8 +435,8 @@ class Session (Element):
             sc.proxy_uic = 0
         nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
-                                                       srcname = srcname,
-                                                       dstname = remuser)
+                                                       localuser = srcname,
+                                                       remuser = remuser)
         ret.client = client
         return ret
 
@@ -546,8 +546,8 @@ class Session (Element):
                 # actual password) if authentication was requested and
                 # acceptable.
                 conn = SessionConnection (self, nspconn, 
-                                          dstname = spkt.dstname,
-                                          srcname = spkt.srcname, **pw)
+                                          localuser = spkt.dstname,
+                                          remuser = spkt.srcname, **pw)
                 self.conns[nspconn] = conn
                 data = spkt.connectdata
                 awork = ConnectInit (self, message = data, connection = conn, **pw)
