@@ -1159,6 +1159,9 @@ def handler (evt):
 
 class Mapper (Element, statemachine.StateMachine):
     def __init__ (self, config, nodelist):
+        # At startup we do a full update once, then periodically
+        # thereafter.
+        self.forcedbupdate = self.forcescan = True
         # We need some node to be the parent; pick the first DECnet
         # node in the list of nodes running in this PyDECnet instance.
         for n in nodelist:
@@ -1303,8 +1306,9 @@ class Mapper (Element, statemachine.StateMachine):
     def s0 (self, item):
         now = Timestamp ()
         nowts = now.startts ()
-        if m.lastupdate + DBUPDATEINTERVAL < nowts:
+        if self.forcedbupdate or m.lastupdate + DBUPDATEINTERVAL < nowts:
             # Time to run a database update
+            self.forcedbupdate = False
             return self.startdbupdate ()
         return self.checkmapscan ()
 
@@ -1330,7 +1334,8 @@ class Mapper (Element, statemachine.StateMachine):
         nowts = now.startts ()
         if self.node.routing.isolated ():
             maplogger.debug ("Skipping scan since mapper is isolated")
-        elif m.lastscan + SCANINTERVAL < nowts:
+        elif self.forcescan or m.lastscan + SCANINTERVAL < nowts:
+            self.forcescan = False
             maplogger.info ("Starting mapper full network scan")
             # Initialize the traversal data.  Begin with all currently
             # known nodes that are not (a) phase III nodes in another
