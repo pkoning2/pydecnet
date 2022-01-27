@@ -684,12 +684,17 @@ class Subchannel (Element, timers.Timer):
                 # from the OOO cache, if it is there, and keep going if
                 # so.
                 item = self.ooo.pop (num, None)
-            # Done with in-sequence packets, start the ACK holdoff timer
-            # if it isn't already running.
-            if self.ackpending and not self.islinked ():
-                # ACK holdoff timer is not yet running, start it
-                self.node.timers.start (self, self.HOLDOFF)
-
+            # Done with in-sequence packets, see if delayed ack is allowed.
+            if pkt.dly:
+                # Delayed ACK allowed, start the ACK holdoff timer if
+                # it isn't already running.
+                if self.ackpending and not self.islinked ():
+                    # ACK holdoff timer is not yet running, start it
+                    self.node.timers.start (self, self.HOLDOFF)
+            else:
+                # Immediate ACK required, send it
+                self.send_ack ()
+                
     def send_ack (self):
         self.node.timers.stop (self)
         ack = self.parent.makepacket (self.Ack)
@@ -762,7 +767,8 @@ class Data_Subchannel (Subchannel):
     def __init__ (self, parent):
         super ().__init__ (parent)
         self.qmax = parent.parent.config.qmax
-        
+        self.dlymax = self.qmax // 2
+
     def process_data (self, item):
         """Process a data packet that is next in sequence.
         """
@@ -811,6 +817,8 @@ class Data_Subchannel (Subchannel):
         """
         if isinstance (pkt, DataSeg):
             pkt.segnum = Seq (self.nextseg % Seq.modulus)
+            # Allow delayed ACK if the queue is not over half full
+            pkt.dly = len (self.pending_ack) <= self.dlymax
             qe = txqentry (pkt, self, self.nextseg, self.nextmsg)
             self.nextseg += 1
             if pkt.eom:

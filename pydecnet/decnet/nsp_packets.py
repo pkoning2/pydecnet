@@ -235,6 +235,8 @@ class IntMsg (AckHdr):
     msgflag = 0x30
     int_ls = 1
     int = 1
+    # So we can check the "delay" flag for either subchannel
+    dly = 0
 
 # Link Service message also uses the interrupt subchannel.
 class LinkSvcMsg (AckHdr):
@@ -255,6 +257,8 @@ class LinkSvcMsg (AckHdr):
     NO_CHANGE = 0
     XOFF = 1
     XON = 2
+    # So we can check the "delay" flag for either subchannel
+    dly = 0
 
     def check (self):
         if self.fcval_int > 1 or self.fcmod == 3:
