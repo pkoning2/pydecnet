@@ -515,6 +515,8 @@ class Session (Element):
                     pw["srcuser"] = [ spkt.srcname.group,
                                       spkt.srcname.user,
                                       spkt.srcname.name ]
+                if isinstance (sesobj, ApiListener):
+                    pw["listenhandle"] = id (sesobj)
                 if sesobj.auth:
                     # Authentication required.  We don't look at
                     # Account, but the other two fields must be
@@ -811,6 +813,8 @@ class DictConnector (BaseConnector):
             if mtype == "connect":
                 # Put in additional items, if present
                 jdict["destination"] = item.destination
+                if hasattr (item, "listenhandle"):
+                    jdict["listenhandle"] = item.listenhandle
                 if hasattr (item, "username"):
                     jdict["username"] = item.username
                 if hasattr (item, "password"):

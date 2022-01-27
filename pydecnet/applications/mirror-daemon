@@ -38,7 +38,8 @@ async def main (argv):
     listener = await connector.bind (25, "MIRROR")
     print ("Serving MIRROR")
     # Now serve requests until stopped
-    await connector.serve_forever (reflect)
+    await connector.serve_forever (listener, reflect)
+    await listener.close ()
     print ("Exiting MIRROR daemon")
     
 async def reflect (conn):
@@ -103,4 +104,7 @@ async def reflect (conn):
             return 2
         
 if __name__ == "__main__":
-    sys.exit (asyncio.run (main (sys.argv)))
+    try:
+        sys.exit (asyncio.run (main (sys.argv)))
+    except KeyboardInterrupt:
+        pass

@@ -38,6 +38,7 @@ class AsyncConnection (Connection):
     def __init__ (self, owner, system, api, handle):
         super ().__init__ (owner, system, api, handle)
         self.recvq = asyncio.Queue ()
+        self.listenq = asyncio.Queue ()
 
     async def recv (self):
         if self.closed:
@@ -49,11 +50,16 @@ class AsyncConnection (Connection):
         if resptype in ("reject", "disconnect", "abort", "close"):
             self.close ()
         return resp
+    
+    async def listen (self):
+        ret = await self.listenq.get ()
+        return ret
 
 class AsyncConnector (SimpleConnector):
     def __init__ (self):
         super ().__init__ ()
         # This queue is for messages not related to a connection
+        self.listenq = None
         self.exchanges = dict ()
         self.sendtask = self.recvtask = None
         
@@ -62,9 +68,6 @@ class AsyncConnector (SimpleConnector):
         if isinstance (resp, Exception):
             raise resp
         return resp
-    
-    async def listen (self):
-        return await self.listenq.get ()
 
     async def sender (self):
         try:
@@ -93,7 +96,6 @@ class AsyncConnector (SimpleConnector):
         # start time rather than at object creation time.
         self.recvq = asyncio.Queue ()
         self.sendq = asyncio.Queue ()
-        self.listenq = asyncio.Queue ()
         # Now start the two background tasks
         self.sendtask = asyncio.create_task (self.sender ())
         self.recvtask = asyncio.create_task (self.receiver ())
@@ -106,24 +108,25 @@ class AsyncConnector (SimpleConnector):
         except Exception as e:
             traceback.print_exc ()
             
-    async def serve_forever (self, connhandler):
+    async def serve_forever (self, boundconn, connhandler):
         """Helper to look for inbound connections and serve them as they
-        arrive, until canceled.  "connhandler" is a coroutine function
-        that will be started as a new task, with the new connection as
-        argument, each time an incoming connection is delivered.
+        arrive, until canceled.  "boundconn" is the bound connection
+        returned by a previous "bind" call.  "connhandler" is a
+        coroutine function that will be started as a new task, with the
+        new connection as argument, each time an incoming connection is
+        delivered.
 
         This method would not normally be used with the
         AsyncPipeConnector since that is for DECnet objects (which are
         started by PyDECnet handle a single inbound connection).
         """
         while True:
-            conn = await self.listen ()
+            conn = await boundconn.listen ()
             if conn is SHUTDOWN:
                 break
             asyncio.create_task (connhandler (conn))
             
     async def close (self):
-        self.listenq.put_nowait (SHUTDOWN)
         if self.recvtask:
             self.recvtask.cancel ()
         if self.sendtask:
@@ -176,24 +179,36 @@ class AsyncConnector (SimpleConnector):
             raise
 
     async def connect (self, *, api = "session", system = None, **kwds):
+        """This method returns a pair of values: normally rc which is
+        the new connection, and resp which is the "connecting" message
+        that doesn't tell us anything except for the connection handle.
+        But if there was an error in argument validation, rc is None and
+        resp is a "reject" message.
+        
+        Unlike the "connect" method in the simple connectors
+        classes, here we do not wait for the accept or reject.
+        Instead, it is up to the caller to look for that, as the
+        first message received by the newly created connection.  The
+        case of "reject" being returned here applies only to connect
+        requests that are refused by PyDECnet, typically because of
+        invalid parameters.
+        """
         rc, resp = await self.exch (api = api, system = system,
                                     type = "connect", **kwds)
-        # rc is the new connection, resp is the "connecting" message
-        # that doesn't tell us anything except for the connection
-        # handle.  But if there was an error in argument validation,
-        # rc is None and resp is a "reject" message.  If we did get a
-        # connection, receive the accept or reject reply from the
-        # destination.
         if not rc:
             if isinstance (resp, dict):
                 resp = ConnMessage.decode (resp)
-        if resp.type == "connecting":
-            resp = await rc.recv ()
         if resp.type == "reject":
             rc = None
         return rc, resp
 
     async def bind (self, num = 0, name = "", auth = "off", *, system = None):
+        """Bind to an object number and/or name, to receive inbound
+        connection requests addressed to that object.  The return
+        value is a connection object associated with the bind; it
+        will receive new connections that can be seen by the
+        "listen" method, but has no data service.
+        """
         rc, resp = await self.exch (api = "session", system = system,
                                     type = "bind",
                                     num = num, name = name, auth = auth)
@@ -203,9 +218,25 @@ class AsyncConnector (SimpleConnector):
         conn = AsyncConnection (self, system, api, h)
         resp["newconnection"] = conn
         if resp["type"] == "connect":
-            # Inbound connection, put it on the queue of new
-            # connections for "listen" to pick up.
-            self.listenq.put_nowait (conn)
+            # Inbound connection, find the listen connection ("bind"
+            # state) that it goes with
+            bh = resp.get ("listenhandle", None)
+            if bh is None:
+                # It's not related to a bind, that means it is the
+                # connect sent to the Pipe based connector for a "file"
+                # (subprocess) object.
+                if self.listenq:
+                    self.listenq.put_nowait (conn)
+                return conn
+            # Find the listen connection
+            bc = self.connections.get (bh, None)
+            if bc:
+                bc.listenq.put_nowait (conn)
+            else:
+                # No listener, that probably means this message crossed
+                # the wire with a close (unbind).
+                conn.reject ()
+                return None
         return conn
         
 class AsyncApiConnector (AsyncConnector):
@@ -241,6 +272,9 @@ class AsyncPipeConnector (AsyncConnector):
     def __init__ (self):
         super ().__init__ ()
         self.logq = asyncio.Queue ()
+        # This will receive the (one) "connect" message, the one that
+        # started this subprocess.
+        self.listenq = asyncio.Queue ()
 
     async def start (self):
         self.reader = await make_read_stream (sys.stdin)
@@ -248,6 +282,13 @@ class AsyncPipeConnector (AsyncConnector):
         self.logstream = await make_write_stream (sys.stderr)
         self.logtask = asyncio.create_task (self.logger ())
         await super ().start ()
+
+    async def listen (self):
+        """Get the inbound connection for the object that caused the
+        creation of this pipe API subprocess.
+        """
+        ret = await self.listenq.get ()
+        return ret
 
     def send (self, **req):
         # Make sure unneeded keys are not in the request
