@@ -349,7 +349,14 @@ class DnTest (unittest.TestCase):
         if msg:
             self.fail ("config error: {}".format (msg))
         return ret
-    
+
+try:
+    class ADnTest (DnTest, unittest.IsolatedAsyncioTestCase):
+        "Base class for DECnet tests that use coroutines"
+        pass
+except AttributeError:
+    pass
+
 _port = 6665
 
 def nextport ():

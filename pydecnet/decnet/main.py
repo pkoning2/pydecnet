@@ -256,6 +256,7 @@ def main ():
     # Start the API server, if present
     if api:
         api.start ()
+    logging.info ("DECnet/Python is running")
     try:
         if httpserver:
             httpserver.start ()
@@ -288,3 +289,6 @@ def main ():
         logging.stop ()
         if p.daemon:
             daemoncontext.close ()
+        
+if __name__ == "__main__":
+    main ()
