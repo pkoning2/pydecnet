@@ -328,13 +328,14 @@ class Nodeid (Field, int):
             if not m:
                 raise ValueError ("Invalid node ID {}".format (s))
             a, n = m.groups ()
-            n = int (n)
+            id2 = int (n)
             if a is None:
                 # Phase 3 ID
-                a = 0
+                s = id2
+                id2 = None
             else:
-                a = int (a)
-        elif isinstance (s, int):
+                s = int (a)
+        if isinstance (s, int):
             if id2 is None:
                 a, n = divmod (s, 1024)
             else:
