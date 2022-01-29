@@ -332,6 +332,9 @@ class BaseRouter (Element):
         self.nodeinfo.counterclass = ExecCounters
         self.nodeinfo.counters = ExecCounters (self.nodeinfo, self)
         self.name = self.nodeinfo.nodename
+        if not self.name:
+            logging.critical ("No node name set for executor node {}", self.nodeid)
+            raise ValueError
         self.circuits = EntityDict ()
         self.p2lines = dict ()
         self.adjacencies = dict ()

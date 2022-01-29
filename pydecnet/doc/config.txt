@@ -143,7 +143,8 @@ has no need to limit those tables.
 Argument: node ID.  The "routing" entry requires the node address of
 this node as argument.  The node address has the usual form, either an
 integer, or a dotted pair.  Note that it must be an integer for Phase
-III or Phase II nodes, since those don't have areas.
+III or Phase II nodes, since those don't have areas.  There must be a
+node name definition (in the "node" section) for this node address.
 
 --type: Routing layer type, one of "l2router", "l1router", "endnode",
 "phase3router", "phase3endnode", "phase2".  Default is "l2router".
