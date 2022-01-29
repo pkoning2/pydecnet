@@ -588,8 +588,17 @@ class MapAdj (MapItem):
     def __str__ (self):
         return "adj {} to {}".format (self.circ, self.tonode)
 
-def mapadjkey (a):
-    return a[1].circ, a[1].tonode
+    def sortkey (self):
+        return (self.circ, self.tonode)
+    
+    def __hash__ (self):
+        return hash (self.sortkey ())
+
+    def __eq__ (self, other):
+        return self.sortkey () == other.sortkey ()
+
+    def __lt__ (self, other):
+        return self.sortkey () < other.sortkey ()
 
 def decode_neighbors (l):
     ret = dict ()
@@ -610,12 +619,21 @@ class MapNode (MapItem):
         self.type = ntype
         self.ident = ident
         
-    def __hash__ (self):
-        return hash (self.id)
-
     def __str__ (self):
         return str (self.id)
     
+    def sortkey (self):
+        return self.id
+    
+    def __hash__ (self):
+        return hash (self.sortkey ())
+
+    def __eq__ (self, other):
+        return self.sortkey () == other.sortkey ()
+
+    def __lt__ (self, other):
+        return self.sortkey () < other.sortkey ()
+
     def encode_json (self):
         ret = obj2dict (self)
         ret["adj"] = list (self.adj.values ())
@@ -636,9 +654,6 @@ def obj2dict (o):
             if v is not None and not callable (v):
                 ret[k] = v
     return ret
-
-def mapnodekey (n):
-    return n[1].id
 
 class MapJsonEncoder (json.JSONEncoder):
     def __init__ (self):
@@ -691,24 +706,36 @@ class Mapdata:
                 self.nodenames[old.name] = old
         except KeyError:
             self.nodes[node.id] = node
-            maplogger.trace ("added as new node")
-            try:
-                old = self.nodenames[node.name]
-                maplogger.trace ("deleting old entry {} for name {}",
-                               old.id, node.name)
-                del self.nodes[old.id]
-            except KeyError:
-                pass
-            self.nodenames[node.name] = node
+            maplogger.trace ("{} added as new node", node.id)
+            if node.name:
+                # It has a name, enter that (overriding a previous
+                # entry for that name if there was one)
+                try:
+                    old = self.nodenames[node.name]
+                    maplogger.trace ("deleting old entry {} for name {}",
+                                   old.id, node.name)
+                    del self.nodes[old.id]
+                except KeyError:
+                    pass
+                self.nodenames[node.name] = node
         
     def save (self):
+        # We don't want to lose data.  So write the new state to a new
+        # file, and only if that worked rename the current one to
+        # backup and the new one to current.  If something goes wrong,
+        # issue a critical level log message and turn off the mapper.
         enc = MapJsonEncoder ()
         try:
-            os.rename (self.fn, self.fn + "~")
-        except OSError:
-            pass
-        with open (self.fn, "wt") as f:
-            f.write (enc.encode (self))
+            with open (self.fn + ".new", "wt") as f:
+                f.write (enc.encode (self.encode_json ()))
+            try:
+                os.rename (self.fn, self.fn + "~")
+            except OSError:
+                pass
+            os.rename (self.fn + ".new", self.fn)
+        except Exception:
+            logging.critical ("Map data write failure", exc_info = True)
+            raise
 
     def load (self):
         try:
@@ -722,8 +749,7 @@ class Mapdata:
             self.lastupdate = max (n.time for n in self.nodes)
         
     def encode_json (self):
-        return dict (nodes = [ v for k, v in sorted (self.nodes.items (),
-                                                     key = mapnodekey) ],
+        return dict (nodes = [ v for k, v in sorted (self.nodes.items ()) ],
                      lastupdate = self.lastupdate,
                      lastscan = self.lastscan,
                      lastincremental = self.lastinc)
@@ -1028,7 +1054,7 @@ class NodePoller (Element, statemachine.StateMachine):
         # Handle completion of read known circuits
         circuits = set ()
         for r in ret:
-            circ = r.entity
+            circ = str (r.entity)
             circuits.add (circ)
             nodeid = getattr (r, "adjacent_node", None)
             if nodeid:
@@ -1286,7 +1312,7 @@ class Mapper (Element, statemachine.StateMachine):
 
     @handler (events.reach_chg)
     def reach_chg (self, evt, nowts):
-        nodeid = evt.entity_type
+        nodeid = Nodeid (evt.entity_type)
         node = self.mapnode (nodeid)
         if evt.status == 0:
             # Reachable.  Poll this node to get its data
@@ -1456,7 +1482,11 @@ class Mapper (Element, statemachine.StateMachine):
                 down += 1
         self.fullscan = False
         self.incremental = False
-        m.save ()
+        try:
+            m.save ()
+        except Exception:
+            # Stop the timer so no further updates will happen.
+            self.node.timers.stop (self)
         how ("Network {} scan took {}, map has {} total nodes, {} up, {} down",
              what, self.started, up + down, up, down)
             
@@ -1467,11 +1497,13 @@ class Mapper (Element, statemachine.StateMachine):
             # Odd, a reachable node not mentioned in the node
             # database.  Make up a database entry for it, with a name
             # if we know it.
+            logging.trace ("mapnode: adding missing node {} ({}) type {}", nodeid, name, ntype)
             ret = MapNode (name, nodeid, ntype)
-            m.nodes[nodeid] = ret
+            m.addnode (ret)
         return ret
     
     def mapadj (self, n, circ, nodeid):
+        circ = str (circ)
         try:
             adj = n.adj[(circ, nodeid)]
         except KeyError:
@@ -1494,7 +1526,7 @@ class Mapper (Element, statemachine.StateMachine):
         l1paths = dict ()
         nodedata = list ()
         nodehdr = [ "Node", "Type", "Location", "Last down", "Last up", "Identification" ]
-        for k, n in sorted (m.nodes.items (), key = mapnodekey):
+        for k, n in sorted (m.nodes.items ()):
             l1 = getattr (n, "latlong", DEF_LOC)
             # Add this node to the location
             try:
@@ -1512,14 +1544,15 @@ class Mapper (Element, statemachine.StateMachine):
             nh = n.health ()
             noderow = [ '<span class="hs{}">{}</span>'.format (nh, NiceNode (n.id, n.name)), ts, n.loc, ld, lu, n.ident ]
             circuits = list ()
-            for k, a in sorted (n.adj.items (), key = mapadjkey):
+            for k, a in sorted (n.adj.items ()):
                 try:
                     n2 = m.nodes[a.tonode]
                     l2 = n2.latlong
                     ln = n2.loc
                 except (AttributeError, KeyError):
                     # Other end is not a known node or has no
-                    # lat/long, skip it
+                    # lat/long, supply the placeholder location
+                    # (Inaccessible Island).
                     l2 = DEF_LOC
                     ln = ""
                 ch = a.health ()
@@ -1694,4 +1727,8 @@ class Mapper (Element, statemachine.StateMachine):
             # Wake up the mapper in 5 seconds, that's plenty of time
             # for this thread to end.
             self.node.timers.start (self, 5)
-            m.save ()
+            try:
+                m.save ()
+            except Exception:
+                # Stop the timer so no further updates will happen.
+                self.node.timers.stop (self)
