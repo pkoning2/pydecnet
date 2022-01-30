@@ -404,7 +404,7 @@ class CState (C1):
     # example.
     def format (self, vdict = {}):
         ret = super ().format (vdict)
-        if self.substate:
+        if self.substate is not None:
             ret = "{}-{}".format (ret, self.substate.format (self.ssvdict))
         return ret
 
@@ -603,7 +603,7 @@ class NodeReply (NiceReply):
 
 # R/W params, used both in show replies and set requests
 circuit_set_params = (( 0, CState, "State", None,
-                           ( "On", "Off", "Service" )),
+                           ( "On", "Off", "Service", "Cleared" )),
                       ( 100, C1, "Service", None, ( "Enabled", "Disabled" )),
                       ( 110, DU2, "Counter timer" ),
                       ( 811, DU2, "Originating queue limit" ),
