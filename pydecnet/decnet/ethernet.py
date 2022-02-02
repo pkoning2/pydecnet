@@ -55,12 +55,12 @@ class EthPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[14] = l & 0xff
             f[15] = l >> 8
-            f[16:16 + l] = msg
+            f[16:16 + l] = makebytes (msg)
             l += 16
         else:
             if l > 1500:
                 raise ValueError ("Ethernet packet too long")
-            f[14:14 + l] = msg
+            f[14:14 + l] = makebytes (msg)
             l += 14
         self.counters.bytes_sent += l
         self.counters.pkts_sent += 1

@@ -43,7 +43,7 @@ class GREPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[4] = l & 0xff
             f[5] = l >> 8
-            f[6:6 + l] = msg
+            f[6:6 + l] = makebytes (msg)
             l += 6
         else:
             if l > 1500:
