@@ -11,6 +11,8 @@ import socket
 from .common import *
 from . import logging
 
+SvnFileRev = "$LastChangedRevision$"
+
 enc = DNJsonEncoder ().encode
 dec = DNJsonDecoder ().decode
 
@@ -177,6 +179,7 @@ class ApiServer:
             logging.trace ("Dropped out of loop due to stopnow")
         except Exception as e:
             logging.trace ("Exiting due to {}", e)
+        finally:
             self.cleanup ()
 
     def stop (self, wait = True):
