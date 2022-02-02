@@ -49,6 +49,27 @@ want to modify that, edit decnet.css (or decnet-m.css for the
 mobile-specific style overrides) in the "resouces" subdirectory
 installed as part of the PyDECnet installation.
 
+PyDECnet applications
+
+If the API is enabled (see config.txt for details), several
+applications included in PyDECnet will work.  They include:
+
+* ncp -- a basic implementation of the standard NCP application.
+  Currently LIST, SHOW, and LOOP are supported, as well as the
+  usual TELL and SET/CLEAR EXECUTOR NODE.
+
+* rcclient -- a MOP Remote Console client.
+
+* mirror-daemon -- a sample implementation of a "daemon", a program
+  that listens for incoming DECnet connections.  To use this, you need
+  to disable the standard object 25; then you can run this program and
+  it will serve any number of concurrent inbound mirror ("loop node")
+  requests.
+
+* dnping -- a very simple sample program that shows how to create and
+  use outbound connections; in this case, a connection to the MIRROR
+  object (number 25).
+
 Running PyDECnet, in detail
 
 The full set of command line options is:
