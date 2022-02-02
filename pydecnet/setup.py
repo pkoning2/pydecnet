@@ -29,6 +29,8 @@ setup (author = "Paul Koning",
             ]
         },
        py_modules = [ "crc" ],
+       scripts = [ "applications/ncp", "applications/mirror-daemon",
+                   "applications/dnping", "applications/rcclient" ],
        install_requires = [
            "psutil >= 3.2.0"
            ],
