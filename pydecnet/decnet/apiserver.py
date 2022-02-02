@@ -141,13 +141,18 @@ class ApiServer:
         if os.path.exists (config.name):
             raise RuntimeError ("Another socket server is already running")
         self.socketname = config.name
-        self.socket = socket.socket (socket.AF_UNIX)
         self.clients = dict ()
         
     def start (self):
         """Start a thread for the server -- that thread will then start
         two more threads for each API client connection.
         """
+        # For some reason, if this is done in the constructor rather
+        # than here, bad things happen on Linux.  Somehow an IP
+        # address gets associated with the socket as "laddr", causing
+        # the bind to fail.  Moving it here makes things work.  Don't
+        # know why...
+        self.socket = socket.socket (socket.AF_UNIX)
         try:
             self.socket.bind (self.socketname)
             os.chmod (self.socketname, self.config.mode)
