@@ -172,6 +172,8 @@ class LanCircuit (timers.Timer):
            req.sumstat () and not req.loop ():
             for a in sorted (self.adjacencies.values (),
                              key = lambda a: a.adjnode ()):
+                if a.state != UP:
+                    continue
                 neighbor = a.adjnode ()
                 r = resp[neighbor]
                 r.adj_circuit = str (self)
@@ -193,12 +195,14 @@ class LanCircuit (timers.Timer):
             # Pick up all adjacencies if status or characteristics or
             # there is only one, and no qualifier was given.  That
             # last point is non-standard but it seems like a good
-            # idea.
+            # idea.  If the adjacency is not UP (not two-way, for
+            # routing adjacencies in routers) we skip it.
             all = req.stat () or req.char () or \
                   (qual is None and len (self.adjacencies) == 1)
             ret = [ ]
             for a in self.adjacencies.values ():
                 if (all or a.ntype != ENDNODE) and \
+                   a.state == UP and \
                    (qual is None or qual == a.adjnode ()):
                     r = resp.makeitem (cn)
                     r.adjacent_node = a.adjnode ()
@@ -346,6 +350,8 @@ class EndnodeLanCircuit (LanCircuit):
                                         adjacent_node = self.dr.adjnode ())
                     self.dr.down ()
                     self.dr = adjacency.Adjacency (self, item)
+                    # In an endnode, the adjacency state is always UP
+                    self.dr.state = UP
                     self.adjacencies = { item.id : self.dr }
                     self.datalink.counters.last_up = Timestamp ()
                     self.node.logevent (events.adj_up,
@@ -356,6 +362,8 @@ class EndnodeLanCircuit (LanCircuit):
                     self.dr.alive ()
             else:
                 self.dr = adjacency.Adjacency (self, item)
+                # In an endnode, the adjacency state is always UP
+                self.dr.state = UP
                 self.adjacencies = { item.id : self.dr }
                 self.datalink.counters.last_up = Timestamp ()
                 self.node.logevent (events.adj_up,
