@@ -7,12 +7,11 @@ Implementation of the DECnet Phase II (TOPS-20) topology server.
 This is an undocumented (by Digital) facility.  For a protocol 
 description, see doc/protocols/topol.txt.
 
-If the node has intercept disabled, this server always reports an just
-the local node..  If intercept is enabled, it reports the nodes seen
-as reachable ("active"), i.e., roughly the reachable nodes in the area
-plus any adjacent nodes.  If --argument is supplied on the object
-definition, it is interpreted as a list of node names separated by
-commas; those nodes are also reported whether reachable or not.
+This server reports the nodes seen as reachable ("active"), i.e.,
+roughly the reachable nodes in the area plus any adjacent nodes.  If
+--argument is supplied on the object definition, it is interpreted as
+a list of node names separated by commas; those nodes are also
+reported whether reachable or not.
 
 The list is trimmed to a maximum of 50 entries to accommodate a limit
 in TOPS-20 NETCON.
@@ -66,37 +65,30 @@ class NodeEntry (packet.Packet):
 class Application (Element):
     def __init__ (self, parent, obj):
         super ().__init__ (parent)
-        # If we're not doing intercept, report an empty list since
-        # only nodes seen as adjacent on working circuits are
-        # reachable in that case.
-        if not self.node.intercept.intfun ():
-            logging.trace ("Topology server: no intercept, report self")
-            self.names = [ str (self.node.nodename) ]
+        # obj.argument is the list of names to report unconditionally
+        if obj.argument:
+            self.names = { n.upper ()
+                           for n in obj.argument[0].split (",") }
         else:
-            # obj.argument is the list of names to report unconditionally
-            if obj.argument:
-                self.names = { n.upper ()
-                               for n in obj.argument[0].split (",") }
-            else:
-                self.names = set ()
-            # Get the visible nodes ("active nodes").  Note, not
-            # "significant nodes" because on a mapper node that is just
-            # about everyone since it tries to contact everyone.
-            req = NiceReadNode ()
-            req.entity = NodeReqEntity (-2)  # Active Nodes
-            req.info = 1                     # Status
-            resp = self.node.nice_read (req)
-            # Add any of those that have names
-            for r in resp.values ():
-                e = r.entity
-                name = e.nodename
-                if name:
-                    self.names.add (name.upper ())
-            self.names = list (self.names)
-            if len (self.names) > 50:
-                # TOPS-20 NETCON can handle up to 50 (see NETPAR.MAC)
-                logging.trace ("Topology server: too many names ({}), truncating to 50", len (self.names))
-                self.names = self.names[:50]
+            self.names = set ()
+        # Get the visible nodes ("active nodes").  Note, not
+        # "significant nodes" because on a mapper node that is just
+        # about everyone since it tries to contact everyone.
+        req = NiceReadNode ()
+        req.entity = NodeReqEntity (-2)  # Active Nodes
+        req.info = 1                     # Status
+        resp = self.node.nice_read (req)
+        # Add any of those that have names
+        for r in resp.values ():
+            e = r.entity
+            name = e.nodename
+            if name:
+                self.names.add (name.upper ())
+        self.names = list (self.names)
+        if len (self.names) > 50:
+            # TOPS-20 NETCON can handle up to 50 (see NETPAR.MAC)
+            logging.trace ("Topology server: too many names ({}), truncating to 50", len (self.names))
+            self.names = self.names[:50]
         logging.trace ("Topology server: names are {}", self.names)
         
     def dispatch (self, item):
