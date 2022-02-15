@@ -1,0 +1,33 @@
+# Development logging configuration file.
+
+version: 1
+formatters:
+  dnformatter:
+    # Specify a custom class.  This merely overrides the millisecond
+    # formatting string to use the "." separator (US style) rather
+    # than the "," separator (European style).
+    (): decnet.logging.DnFormatter
+    format: "{asctime}: {threadName}: {message}"
+    style: "{"
+  traceformatter:
+    # Slightly different formatter for TRACE events
+    (): decnet.logging.DnFormatter
+    format: "{asctime}: {threadName} {filename}.{lineno}: {message}"
+    style: "{"
+handlers:
+  tracehandler:
+    # 50 files, 20 MB per file max
+    class: logging.handlers.RotatingFileHandler
+    formatter: traceformatter
+    filename: /var/log/decnet/decnet-trace.log
+    maxBytes: 20000000
+    backupCount: 50
+  dnhandler:
+    # File handler.
+    class: logging.FileHandler
+    formatter: dnformatter
+    filename: /var/log/decnet/decnet.log
+    level: DEBUG
+root:
+  level: TRACE
+  handlers: [ tracehandler, dnhandler ]
