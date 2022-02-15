@@ -76,4 +76,7 @@ The PMR nak message consists of:
 There are two cases for the destination object specification: connect
 to an object by number, or connect by name.  For connect by number,
 the object spec has the form "<num>=", for example "25=".  For connect
-by name, it is "TASK=<name>" for example "TASK=MIRROR". 
+by name, it is "TASK=<name>" for example "TASK=MIRROR".   Typically
+the destination object spec is enclosed in quotes, though some
+implementations (like DECnet/E) accept it either way, so PyDECnet does
+that as well.

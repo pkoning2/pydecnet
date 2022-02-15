@@ -30,7 +30,7 @@ class ApiError (Exception): "Error reported by API server"
 class ConnClosed (ApiError): "Operation on closed socket"
 class SequenceError (ApiError): "Unexpected message for new connection"
 
-_pmr_re = re.compile (r"([a-z0-9.]+)((?:::[a-z0-9.]+)*?)(?:::(?:(?:(\d+)=)|(?:task=(\S+)))?)?$", re.I)
+_pmr_re = re.compile (r"""([a-z0-9.]+)((?:::[a-z0-9.]+)*?)(?:::['"]?(?:(?:(\d+)=)|(?:task=(\S+)))?['"]?)?$""", re.I)
 
 def makestr (v):
     if isinstance (v, dict):
