@@ -345,7 +345,7 @@ class RemoteSink (EventSink, timers.Timer):
                            len (self.sinkqueue))
             try:
                 conn = self.scport.connect (self.sinknode, 26,
-                                            srcname = EvlUser,
+                                            localuser = EvlUser,
                                             data = MYVERSION,
                                             username = self.sinkuser,
                                             password = self.sinkpw,

@@ -828,7 +828,7 @@ class NodePoller (Element, statemachine.StateMachine):
             # result will be an authentication failure.  I still don't
             # know how to make it work with VMS proxy.
             self.conn = self.scport.connect (self.nodeid, 19, NICEVERSION,
-                                             srcname = MapperUser,
+                                             localuser = MapperUser,
                                              proxy = True)
             # Note that we don't need to set a timer at this
             # point, because NSP guarantees that a connect request

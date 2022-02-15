@@ -271,14 +271,31 @@ class FileObject (SessionObject):
     def __init__ (self, parent, file, number, name = "",
                   auth = "off", arg = [ ]):
         super ().__init__ (parent, number, name, auth, arg)
-        f = shutil.which (file)
+        # Remember the supplied file name for display purposes
+        self.shortfile = file
+        # If the "file" argument is just a bare name, do a PATH lookup
+        # on it to find the full path
+        if not os.path.dirname (file):
+            f = shutil.which (file)
+        else:
+            f = os.path.normpath (os.path.join (os.path.dirname (__file__), file))
+        if f.endswith (".py"):
+            # Python file, it needs to exist but it doesn't have to be
+            # executable, because we'll pass it to the current Python
+            # as a script file name argument.
+            if not os.path.exists (f):
+                f = None
+        else:
+            # Not a Python file, we'll execute it.  Check that it is
+            # executable.  
+            f = shutil.which (f)
         if not f:
-            raise ValueError ("File {} not found or not executable".format (self.file))
+            raise ValueError ("File {} not found or not executable".format (file))
         self.file = f
     
     @property
     def what (self):
-        return "File {}".format (self.file)
+        return "File {}".format (self.shortfile)
     
     def connector (self):
         logging.trace ("starting object {} ({})", self.number, self.name)
@@ -299,7 +316,8 @@ defobj = ( DefObj ("NML", 19, "decnet.modules.nml"),
          )
 # pmr requires 3.7 or later (it uses asyncio)
 if sys.version_info >= (3, 7):
-    defobj += (DefObj ("PSTHRU", 123, file = "decnet/applications/pmr.py"),)
+    # File name given here is relative to the location of this module.
+    defobj += (DefObj ("PSTHRU", 123, file = "applications/pmr.py"),)
 
 class SessionConnection (Element):
     def __init__ (self, parent, nspconn, **kw):
