@@ -713,14 +713,23 @@ def reqresp (req):
             if retcode > 127:
                 retcode -= 256
             if retcode == -128 and version > 2:
+                if debug:
+                    print ("reply list end:")
+                    print (dump_packet (rep))
                 break
-            elif version == 2 and more and req[0] == 8 and retcode > 0:
+            elif version == 2 and more is True and req[0] == 8 and retcode > 0:
                 # If request was Phase 2 read info, and the status is
                 # success, then the next two bytes give the number of
                 # additional response fraomes to follow.
+                if debug:
+                    print ("reply count:")
+                    print (dump_packet (rep))
                 more = rep[1] + (rep[2] << 8)
                 continue
             elif retcode == 2:
+                if debug:
+                    print ("reply list start:")
+                    print (dump_packet (rep))
                 assert not mult
                 mult = True
                 continue
