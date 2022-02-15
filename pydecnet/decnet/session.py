@@ -6,6 +6,7 @@
 
 import subprocess
 import os
+import sys
 import signal
 import importlib
 import shutil
@@ -284,18 +285,21 @@ class FileObject (SessionObject):
         return ProcessConnector (self.parent, self)
 
 class DefObj (dict):
-    def __init__ (self, name, num, module, auth = "off"):
+    def __init__ (self, name, num, module = None, file = None, auth = "off"):
         self.name = name.upper ()
         self.number = num
         self.module = module
-        self.file = None
+        self.file = file
         self.auth = auth
         
 defobj = ( DefObj ("NML", 19, "decnet.modules.nml"),
            DefObj ("MIRROR", 25, "decnet.modules.mirror"),
            DefObj ("EVTLOG", 26, "decnet.modules.evl"),
-           DefObj ("TOPOL", 0, "decnet.modules.topol"),
+           DefObj ("TOPOL", 0, "decnet.modules.topol")
          )
+# pmr requires 3.7 or later (it uses asyncio)
+if sys.version_info >= (3, 7):
+    defobj += (DefObj ("PSTHRU", 123, file = "decnet/applications/pmr.py"),)
 
 class SessionConnection (Element):
     def __init__ (self, parent, nspconn, **kw):
@@ -346,7 +350,10 @@ class Session (Element):
         self.apiconnectors = dict ()
         for d in defobj:
             # Add default (built-in) objects
-            obj = ModuleObject (self, d.module, d.number, d.name, auth = d.auth)
+            if d.module:
+                ModuleObject (self, d.module, d.number, d.name, auth = d.auth)
+            else:
+                FileObject (self, d.file, d.number, d.name, auth = d.auth)
         # Add objects from the config
         for obj in config.object:
             if obj.disable:
@@ -410,23 +417,23 @@ class Session (Element):
     
     def connect (self, client, dest, remuser, conndata = b"",
                  username = b"", password = b"", account = b"",
-                 srcname = LocalUser, proxy = False):
-        if isinstance (srcname, EndUser):
+                 localuser = LocalUser, proxy = False):
+        if isinstance (localuser, EndUser):
             pass
-        elif isinstance (srcname, int):
-            srcname = EndUser0 (num = srcname)
-        elif isinstance (srcname, str):
-            srcname = EndUser1 (name = srcname)
-        elif isinstance (srcname, (list, tuple)) and len (srcname) == 3:
-            g, u, n = srcname
-            srcname = EndUser2 (group = g, user = u, name = n)
+        elif isinstance (localuser, int):
+            localuser = EndUser0 (num = localuser)
+        elif isinstance (localuser, str):
+            localuser = EndUser1 (name = localuser)
+        elif isinstance (localuser, (list, tuple)) and len (localuser) == 3:
+            g, u, n = localuser
+            localuser = EndUser2 (group = g, user = u, name = n)
         else:
             raise BadEndUser
         if isinstance (remuser, int):
             remuser = EndUser0 (num = remuser)
         else:
             remuser = EndUser1 (name = remuser)
-        sc = SessionConnInit (srcname = srcname, dstname = remuser,
+        sc = SessionConnInit (srcname = localuser, dstname = remuser,
                               connectdata = conndata, rqstrid = username,
                               passwrd = password, account = account)
         if proxy:
@@ -435,7 +442,7 @@ class Session (Element):
             sc.proxy_uic = 0
         nspconn = self.node.nsp.connect (dest, sc)
         self.conns[nspconn] = ret = SessionConnection (self, nspconn,
-                                                       localuser = srcname,
+                                                       localuser = localuser,
                                                        remuser = remuser)
         ret.client = client
         return ret
@@ -515,6 +522,16 @@ class Session (Element):
                     pw["srcuser"] = [ spkt.srcname.group,
                                       spkt.srcname.user,
                                       spkt.srcname.name ]
+                # Ditto for destination descriptor
+                if spkt.dstname.fmt == 0:
+                    pw["dstuser"] = spkt.dstname.num
+                elif spkt.dstname.fmt == 1:
+                    pw["dstuser"] = spkt.dstname.name
+                else:
+                    # Format 2
+                    pw["dstuser"] = [ spkt.dstname.group,
+                                      spkt.dstname.user,
+                                      spkt.dstname.name ]
                 if isinstance (sesobj, ApiListener):
                     pw["listenhandle"] = id (sesobj)
                 if sesobj.auth:
@@ -668,10 +685,10 @@ class BaseConnector (Element):
 
     def connect (self, dest, remuser, data = b"",
                  username = b"", password = b"", account = b"",
-                 srcname = LocalUser, proxy = False):
+                 localuser = LocalUser, proxy = False):
         conn = self.parent.connect (self, dest, remuser, data,
                                     username, password, account,
-                                    srcname, proxy)
+                                    localuser, proxy)
         self.conns[id (conn)] = conn
         return conn
 
@@ -752,21 +769,24 @@ class DictConnector (BaseConnector):
     @api
     def connect (self, dest, remuser, data = "",
                  username = "", password = "", account = "",
-                 srcname = None, proxy = False):
+                 localuser = None, proxy = False, tag = None):
+        # tag does nothing but the async_connector uses it and the
+        # easiest way to handle it is to have it be an ignored
+        # argument on the method.
         data = bytes (data, "latin1")
         username = bytes (username, "latin1")
         password = bytes (password, "latin1")
         account = bytes (account, "latin1")
-        if srcname is None:
-            srcname = LocalUser
-        elif isinstance (srcname, int):
-            srcname = EndUser0 (num = srcname)
+        if localuser is None:
+            localuser = LocalUser
+        elif isinstance (localuser, int):
+            localuser = EndUser0 (num = localuser)
         else:
-            srcname = EndUser1 (name = srcname)
+            localuser = EndUser1 (name = localuser)
         try:
             conn = super ().connect (dest, remuser, data,
                                      username, password, account,
-                                     srcname, proxy)
+                                     localuser, proxy)
         except nsp.UnknownNode:
             return dict (type = "reject", reason = UNK_NODE)
         handle = id (conn)
@@ -813,6 +833,8 @@ class DictConnector (BaseConnector):
             if mtype == "connect":
                 # Put in additional items, if present
                 jdict["destination"] = item.destination
+                jdict["srcuser"] = item.srcuser
+                jdict["dstuser"] = item.dstuser
                 if hasattr (item, "listenhandle"):
                     jdict["listenhandle"] = item.listenhandle
                 if hasattr (item, "username"):
@@ -854,6 +876,12 @@ class ProcessConnector (DictConnector):
             except KeyError:
                 pass
         args = [ obj.file ] + obj.argument
+        if obj.file.endswith (".py"):
+            # It's a Python file, run it under whichever Python we're
+            # running.  This ensures that an entire PyDECnet run,
+            # including any file based objects, use the same Python
+            # version.
+            args = [ sys.executable ] + args
         logging.trace ("Starting file, args {}, environment {}", args, env)
         # Start the requested program file in a new process.  We ask for
         # line mode on the pipes, but note that only works at this end
@@ -920,7 +948,8 @@ class ProcessConnector (DictConnector):
                 break
             logging.trace ("json request to sc: {}", req)
             req = self.dec (req)
-            work = FromApplicationWork (parent, args = req)
+            tag = req.pop ("tag", None)
+            work = FromApplicationWork (parent, args = req, tag = tag)
             parent.node.addwork (work)
         logging.trace ("object stdout thread done")
             

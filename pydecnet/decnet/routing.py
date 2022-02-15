@@ -21,6 +21,7 @@ from . import route_ptp
 from . import route_eth
 from . import html
 from . import nicepackets
+from . import intercept
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -111,6 +112,8 @@ class SelfAdj (adjacency.Adjacency):
         hops = 1
         cost = 1
         name = "to NSP"
+        intercept = None
+        
         def setsrm (self, *args): pass
         def setasrm (self, *args): pass
         
@@ -637,8 +640,6 @@ class EndnodeRouting (BaseRouter):
         super ().__init__ (parent, config)
         if len (self.circuits) != 1:
             raise ValueError ("End node must have 1 circuit, found {}".format (len (self.circuits)))
-        # Definitely not offering intercept service
-        config.routing.no_intercept = True
         # Remember that one circuit for easier access
         for c in self.circuits.values ():
             self.circuit = c
@@ -707,53 +708,58 @@ class Phase2Routing (BaseRouter):
     PtpCircuit = PtpEndnodeCircuit
     ntype = PHASE2
     ntypestring = "Phase 2 node"
-    
+
     def send (self, pkt, dest, rqr = False, tryhard = False):
         """Send NSP packet to the given destination. rqr and
         tryhard are ignored in Phase II except that rqr controls how to
         handle "unreachable".  
-        TODO: Intercept support.
         """
-        try:
-            if isinstance (dest, Nodeid):
-                # Normal node
-                a = self.adjacencies[dest]
-                destaddr = dest
-            else:
-                # Loop node
-                a = dest.loopadj
-                destaddr = self.nodeid
-                if not a or a.nodeid != destaddr:
-                    # No adjacency, or not to self, call it unreachable.
-                    if rqr:
-                        pkt = ShortData (rts = 1, rqr = 0, payload = pkt,
-                                         srcnode = destaddr, src = None,
-                                         dstnode = destaddr)
-                        self.dispatch (pkt)
-                        return True
+        if isinstance (dest, Nodeid):
+            # Normal node
+            a = self.adjacencies.get (dest, None)
+            if a is None:
+                # Destination isn't a neighbor, look for an adjacency
+                # that offers intercept service.
+                # TODO: this isn't very elegant.  A more efficient solution is
+                # to remember which circuit has an intercept provider at the
+                # other end.  (If more than one does, pick one.)
+                for a in self.adjacencies.values ():
+                    if isinstance (a.circuit.intercept, intercept.EndnodeIntercept):
+                        break
+                else:
+                    logging.trace ("Can't send to {}, not neighbor, no intercept", dest)
                     return False
-            # Destination matches this adjacency, send
-            if logging.tracing:
-                logging.trace ("Sending {} byte packet to {}: {}",
-                               len (pkt), a, pkt)
-            pkt = ShortData (payload = pkt, srcnode = self.nodeid,
-                             rqr = 1, rts = 0,
-                             dstnode = destaddr, src = None)
-            a.circuit.datalink.counters.orig_sent += 1
-            # For now, destination is also nexthop.  If we do intercept,
-            # that will no longer be true.
-            a.circuit.send (pkt, destaddr)
-        except KeyError:
-            logging.trace ("{} unreachable: {}", dest, pkt)
+            destaddr = dest
+        else:
+            # Loop node
+            a = dest.loopadj
+            destaddr = self.nodeid
+            if not a or a.nodeid != destaddr:
+                # No adjacency, or not to self, call it unreachable.
+                if rqr:
+                    pkt = ShortData (rts = 1, rqr = 0, payload = pkt,
+                                     srcnode = destaddr, src = None,
+                                     dstnode = destaddr)
+                    self.dispatch (pkt)
+                    return True
+                return False
+        # Destination matches this adjacency, send
+        if logging.tracing:
+            logging.trace ("Sending {} byte packet to {}: {}",
+                           len (pkt), a, pkt)
+        pkt = ShortData (payload = pkt, srcnode = self.nodeid,
+                         rqr = 1, rts = 0,
+                         dstnode = destaddr, src = None)
+        a.circuit.datalink.counters.orig_sent += 1
+        a.circuit.send (pkt, destaddr)
 
     def dispatch (self, item):
-        """A received packet is sent up to NSP if it is for this node,
-        and ignored otherwise.  Note that the only thing that gets here
-        is data packets (hellos are handled in route_ptp).
-        TODO: Intercept support.
+        """A received packet is simply sent up to NSP.  Note that the
+        only thing that gets here is data packets addressed to this node
+        (hellos are handled in route_ptp and messages to the wrong
+        destination are handled in intercept.).
         """
-        if item.dstnode == self.nodeid:
-            self.selfadj.send (item)
+        self.selfadj.send (item)
 
     def html (self, what):
         header = self.PtpCircuit.html_header ()

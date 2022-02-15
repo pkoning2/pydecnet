@@ -8,6 +8,17 @@ DECnet/Python T1.1
 
 This is a beta test version of what will beome DECnet/Python V1.1.
 
+1.1-621: Additional changes
+
+a. Implement PMR ("Poor man's routing") including transparent support
+for connecting via PMR in the simple and asynchronous connectors.
+
+b. Corrections to Phase II intercept support, and addition of an
+intercept requestor option (for endnodes and by default for a Phase II
+PyDECnet node).
+
+c. Several applications included: ncp, rcclient, dnping, mirror-daemon
+
 1.1-599: New version since there are significant visible changes in
 this version:
 

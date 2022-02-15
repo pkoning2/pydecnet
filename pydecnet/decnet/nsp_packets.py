@@ -282,6 +282,8 @@ class ConnMsg (NspHdr):
     type = NspHdr.CTL
     mb1 = 1
     mbz = 0
+    # No delayed ACK for these
+    dly = 0    
     # Services:
     SVC_NONE = 0
     SVC_SEG = 1         # Segment flow control
@@ -358,6 +360,8 @@ class DiscInit (NspHdr):
     type = NspHdr.CTL
     subtype = NspHdr.DI
     msgflag = 0x38
+    # No delayed ACK for these
+    dly = 0    
     
 OBJ_FAIL = 38       # Object failed (copied from session.py)
 UNREACH = 39        # Destination unreachable (copied from session.py)

@@ -8,7 +8,6 @@ from decnet import route_ptp
 from decnet import datalink
 from decnet.node import Nodeinfo
 from decnet import logging
-from decnet import intercept
 
 rcount = 5000
 rmin = 0
@@ -41,7 +40,8 @@ class rtest (DnTest):
         self.config.routing.maxcost = 20
         self.config.routing.amaxcost = 20
         self.config.routing.maxvisits = 30
-        self.config.routing.no_intercept = True
+        # No intercept
+        self.config.routing.intercept = 0
         self.config.circuit = dict ()
         self.node.datalink = container ()
         self.node.datalink.circuits = dict ()
@@ -58,6 +58,7 @@ class rtest (DnTest):
         i = 1
         for n, lan in self.circ:
             self.config.circuit[n] = container ()
+            self.config.circuit[n].routing = self.config.routing
             self.config.circuit[n].t1 = None
             self.config.circuit[n].t3 = 10
             self.config.circuit[n].cost = 1
@@ -71,9 +72,7 @@ class rtest (DnTest):
                 self.node.datalink.circuits[n].__class__ = datalink.BcDatalink
         self.config.routing.type = self.ntype
         self.r = self.node.routing = routing.Router (self, self.config)
-        self.node.intercept = intercept.Intercept (self.node, self.config)
         self.r.start ()
-        self.node.intercept.start ()
         i = 1
         for n, lan in self.circ:
             c = self.r.circuits[n]

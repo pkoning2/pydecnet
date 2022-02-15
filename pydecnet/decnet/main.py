@@ -5,7 +5,7 @@
 """
 
 import sys
-if sys.version_info[0] < 3:
+if sys.version_info < (3, 3):
     print ("PyDECnet requires Python 3.3 or later")
     sys.exit (1)
 

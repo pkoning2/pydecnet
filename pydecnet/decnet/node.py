@@ -24,7 +24,6 @@ from . import event_logger
 from . import bridge
 from . import session
 from . import nicepackets
-from . import intercept
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -139,8 +138,7 @@ class Node (Entity):
     """
     # These are the elements to start, in this order.
     startlist = ( "datalink", "mop", "routing", "nsp",
-                  "session", "bridge", "event_logger",
-                  "intercept" )
+                  "session", "bridge", "event_logger" )
 
     def __init__ (self, config):
         self.node = self
@@ -153,7 +151,7 @@ class Node (Entity):
             self.ident = config.system.identification
         if self.decnet:
             # This is a DECnet node.
-            self.bridge = self.intercept = None
+            self.bridge = None
             self.phase = phases[config.routing.type]
             if self.phase == 4:
                 self.nodeid = config.routing.id
@@ -170,7 +168,7 @@ class Node (Entity):
         else:
             # bridge, dummy up some attributes
             self.mop = self.routing = self.nsp = None
-            self.intercept = self.session = None
+            self.session = None
             self.phase = 0
             self.nodeid = None
             self.nodename = config.bridge.name
@@ -186,10 +184,6 @@ class Node (Entity):
         self.datalink = datalink.DatalinkLayer (self, config)
         if self.decnet:
             self.mop = mop.Mop (self, config)
-            # This will be one of several flavors of intercept
-            # support, possibly "no support".
-            self.intercept = intercept.Intercept (self, config)
-            # Routing depends on intercept to be created first
             self.routing = routing.Router (self, config)
             self.nsp = nsp.NSP (self, config)
             self.session = session.Session (self, config)

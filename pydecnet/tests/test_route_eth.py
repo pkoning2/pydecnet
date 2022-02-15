@@ -33,7 +33,7 @@ class lantest (DnTest):
         self.config.nr = 3
         self.r.ntype = self.ntype
         self.r.tiver = tiver_ph4
-        self.r.name = b"TEST"
+        self.r.name = "TEST"
         self.r.minhops, self.r.mincost = routing.allocvecs (100)
         self.r.aminhops, self.r.amincost = routing.allocvecs (10)
         self.c = self.ctype (self.r, "lan-0", self.dl, self.config)

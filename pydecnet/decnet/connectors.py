@@ -13,6 +13,7 @@ import os
 import sys
 import socket
 import functools
+import re
 from logging import CRITICAL, ERROR, WARNING, INFO, DEBUG
 
 defsockname = os.getenv ("DECNETAPI", "/tmp/decnetapi.sock")
@@ -20,6 +21,7 @@ defsockname = os.getenv ("DECNETAPI", "/tmp/decnetapi.sock")
 from decnet.common import *
 from decnet.logging import TRACE
 from decnet.packet import IndexedField
+from decnet.session import reject_text
 
 enc = DNJsonEncoder ().encode
 dec = DNJsonDecoder ().decode
@@ -27,9 +29,13 @@ dec = DNJsonDecoder ().decode
 class ApiError (Exception): "Error reported by API server"
 class ConnClosed (ApiError): "Operation on closed socket"
 class SequenceError (ApiError): "Unexpected message for new connection"
-    
+
+_pmr_re = re.compile (r"([a-z0-9.]+)((?:::[a-z0-9.]+)*?)(?:::(?:(?:(\d+)=)|(?:task=(\S+)))?)?$", re.I)
+
 def makestr (v):
-    if not isinstance (v, (str, int)):
+    if isinstance (v, dict):
+        v = { k : makestr (vv) for (k, vv) in v.items () }
+    elif not isinstance (v, (str, int)):
         if isinstance (v, bytetypes):
             v = str (v, "latin1")
         else:
@@ -54,6 +60,12 @@ class ConnMessage (bytes):
             ret = cls ()
             ret.data = data
         ret.__dict__.update (d)
+        try:
+            # If there's a reject/disconnect reason and the code is
+            # known, remember the associated message text.
+            ret.text = reject_text[d["reason"]]
+        except KeyError:
+            pass
         return ret
 
     def encode (self):
@@ -128,7 +140,72 @@ class SimpleConnector:
         self.connections = dict ()
         self.tag = 1
 
+    def checkpmr (self, kwds, api):
+        # Returns:
+        # If PMR is needed: PMR request string
+        # If not PMR: None
+        remuser = kwds.get ("remuser", None)
+        hopcount = int (kwds.pop ("hopcount", 0))
+        if api == "session":
+            # DECnet connection.  See if it involves PMR, or if the
+            # request specified the destination object as part of the
+            # dest argument string.
+            m = _pmr_re.match (kwds["dest"])
+            if m:
+                kwds["dest"] = m.group (1)
+            if m and (m.group (3) or m.group (4)):
+                # Dest in the string, extract it
+                if m.group (4):
+                    remuser = m.group (4)
+                else:
+                    remuser = int (m.group (3))
+                # Fill in the remote user argument
+                kwds["remuser"] = remuser
+            if m and m.group (2):
+                # Multiple nodes were specified, use PMR
+                path = m.group (2)[2:]
+                finaluser = remuser
+                kwds["remuser"] = 123
+                h = chr (hopcount)
+                # Construct the PMR request string
+                if isinstance (finaluser, int):
+                    spec = "{}{}::{}=".format (h, path, finaluser)
+                else:
+                    spec = "{}{}::TASK={}".format (h, path, finaluser)
+                return spec
+        # Not PMR, do the normal connect
+        return None
+
+    def parsepmrresponse (self, rc, pmrresp):
+        if not pmrresp:
+            text = "Empty PMR response"
+        else:
+            code = pmrresp[0]
+            if code == 1:
+                # Success.  PyDECnet extension: the destination
+                # object accept data is at the end of the reply
+                # string.
+                adata = pmrresp.rsplit (b":", 1)[1]
+                resp = ConnMessage (adata)
+                resp.type = "accept"
+                resp.pmrresponse = pmrresp
+                return rc, resp
+            elif code == 2:
+                # Reject.  Build a connect reject message, with
+                # the response string content as message text.
+                text = makestr (pmrresp[1:])
+            else:
+                text = "Unknown PMR response code {}".format (code)
+        resp = ConnMessage (b"")
+        resp.type = "reject"
+        resp.reason = 0
+        resp.text = text
+        return None, resp
+        
     def connect (self, api = "session", system = None, **kwds):
+        kwds = makestr (kwds)
+        pmrspec = self.checkpmr (kwds, api)
+        # Do the connect
         rc, resp = self.exch (api = api, system = system,
                               type = "connect", **kwds)
         # rc is the new connection, resp is the "connecting" message
@@ -141,7 +218,14 @@ class SimpleConnector:
         if resp.type == "connecting":
             resp = rc.recv ()
         if resp.type == "reject":
+            resp.text = reject_text.get (resp.reason, resp.reason)
             rc = None
+        elif pmrspec:
+            # Other option is accept.  If we're using PMR, talk to it
+            rc.data (pmrspec)
+            # Get the reply
+            pmrresp = rc.recv ()
+            rc, resp = self.parsepmrresponse (rc, pmrresp)
         return rc, resp
     
     def recv (self):
@@ -190,7 +274,8 @@ class SimpleApiConnector (SimpleConnector):
     socket.  The default socket used is /tmp/decnetapi.sock, a different
     name can be supplied using environment variable DECNETAPI.
     """
-    def log (self, *args, **kwargs): pass
+    def log (self, *args, **kwargs):
+        pass
         
     def __init__ (self, name = defsockname):
         super ().__init__ ()

@@ -568,7 +568,9 @@ class txqentry (timers.Timer):
         # TODO: Skip this if phase 2 local node?
         self.channel.node.timers.start (self, self.channel.parent.acktimeout ())
         self.tries += 1
-        if self.txtime == 0:
+        if self.txtime == 0 and not pkt.dly:
+            # Not currently timing a packet and we're not asking for
+            # ack delay on this packet, so start measuring.
             self.txtime = time.time ()
         self.channel.parent.sendmsg (self.packet)
         self.sent = True
@@ -684,15 +686,27 @@ class Subchannel (Element, timers.Timer):
                 # from the OOO cache, if it is there, and keep going if
                 # so.
                 item = self.ooo.pop (num, None)
-            # Done with in-sequence packets, see if delayed ack is allowed.
-            if pkt.dly:
+            # Done with in-sequence packets, see if delayed ack is
+            # allowed.  The rule is: delay ACK if (a) the packet says
+            # it's allowed, and (b) we're both Phase 4, and (c) we
+            # don't have a clean shutdown in progress.  That last rule
+            # ensures there won't be pending ACKs when we get around
+            # to sending the deferred disconnect.
+            if pkt.dly and self.parent.cphase == 4 and not self.parent.shutdown:
                 # Delayed ACK allowed, start the ACK holdoff timer if
                 # it isn't already running.
                 if self.ackpending and not self.islinked ():
                     # ACK holdoff timer is not yet running, start it
                     self.node.timers.start (self, self.HOLDOFF)
-            else:
-                # Immediate ACK required, send it
+            elif self.ackpending:
+                # Immediate ACK required and not yet done, send it.
+                # The check covers the case of link service messages
+                # where processing the message causes one or more data
+                # messages to be released for transmission; if so (and
+                # if both ends are Phase IV) the LS message is
+                # acknowledge by a cross-subchannel ACK in the data
+                # and by the time we get here self.ackpending is False
+                # again.
                 self.send_ack ()
                 
     def send_ack (self):

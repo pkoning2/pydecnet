@@ -5,6 +5,9 @@
 These are written for Python 3.7 or later.
 """
 
+import sys
+assert sys.version_info >= (3, 7), "Python 3.7 or later required"
+
 import asyncio
 import traceback
 
@@ -37,6 +40,7 @@ async def make_write_stream (f):
 class AsyncConnection (Connection):
     def __init__ (self, owner, system, api, handle):
         super ().__init__ (owner, system, api, handle)
+        self.usepmr = False
         self.recvq = asyncio.Queue ()
         self.listenq = asyncio.Queue ()
 
@@ -49,6 +53,14 @@ class AsyncConnection (Connection):
         resptype = resp.type
         if resptype in ("reject", "disconnect", "abort", "close"):
             self.close ()
+        elif self.usepmr:
+            self.usepmr = False
+            if resptype == "data":
+                # Data reply is what we expect, convert it
+                rc, resp = self.owner.parsepmrresponse (self, resp)
+                if not rc:
+                    # Error case, close the connection
+                    self.close ()
         return resp
     
     async def listen (self):
@@ -185,20 +197,40 @@ class AsyncConnector (SimpleConnector):
         But if there was an error in argument validation, rc is None and
         resp is a "reject" message.
         
-        Unlike the "connect" method in the simple connectors
-        classes, here we do not wait for the accept or reject.
-        Instead, it is up to the caller to look for that, as the
-        first message received by the newly created connection.  The
-        case of "reject" being returned here applies only to connect
-        requests that are refused by PyDECnet, typically because of
-        invalid parameters.
+        Unlike the "connect" method in the simple connectors classes,
+        here we do not wait for the accept or reject.  Instead, it is up
+        to the caller to look for that, as the first message received by
+        the newly created connection.  The case of "reject" being
+        returned here applies only to connect requests that are refused
+        by PyDECnet, typically because of invalid parameters, or to a
+        reject from PMR if the connect request involves poor man's
+        routing.
         """
+        kwds = makestr (kwds)
+        # Find out if we're using PMR; if so, kwds is changed as needed.
+        pmrspec = self.checkpmr (kwds, api)
         rc, resp = await self.exch (api = api, system = system,
                                     type = "connect", **kwds)
         if not rc:
             if isinstance (resp, dict):
                 resp = ConnMessage.decode (resp)
-        if resp.type == "reject":
+        if resp.type == "connecting" and pmrspec:
+            # We're using PMR and the connection is underway.  First get
+            # the accept or reject from PMR.
+            pmrresp = await rc.recv ()
+            if pmrresp.type == "accept":
+                rc.usepmr = True
+                # Send the PMR request over the new connection.  The
+                # reply will be seen in the recv method of the new
+                # connection, where it will be mapped into an accept or
+                # request message.
+                rc.data (pmrspec)
+            else:
+                # Something else, close the connection and return what
+                # we got.
+                rc = None
+                resp = pmrresp
+        elif resp.type == "reject":
             rc = None
         return rc, resp
 

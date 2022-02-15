@@ -340,8 +340,16 @@ cp.add_argument ("--t1", type = int, default = 600,
                  help = "Non-LAN background routing message interval")
 cp.add_argument ("--bct1", type = int, default = 10,
                  help = "LAN background routing message interval")
-cp.add_argument ("--no-intercept", default = False, action = "store_true",
-                 help = "Don't offer Phase II intercept services")
+igroup = cp.add_mutually_exclusive_group ()
+igroup.add_argument ("--no-intercept", action = "store_const",
+                     dest = "intercept", const = 0,
+                     help = "Don't offer or request Phase II intercept services")
+igroup.add_argument ("--request-intercept", action = "store_const",
+                     dest = "intercept", const = 1,
+                     help = "Request Phase II intercept services")
+igroup.add_argument ("--full-intercept", action = "store_const",
+                     dest = "intercept", const = 2,
+                     help = "Provide Phase II intercept services")
 
 cp = config_cmd ("node", "DECnet node database", collection = Nodes)
 cp.add_argument ("id", choices = range (1, 65536), type = Nodeid,

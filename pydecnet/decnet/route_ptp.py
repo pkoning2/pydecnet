@@ -17,6 +17,7 @@ from . import timers
 from . import statemachine
 from . import html
 from . import nicepackets
+from . import intercept
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -95,6 +96,7 @@ class PtpCircuit (statemachine.StateMachine):
         self.verif = config.verify
         self.datalink = datalink.create_port (self)
         self.init_counters ()
+        self.intfun, self.intreq = intercept.intflags (self.node.config)
         if self.node.phase == 2:
             self.initmsg = NodeInit (srcnode = parent.tid,
                                      nodename = parent.name,
@@ -104,8 +106,8 @@ class PtpCircuit (statemachine.StateMachine):
                                      blksize = MTU,
                                      nspsize = MTU,
                                      maxlnks = self.maxconn,
-                                     int = self.node.intercept.intfun (),
-                                     rint = self.node.intercept.intreq (),
+                                     int = self.intfun,
+                                     rint = self.intreq,
                                      sysver = "DECnet/Python")
         else:
             if self.node.phase == 3:
@@ -179,11 +181,8 @@ class PtpCircuit (statemachine.StateMachine):
             # Note: this check has to be made before dstnode is changed
             # to the older form (if needed) because internally we store
             # the neighbor ID according to our phase, not its phase.
-            #
-            # TODO: allow dstnode mismatch if Phase II node does
-            # intercept (only if this is an endnode).
             dstnode = pkt.dstnode
-            if self.ntype in (ENDNODE, PHASE2) and dstnode != self.id:
+            if self.ntype == ENDNODE and dstnode != self.id:
                 logging.debug ("Sending packet {} to wrong address {} "
                                "(expected {})", pkt, dstnode, self.id)
                 return False
@@ -198,7 +197,7 @@ class PtpCircuit (statemachine.StateMachine):
                     pkt.srcnode = Nodeid (pkt.srcnode.tid)
             if self.ntype == PHASE2:
                 srcnode = pkt.srcnode
-                ok, pkt = self.node.intercept.send (pkt, self)
+                ok, pkt = self.intercept.send (pkt, self)
                 if not pkt:
                     # Nothing to send
                     return True
@@ -483,8 +482,8 @@ class PtpCircuit (statemachine.StateMachine):
                                         blksize = MTU,
                                         nspsize = MTU,
                                         maxlnks = self.maxconn,
-                                        int = self.node.intercept.intfun (),
-                                        rint = self.node.intercept.intreq (),
+                                        int = self.intfun,
+                                        rint = self.intreq,
                                         sysver = "DECnet/Python")
                     self.dlsend (initmsg)
                 self.rphase = 2
@@ -495,7 +494,9 @@ class PtpCircuit (statemachine.StateMachine):
                 # instead use its size or ours, whichever is less.
                 self.blksize = self.minrouterblk = min (pkt.blksize, MTU)
                 self.tiver = pkt.tiver
-                # Remember if intercept was requested.
+                # Remember if intercept was offered or requested by
+                # the neighbor.
+                self.int = pkt.int
                 self.rint = pkt.rint
                 # Routing in Phase II is by name, but in later
                 # versions by number.  Since we use our local node
@@ -522,6 +523,10 @@ class PtpCircuit (statemachine.StateMachine):
                 # Create the adjacency.  Note that it is not set to "up"
                 # yet, that happens on transition to RU state.
                 self.adj = adjacency.Adjacency (self, self)
+                # Create the appropriate intercept
+                self.intercept = intercept.Intercept (self, self.node.phase,
+                                                      self.intfun, self.intreq,
+                                                      pkt)
                 if pkt.verif:
                     # Verification requested
                     verif = self.rnode.overif
@@ -899,7 +904,7 @@ class PtpCircuit (statemachine.StateMachine):
                 # NOP message, ignore 
                 return
             logging.trace ("Packet from Phase 2 node: {}", pkt)
-            ok, pkt = self.node.intercept.recv (pkt, self)
+            ok, pkt = self.intercept.recv (pkt, self)
             logging.trace ("Packet after intercept: {} {}", ok, pkt)
             if not ok:
                 if pkt:

@@ -3,8 +3,16 @@
 """Unit test for the NSP layer.
 """
 
+# The tests here sometimes get rather complicated.  There is a lot of
+# common code to cover (a) phase 2 vs. 3 vs. 4, and (b) no vs. message
+# vs. segment flow control.  (a) affects how many messages are sent
+# for a given test flow, since phase 4 supports delayed ack while the
+# others do not, and phase 3/4 send connect ack while phase 2 does not
+# have that message.
+
 # To do:
-# -- Counters (to be implemented still)
+# -- Counters
+
 
 from tests.dntest import *
 from decnet import nsp
@@ -148,7 +156,7 @@ class common_inbound (inbound_base):
         self.accept ()
         # Deliver a data segment
         d = b"\x60" + lla.to_bytes (2, "little") + \
-            b"\x03\x00\x01\x00data payload"
+            b"\x03\x00\x01\x10data payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
         self.node.addwork (w)
@@ -164,8 +172,12 @@ class common_inbound (inbound_base):
         # Check counters
         self.assertEqual (nc.destnode.counters.msg_rcv, 1)
         self.assertEqual (nc.destnode.counters.byt_rcv, 12)
-        # No reply yet
-        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        # ACK is pending if Phase 4
+        if nc.cphase == 4:
+            padj = 0
+        else:
+            padj = 1            
+        self.assertEqual (r.send.call_count, 1 + self.cdadj + padj)
         # Deliver an XOFF message
         p = b"\x10" + lla.to_bytes (2, "little") + \
             b"\x03\x00\x01\x00\x01\x00"
@@ -174,6 +186,8 @@ class common_inbound (inbound_base):
         self.node.addwork (w)
         # Not delivered to Session Control
         self.assertEqual (s.dispatch.call_count, 2)
+        # LS message gets immediate ACK
+        self.assertEqual (r.send.call_count, 2 + self.cdadj + padj)
         # Send a data message
         nc.send_data (b"hello world")
         # Check counters
@@ -182,7 +196,7 @@ class common_inbound (inbound_base):
         # It should be on the pending queue
         self.assertEqual (len (nc.data.pending_ack), 1)
         # It wasn't sent (due to XOFF)
-        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj + padj)
         # Incoming Link Service XON
         p = b"\x10" + lla.to_bytes (2, "little") + \
             b"\x03\x00\x02\x00\x02\x00"
@@ -191,9 +205,14 @@ class common_inbound (inbound_base):
         self.node.addwork (w)
         # Not delivered to Session Control
         self.assertEqual (s.dispatch.call_count, 2)
-        # If we have explicit flow control, it still wasn't sent yet.
+        lsadj = 0
+        if nc.cphase < 4:
+            lsadj = 1
         if self.services != b'\x01':
-            self.assertEqual (r.send.call_count, 1 + self.cdadj)
+            # If we have explicit flow control, it still wasn't sent
+            # yet, but an ACK was.
+            lsadj = 1
+            self.assertEqual (r.send.call_count, 3 + self.cdadj + padj)
             # Incoming Link Service to ask for 2 more items
             p = b"\x10" + lla.to_bytes (2, "little") + \
                 b"\x03\x00\x03\x00\x00\x02"
@@ -202,9 +221,18 @@ class common_inbound (inbound_base):
             self.node.addwork (w)
             # Not delivered to Session Control
             self.assertEqual (s.dispatch.call_count, 2)
-        # Verify data was sent, with piggyback ack
-        self.assertEqual (r.send.call_count, 2 + self.cdadj)
-        args, kwargs = r.send.call_args
+            # LS gets immediate ACK, but it is part of the data packet
+            # for Phase 4 (cross-subchannel ACK)
+            if nc.cphase < 4:
+                padj += 1
+        # Verify data was sent
+        self.assertEqual (r.send.call_count, 3 + self.cdadj + lsadj + padj)
+        # Pick up the data frame (the LS ACK is sent after that if not
+        # Phase 4)
+        if nc.cphase < 4:
+            args, kwargs = r.send.call_args_list[-2]
+        else:
+            args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
         self.assertEqual (dest, self.remnode)
@@ -212,13 +240,15 @@ class common_inbound (inbound_base):
         self.assertEqual (ds.dstaddr, rla)
         self.assertTrue (ds.bom)
         self.assertTrue (ds.eom)
-        self.assertEqual (ds.acknum, nsp.AckNum (1))
-        if self.services != b'\x01' and nc.cphase == 4:
-            # There should be a cross subchannel ack of the link
-            # service (flow on) message.
-            self.assertEqual (ds.acknum2, nsp.AckNum (3, nsp.AckNum.XACK))
-        elif nc.cphase == 4:
-            self.assertEqual (ds.acknum2, nsp.AckNum (2, nsp.AckNum.XACK))
+        if hasattr (ds, "acknum"):
+            logging.trace (r.send.call_args_list)
+            logging.trace  ("acknum {}", ds.acknum)
+        self.assertFalse (hasattr (ds, "acknum"))
+        if nc.cphase == 4:
+            if self.services != b'\x01':
+                self.assertEqual (ds.acknum2, nsp.AckNum (3, nsp.AckNum.XACK))
+            else:
+                self.assertEqual (ds.acknum2, nsp.AckNum (2, nsp.AckNum.XACK))
         else:
             self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"hello world")
@@ -226,18 +256,25 @@ class common_inbound (inbound_base):
         nc.send_data (b"hello world" * 40)
         # If we have segment flow control, one segment is blocked
         if self.services == b'\x05':
-            self.assertEqual (r.send.call_count, 3 + self.cdadj)
+            self.assertEqual (r.send.call_count, 4 + self.cdadj + lsadj + padj)
             # Incoming Link Service to ask for 5 more items
             p = b"\x10" + lla.to_bytes (2, "little") + \
-                b"\x03\x00\x04\x00\x00\x05"
+                b"\x03\x00" + (3 + lsadj).to_bytes (2, "little") + b"\x00\x05"
             w = Received (owner = self.nsp, src = self.remnode,
                           packet = p, rts = False)
             self.node.addwork (w)
             # Not delivered to Session Control
             self.assertEqual (s.dispatch.call_count, 2)
+            # LS gets immediate ACK, but it is part of the data packet
+            # for Phase 4 (cross-subchannel ACK)
+            if nc.cphase < 4:
+                lsadj += 1
         # Verify all data was sent now
-        self.assertEqual (r.send.call_count, 4 + self.cdadj)
-        d1, d2 = r.send.call_args_list[-2:]
+        self.assertEqual (r.send.call_count, 5 + self.cdadj + lsadj + padj)
+        if self.services == b'\x05' and nc.cphase < 4:
+            d1, d2 = r.send.call_args_list[-3:-1]
+        else:
+            d1, d2 = r.send.call_args_list[-2:]
         args, kwargs = d1
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -288,7 +325,8 @@ class common_inbound (inbound_base):
         nc.send_data (b"hello world again")
         # If we have message flow control, this message is blocked
         if self.services == b'\x09':
-            self.assertEqual (r.send.call_count, 4 + self.cdadj)
+            # LS ACK was sent immediately
+            self.assertEqual (r.send.call_count, 5 + self.cdadj + lsadj + padj)
             # Incoming Link Service to ask for 4 more items
             p = b"\x10" + lla.to_bytes (2, "little") + \
                 b"\x03\x00\x04\x00\x00\x04"
@@ -297,9 +335,17 @@ class common_inbound (inbound_base):
             self.node.addwork (w)
             # Not delivered to Session Control
             self.assertEqual (s.dispatch.call_count, 2)
+            # LS gets immediate ACK, but it is part of the data packet
+            # for Phase 4 (cross-subchannel ACK)
+            if nc.cphase < 4:
+                lsadj += 1
         # Verify all data was sent now
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
-        args, kwargs = r.send.call_args
+        self.assertEqual (r.send.call_count, 6 + self.cdadj + lsadj + padj)
+        if self.services == b'\x09' and nc.cphase < 4:
+            # Data goes before LS ACK
+            args, kwargs = r.send.call_args_list[-2]
+        else:
+            args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
         self.assertEqual (dest, self.remnode)
@@ -335,7 +381,7 @@ class common_inbound (inbound_base):
         self.assertConns (0)
 
     def test_timers (self):
-        """Timeouts: inactivity, ack holdoff, packet timeout"""
+        """Timeouts: inactivity, data ack holdoff, packet timeout"""
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -352,9 +398,9 @@ class common_inbound (inbound_base):
         # Nothing in the queues
         self.assertEqual (len (nc.data.pending_ack), 0)
         self.assertEqual (len (nc.other.pending_ack), 0)
-        # Test ack holdoff, data subchannel
+        # Test ack holdoff (dly bit is set in segnum)
         d = b"\x60" + lla.to_bytes (2, "little") + \
-            b"\x03\x00\x01\x00data payload"
+            b"\x03\x00\x01\x10data payload"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
         self.node.addwork (w)
@@ -365,9 +411,12 @@ class common_inbound (inbound_base):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data payload")
-        self.assertTrue (nc.data.islinked ())
-        # Holdoff timer expiration should generate explicit ACK
-        DnTimeout (nc.data)
+        if nc.cphase == 4:
+            self.assertTrue (nc.data.islinked ())
+            # Holdoff timer expiration should generate explicit ACK
+            DnTimeout (nc.data)
+        else:
+            self.assertFalse (nc.data.islinked ())
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -387,10 +436,20 @@ class common_inbound (inbound_base):
         self.node.addwork (w)
         # Not delivered to Session Control
         self.assertEqual (s.dispatch.call_count, 2)
+        # LS gets immediate ACK
+        args, kwargs = r.send.call_args
+        ds, dest = args
+        self.assertIsInstance (ds, nsp.AckOther)
+        self.assertEqual (dest, self.remnode)
+        self.assertEqual (ds.srcaddr, lla)
+        self.assertEqual (ds.dstaddr, rla)
+        self.assertEqual (ds.acknum, nsp.AckNum (1))
+        self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)        
         # Send two data packets
         nc.send_data (b"packet")
         nc.send_data (b"packet2")
-        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 2)
         self.assertTrue (nc.data.pending_ack[0].sent)
         self.assertTrue (nc.data.pending_ack[0].islinked ())
@@ -401,7 +460,7 @@ class common_inbound (inbound_base):
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 1)
         # Check retransmit occurred
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -409,10 +468,7 @@ class common_inbound (inbound_base):
         self.assertEqual (ds.srcaddr, lla)
         self.assertEqual (ds.dstaddr, rla)
         self.assertFalse (hasattr (ds, "acknum"))
-        if nc.cphase == 4:
-            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
-        else:
-            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"packet")
         # Turn off flow
         if self.services == b'\x05':
@@ -426,9 +482,8 @@ class common_inbound (inbound_base):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
-        # Holdoff timer expiration should generate explicit ACK
-        DnTimeout (nc.other)
-        self.assertEqual (r.send.call_count, 6 + self.cdadj)
+        # LS message always gets immediate ACK
+        self.assertEqual (r.send.call_count, 7 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.AckOther)
@@ -444,7 +499,7 @@ class common_inbound (inbound_base):
         # Skip this test because our simulated timeout doesn't unlink
         # the timer, the way a real timeout does.
         #self.assertFalse (nc.data.pending_ack[1].islinked ())
-        self.assertEqual (r.send.call_count, 6 + self.cdadj)
+        self.assertEqual (r.send.call_count, 7 + self.cdadj)
         # Turn off flow
         if self.services == b'\x05':
             # Send segment count delta +1
@@ -457,9 +512,14 @@ class common_inbound (inbound_base):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
-        # Second packet resend should have happened now
-        self.assertEqual (r.send.call_count, 7 + self.cdadj)
-        args, kwargs = r.send.call_args
+        # LS ACK (if not Phase 4) and second packet resend should have
+        # happened now
+        if nc.cphase == 4:
+            lsadj = 0
+        else:
+            lsadj = 1
+        self.assertEqual (r.send.call_count, 8 + self.cdadj + lsadj)
+        args, kwargs = r.send.call_args_list[-1 - lsadj]
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
         self.assertEqual (dest, self.remnode)
@@ -474,20 +534,14 @@ class common_inbound (inbound_base):
         # Test inactivity timer, if applicable
         if nc.cphase > 2:
             DnTimeout (nc)
-            self.assertEqual (r.send.call_count, 8 + self.cdadj)
+            self.assertEqual (r.send.call_count, 9 + self.cdadj + lsadj)
             args, kwargs = r.send.call_args
             ds, dest = args
             self.assertIsInstance (ds, nsp.LinkSvcMsg)
             self.assertEqual (dest, self.remnode)
             self.assertEqual (ds.srcaddr, lla)
             self.assertEqual (ds.dstaddr, rla)
-            if nc.cphase == 3:
-                # For phase 3, the cross-channel acknum above (in the
-                # retransmission of the second packet) is not done, so
-                # we get the ack here in-subchannel.
-                self.assertEqual (ds.acknum, nsp.AckNum (3))
-            else:
-                self.assertFalse (hasattr (ds, "acknum"))
+            self.assertFalse (hasattr (ds, "acknum"))
             self.assertFalse (hasattr (ds, "acknum2"))
             self.assertEqual (ds.fcmod, 0)
             self.assertEqual (ds.fcval_int, 0)
@@ -496,7 +550,7 @@ class common_inbound (inbound_base):
     def test_retransmit_limit (self):
         """Test hitting retransmit limit"""
         if self.phase == 2:
-            return    # Does not apply, treat as pass
+            raise unittest.SkipTest ("No retransmit in Phase II")
         nc = self.nspconn
         lla = nc.srcaddr
         rla = 3
@@ -519,9 +573,11 @@ class common_inbound (inbound_base):
         self.node.addwork (w)
         # Not delivered to Session Control
         self.assertEqual (s.dispatch.call_count, 1)
+        # LS ACK is acknowledged immediately
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
         # Send a packet
         nc.send_data (b"packet")
-        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
         self.assertEqual (len (nc.data.pending_ack), 1)
         self.assertTrue (nc.data.pending_ack[0].sent)
         self.assertTrue (nc.data.pending_ack[0].islinked ())
@@ -530,7 +586,7 @@ class common_inbound (inbound_base):
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 1)
         # Check retransmit occurred
-        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -538,10 +594,7 @@ class common_inbound (inbound_base):
         self.assertEqual (ds.srcaddr, lla)
         self.assertEqual (ds.dstaddr, rla)
         self.assertFalse (hasattr (ds, "acknum"))
-        if nc.cphase == 4:
-            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
-        else:
-            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"packet")
         # Check other state
         self.assertTrue (nc.data.pending_ack[0].islinked ())
@@ -552,7 +605,7 @@ class common_inbound (inbound_base):
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 2)
         # Check retransmit occurred
-        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -560,10 +613,7 @@ class common_inbound (inbound_base):
         self.assertEqual (ds.srcaddr, lla)
         self.assertEqual (ds.dstaddr, rla)
         self.assertFalse (hasattr (ds, "acknum"))
-        if nc.cphase == 4:
-            self.assertEqual (ds.acknum2, nsp.AckNum (1, nsp.AckNum.XACK))
-        else:
-            self.assertFalse (hasattr (ds, "acknum2"))
+        self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"packet")
         # Check other state
         self.assertTrue (nc.data.pending_ack[0].islinked ())
@@ -574,7 +624,7 @@ class common_inbound (inbound_base):
         # Check counters
         self.assertEqual (nc.destnode.counters.timeout, 3)
         # Check retransmit did not occur
-        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
         # Check other state
         self.assertEqual (nc.state, nc.closed)
         self.assertConns (0)
@@ -618,6 +668,8 @@ class test_inbound_noflow_phase4 (common_inbound):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
+        # Verify Int ACK was sent
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
         # Check counters
         self.assertEqual (nc.destnode.counters.msg_rcv, 1)
         self.assertEqual (nc.destnode.counters.byt_rcv, 7)
@@ -639,10 +691,12 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.node.addwork (w)
         # Not delivered to Session Control
         self.assertEqual (s.dispatch.call_count, 2)
+        # Verify LS ACK was sent
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         # Send a second interrupt
         nc.interrupt (b"interrupt 2")
         # Verify data was sent
-        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (r.send.call_count, 5 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -650,13 +704,13 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (ds.srcaddr, lla)
         self.assertEqual (ds.dstaddr, rla)
         self.assertTrue (ds.int)
-        self.assertEqual (ds.acknum, nsp.AckNum (2))
+        self.assertFalse (hasattr (ds, "acknum"))
         self.assertFalse (hasattr (ds, "acknum2"))
         self.assertEqual (ds.payload, b"interrupt 2")
         # Send a third interrupt
         nc.interrupt (b"interrupt 3")
         # Verify data was sent
-        self.assertEqual (r.send.call_count, 4 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -792,15 +846,15 @@ class test_inbound_noflow_phase4 (common_inbound):
         r = self.node.routing
         s = self.node.session
         self.accept ()
-        # Build four data packets
+        # Build four data packets, all have DLY set
         d1 = b"\x60" + lla.to_bytes (2, "little") + \
-             b"\x03\x00\x01\x00data 1"
+             b"\x03\x00\x01\x10data 1"
         d2 = b"\x60" + lla.to_bytes (2, "little") + \
-             b"\x03\x00\x02\x00data 2"
+             b"\x03\x00\x02\x10data 2"
         d3 = b"\x60" + lla.to_bytes (2, "little") + \
-             b"\x03\x00\x03\x00data 3"
+             b"\x03\x00\x03\x10data 3"
         d4 = b"\x60" + lla.to_bytes (2, "little") + \
-             b"\x03\x00\x04\x00data 4"
+             b"\x03\x00\x04\x10data 4"
         # Deliver packets 2 and 4 (both out of order)
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d2, rts = False)
@@ -833,8 +887,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (pkt.payload, b"data 2")
         # One packet left in OOO cache
         self.assertEqual (len (nc.data.ooo), 1)
-        # Force ACK
-        DnTimeout (nc.data)
+        # Force ACK if phase 4
+        if nc.cphase == 4:
+            DnTimeout (nc.data)
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -864,8 +919,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (pkt.payload, b"data 4")
         # OOO cache now empty
         self.assertEqual (len (nc.data.ooo), 0)
-        # Force ACK
-        DnTimeout (nc.data)
+        # Force ACK if phase 4
+        if nc.cphase == 4:
+            DnTimeout (nc.data)
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -909,8 +965,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (s.dispatch.call_count, 1)
         # OOO cache is now empty
         self.assertEqual (len (nc.data.ooo), 0)
-        # Force ACK
-        DnTimeout (nc.other)
+        # Int/LS always gets immediate ACK
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -1019,10 +1074,12 @@ class test_inbound_noflow_phase4 (common_inbound):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
+        # LS produces immediate ACK
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         nc.interrupt (b"int 1")
         nc.interrupt (b"int 2")
         # Both should have been sent
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -1040,7 +1097,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = ack, rts = False)
         self.node.addwork (w)
         # No retransmits, but queue length is now 1
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 1)
         # Ack the second one
         ack = b"\x14" + lla.to_bytes (2, "little") + b"\x03\x00\x02\x80"
@@ -1048,13 +1105,13 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = ack, rts = False)
         self.node.addwork (w)
         # No retransmits, queue now empty
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 0)
         # Send two more data packets
         nc.send_data (b"packet 3")
         nc.send_data (b"packet 4")
         # Both should have been sent
-        self.assertEqual (r.send.call_count, 7 + self.cdadj)
+        self.assertEqual (r.send.call_count, 8 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -1068,7 +1125,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (len (nc.data.pending_ack), 2)
         # Time out the first packet
         DnTimeout (nc.data.pending_ack[0])
-        self.assertEqual (r.send.call_count, 8 + self.cdadj)
+        self.assertEqual (r.send.call_count, 9 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.DataSeg)
@@ -1090,9 +1147,8 @@ class test_inbound_noflow_phase4 (common_inbound):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
-        # Holdoff timer expiration should generate explicit ACK
-        DnTimeout (nc.other)
-        self.assertEqual (r.send.call_count, 9 + self.cdadj)
+        # LS gets immediate ACK
+        self.assertEqual (r.send.call_count, 10 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.AckOther)
@@ -1105,7 +1161,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         # Time out the second packet, should not send
         DnTimeout (nc.data.pending_ack[1])
         self.assertFalse (nc.data.pending_ack[1].sent)
-        self.assertEqual (r.send.call_count, 9 + self.cdadj)
+        self.assertEqual (r.send.call_count, 10 + self.cdadj)
         # Ack both.
         ack = b"\x04" + lla.to_bytes (2, "little") + b"\x03\x00\x04\x80"
         w = Received (owner = self.nsp, src = self.remnode,
@@ -1165,8 +1221,9 @@ class test_inbound_noflow_phase4 (common_inbound):
         r = self.node.routing
         s = self.node.session
         self.accept ()
+        # DLY bit set in SEGNUM
         d1 = b"\x60" + lla.to_bytes (2, "little") + \
-             b"\x03\x00\x01\x00data 1"
+             b"\x03\x00\x01\x10data 1"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d1, rts = False)
         self.node.addwork (w)
@@ -1177,9 +1234,15 @@ class test_inbound_noflow_phase4 (common_inbound):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"data 1")
-        # ACK is pending
-        self.assertTrue (nc.data.islinked ())
-        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        # ACK is pending if Phase 4
+        if nc.cphase == 4:
+            self.assertTrue (nc.data.islinked ())
+            self.assertEqual (r.send.call_count, 1 + self.cdadj)
+            padj = 0
+        else:
+            self.assertFalse (nc.data.islinked ())
+            self.assertEqual (r.send.call_count, 2 + self.cdadj)
+            padj = 1
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = d1, rts = False)
@@ -1188,7 +1251,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (s.dispatch.call_count, 2)
         # Forces explicit ack
         self.assertFalse (nc.data.islinked ())
-        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        self.assertEqual (r.send.call_count, 2 + self.cdadj + padj)
         args, kwargs = r.send.call_args
         ack, dest = args
         self.assertIsInstance (ack, nsp.AckData)
@@ -1217,18 +1280,18 @@ class test_inbound_noflow_phase4 (common_inbound):
         pkt = w.packet
         self.assertIsInstance (pkt, nsp.IntMsg)
         self.assertEqual (pkt.payload, b"int 1")
-        # ACK is pending
-        self.assertTrue (nc.other.islinked ())
-        self.assertEqual (r.send.call_count, 1 + self.cdadj)
+        # Int/LS always gets immediate ACK
+        self.assertFalse (nc.other.islinked ())
+        self.assertEqual (r.send.call_count, 2 + self.cdadj)
         # Deliver it again
         w2 = Received (owner = self.nsp, src = self.remnode,
                        packet = d1, rts = False)
         self.node.addwork (w2)
         # Not delivered to SC
         self.assertEqual (s.dispatch.call_count, 2)
-        # Forces explicit ack
+        # Again an ACK
         self.assertFalse (nc.other.islinked ())
-        self.assertEqual (r.send.call_count, 2 + self.cdadj)
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
         ack, dest = args
         self.assertIsInstance (ack, nsp.AckOther)
@@ -1365,10 +1428,12 @@ class test_inbound_noflow_phase4 (common_inbound):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
+        # That produces an immediate ACK
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         nc.interrupt (b"packet 1")
         nc.interrupt (b"packet 2")
         # Both should have been sent
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         args, kwargs = r.send.call_args
         ds, dest = args
         self.assertIsInstance (ds, nsp.IntMsg)
@@ -1386,7 +1451,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = ack, rts = False)
         self.node.addwork (w)
         # No retransmits, queue unchanged
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
         # Check log
         self.assertTrace ("Ignoring ack")
@@ -1396,7 +1461,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = ack, rts = False)
         self.node.addwork (w)
         # No retransmits, queue unchanged
-        self.assertEqual (r.send.call_count, 5 + self.cdadj)
+        self.assertEqual (r.send.call_count, 6 + self.cdadj)
         self.assertEqual (len (nc.other.pending_ack), 2)
         # Check log
         self.assertTrace ("Ignoring ack")
@@ -1655,12 +1720,16 @@ class outbound_base (ntest):
             nc.send_data (b"frob")
         with self.assertRaises (nsp.WrongState):
             nc.interrupt (b"frob")
-        # Deliver an inbound data segment
+        # Deliver an inbound data segment.  It says delayed ack
+        # permitted, but we will ack immediately anyway due to the
+        # pending shutdown.
         d = b"\x60" + lla.to_bytes (2, "little") + \
-            b"\x03\x00\x01\x00inbound data"
+            b"\x03\x00\x01\x10inbound data"
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = d, rts = False)
         self.node.addwork (w)
+        # Verify the ACK was sent
+        self.assertEqual (r.send.call_count, 3 + self.cdadj)
         # Check data to Session Control
         self.assertEqual (s.dispatch.call_count, 2)
         args, kwargs = s.dispatch.call_args
@@ -1676,7 +1745,7 @@ class outbound_base (ntest):
                       packet = ack, rts = False)
         self.node.addwork (w)
         # That should trigger the disconnect
-        self.assertEqual (r.send.call_count, 3 + self.cdadj)
+        self.assertEqual (r.send.call_count, 4 + self.cdadj)
         args, kwargs = r.send.call_args
         d, dest = args
         self.assertIsInstance (d, nsp.DiscInit)
@@ -2209,7 +2278,8 @@ class test_connself_phase4 (ntest):
         self.assertIsInstance (pkt, nsp.DataSeg)
         self.assertEqual (pkt.payload, b"reply")
         # Force the pending ACK
-        DnTimeout (nc2.data)
+        if nc2.cphase == 4:
+            DnTimeout (nc2.data)
         # Close the outbound connection
         nc1.disconnect (payload = b"bye")
         # That should produce a session control message on the other one

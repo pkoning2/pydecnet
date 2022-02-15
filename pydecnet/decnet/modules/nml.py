@@ -102,7 +102,8 @@ class Application (Element):
                 resp.retcode = -1   # Unrecognized function
                 self.sendreply (resp)
                 return
-            if isinstance (req, nicepackets.NiceTestHeader):
+            if isinstance (req, nicepackets.NiceTestHeader) \
+               and not self.phase2:
                 return self.loop_request (req)
             elif not isinstance (req, (nicepackets.NiceReadInfoHdr,
                                        nicepackets.P2NiceReadInfoHdr)):
@@ -123,8 +124,31 @@ class Application (Element):
                     resp.retcode = -1   # Unrecognized function
                     self.sendreply (resp)
                     return
+            # At this point, we have a read info message (phase 2 or
+            # phase 3/4).
             resp = 0
             detail = 0xffff
+            # Check protocol
+            if isinstance (req, nicepackets.P2NiceReadInfoHdr) != self.phase2:
+                # Phase 2 but new read info, or old read info but not phase 2
+                if isinstance (req, nicepackets.P2NiceReadInfoHdr):
+                    # Unexpected request was Phase 2 format, reply
+                    # that way (rather than replying using the
+                    # negotiated protocol level, since clearly
+                    # something was lost in the exchange).  A case
+                    # where this can happen is when sending NICE
+                    # through PMR, which (in the standard version)
+                    # does not return the responsing side accept data
+                    # where NICE keeps the protocol version number.
+                    # So NCP would mistake the far end for a Phase 2
+                    # NICE.
+                    resp = nicepackets.P2NiceReply1 ()
+                else:
+                    resp = nicepackets.NiceReply ()
+                    resp.detail = 0xffff
+                resp.retcode = -1    # Unrecognized function
+                self.sendreply (resp)
+                return
             if isinstance (req, nicepackets.NiceReadInfoHdr) \
                and req.permanent:
                 logging.trace ("Read permanent data not supported")

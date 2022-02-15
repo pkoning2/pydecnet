@@ -228,7 +228,7 @@ class TestRouting (Logchecker):
         self.assertEqual (c.maxarea, 63)
         self.assertEqual (c.t1, 600)
         self.assertEqual (c.bct1, 10)
-        self.assertFalse (c.no_intercept)
+        self.assertIsNone (c.intercept)
         
     def test_allargs (self):
         c = self.ctest ("routing 1.2 --type l1router --maxhops 9 " \
@@ -246,7 +246,7 @@ class TestRouting (Logchecker):
         self.assertEqual (c.maxarea, 43)
         self.assertEqual (c.t1, 124)
         self.assertEqual (c.bct1, 17)
-        self.assertTrue (c.no_intercept)
+        self.assertEqual (c.intercept, 0)
 
 class TestRouting_err (Logchecker):
     loglevel = logging.CRITICAL

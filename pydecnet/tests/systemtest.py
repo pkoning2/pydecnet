@@ -12,15 +12,21 @@ import os
 import re
 import tempfile
 import asyncio
-import aiohttp
 import time
 
+try:
+    # For the HTTP page scan subtests
+    import aiohttp
+except ImportError:
+    aiohttp = None
+    
 from tests.dntest import *
 from decnet import async_connectors
 
 # Test parameters
 QD = 4
 RUNTIME = 60
+DCOUNT = 20
 STARTWAIT = 20
 TIMELIMIT = RUNTIME * 3
 
@@ -132,7 +138,7 @@ class NodeConf (Conf):
         a, i = addr.split (".")
         self.area = a
         t = None
-        self.onlyarea = None
+        self.onlyarea = self.myarea = None
         if n1 == "a":
             t = "l2router"
         elif n1 == "r":
@@ -145,7 +151,7 @@ class NodeConf (Conf):
             addr = i
         elif n1 == "w":
             t = "phase2"
-            self.onlyarea = a
+            self.myarea = a
             addr = i
         else:
             raise ValueError
@@ -158,26 +164,49 @@ class NodeConf (Conf):
     def adjacent (self, name):
         return name in self.neighbors
 
+    def hasint (self):
+        for n in self.neighbors:
+            if n[0] != "w":
+                return True
+        return False
+    
     def reachable (self, n):
         if self.name[0] in "are" and n.name[0] in "are":
+            # Both Phase 4, full connectivity
             return True
-        if self.ntype == "phase2" or n.ntype == "phase2":
-            # Either is phase 2, neighbor only
+        if self.name[0] == "t" or n.name[0] == "t":
+            # Either is Phase 3, must be same area
+            return self.area == n.area
+        if self.ntype == "phase2" and n.ntype == "phase2":
+            # Both are phase 2, neighbor only
             return self.adjacent (n.name)
-        # Either is Phase 3
-        return self.area == n.area
+        # One is phase 2 but other is phase 4, see if phase 2 node has
+        # a phase 4 neighbor (for intercept service)
+        if self.ntype == "phase2":
+            # From phase 2 to not 2
+            return self.hasint ()
+        return n.hasint ()
     
     def writeconfig (self):
-        hdr = [ "routing {} --type {} --maxnodes 200 --t1 5 --bct1 5".format (self.addr, self.ntype) ]
+        if self.ntype == "phase2":
+            int = "--request-intercept"
+        else:
+            int = ""
+        hdr = [ "routing {} --type {} --maxnodes 200 --t1 5 --bct1 5 {}".format (self.addr, self.ntype, int) ]
         hdr.append ("nsp --qmax {}".format (QD))
         #hdr.append ("logging console")
-        if self.onlyarea:
-            for nc in nodes.splitlines ():
-                na, nr = nc.split (".", 1)
+        for nc in nodes.splitlines ():
+            na, nr = nc.split (".", 1)
+            if self.onlyarea:
                 if na == self.onlyarea:
                     hdr.append ("node {}".format (nr))
-        else:
-            hdr.append ("node @nodes.conf")
+            elif self.myarea:
+                if na == self.myarea:
+                    hdr.append ("node {}".format (nr))
+                else:
+                    hdr.append ("node {}.{}".format (na, nr))
+            else:
+                hdr.append ("node {}.{}".format (na, nr))
         super ().writeconfig (*hdr)
 
 class BridgeConf (Conf):
@@ -199,12 +228,8 @@ def tnode (name):
     
 def setUpModule ():
     global tempdir, tempdirobj, configs, portnum, nodeconf, cfns
-    #tempdirobj = tempfile.TemporaryDirectory ()
-    #tempdir = tempdirobj.name
-    tempdir = "temp"
-    nodeconf = os.path.join (tempdir, "nodes.conf")
-    with open (nodeconf, "wt") as f:
-        f.write (nodes)
+    tempdirobj = tempfile.TemporaryDirectory ()
+    tempdir = tempdirobj.name
     httpconf = os.path.join (tempdir, "http.conf")
     with open (httpconf, "wt") as f:
         f.write (http)
@@ -259,13 +284,18 @@ class TestSystem (ADnTest):
                           isinstance (n1, NodeConf) and
                           isinstance (n2, NodeConf) and
                           n1.reachable (n2))
+        self.totalmsg = 0
         try:
             # We don't want to call pydecnet because that might point
             # to a different version and/or use a different Python
             # 3.x.  So invoke the current Python 3.x and have it call
             # decnet.main directly, which will run the startup
             # sequence with the rest of the command line arguments.
-            args = [ "-m", "decnet.main", "-e", "INFO" ]
+            loglevel = os.getenv ("LOGLEVEL") or "INFO"
+            args = [ "-m", "decnet.main", "-e", loglevel ]
+            logfile = os.getenv ("LOGFILE")
+            if logfile:
+                args += [ "-L", logfile ]
             self.sut = await asyncio.create_subprocess_exec \
                              (sys.executable, *(args + cfns),
                               stdin = asyncio.subprocess.DEVNULL)
@@ -287,7 +317,7 @@ class TestSystem (ADnTest):
             tests.append (asyncio.create_task (self.httpwalk ()))
             # Test 2: Run 12 concurrent data streams, with staggered
             # start and stop.
-            for i, np in enumerate (random.sample (nodepairs, 20)):
+            for i, np in enumerate (random.sample (nodepairs, DCOUNT)):
                 c = conns[i % len (conns)]
                 n1, n2 = np
                 tests.append (asyncio.create_task (self.dtest (c, n1, n2, i)))
@@ -302,6 +332,8 @@ class TestSystem (ADnTest):
                 t.result ()
             # Do a few more (quick) tests at the end
             await self.httpwalk ()
+            # Print some stats
+            print ("{} total messages, {:>.0f} messages/second".format (self.totalmsg, self.totalmsg / RUNTIME))
             # All done, close the connectors
             for c in conns:
                 await c.close ()
@@ -321,36 +353,56 @@ class TestSystem (ADnTest):
     async def dtest (self, conn, n1, n2, delay):
         await asyncio.sleep (delay)
         endtime = time.time () + RUNTIME
-        data = bytes (("test {} {} ".format (n1, n2)) * 10, "latin1")
-        print ("test between", n1, "and", n2)
-        # Bind the receiving end, use sending side to make object name
-        rcv = "rcv_{}".format (n1)
-        bound = await conn.bind (0, rcv, system = n2)
+        # Leading 0x00 byte is the MIRROR "loop request" message code
+        data = b"\x00" + bytes (("test {} {} ".format (n1, n2)) * 10, "latin1")
+        if delay & 1:
+            print ("send test from", n1, "to", n2)
+            # Bind the receiving end, use sending side to make object name
+            rcv = "rcv_{}".format (n1)
+            bound = await conn.bind (0, rcv, system = n2)
+        else:
+            print ("echo test from", n1, "to", n2)
+            rcv = 25    # MIRROR
         sender, x = await conn.connect (dest = n2, remuser = rcv, system = n1)
-        # Get the connect from the sender
-        listener = await bound.listen ()
-        listener.accept ()
+        if not sender:
+            print ("Failed to connect from", n1, "to", n2, "obj", rcv)
+            return
+        if delay & 1:
+            # Get the connect from the sender
+            listener = await bound.listen ()
+            listener.accept ()
+            receiver = listener
+        else:
+            receiver = sender
         # Get the accept from the receiver
         ac = await sender.recv ()
+        if sender.closed:
+            print ("Connect from", n1, "to", n2, "rejected:", ac, ac.reason)
+            return
         # fill the pipe
         for i in range (QD):
             sender.data (data)
         count = 0
         while time.time () < endtime:
-            await listener.recv ()
+            await receiver.recv ()
             sender.data (data)
             count += 1
+        # Time's up, drain the pipe
+        for i in range (QD):
+            await asyncio.wait_for (receiver.recv (), 1)
         sender.disconnect ()
-        while True:
-            try:
-                msg = await listener.recv ()
-                count += 1
-            except async_connectors.ConnClosed:
-                break
-        bound.close ()
-        print (n1, "to", n2, "sent", count, "messages")
+        if delay & 1:
+            bound.close ()
+            what = "sent"
+        else:
+            what = "echoed"
+        self.totalmsg += count
+        print (n1, "to", n2, what, count, "messages")
         
     async def httpwalk (self):
+        if not aiohttp:
+            print ("HTTP check skipped")
+            return
         walked = set ()
         todo = { "/" }
         n = 0

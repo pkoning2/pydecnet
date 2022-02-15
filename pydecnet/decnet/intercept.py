@@ -24,23 +24,26 @@ node, when interacting with Phase II neighbors:
 request nor offer intercept (routing) services.  Adjacent Phase II
 nodes can only communicate with this node.
 
-2. Intercept, this node is a Phase II router (with multiple circuits).
+2. End-node intercept.  This case applies to Phase II nodes by
+default, and to Phase III or IV endnode type.  These will request
+intercept if this node or the neighbor is Phase II; if offered, route
+headers will be used to attempt to reach non-adjacent nodes.
+
+3. Full intercept, this node is a Phase II router (with multiple
+circuits).  This can be requested for Phase II nodes by configuration,
+provided the node has multiple circuits, but it is not the default.
 The node offers intercept service; if requested, it will process route
 headers and forward packets accordingly.  As specified in the
 architecture specification, intercept tracks connections mainly so it
 can handle packets during the life of the connection that don't have
 route headers, since these are optional for most packet types.
 
-3. Intercept, this node is a Phase III or IF router.  Similar to Phase
+4. Intercept, this node is a Phase III or IV router.  Similar to Phase
 II full intercept, but since Phase III/IV networks can drop packets,
 intercept will save a copy of data packets (anything that is
 acknowledged) and will retransmit these if needed (until acknowledged
-or timeout).
-
-4. End-node intercept.  This case applies to Phase II nodes with one
-circuit, and to Phase III or IV endnode type.  These will request
-intercept if the neighbor is Phase II; if offered (case 2 above),
-route headers will be used to attempt to reach non-adjacent nodes.
+or timeout).  (TODO: this packet tracking and timeout handling is not
+yet implemented.)
 """
 
 from .common import *
@@ -49,9 +52,10 @@ from .nsp_packets import *
 from .routing_packets import RouteHdr, ShortData, LongData
 
 class BaseIntercept (Element):
-    def __init__ (self, parent, config):
+    def __init__ (self, parent):
         super ().__init__ (parent)
-        # TODO: anything else?
+        self.nodename = parent.routing.name
+        self.nodeid = parent.routing.nodeid
         
     def start (self):
         # Node startup
@@ -70,15 +74,19 @@ class BaseIntercept (Element):
     def adjdown (self, adj):
         # Called by routing when a circuit to a Phase II node goes down.
         pass
+
+    def mapsrc (self, adj, pkt):
+        # Map the received source node to a node ID, if valid
+        if not pkt.srcnode or pkt.srcnode == adj.rnodename:
+            return adj.rnodeid
+        return None
+
+    def mapdst (self, pkt):
+        # Map the received destination node to a node ID, if valid
+        if not pkt.dstnode or pkt.dstnode == self.nodename:
+            return self.nodeid
+        return None
     
-    def intfun (self):
-        # Node Init "functions" field for "intercept offered"
-        return 7
-
-    def intreq (self):
-        # Node Init "requests" field for "no intercept requested"
-        return 0
-
     def recv (self, pkt, adj):
         """Handle arriving packet from a Phase II node.  The return
         value is a pair of True and Phase IV style packet, with a
@@ -88,28 +96,30 @@ class BaseIntercept (Element):
         node, with a Phase II style routing header on it.  If the packet
         can't be handled, return a pair of False and None to say
         "discard the packet".
-         
-        The base case handled here allows only terminating packets.
         """
         if isinstance (pkt, RouteHdr):
-            # It comes with a route header.  Odd but technically legal.
-            # It must come from the neighbor (that's true for all
-            # intercept cases) and be addressed to this node.  Sometimes
-            # we see empty names, fill in the default for those.
-            if not pkt.srcnode:
-                pkt.srcnode = adj.rnodename
-            if not pkt.dstnode:
-                pkt.dstnode = self.nodename
-            if pkt.dstnode != self.nodename or pkt.srcnode != adj.rnodename:
-                # Generate an "unreachable" reply
-                logging.trace ("intercept {}: unexpected route header addresses {}",
+            # It comes with a route header.  Legal though unusual for
+            # the no-interecept case, but normal for the "requested
+            # intercept" (endnode intercept) case.  Verify that the
+            # source is the neighbor, and destination is this node.
+            # Sometimes we see empty names, fill in the default for
+            # those.
+            srcid = self.mapsrc (adj, pkt)
+            dstid = self.mapdst (pkt)
+            if not srcid or not dstid:
+                # Either source or dest is not acceptable. generate an
+                # "unreachable" reply
+                logging.debug ("intercept {}: unexpected route header addresses {}",
                                adj, pkt)
                 return False, self.makedc (pkt, adj)
-            pkt = pkt.payload
-        return True, ShortData (dstnode = self.nodeid,
-                                srcnode = adj.rnodeid,
+        else:
+            # No route header, so it's from neighbor to us.
+            srcid = adj.rnodeid
+            dstid = self.nodeid
+        logging.trace ("intercept {}: recv from {} to {}: {}", adj, adj.rnodeid, self.nodeid, pkt.payload)
+        return True, ShortData (dstnode = dstid, srcnode = srcid,
                                 rqr = 1, rts = 0, visit = 0,
-                                payload = pkt)
+                                payload = pkt.payload)
 
     def send (self, pkt, adj):
         """Handle sending a packet to a Phase II node.  The supplied
@@ -182,7 +192,7 @@ class BaseIntercept (Element):
             t = msgmap[msgflg]
         except KeyError:
             # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
-            logging.trace ("Ill formatted NSP packet received from {}: {}",
+            logging.debug ("Ill formatted NSP packet received from {}: {}",
                            src, buf)
             # FIXME: this needs to log the message in the right format
             self.node.logevent (events.inv_msg, message = buf,
@@ -191,7 +201,7 @@ class BaseIntercept (Element):
         try:
             buf = t (buf)
         except Exception:
-            logging.trace ("Ill formatted NSP packet received from {}: {}",
+            logging.debug ("Ill formatted NSP packet received from {}: {}",
                            src, buf)
             # FIXME: this needs to log the message in the right format
             self.node.logevent (events.inv_msg, message = buf,
@@ -212,57 +222,25 @@ class BaseIntercept (Element):
                 ret = RouteHdr (dstnode = src, srcnode = dst, payload = ret)
         return ret
         
-class P2Intercept (BaseIntercept):
-    """Full intercept for Phase III and IV routers.
+class FullIntercept (BaseIntercept):
+    """Full intercept base class
     """
-    def __init__ (self, parent, config):
-        super ().__init__ (parent, config)
-        logging.debug ("Initialized full Phase III/IV intercept")
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        # Other initialization TBD
         
-    def recv (self, pkt, adj):
-        """Handle arriving packet from a Phase II node.  The return
-        value is a pair of True and Phase IV style packet, with a
-        ShortData header, if the packet can be sent onwards.  If it is
-        not deliverable, return value is a pair of False and a
-        Disconnect Confirm message to be reflected back to the sending
-        node, with a Phase II style routing header on it.  If the packet
-        can't be handled, return a pair of False and None to say
-        "discard the packet".
-         
-        The base case handled here allows only terminating packets.
-        """
-        if not adj.rint:
-            # Neighbor didn't ask for intercept service, handle it in
-            # the base class.
-            return super ().recv (pkt, adj)
-        if isinstance (pkt, RouteHdr):
-            # It comes with a route header.  It must come from the
-            # neighbor.  Sometimes we see empty names, fill in the
-            # default for those.
-            if not pkt.srcnode:
-                pkt.srcnode = adj.rnodename
-            if not pkt.dstnode:
-                pkt.dstnode = self.nodename
-            if pkt.srcnode != adj.rnodename:
-                # Generate an "unreachable" reply
-                logging.trace ("intercept {}: unexpected route header fields {}",
-                               adj, pkt)
-                return False, self.makedc (pkt, adj)
-            try:
-                dst =  self.nodeinfo_byname[pkt.dstnode].get_dest ()
-            except KeyError:
-                # Unknown destination node nanme
-                logging.trace ("intercept {}: unknown destination node {}",
-                               adj, pkt.dstnode)
-                return False, self.makedc (pkt, adj)                
-            pkt = pkt.payload
-        else:
-            dst = self.nodeid
-        return True, ShortData (dstnode = dst,
-                                srcnode = adj.rnodeid,
-                                rqr = 1, rts = 0, visit = 1,
-                                payload = pkt)
-
+    def mapdst (self, pkt):
+        # Map the received destination node to a node ID, if valid
+        if not pkt.dstnode:
+            return self.nodeid
+        try:
+            return self.node.nodeinfo_byname[pkt.dstnode].get_dest ()
+        except KeyError:
+            # Unknown destination node nanme
+            logging.debug ("intercept {}: unknown destination node {}",
+                           self.owner, pkt.dstnode)
+        return None
+    
     def send (self, pkt, adj):
         """Handle sending a packet to a Phase II node.  The supplied
         packet has a phase III or IV header (ShortData or LongData).
@@ -283,22 +261,81 @@ class P2Intercept (BaseIntercept):
             return False, pkt
         if pkt.srcnode != self.nodeid:
             # It didn't come from this node, so supply a routing header.
-            # But first check if the neighbor understands those.
-            if adj.rint:
-                src = self.nodeinfo_byid[pkt.srcnode].nodename
-                dst = self.nodeinfo_byid[pkt.dstnode].nodename
-                pkt = RouteHdr (srcnode = src, dstnode = dst,
-                                payload = pkt.payload)
-            else:
-                # Neighbor didn't ask for intercept, so unreachable
-                return False, pkt
+            src = self.node.nodeinfo_byid[pkt.srcnode].nodename
+            dst = self.node.nodeinfo_byid[pkt.dstnode].nodename
+            pkt = RouteHdr (srcnode = src, dstnode = dst,
+                            payload = pkt.payload)
         else:
             # Send without a routing header
             pkt = pkt.payload
         return True, pkt
 
-class P4Intercept (P2Intercept):
-    pass
+class P4Intercept (FullIntercept):
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        logging.debug ("Initialized full Phase III/IV intercept for {}", parent)
+
+    # TODO: more stuff needed for the Phase III/IV case
+    
+class P2Intercept (FullIntercept):
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        logging.debug ("Initialized full Phase II intercept for {}", parent)
+
+class EndnodeIntercept (BaseIntercept):
+    """Intercept requestor handling.
+
+    This is used by default on Phase II nodes, and unconditionally for
+    Phase III and IV endnodes.  The node will then request but not offer
+    intercept services.  If this is a Phase II node, or the neighbor is
+    Phase II, and the neighbor offers intercept services ("full
+    intercept") we will use route headers to talk to non-neighbor
+    destinations.
+    """
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        logging.debug ("Initialized intercept requestor for {}", parent)
+
+    def mapsrc (self, adj, pkt):
+        # Map the received source node to a node ID, if valid
+        if not pkt.srcnode:
+            return adj.rnodeid
+        try:
+            return self.node.nodeinfo_byname[pkt.srcnode].get_dest ()
+        except KeyError:
+            # Unknown destination node nanme
+            logging.debug ("intercept {}: unknown source node {}",
+                           adj, pkt.srcnode)
+        return None
+    
+    def send (self, pkt, adj):
+        """Handle sending a packet to a Phase II node.  The supplied
+        packet has a phase III or IV header (ShortData or LongData).
+        Return a pair of True and a Phase II style packet if the packet
+        can be delivered, or False and the original packet if it cannot
+        (in which case it will be handled as an unreachable
+        destination).
+
+        If it can't be sent, return True and None.
+        """
+        # If it's a return to sender packet, convert it to a disconnect
+        # confirm with reason code "destination unreachable".
+        if pkt.rts:
+            pkt = self.makedc (pkt, adj)
+            return True, pkt
+        # Can't send it unless it's from here
+        if pkt.srcnode != self.nodeid:
+            return False, pkt
+        if pkt.dstnode != adj.id:
+            # It isn't going to the neighbor, so supply a route header
+            src = self.node.nodeinfo_byid[pkt.srcnode].nodename
+            dst = self.node.nodeinfo_byid[pkt.dstnode].nodename
+            pkt = RouteHdr (srcnode = src, dstnode = dst,
+                            payload = pkt.payload)
+        else:
+            # Send without a routing header
+            pkt = pkt.payload
+        return True, pkt
 
 class NoIntercept (BaseIntercept):
     """No-intercept handling.
@@ -308,17 +345,54 @@ class NoIntercept (BaseIntercept):
     connected to a Phase II neighbor, it will not use route headers and
     only be able to connect to that neighbor.
     """
-    def __init__ (self, parent, config):
-        super ().__init__ (parent, config)
-        logging.debug ("Initialized no-intercept")
-        
-    def intfun (self):
-        return 0
+    def __init__ (self, parent):
+        super ().__init__ (parent)
+        logging.debug ("Initialized no-intercept for {}", parent)
 
-# Factory function
-def Intercept (parent, config):
-    if config.routing.no_intercept:
-        return NoIntercept (parent, config)
+# Factory function.  This creates the type of intercept to use (for a
+# given circuit belonging to the caller) given the local intercept
+# function and intercept request flags, and the received Node Init
+# message.
+def Intercept (parent, phase, intfun, intreq, pkt):
+    # Combine local flags with what the other end offered/requested.
+    intfun = intfun and pkt.rint
+    intreq = intreq and pkt.int
+    if intreq:
+        # We requested intercept and neighbor offered it
+        return EndnodeIntercept (parent)
+    if intfun:
+        # We offered intercept and neighbor requested it
+        if phase == 2:
+            return P2Intercept (parent)
+        return P4Intercept (parent)
+    # For all other cases intercept is not available
+    return NoIntercept (parent)
+
+def intflags (config):
+    "Return a pair of offered and requested intercept flags"
+    # Offered flag is either 0 or 7, requested is 0 or 3
+    #  Intercept function: 0: none supplied, 7: intercept available
+    #  Intercept request:  0: none wanted,   3: requesting intecept service
+    if config.routing.intercept == 0:
+        return 0, 0
     if config.routing.type == "phase2":
-        return P2Intercept (parent, config)
-    return P4Intercept (parent, config)
+        if config.routing.intercept is None:
+            # Default Phase II to requesting intercept
+            config.routing.intercept = 1
+        if config.routing.intercept == 2:
+            if len (config.routing.circuits) == 1:
+                raise ValueError ("Full intercept not valid with single circuit")
+            return 7, 0
+    elif config.routing.type in ("endnode", "phase3endnode"):
+        if config.routing.intercept == 2:
+            raise ValueError ("Full intercept not valid on end nodes")
+        # Set to request intercept if Phase II neighbor
+        config.routing.intercept = 1
+    elif config.routing.intercept is None:
+        # Routers default to offering intercept
+        if config.routing.intercept == 1:
+            raise ValueError ("Request intercept not valid for Phase III or IV router")
+        config.routing.intercept = 2
+    if config.routing.intercept == 2:
+        return 7, 0
+    return 0, 3

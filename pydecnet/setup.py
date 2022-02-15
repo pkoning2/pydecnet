@@ -2,7 +2,7 @@
 
 """Installer for decnet module
 
-Copyright (c) 2013-2020, Paul Koning.
+Copyright (c) 2013-2022, Paul Koning.
 
 Licensed under open source license terms stated in file LICENSE.
 """
@@ -42,16 +42,15 @@ setup (author = "Paul Koning",
            "uart" : "Adafruit_BBIO"
            },
        classifiers=[
-           "Development Status :: 3 - Alpha",
+           "Development Status :: 4 - Beta",
            "Topic :: Communications",
+           "Environment :: Console",
            "License :: OSI Approved :: BSD License",
-           "Programming Language :: Python :: 3.3",
-           "Programming Language :: Python :: 3.4",
-           "Programming Language :: Python :: 3.5",
-           "Programming Language :: Python :: 3.6",
+           "Operating System :: POSIX",
            "Programming Language :: Python :: 3.7",
            "Programming Language :: Python :: 3.8",
            "Programming Language :: Python :: 3.9",
            "Programming Language :: Python :: 3.10",
+           "Programming Language :: Python :: 3.11",
            ],       
        )

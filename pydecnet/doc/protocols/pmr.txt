@@ -37,14 +37,15 @@ disconnects, the entire path is disconnected.
 There is no support for connect data in DECnet/E; the connection to
 the final object is made with an empty connect data field.  Similarly,
 there is no support for returning the connect confirm data to the
-source node.  The TOPS-20 code is hard to read so I'm not sure but it
-seems to suggest that the connect data (from the connect to the PMR
-object, not from the subsequent request in the data message) is passed
-along. Also, the TOPS-20 code clearly states that when PMR issues a
-connect request, it supplies as source process descriptor the value
-that it received in the incoming connect request.  The result is that
-the far end will see a connect request from the original source
-process, not from some PMR object on the way.
+source node (but this could be added in the PyDECnet implementation of
+PMR as an extension).  The TOPS-20 code is hard to read so I'm not
+sure but it seems to suggest that the connect data (from the connect
+to the PMR object, not from the subsequent request in the data
+message) is passed along. Also, the TOPS-20 code clearly states that
+when PMR issues a connect request, it supplies as source process
+descriptor the value that it received in the incoming connect request.
+The result is that the far end will see a connect request from the
+original source process, not from some PMR object on the way.
 
 It appears from the DECnet/E code that there also is no support for
 sending interrupt messages.  However, the TOPS-20 version does forward
@@ -60,6 +61,12 @@ The PMR ack message consists of:
 
 1. The ack code: a byte of 1
 2. The nodes in the path, as a string of names each ending in ::
+
+A PyDECnet extension under consideration (coded but disabled for the
+moment) adds a third element to the PMR ack message:
+
+3. PyDECnet extension: the connect confirm data received from the
+   destination object at the final hop
 
 The PMR nak message consists of:
 

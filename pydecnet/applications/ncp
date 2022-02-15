@@ -43,7 +43,6 @@ import traceback
 from decnet.common import *
 from decnet.nicepackets import *
 from decnet import connectors
-from decnet.session import reject_text
 from decnet.logging import dump_packet
 
 dnparser = argparse.ArgumentParser ()
@@ -63,7 +62,7 @@ class NCPError (Exception):
     def __str__ (self):
         return self.__doc__.format (*self.args)
     
-class ConnFail (NCPError): "Error connecting to NML"
+class ConnFail (NCPError): "Error connecting to NML: {}"
 class UnxReply (NCPError): "Unexpected reply from NML"
 class Badkw (NCPError): "Unrecognized keyword {}"
 class Extra (NCPError): "Extraneous token(s) {}"
@@ -427,6 +426,8 @@ def dotell (perm, rest):
         conn = None
         doconnect (newdest, cparams)
         act (perm, rest)
+    except Exception as e:
+        print (e)
     finally:
         doconnect (None, None)
         dest = savedest
@@ -440,10 +441,11 @@ def doset (perm, rest):
             newdest = rest[2].upper ()
             cparams, x = parseargs (accessparams, rest[3:], acc ())
             doconnect (newdest, cparams)
-            return
         except Exception as e:
+            print (e)
             # Drop back to local
             doconnect (None, None)
+        return
     raise NYI
 
 def doshow (perm, rest):
@@ -666,16 +668,33 @@ def doconnect (newdest, cparams):
         conn = None
     else:
         conn, resp = connector.connect (dest = newdest, remuser = 19,
+                                        localuser = "PyNCP",
                                         username = cparams.username,
                                         password = cparams.password,
                                         account = cparams.account,
                                         data = VERSION)
         if not conn:
-            reason = reject_text.get (resp.reason, resp.reason)
-            raise ConnFail (reason)
-        dest = newdest
+            raise ConnFail (resp.text)
+        dest = newdest.rstrip (":")
         version = resp and resp[0] or 2
-
+        if version == 2:
+            # If we get version 2 (no accept data), double check that.
+            # It may be that we're going through PMR which (normally)
+            # does not propagate the accept data back to the original
+            # requestor.  We'll send a Phase 4 format request ("show
+            # executor") which will produce a valid reply if the other
+            # end actually is a new NCP, or it will produce an error
+            # (most likely "invalid function code") if it's really
+            # phase 2.
+            req = NiceReadNode ()
+            req.info = 0    # summary
+            req.entity = NodeReqEntity (0, 0)   # Numeric, node 0
+            for r in reqresp (req):
+                if not (r[0] & 0x80):
+                    # Request was accepted, so phase 4 is actually correct
+                    version = 4
+                # Keep looping to consume the entire reply
+                
 def reqresp (req):
     # This is an iterator that sends the request and yields the
     # responses as they arrive.
@@ -688,13 +707,17 @@ def reqresp (req):
         while more:
             rep = conn.recv ()
             if rep.type != "data":
-                raise UnxReply ("Unexpected reply type", rep.type)
+                print ("Unexpected reply type", rep.type)
+                break
             retcode = rep[0]
             if retcode > 127:
                 retcode -= 256
             if retcode == -128 and version > 2:
                 break
-            elif version == 2 and more is True:
+            elif version == 2 and more and req[0] == 8 and retcode > 0:
+                # If request was Phase 2 read info, and the status is
+                # success, then the next two bytes give the number of
+                # additional response fraomes to follow.
                 more = rep[1] + (rep[2] << 8)
                 continue
             elif retcode == 2:
@@ -740,6 +763,9 @@ def main ():
     readline.set_history_length (limit)
     try:
         while True:
+            if dest and conn.closed:
+                print ("Connection to {} was closed".format (dest))
+                dest = None
             if dest is None:
                 prompt = "NCP> "
             else:
@@ -759,7 +785,7 @@ def main ():
                 docmd (cmdu)
     except EOFError:
         print ()
-        if conn:
+        if conn and not conn.closed:
             conn.disconnect ()
     finally:
         connector.close ()
