@@ -434,7 +434,7 @@ class Session (Element):
         return c.app.api (client, reqtype, tag, args)
     
     def connect (self, client, dest, remuser, conndata = b"",
-                 username = b"", password = b"", account = b"",
+                 username = "", password = "", account = "",
                  localuser = LocalUser, proxy = False):
         if isinstance (localuser, EndUser):
             pass
@@ -702,7 +702,7 @@ class BaseConnector (Element):
                 del self.parent.conns[conn.nspconn]
 
     def connect (self, dest, remuser, data = b"",
-                 username = b"", password = b"", account = b"",
+                 username = "", password = "", account = "",
                  localuser = LocalUser, proxy = False):
         conn = self.parent.connect (self, dest, remuser, data,
                                     username, password, account,
@@ -792,9 +792,6 @@ class DictConnector (BaseConnector):
         # easiest way to handle it is to have it be an ignored
         # argument on the method.
         data = bytes (data, "latin1")
-        username = bytes (username, "latin1")
-        password = bytes (password, "latin1")
-        account = bytes (account, "latin1")
         if localuser is None:
             localuser = LocalUser
         elif isinstance (localuser, int):
@@ -991,6 +988,11 @@ class ProcessConnector (DictConnector):
                 msg = reqd["message"]
                 args = reqd.get ("args", [ ])
                 kwargs = reqd.get ("kwargs", { })
+                try:
+                    pkt = kwargs["extra"]["packetdata"]
+                    kwargs["extra"]["packetdata"] = bytes (pkt, "latin1")
+                except KeyError:
+                    pass
                 logging.log (lv, msg, *args, **kwargs)
             except Exception:
                 logging.debug ("Application {} debug message: {}",
