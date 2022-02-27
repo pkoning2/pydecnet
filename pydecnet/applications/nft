@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+
+"""Simple NFT application for DECnet/Python
+
+Copyright (C) 2022 by Paul Koning
+
+This is a basic but useable implementation of a DAP client in Python,
+using the DECnet API in the DECnet/Python stack.  It supports a basic
+set of DAP 5.6.0 capabilities.  Actually, it says it runs DAP 7.0.0,
+as best as I can reverse engineer that from VMS listings.  (There
+doesn't seem to be a DAP 7 spec online anywhere, unfortunately.)
+"""
+
+import sys
+import os
+import readline
+import re
+import traceback
+import getpass
+import argparse
+
+from decnet.common import *
+from decnet.dap_packets import *
+from decnet import dap
+from decnet import connectors
+from decnet.logging import dump_packet
+from decnet.i3dict import *
+from decnet.config import dnparser
+
+# Unlike the NCP flavor, this RE will accept tokens with a quoted part
+# in the middle, which is needed for node names with access control
+# strings to work.
+qtok_re = re.compile (r"""((?:[^" ]*"[^"]*"[^" ]*)|(?:[^' ]*'[^']*'[^' ]*))|(\S+)""")
+fspec_re = re.compile (r'(?:([a-z0-9]+)(".*?")?::)?(.*)', re.I)
+
+class NFTError (Exception):
+    "General NFT error"
+
+    def __str__ (self):
+        return self.__doc__.format (*self.args)
+
+class ConnFail (NFTError): "Error connecting to FAL: {}"
+class UnxReply (NFTError): "Unexpected reply from FAL"
+class Badkw (NFTError): "Unrecognized keyword {}"
+
+class RemSpec:
+    def __init__ (self, s):
+        m = fspec_re.match (s)
+        if not m:
+            raise ValueError ("invalid file spec")
+        self.nodename, self.auth, self.fspec = m.groups ()
+        if not self.nodename:
+            raise ValueError ("node name required")
+        self.nodename = self.nodename.upper ()
+        
+sessions = dict ()
+
+def newsession (spec):
+    username = password = account = ""
+    if not spec.auth:
+        # Prompt for it
+        username = input ("Username: ")
+        password = getpass.getpass ("Password: ")
+        account = input ("Account: ")
+    else:
+        username, *rest = spec.auth[1:-1].split (" ")
+        if rest:
+            password, *rest = rest
+            if rest:
+                account, *rest = rest
+                if rest:
+                    print ("too many access control fields in", acc)
+    conn, resp = connector.connect (dest = spec.nodename, remuser = 17,
+                                    localuser = "PyNFT",
+                                    username = username,
+                                    password = password,
+                                    account = account)
+    if not conn:
+        raise ConnFail (resp.text)
+    conn = dap.DapSession (conn, True, debug = debug,
+                           dest = spec.nodename, auth = spec.auth)
+    sessions[spec.nodename] = conn
+    return conn
+
+def getsession (spec):
+    try:
+        s = sessions[spec.nodename]
+        # Found a session for this node, see if we have a different
+        # authentication spec supplied.
+        if not spec.auth or spec.auth == s.auth:
+            # It matches, ok
+            return s
+        # Different, close the old one
+        close (s)
+    except KeyError:
+        pass
+    return newsession (spec)
+
+def close (conn):
+    s = sessions.pop (conn.dest)
+    s.close ()
+    
+class DirInfo:
+    def __init__ (self, vol, dir, fspec = ""):
+        self.vol = vol
+        self.dir = dir
+        self.fspec = fspec
+
+    def header (self, nodename):
+        return "Directory of {}::{}{}{}".format (nodename, self.vol,
+                                                 self.dir, self.fspec)
+
+    def __str__ (self):
+        return self.vol + self.dir
+    
+class FileInfo:
+    def __init__ (self):
+        self.mdate = self.cdate = None
+        self.fname = self.fspec = ""
+
+    def filespec (self, dirinfo):
+        if self.fspec:
+            return self.fspec
+        return str (dirinfo) + self.fname
+        
+    def __str__ (self):
+        mdate = self.mdate or self.cdate
+        if mdate:
+            mdate = Date.fmtdate (mdate)
+        else:
+            mdate = ""
+        # TODO: what if filespec rather than filename was received?
+        return "{} {:<12s} {:>7d} {:<20s} {}".format (self.fprot, self.fowner,
+                                                      self.fsize, mdate,
+                                                      self.fname)
+
+def files (op, conn, fspec):
+    # Iterator to walk through the files matching the supplied spec
+    req = Access (accfunc = op, filespec = fspec,
+                  main = 1, fprot = 1, date = 1)
+    conn.send (req)
+    conn.flush ()
+    vol = ""
+    name = attr = date = prot = None
+    while True:
+        resp = conn.recv ()
+        if not resp:
+            print ("\nUnexpected disconnect")
+            return
+        if isinstance (resp, (Name, Ack, AccComplete)) and name:
+            # End of messages for a given name
+            info = FileInfo ()
+            info.attr = attr
+            if name.filename:
+                info.fname = name.namespec
+            else:
+                info.fspec = name.namespec
+            info.fowner = prot.owner if prot.m_owner else ""
+            info.fsize = (attr.ebk - 1) * attr.bls + attr.ffb
+            info.fprot = prot.unixmode_s ()
+            if date.m_rdt:
+                info.mdate = date.rdt
+            if date.m_cdt:
+                info.cdate = date.cdt
+            yield info
+            name = attr = date = prot = None
+        if isinstance (resp, AccComplete):
+            return
+        if isinstance (resp, Name):
+            if resp.volname:
+                vol = resp.namespec
+            elif resp.dirname:
+                info = DirInfo (vol, resp.namespec, fspec)
+                yield info
+            else:
+                name = resp
+        elif isinstance (resp, Date):
+            date = resp
+        elif isinstance (resp, Attrib):
+            attr = resp
+        elif isinstance (resp, Prot):
+            prot = resp
+        elif isinstance (resp, Status):
+            print ("DAP error:", resp)
+            break
+        elif isinstance (resp, Ack):
+            # V7 makes the server add an Ack after each file's
+            # info.  We don't care, so ignore it if we get one.
+            pass
+        else:
+            print ("Unexpected packet:", resp)
+            break
+
+def filedata (conn, info, bin = False):
+    # Iterator to deliver the file data (blocks or records)
+    msg = Control (ctlfunc = Control.CONNECT,
+                   m_rac = 1, rac = Control.RB_SEQF,
+                   m_key = 1, key = 0)
+    conn.send (msg)
+    conn.flush ()
+    msg = conn.recv ()
+    assert isinstance (msg, Ack)
+    msg = Control (ctlfunc = Control.GET,
+                   m_rac = 1, rac = Control.RB_SEQF,
+                   m_key = 1, key = 0)
+    conn.send (msg)
+    conn.flush ()
+    attr = info.attr
+    imp = attr.m_rat and attr.fb_cr and \
+          not (attr.m_rfm and attr.rfm == Attrib.fb_slf)
+    while True:
+        msg = conn.recv ()
+        if isinstance (msg, Status):
+            if not (msg.maccode in (1, 5, 6) and msg.miccode == 0o47):
+                print (msg.maccode, msg.miccode, msg)
+            break
+        if isinstance (msg, Data):
+            if bin:
+                rec = msg.payload
+            else:
+                rec = str (msg.payload, "latin1")
+                if imp:
+                    rec += "\n"
+                else:
+                    rec.replace ("\r\n", "\n")
+            yield rec
+    msg = AccComplete (cmpfunc = AccComplete.CLOSE)
+    conn.send (msg)
+    conn.flush ()
+
+c = dnparser ()
+c.add_argument ("node", help = "Node name for connection to close")
+def doclose (rest):
+    p, msg = c.parse_args (rest)
+    if msg:
+        print (msg)
+        return
+    s = sessions.get (p.node, None)
+    if s:
+        close (s)
+
+d = dnparser ()
+d.add_argument ("spec", nargs = "+", type = RemSpec,
+                help = "Remote specification to match")
+
+def dodir (rest):
+    p, msg = d.parse_args (rest)
+    if msg:
+        print (msg)
+        return
+    for spec in p.spec:
+        conn = getsession (spec)
+        for info in files (Access.DIR, conn, spec.fspec):
+            if isinstance (info, DirInfo):
+                print ()
+                print (info.header (spec.nodename))
+            else:
+                print (info)
+
+g = dnparser ()
+g.add_argument ("sspec", nargs = "+", type = RemSpec,
+                help = "Source (remote) file specification")
+g.add_argument ("dspec", help = "Destination file or directory")
+g.add_argument ("-i", "--interactive", default = False,
+                action = "store_true",
+                help = "Ask before transfering each file")
+g.add_argument ("-v", "--verbose", default = False,
+                action = "store_true",
+                help = "Show the name of each file transfered")
+
+def docopy (rest):
+    p, msg = g.parse_args (rest)
+    if msg:
+        print (msg)
+        return
+    for spec in p.sspec:
+        conn = getsession (spec)
+        dir = None
+        for info in files (Access.OPEN, conn, spec.fspec):
+            if isinstance (info, DirInfo):
+                dir = info
+            else:
+                if p.interactive:
+                    prompt = "Show {}::{} (Y/N/A/Q) [Y]? ".format (conn.dest, info.filespec (dir))
+                    action = "ask"
+                    while action not in "YNAQ":
+                        action = input (prompt).upper ()[0] or "Y"
+                    if action == "Q":
+                        # The only way to stop a wildcard scan is to
+                        # disconnect the connection.
+                        close (conn)
+                        return
+                    if action == "N":
+                        msg = AccComplete (cmpfunc = AccComplete.CLOSE)
+                        conn.send (msg)
+                        conn.flush ()
+                        continue
+                    if action == "A":
+                        p.interactive = False
+                n = 0
+                what = "record"
+                dest = p.dspec
+                if os.path.isdir (dest):
+                    dest = os.path.join (dest, info.fname)
+                with open (dest, "wb") as f:
+                    for l in filedata (conn, info, bin = True):
+                        f.write (l)
+                        n += 1
+                if p.verbose:
+                    if n != 1:
+                        what += "s"
+                    print ("Copied {} {} {}::{} to {}".format (n, what, conn.dest, info.filespec (dir), dest))
+    
+t = dnparser ()
+t.add_argument ("spec", nargs = "+", type = RemSpec,
+                help = "Source (remote) file specification")
+t.add_argument ("-i", "--interactive", default = False,
+                action = "store_true",
+                help = "Ask before transfering each file")
+t.add_argument ("-v", "--verbose", default = False,
+                action = "store_true",
+                help = "Show the name of each file transfered")
+
+def dotype (rest):
+    p, msg = t.parse_args (rest)
+    if msg:
+        print (msg)
+        return
+    for spec in p.spec:
+        conn = getsession (spec)
+        dir = None
+        for info in files (Access.OPEN, conn, spec.fspec):
+            if isinstance (info, DirInfo):
+                dir = info
+            else:
+                if p.interactive:
+                    prompt = "Show {}::{} (Y/N/A/Q) [Y]? ".format (conn.dest, info.filespec (dir))
+                    action = "ask"
+                    while action not in "YNAQ":
+                        action = input (prompt).upper ()[0] or "Y"
+                    if action == "Q":
+                        # The only way to stop a wildcard scan is to
+                        # disconnect the connection.
+                        close (conn)
+                        return
+                    if action == "N":
+                        msg = AccComplete (cmpfunc = AccComplete.CLOSE)
+                        conn.send (msg)
+                        conn.flush ()
+                        continue
+                    if action == "A":
+                        p.interactive = False
+                if p.verbose:
+                    print (info)
+                for l in filedata (conn, info):
+                    sys.stdout.write (l)
+        
+def dohelp (rest):
+    if not rest:
+        print ("""Available commands:
+copy: transfer one or more remote files to this system.
+type: display one or more remote files.
+close: close open connection to a remote node.
+exit: leave NFT.
+help: this message, or "help cmd" for details on "cmd".""")
+        return
+    try:
+        act = cmd[rest[0]]
+    except KeyError:
+        raise Badkw (tok)
+    if not act:
+        print ("Exit ends NFT")
+    else:
+        act ([ "-h" ])
+    
+cmd = i3dict (dir = dodir, ls = dodir,
+              copy = docopy, cp = docopy,
+              type = dotype, cat = dotype,
+              close = doclose,
+              exit = None, q = None, quit = None,
+              help = dohelp)
+
+def docmd (rest):
+    "Execute the supplied tokens"
+    tok, *rest = rest
+    try:
+        act = cmd[tok]
+    except KeyError:
+        raise Badkw (tok)
+    if not act:
+        return True
+    try:
+        act (rest)
+    except Exception as e:
+        if isinstance (e, KeyError):
+            e = Badkw (e.args[0])
+        if isinstance (e, ValueError) and str (e).startswith ("not enough"):
+            e = Incomplete ()
+        print ("Error processing command:\n", e)
+    return False
+
+cmdparser = argparse.ArgumentParser ()
+cmdparser.add_argument ("cmd", nargs = "*", help = "Command to execute")
+cmdparser.add_argument ("-D", "--debug", action = "store_true",
+                       default = False, help = "Show debug output")
+
+def main ():
+    global connector, debug
+    connector = connectors.SimpleApiConnector ()
+    p = cmdparser.parse_args ()
+    debug = p.debug
+    if p.cmd:
+        try:
+            docmd (p.cmd)
+        finally:
+            connector.close ()
+        return
+    histfile = os.path.expanduser ("~/.nft_history")
+    try:
+        readline.read_history_file (histfile)
+    except IOError:
+        pass
+    limit = -1
+    try:
+        limit = int (os.getenv ("NFTHISTSIZE", "500"))
+    except ValueError:
+        pass
+    readline.set_history_length (limit)
+    try:
+        while True:
+            cmd = input ("NFT> ")
+            if cmd:
+                # Break the string into tokens at whitespace, but not
+                # whitespace in quotes.  Unlike NCP, don't upcase
+                # anything (we want to be able to work with
+                # case-sensitive file systems).
+                cmdu = list ()
+                for m in qtok_re.finditer (cmd):
+                    q, nq = m.groups ()
+                    if q:
+                        cmdu.append (q)
+                    elif nq:
+                        cmdu.append (nq)
+                if i3eq (cmdu[0], "exit"):
+                    break
+                if docmd (cmdu):
+                    break
+    except EOFError:
+        print ()
+        for conn in sessions.values ():
+            conn.close ()
+    finally:
+        connector.close ()
+        readline.write_history_file (histfile)
+        
+if __name__ == "__main__":
+    main ()

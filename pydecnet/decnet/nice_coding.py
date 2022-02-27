@@ -555,10 +555,10 @@ class NICE (packet.FieldGroup):
         # description of the parameter description contents.
         pdict = dict ()
         flist = list ()
-        names = set ()
+        names = list ()
         for v in layouts:
             k, fn, v, f = NiceType.makecoderow (*v)
-            names.add (fn)
+            names.append (fn)
             pdict[k] = v
             flist.append (f)
         return cls, None, ( resp, pdict, flist ), names, True
@@ -791,11 +791,42 @@ class CMVersion (CM3):
 
 class CMProc (CM4):
     "Source/dest process descriptor"
-    vlist = (DU1, DU2, DU2, AI)
+    vlists = (None, (DU1,), (DU1, AI), None, (DU1, DU2, DU2, AI))
+    formats = (None, "{}", "{} {}", None, "{} [{},{}]{}")
+
+    @classmethod
+    def checktype (cls, name, val, tlist):
+        try:
+            tlist2 = cls.vlists[len (val)]
+            tlist = tlist2 or tlist
+        except IndexError:
+            pass
+        return super (__class__, cls).checktype (name, val, tlist)
     
+    @classmethod
+    def decode (cls, b, code, tlist = None):
+        count = code & 0x0f
+        try:
+            tlist2 = cls.vlists[count]
+            tlist = tlist2 or tlist
+        except IndexError:
+            pass
+        return super (__class__, cls).decode (b, code, tlist)
+        
+    def encode (self, tlist = None):
+        try:
+            tlist2 = self.vlists[len (self)]
+            tlist = tlist2 or tlist
+        except IndexError:
+            pass
+        return super ().encode (tlist)
+        
     def format (self, tlist = None):
-        if len (self) == 4:
-            return "{} [{},{}]{}".format (*self)
+        fmt = self.formats[len (self)]
+        if fmt:
+            if len (self) != 2 or self[0]:
+                return fmt.format (*self)
+            return "{}".format (self[1])
         return super ().format (tlist)
     
 # NICE parameter definition lists for the various kinds of counters.

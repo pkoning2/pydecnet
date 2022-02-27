@@ -27,9 +27,11 @@ class stest (DnTest):
         self.config.object[0].number = 0
         self.config.object[0].disable = False
         self.config.object[0].name = "TESTER"
+        self.config.object[0].uid = None
+        self.config.object[0].gid = 0
         if self.process:
             self.config.object[0].module = None
-            self.config.object[0].file = "tests/file_app_exerciser.py"
+            self.config.object[0].file = "../tests/file_app_exerciser.py"
         else:
             self.config.object[0].file = None
             self.config.object[0].module = "tests.module_app_exerciser"

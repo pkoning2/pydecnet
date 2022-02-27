@@ -20,7 +20,7 @@ defsockname = os.getenv ("DECNETAPI", "/tmp/decnetapi.sock")
 
 from decnet.common import *
 from decnet.logging import TRACE
-from decnet.packet import IndexedField
+from decnet.packet import Packet, IndexedField
 from decnet.session import reject_text
 
 enc = DNJsonEncoder ().encode
@@ -36,6 +36,8 @@ def makestr (v):
     if isinstance (v, dict):
         v = { k : makestr (vv) for (k, vv) in v.items () }
     elif not isinstance (v, (str, int)):
+        if isinstance (v, Packet):
+            v = v.encode ()
         if isinstance (v, bytetypes):
             v = str (v, "latin1")
         else:
@@ -136,9 +138,18 @@ class Connection:
 
 class SimpleConnector:
     "Base class for a simple one request/response connector"
+
     def __init__ (self):
         self.connections = dict ()
         self.tag = 1
+
+    def log (self, *args, **kwargs):
+        pass
+        
+    def logpacket (self, pkt, *args, **kwargs):
+        pkt = makestr (makebytes (pkt))
+        kwargs["extra"] = { "packetdata" : pkt }
+        self.log (*args, **kwargs)
 
     def checkpmr (self, kwds, api):
         # Returns:
@@ -274,9 +285,6 @@ class SimpleApiConnector (SimpleConnector):
     socket.  The default socket used is /tmp/decnetapi.sock, a different
     name can be supplied using environment variable DECNETAPI.
     """
-    def log (self, *args, **kwargs):
-        pass
-        
     def __init__ (self, name = defsockname):
         super ().__init__ ()
         self.sockname = name

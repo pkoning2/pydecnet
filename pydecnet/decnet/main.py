@@ -152,7 +152,7 @@ def main ():
     if p.mac_address:
         m = Macaddr (p.mac_address)
         M = str (m).upper ()
-        print ("MAC address for {} is {} ({::})".format (p.mac_address, M, m))
+        print ("MAC address for {0} ({0:d}) is {1} ({2::})".format (p.mac_address, M, m))
         return
     if not p.configfile:
         print ("At least one config file argument must be specified")

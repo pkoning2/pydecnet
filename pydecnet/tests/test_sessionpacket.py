@@ -45,7 +45,7 @@ class test_packets (DnTest):
             userfoo, x = session.EndUser.decode (p)
         # Type 1, with num
         p = b"\x01\x66\x03FOO"
-        with self.assertRaises (session.WrongValue):
+        with self.assertRaises ((session.WrongValue, packet.AtField)):
             userfoo, x = session.EndUser.decode (p)
         # Type 3
         p = b"\x03\x00\x11\x00\x22\x01\x03BAR"
@@ -53,11 +53,11 @@ class test_packets (DnTest):
             userbar,x = session.EndUser.decode (p)
         # Oversized name
         p = b"\x01\x00\x11AAAAAAAAAAAAAAAAA"
-        with self.assertRaises (FieldOverflow):
+        with self.assertRaises ((FieldOverflow, packet.AtField)):
             userfoo, x = session.EndUser.decode (p)
         # Oversized name, type 2
         p = b"\x01\x00GGUU\x0dAAAAAAAAAAAAA"
-        with self.assertRaises (FieldOverflow):
+        with self.assertRaises ((FieldOverflow, packet.AtField)):
             userfoo, x = session.EndUser.decode (p)
         
     def test_ci (self):

@@ -503,7 +503,8 @@ number.
 Some objects are built into PyDECnet, for example object 25
 ("MIRROR").  Those can still be overridden by definitions in the
 config file, or turned off by an entry that has the --disable switch.
-Currently NML (19), MIRROR (25), and EVL (26) are built-in objects.
+For details on the built-in objects, see the section at the end of
+this document.
 
 --number: Object number, in the range 1 to 255.  Numbers 1 through 127
 are defined by Digital, higher values are "for customer use".
@@ -514,11 +515,14 @@ number must be specified; if both are specified then the object can be
 referenced either by connections that ask for a number, or ones that
 ask for the object by name.
 
---file: Command to run.  This is a string that would be recognized by
-the shell as an executable command, either an explicit path spec
-pointing to an executable file, or a command that is mapped to a
-program via the PATH environment variable.  Conflicts with --module
-and --disable.
+--file: Command to run.  If this is a name without directory
+specifications, it is looked up in PATH, as the shell would do for a
+shell command.  If it is a relative path spec, it is interpreted
+relative to the directory where the decnet modules live (so, for
+example, the sample mirror object would be applications/mirror.py).  A
+file name ending in ".py" will be read as a script by the same Python
+as is running PyDECnet; any other file must be executable and will be
+run directly.  Conflicts with --module and --disable.
 
 --module: Python module specification, for an object that is executed
 within PyDECnet.  The argument is a Python module identifier, for
@@ -534,10 +538,34 @@ otherwise ignored.
 started.  May be repeated to pass a list of arguments.  PyDECnet does
 not interpret this.
 
---authentication: Either "off" (the default) or "on".  "on" means that
-PyDECnet will verify the supplied authentication information, "off"
-means that information is not needed and is ignored if present.  Not
-supported if the python-pam library module is not installed.
+--authentication: Can be "off" (the default), "on", or "login".  "on"
+or "login" means that PyDECnet will verify the supplied authentication
+information, "off" means that information is not needed and is ignored
+if present.  Not supported if the python-pam library module is not
+installed.  "login" is valid only for file objects; it means that the
+subprocess created when the object is run will be logged in as the
+user identified by the authentication parameters given.  Note that the
+use of "login" requires running PyDECnet as root.
+
+--uid: Argument is a user name or numeric user id (uid).  This option
+is available only if PyDECnet is run as root.  If a name is given, it
+is looked up and the uid, gid, and home directory will be used for
+this object.  If a number is given, only the uid is set (but gid may
+be supplied separately via the --gid switch) and no home directory is
+applied.  This switch is valid only for file objects.  The
+significance of this switch depends on the --authentication setting.
+For "off" and "on", the subprocess will run in the indicated uid and
+gid, and the working directory will be the home directory if a user
+name was used.  For "login" authentication, these parameters apply
+only if no authentication parameters were used in the connection
+request, i.e., they are the "default" identify.  Also, for "login"
+authentication, if --uid is not supplied, access control parameters
+are required, there is no default.
+
+--gid: Numeric group ID to use.  This option is available only if
+PyDECnet is run as root.  Only valid for file objects; not meaningful
+if --uid is used with a user name (in that case, the gid associated
+with the user name is used instead).
 
 Component "system"
 
@@ -642,3 +670,60 @@ Most DECnet events are logged as log level INFO.  A few have other
 levels: events 2.1, 4.6, 4.7, 4.8, 4.18 and 34.1 are level WARNING,
 and events 3.0, 3.1, 4.0, 4.1, and 4.4 are level DEBUG.  These levels
 are currently fixed in the source code.
+
+The built-in DECnet objects:
+
+By default, PyDECnet defines a number of objects.  These settings can
+be modified or the objects disabled if desired, but typically it is
+reasonable to keep them.  The descriptions below are given in the form
+of the equivalent "object" config lines.  Note that all the built-in
+objects have "off" authentication.
+
+object --number 19 --name nml --module decnet.modules.nml
+This is the network management listener; it provides remote access via
+the NICE protocol.  Currently, only read information ("show" commands)
+and test ("loop" commands) are supported.
+
+object --number 25 --name mirror --module decnet.modules.mirror
+This is the "loop node" responder, the object used when the NCP
+command "loop node xyz" is used.
+
+object --number 26 --name evl --module decnet.modules.evl
+This is the event log listener.  If another DECnet node specifies this
+node as a remote sink node, those messages will be sent to EVL, which
+will feed them into the PyDECnet log.
+
+object --name topol --module decnet.modules.topol
+This is a helper application used by TOPS-20 V4.1 (Phase II) to
+discover the network topology of the connected network.  It is only
+used if you have such nodes as adjacent nodes.
+
+object --number 123 --name psthru --file applications/pmr.py
+This is the "poor man's routing" or "passthrough" object.  It is
+supported only with Python 3.7 or later.
+
+DECnet/Python objects not active by default:
+
+Additional objects are included with PyDECnet that are not enabled by
+default.  Currently there is one:
+
+FAL -- the file access listener, i.e., the server side of the DAP
+protocol.  If enabled this will provide remote file access.  Currently
+only file read and directory listing are supported.
+
+The FAL object is an example where "login" authentication is useful,
+because that will enable an authenticated user to access files
+according to that user's access permissions (just as if the user had
+logged in to the host via ssh or telnet).  The --uid parameter may be
+used to provide default access.
+
+FAL accepts one argument, which is the root directory for default
+access.  It is not relevant if explicit authentication is done, but if
+default access was used and the argument is present, all file access
+is forced to be within the named subtree.  The effect is as if a
+"chroot" of that path was done, though the actual chroot operation is
+not used because it complicates the running of the code.
+
+Example configuration line:
+
+object --number 17 --name FAL --file applications/fal.py --auth login --uid nobody --arg /home/decnet-def

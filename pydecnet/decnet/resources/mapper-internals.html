@@ -47,13 +47,15 @@ This means that Phase II nodes, Phase III nodes in another area, or
 Cisco routers will all be shown as reachable so long as there is a 
 node somewhere that answers NICE requests and shows them as reachable. 
 </p><p> 
-Also, for optimization, if a node reports a neighbor's type as Phase 
-II or Phase III (in another area) or endnode, the network scanner
+Also, for optimization, if a node reports a neighbor's type as
+Phase III in another area, or as an endnode, the network scanner
 doesn't try to connect  
 to it because it already has all the information needed.  This speeds 
 up the scan.  It also avoids a bug in DECnet/E where "show active
 nodes" on an endnode leaves the request hanging after the reply data
-is sent (the "no more data" message is missing).
+is sent (the "no more data" message is missing).  It does try to
+connect to Phase II nodes, some of which have a NML servers and may
+be reachable via the "intercept" feature.
 </p><p> 
 At the completion of the scan, the up/down information is updated. 
 Currently each node, and each adjacency entry for that node, has three 

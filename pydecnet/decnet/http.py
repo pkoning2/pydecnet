@@ -26,8 +26,6 @@ from . import html
 from . import mapper
 from . import host
 
-packagedir = os.path.dirname (__file__)
-
 SvnFileRev = "$LastChangedRevision$"
 
 def revno (s):
@@ -46,7 +44,7 @@ def setdnrev ():
         DNREV = 0
         for m in sys.modules.values ():
             fn = getattr (m, "__file__", None)
-            if isinstance (fn, str) and fn.startswith (packagedir):
+            if isinstance (fn, str) and fn.startswith (DECNETROOT):
                 # It's a DECnet module, get its rev
                 r = getattr (m, "SvnFileRev", None)
                 if r:
@@ -67,7 +65,7 @@ class Monitor:
     def __init__ (self, config, nodelist):
         self.config = config
         self.nodelist = nodelist
-        httproot = config.http_root or packagedir
+        httproot = config.http_root or DECNETROOT
         self.resources = os.path.join (httproot, "resources")
         if config.mapper:
             self.mapserver = mapper.Mapper (config, nodelist)
@@ -113,14 +111,15 @@ class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
     def __init__ (self, source_addr, rclass, nodelist, config, resources,
                   mapserver, secure):
         self.nodelist = nodelist
-        self.api = False #config.api
         self.mapserver = mapserver
+        self.addlinks = ()
+        public = os.path.join (resources, "public")
+        if os.path.isdir (public):
+            self.addlinks = (("/resources/public/index.html", "Downloads"),)
         if mapserver:
-            self.addlinks = (("/map", "Network map"),)
-        else:
-            self.addlinks = ()
+            self.addlinks += (("/map", "Network map"),)
         self.resources = resources
-        self.secure = secure #or config.insecure_api
+        self.secure = secure
         super ().__init__ (source_addr.sockaddr, rclass, False)
         # Now replace the socket by what we actually want
         self.socket = source_addr.create_server ()

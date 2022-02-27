@@ -6,18 +6,25 @@ application.
 ----------------------------------------
 DECnet/Python T1.1
 
-This is a beta test version of what will beome DECnet/Python V1.1.
+This is a beta test version of what will become DECnet/Python V1.1.
 
-1.1-621: Additional changes
+1.1-627: Additional changes for second beta
 
-a. Implement PMR ("Poor man's routing") including transparent support
+a. Implemented "login" authentication in session control.  Add a basic
+FAL object (DAP file access server) which is intended to use this.
+FAL only support directory scan and file get -- no operations that
+modify anything.  Also add a simple NFT application; this has been
+tested against RSTS, RSX, VMS, and Ultrix.
+
+b. Implement PMR ("Poor man's routing") including transparent support
 for connecting via PMR in the simple and asynchronous connectors.
 
-b. Corrections to Phase II intercept support, and addition of an
+c. Corrections to Phase II intercept support, and addition of an
 intercept requestor option (for endnodes and by default for a Phase II
 PyDECnet node).
 
-c. Several applications included: ncp, rcclient, dnping, mirror-daemon
+d. Several applications included: ncp, nft, rcclient, dnping,
+mirror-daemon
 
 1.1-599: New version since there are significant visible changes in
 this version:

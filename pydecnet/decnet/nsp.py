@@ -1310,7 +1310,9 @@ class Connection (Element, statemachine.StateMachine):
                         # sender is known to get it wrong.
                         pkt.bom = pkt.eom = 1
                     else:
-                        logging.debug ("first segment but no BOM flag: {}", pkt)
+                        # Make this a trace level message because RSTS
+                        # FAL does this, and we don't want the noise.
+                        logging.trace ("first segment but no BOM flag: {}", pkt)
                 if not pkt.eom:
                     # First of several segments, save it
                     self.asmlist.append (pkt.payload)

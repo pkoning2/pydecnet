@@ -182,7 +182,7 @@ class TestPacket (DnTest):
         self.assertEqual (a.int4, 257)
         self.assertEqual (a.node, Nodeid (1, 3))
         self.assertEqual (bytes (a), testdata2.replace (b"abcdef", b"foobar"))
-        with self.assertRaises (packet.WrongValue) as e:
+        with self.assertRaises ((packet.WrongValue, packet.AtField)) as e:
             constimage (testdata)
 
     def test_tlv (self):

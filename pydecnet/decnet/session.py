@@ -10,6 +10,8 @@ import sys
 import signal
 import importlib
 import shutil
+import pwd
+import functools
 try:
     import pam
     pamobj = pam.pam ()
@@ -24,6 +26,7 @@ from . import timers
 from . import statemachine
 from . import nsp
 from . import html
+from . import nice_coding
 
 SvnFileRev = "$LastChangedRevision$"
 
@@ -64,6 +67,14 @@ reject_text = {
     OBJ_FAIL :  "Node or object failed",
     ABORT :  "Abort by object",
 }
+
+# Helper function to run in the subprocess used for a "file" type
+# object, just before the executable file is run.
+def setuser (u, g):
+    if g:
+        os.setgid (g)
+    if u:
+        os.setuid (u)
 
 # Work items sent up to the application.  All have fields "connection"
 # (the SessionConnection) and "message" (the application data).
@@ -115,6 +126,9 @@ class EndUser0 (EndUser):
     def __format__ (self, format):
         return "{}".format (self.num)
     
+    def nicedata (self):
+        return nice_coding.CMProc ((self.num,))
+    
 class EndUser1 (EndUser):
     fmt = 1
     num = 0
@@ -128,6 +142,9 @@ class EndUser1 (EndUser):
     def __format__ (self, format):
         return "{}".format (self.name)
 
+    def nicedata (self):
+        return nice_coding.CMProc ((0, self.name))
+    
 class EndUser2 (EndUser):
     fmt = 2
     num = 0
@@ -142,6 +159,9 @@ class EndUser2 (EndUser):
     def __format__ (self, format):
         return "[{},{}]{}".format (self.group, self.user, self.name)
 
+    def nicedata (self):
+        return nice_coding.CMProc ((0, self.group, self.user, self.name))
+    
 LocalUser = EndUser1 (name = "PyDECnet")
 
 class SessionConnInit (packet.Packet):
@@ -203,12 +223,15 @@ class SessionConnInit (packet.Packet):
 class ObjectListener (Element):
     def __init__ (self, parent, number, name = "", auth = "off"):
         super ().__init__ (parent)
+        auth = auth.lower ()
         if auth != "off" and not pam:
             raise ArgumentError ("authentication requested but python-pam is not installed")
         self.number = number
         name = name.upper ()
         self.name = name
-        self.auth = auth.lower () != "off"
+        self.auth = auth
+        self.uid = None
+        self.gid = 0
         if not self.number and not self.name:
             raise ArgumentError ("At least one of name and number must be specified")
         if len (self.name) > 16:
@@ -232,6 +255,9 @@ class ObjectListener (Element):
         return "object {}".format (self.name or self.number)
 
 class ApiListener (ObjectListener):
+    uid = None
+    gid = 0
+    root = None
     def __init__ (self, parent, apiconnector, number, name = "", auth = "off"):
         if name in parent.obj_name or number in parent.obj_num:
             raise InUse
@@ -243,7 +269,7 @@ class ApiListener (ObjectListener):
     def what (self):
         return "Application h={}".format (id (self.apiconnector))
 
-    def connector (self):
+    def connector (self, x):
         return self.apiconnector
 
 class SessionObject (ObjectListener):
@@ -252,25 +278,47 @@ class SessionObject (ObjectListener):
         self.argument = arg
 
 class ModuleObject (SessionObject):
+    uid = None
+    gid = 0
+    root = None
     def __init__ (self, parent, module, number, name = "",
-                  auth = "off", arg = [ ]):
+                  auth = "off", arg = [ ], uid = None, gid = 0):
         super ().__init__ (parent, number, name, auth, arg)
         self.module = module
         mod = importlib.import_module (self.module)
         self.app_class = mod.Application
-
+        if auth == "login":
+            raise ValueError ("--authentication login not valid for modules")
+        if uid is not None or gid:
+            raise ValueError ("--uid or --gid not valid for modules")
+            
     @property
     def what (self):
         return "Module {}".format (self.module)
     
-    def connector (self):
+    def connector (self, pw):
         logging.trace ("starting object {} ({})", self.number, self.name)
         return ModuleConnector (self.parent, self, self.app_class)
 
 class FileObject (SessionObject):
     def __init__ (self, parent, file, number, name = "",
-                  auth = "off", arg = [ ]):
+                  auth = "off", arg = [ ], uid = None, gid = 0):
         super ().__init__ (parent, number, name, auth, arg)
+        self.root = None
+        if uid is not None:
+            if uid.isnumeric ():
+                uid = int (uid)
+            else:
+                # User name, look it up
+                try:
+                    pw = pwd.getpwnam (uid)
+                except KeyError:
+                    raise ValueError ("Unknown uid {}".format (uid)) from None
+                uid = pw.pw_uid
+                gid = pw.pw_gid
+                self.root = pw.pw_dir
+        self.uid = uid
+        self.gid = gid
         # Remember the supplied file name for display purposes
         self.shortfile = file
         # If the "file" argument is just a bare name, do a PATH lookup
@@ -278,7 +326,7 @@ class FileObject (SessionObject):
         if not os.path.dirname (file):
             f = shutil.which (file)
         else:
-            f = os.path.normpath (os.path.join (os.path.dirname (__file__), file))
+            f = os.path.normpath (os.path.join (DECNETROOT, file))
         if f.endswith (".py"):
             # Python file, it needs to exist but it doesn't have to be
             # executable, because we'll pass it to the current Python
@@ -297,9 +345,9 @@ class FileObject (SessionObject):
     def what (self):
         return "File {}".format (self.shortfile)
     
-    def connector (self):
+    def connector (self, pw):
         logging.trace ("starting object {} ({})", self.number, self.name)
-        return ProcessConnector (self.parent, self)
+        return ProcessConnector (self.parent, self, pw)
 
 class DefObj (dict):
     def __init__ (self, name, num, module = None, file = None, auth = "off"):
@@ -389,10 +437,12 @@ class Session (Element):
                     if obj.module:
                         raise ValueError ("Only one of --file and --module is allowed")
                     obj = FileObject (self, obj.file, obj.number, obj.name,
-                                      obj.authentication, obj.argument)
+                                      obj.authentication, obj.argument,
+                                      obj.uid, obj.gid)
                 elif obj.module:
                     obj = ModuleObject (self, obj.module, obj.number, obj.name,
-                                        obj.authentication, obj.argument)
+                                        obj.authentication, obj.argument,
+                                        obj.uid, obj.gid)
                 else:
                     raise ValueError ("Object needs one of --file, --module, or --disable")
         for k, v in sorted (self.obj_num.items ()):
@@ -468,12 +518,12 @@ class Session (Element):
     def html_objects (self):
         # Return an HTML item for the object database
         title = "Session control object database"
-        hdr = ("Object", "Name", "Type", "Destination", "Authentication")
+        hdr = ("Object", "Name", "Type", "Destination", "Authentication", "Uid")
         items = [ (0, o.name, o) for o in self.obj_name.values () if not o.number ]
         items.extend ([ (o.number, o.name, o) for o in self.obj_num.values () ])
         items.sort ()
         items = [ (n if n else "", m, *o.what.split (" ", 1),
-                   "On" if o.auth else "Off") for n, m, o in items ]
+                   o.auth.capitalize (), o.uid or "") for n, m, o in items ]
         return html.tbsection (title, hdr, items)
 
     def html_localuser (self, nspconn):
@@ -552,31 +602,58 @@ class Session (Element):
                                       spkt.dstname.name ]
                 if isinstance (sesobj, ApiListener):
                     pw["listenhandle"] = id (sesobj)
-                if sesobj.auth:
+                pw["uid"] = sesobj.uid
+                pw["gid"] = sesobj.gid
+                pw["root"] = sesobj.root
+                pw["auth"] = sesobj.auth
+                if sesobj.auth != "off":
                     # Authentication required.  We don't look at
                     # Account, but the other two fields must be
                     # present and they must be the correct value to
                     # pass PAM authentication on this host.
-                    if not spkt.rqstrid or not spkt.passwrd or \
-                       not pamobj.authenticate (spkt.rqstrid, spkt.passwrd):
-                        logging.debug ("Authentication reject for username {}",
-                                       spkt.rqstrid)
-                        if spkt.rqstrid:
-                            pw["username"] = spkt.rqstrid
-                        if spkt.passwrd:
-                            pw["password"] = 1
-                        if spkt.account:
-                            pw["account"] = spkt.account
+                    if not spkt.rqstrid or not spkt.passwrd:
+                        if sesobj.auth == "login" and sesobj.uid:
+                            # If "login" authentication is specified,
+                            # the optional "uid" argument is the
+                            # default user ID to use if authentication
+                            # data is not supplied.
+                            logging.trace ("Using default uid {}", sesobj.uid)
+                            ok = True
+                        else:
+                            logging.debug ("Authentication reject, not supplied")
+                            ok = False
+                    else:
+                        if sesobj.auth == "login":
+                            try:
+                                pwinfo = pwd.getpwnam (spkt.rqstrid.lower ())
+                                ok = True
+                                pw["uid"] = pwinfo.pw_uid
+                                pw["gid"] = pwinfo.pw_gid
+                                pw["root"] = pwinfo.pw_dir
+                            except KeyError:
+                                logging.debug ("Authentication reject, unknown user {}", spkt.rqstrid)
+                                ok = False
+                        else:
+                            ok = True
+                        if ok:
+                            user = str (spkt.rqstrid).lower ()
+                            passwd = str (spkt.passwrd)
+                            if not pamobj.authenticate (user, passwd):
+                                logging.debug ("Authentication reject for username {}", user)
+                                ok = False
+                    if spkt.rqstrid:
+                        pw["username"] = spkt.rqstrid
+                    if spkt.passwrd:
+                        pw["password"] = 0
+                    if spkt.account:
+                        pw["account"] = spkt.account
+                    if not ok:
                         s = spkt.srcname
                         d = spkt.dstname
-                        # FIXME: this should generate the correct
-                        # format for the particular source/dest
-                        # specification, not unconditionally CM-4.
-                        so = (s.num, s.group, s.user, s.name)
-                        do = (d.num, d.group, d.user, d.name)
                         self.node.logevent (events.acc_rej, 
-                                            source_process = so,
-                                            destination_process = do, **pw)
+                                            source_process = s.nicedata (),
+                                            destination_process = d.nicedata (),
+                                            **pw)
                         nspconn.reject (BAD_AUTH)
                         return
                 # Pass up authentication parameters (without the
@@ -590,7 +667,7 @@ class Session (Element):
                 awork = ConnectInit (self, message = data, connection = conn, **pw)
                 # Have the object deliver a suitable connector
                 try:
-                    c = sesobj.connector ()
+                    c = sesobj.connector (pw)
                     conn.client = c
                     conn.client.dispatch (awork)
                 except FileNotFoundError:
@@ -877,7 +954,7 @@ class ProcessConnector (DictConnector):
     takes error messages and other logging information to the PyDECnet
     logging facility.
     """
-    def __init__ (self, parent, obj):
+    def __init__ (self, parent, obj, pw):
         super ().__init__ (parent, obj)
         self.sp = None
         self.othread = self.ethread = None
@@ -903,9 +980,12 @@ class ProcessConnector (DictConnector):
         # -- the subprocess is still likely to get full buffering on
         # them and if so has to be sure to flush after pretty much every
         # write.
-        #
-        # TODO: support for logging in to the username supplied in the
-        # connect request.
+        uid = pw["uid"]
+        gid = pw["gid"]
+        if uid is not None or gid:
+            userfun = functools.partial (setuser, uid, gid)
+        else:
+            userfun = None
         self.sp = subprocess.Popen (args,
                                     bufsize = 1,
                                     stdin = subprocess.PIPE,
@@ -914,6 +994,8 @@ class ProcessConnector (DictConnector):
                                     universal_newlines = True,
                                     start_new_session = True,
                                     env = env,
+                                    preexec_fn = userfun,
+                                    cwd = pw["root"],
                                     restore_signals = True,
                                     shell = False)
         logging.trace ("object subprocess started")

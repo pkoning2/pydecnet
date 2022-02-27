@@ -17,9 +17,10 @@ SvnFileRev = "$LastChangedRevision$"
 # Exceptions related to packet definitions
 class InvalidField (DNAException):
     """Invalid field descriptor."""
-    
-class ReadOnlyError (AttributeError): "Attempt to change a read-only attribute"
 
+# Exception to add detail to decode problems
+class AtField (DecodeError):
+    """Error decoding field '{}'"""
 try:
     int.from_bytes
 except AttributeError:
@@ -265,6 +266,18 @@ class CTR (B):
 class BM (FieldGroup):
     __slots__ = ()
 
+    # The next two methods can be overridden in a subclass to
+    # encode/decode the combined value of all the fields in a
+    # different way.
+    @classmethod
+    def valtobytes (cls, val, flen):
+        return val.to_bytes (flen, LE)
+
+    @classmethod
+    def bytestoval (cls, buf, flen):
+        require (buf, flen)
+        return int.from_bytes (buf[:flen], LE), buf[flen:]
+    
     @classmethod
     def encode (cls, packet, flen, elements):
         """Encode a bitmap field.  "elements" is a sequence of
@@ -285,7 +298,7 @@ class BM (FieldGroup):
                                name, val, bits)
                 raise FieldOverflow
             field |= val << start
-        return field.to_bytes (flen, LE)
+        return cls.valtobytes (field, flen)
 
     @classmethod
     def decode (cls, buf, packet, flen, elements):
@@ -295,20 +308,12 @@ class BM (FieldGroup):
         otherwise specified in the layout).  Returns the remaining
         buffer.
         """
-        require (buf, flen)
         obj = cls ()
-        field = int.from_bytes (buf[:flen], LE)
+        field, buf = cls.bytestoval (buf, flen)
         for name, start, bits, etype in elements:
             val = etype ((field >> start) & ((1 << bits) - 1))
-            try:
-                setattr (packet, name, val)
-            except ReadOnlyError:
-                logging.debug ("Field required value mismatch: {}", name)
-                raise WrongValue from None
-            except ValueError:
-                logging.debug ("Invalid field value: {}", name)
-                raise WrongValue from None
-        return buf[flen:]
+            setattr (packet, name, val)
+        return buf
 
     @classmethod
     def length (cls, flen, elements):
@@ -338,10 +343,14 @@ class BM (FieldGroup):
     def makecoderow (cls, *args):
         elements = list ()
         names = set ()
+        namelist = list ()
         # Find the field length in bytes
         topbit = -1
-        fields = args
         for name, start, bits, *etype in args:
+            if bits < 1:
+                raise TypeError ("Invalid bit count {} for {}".format (bits, name))
+            if name in names:
+                raise TypeError ("Duplicate name {}".format (name))
             if etype:
                 etype = etype[0]
             else:
@@ -349,8 +358,9 @@ class BM (FieldGroup):
             topbit = max (topbit, start + bits - 1)
             elements.append ((name, start, bits, etype))
             names.add (name)
+            namelist.append (name)
         flen = (topbit + 8) // 8
-        return cls, None, (flen, elements), names, False
+        return cls, None, (flen, elements), namelist, False
     
 class EX (Field, int):
     "Extensible field"
@@ -528,14 +538,7 @@ class TLV (FieldGroup):
             if fname:
                 # Simple field
                 v, buf2 = ftype.decode (buf[pos:pos + vlen], *fargs)
-                try:
-                    setattr (packet, fname, v)
-                except ReadOnlyError:
-                    logging.debug ("Field required value mismatch: {}", fname)
-                    raise WrongValue from None
-                except ValueError:
-                    logging.debug ("Invalid field value: {}", fname)
-                    raise WrongValue from None
+                setattr (packet, fname, v)
             else:
                 buf2 = ftype.decode (buf[pos:pos + vlen], packet, *fargs)
             if buf2:
@@ -549,6 +552,7 @@ class TLV (FieldGroup):
     @classmethod
     def makecoderow (cls, *args):
         names = set ()
+        namelist = list ()
         tlen, llen, wild, *layout = args
         codedict = dict ()
         for k, ftype, *fargs in layout:
@@ -556,8 +560,10 @@ class TLV (FieldGroup):
                 ftype = I_tlv
             if not issubclass (ftype, Field):
                 raise InvalidField ("Invalid field type {}".format (ftype.__name__))
-            ftype, fname, fargs, fnames, x  = ftype.makecoderow (*fargs)
+            ftype, fname, fargs, fnamelist, x  = ftype.makecoderow (*fargs)
             checkrowargs (ftype, fname, fargs)
+            namelist.extend (fnamelist)
+            fnames = set (fnamelist)
             dups = names & fnames
             if dups:
                 dups = ", ".join (n for n in dups)
@@ -566,7 +572,7 @@ class TLV (FieldGroup):
                 raise TypeError ("Invalid type {} inside TLV".format (ftype))
             names.update (fnames)
             codedict[k] = (ftype, fname, fargs)
-        return cls, None, (tlen, llen, wild, codedict), names, wild
+        return cls, None, (tlen, llen, wild, codedict), namelist, wild
     
 class indexer (type):
     """Metaclass that builds an index of the classes it creates, for use
@@ -771,7 +777,8 @@ class packet_encoding_meta (indexer):
         if packetbase is None:
             # Not a subclass of Packet, we're done
             return indexer.__new__ (cls, name, bases, classdict)
-        allslots = set (packetbase._allslots)
+        allslots = list (packetbase._allslots)
+        allslotset = set (allslots)
         codetable = list (packetbase._codetable)
         # See if we're making a subclass of an indexed class, i.e.,
         # the packet base class has a "classindexkey" attribute.
@@ -789,7 +796,7 @@ class packet_encoding_meta (indexer):
         classnames = frozenset (classdict)
         # Start with the set of base class fields that have fixed
         # values given to them in this class.
-        fixedvals = allslots & classnames
+        fixedvals = allslotset & classnames
         for ftype, fname, *args in layout:
             # Process the rows of the layout table
             if last:
@@ -797,26 +804,29 @@ class packet_encoding_meta (indexer):
                 raise InvalidField ("Extra field {} {}".format (ftype.__name__, fname))
             if not issubclass (ftype, Field):
                 raise InvalidField ("Invalid field type {}".format (ftype.__name__))
+            ftype, fname, args, newslots, wild = ftype.makecoderow (fname, *args)
             if fname:
                 # Simple field.
-                if fname in allslots:
+                if fname in allslotset:
                     raise InvalidField ("Duplicate field {} in layout".format (fname))
                 if fname in classnames:
                     # Fixed value.  Make sure the class attribute has
                     # the correct type.  A little later we'll drop
                     # that value into a descriptor.
                     classdict[fname] = ftype.checktype (fname, classdict[fname])
-            ftype, fname, args, newslots, wild = ftype.makecoderow (fname, *args)
             checkrowargs (ftype, fname, args)
             last = ftype.lastfield
             codetable.append ((ftype, fname, args))
             # Any attributes defined as class attributes will not be
             # created as instance attributes.
-            newslots = set (newslots)
-            fixedvals |= newslots & classnames
-            newslots -= classnames
-            allslots |= newslots
-            slots |= newslots
+            newslotset = set (newslots)
+            fixedvals |= newslotset & classnames
+            newslotset -= classnames
+            allslotset |= newslotset
+            slots |= newslotset
+            for n in newslots:
+                if n in newslotset:
+                    allslots.append (n)
             if wild:
                 slots.add ("__dict__")
         # Handle fixed values.  These are given in the class
@@ -844,6 +854,8 @@ class packet_encoding_meta (indexer):
         # Add any extra slots requested by the class, then set __slots__
         if addslots:
             slots.update (addslots)
+            for a in addslots:
+                allslots.append (a)
         # If this is the root class of a tree of indexed classes,
         # create an instanceindexkey function if this class didn't
         # specify one explicitly.  The method we create will fetch the
@@ -1033,26 +1045,26 @@ class Packet (Field, metaclass = packet_encoding_meta):
         """
         buf = makebytes (buf)
         ret = cls ()
+        return ret, ret.decode_data (buf, *decodeargs)
+
+    def decode_data (self, buf, *decodeargs):
+        "Decode the packet data into this (newly constructed) object"
         # Start filling in the object data as instructed by the code
         # table.
-        ret.decoded_from = buf
-        for ftype, fname, args in ret._codetable:
+        self.decoded_from = buf
+        for ftype, fname, args in self._codetable:
             if fname:
-                val, buf = ftype.decode (buf, *args)
                 try:
-                    setattr (ret, fname, val)
-                except ReadOnlyError:
-                    logging.debug ("Field required value mismatch: {}", fname)
-                    raise WrongValue from None
-                except ValueError:
-                    logging.debug ("Invalid field value: {}", fname)
-                    raise WrongValue from None
+                    val, buf = ftype.decode (buf, *args)
+                    setattr (self, fname, val)
+                except Exception:
+                    raise AtField (fname)
             else:
-                buf = ftype.decode (buf, ret, *args)
+                buf = ftype.decode (buf, self, *args)
         # All decoded, do any class-specific checking.
-        ret.check ()
-        return ret, buf
-    
+        self.check ()
+        return buf
+
     def __bytes__ (self):
         """Convert to bytes.  We encode the data each time, since this
         doesn't happen often enough to bother with the rather hairy

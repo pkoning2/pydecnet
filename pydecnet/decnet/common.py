@@ -25,6 +25,8 @@ DNVERSION = "DECnet/Python T{}".format (DNVERNUM)
 CYEAR = "2022"
 AUTHORS = "Paul Koning"
 
+DECNETROOT = os.path.dirname (__file__)
+
 # Defaults
 
 DEFCONFIG = "pydecnet.conf"
@@ -208,11 +210,12 @@ class Field:
         machinery to use, and some additional items.  The return value
         is a tuple consisting of field type, field name, any arguments,
         slot name information, and "wild" flag.  The slot name info is
-        an iterable of slot names.  The wild flag is True if for field
-        groups that accept arbitrary fields, as happens with TLV and
-        NICE groups.  For simple fields that case never applies.
+        an iterable of slot names; it should be ordered (not a set) for
+        debug printout to be most useful.  The wild flag is True if for
+        field groups that accept arbitrary fields, as happens with TLV
+        and NICE groups.  For simple fields that case never applies.
         """
-        return cls, name, args, { name }, False
+        return cls, name, args, [ name ], False
 
 class Entity (object):
     """Entity is the base class for most classes that define DECnet
@@ -565,35 +568,38 @@ ROUTINGPROTO = Ethertype ("60-03")
 LATPROTO     = Ethertype ("60-04")   # used by bridge
 LOOPPROTO    = Ethertype ("90-00")
 
-_version = struct.Struct ("<BBB")
 class Version (Field, bytes):
-    """DECnet component version number -- 3 integers.
+    """DECnet component version number -- 3 integers.  Subclasses can
+    define longer version nummbers; shorter ones are not easily done
+    with the current code structure.
     """
-    def __new__ (cls, v1, v2 = 0, v3 = 0):
+    N = 3
+    def __new__ (cls, v1, v2 = 0, v3 = 0, *vx):
         if isinstance (v1, str):
             v = v1.split ('.')
-            if len (v) != 3:
+            if len (v) != cls.N:
                 raise ValueError ("Invalid version string {}".format (v1))
-            v = _version.pack (*(int (i) for i in v))
+            v = b"".join (byte (int (i)) for i in v)
         elif isinstance (v1, int):
-            v = _version.pack (v1, v2, v3)
+            v = b"".join (byte (vv) for vv in (v1, v2, v3, *vx))
+            if len (v) != cls.N:
+                raise ValueError ("Invalid version numbers {} {} {} {}".format (v1, v2, v3, vx))
         else:
             v = makebytes (v1)
-            if len (v) != 3:
+            if len (v) != cls.N:
                 raise ValueError ("Invalid version string {}".format (v1))
         return super ().__new__ (cls, v)
 
     @classmethod
     def decode (cls, buf):
-        require (buf, 3)
-        return cls (buf[:3]), buf[3:]
+        require (buf, cls.N)
+        return cls (buf[:cls.N]), buf[cls.N:]
 
     def encode (self):
         return self
     
     def __str__ (self):
-        v1, v2, v3 = _version.unpack (self)
-        return "{}.{}.{}".format (v1, v2, v3)
+        return ".".join ("{}".format (v) for v in self)
 
     __repr__ = __str__
     

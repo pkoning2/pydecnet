@@ -47,19 +47,25 @@ PyDECnet contains the following major components:
   - NSP
   - Session Control
   - Network Management   ("show" and "loop" support only)
-  - Applications
-    - File transfer      (planned, not yet implemented)
+  - Application layer servers ("objects" in DECnet terminology)
+    - File transfer listener
     - NML
-    - EVL		 (event receiver only, sender NYI)
+    - EVL
     - Mirror
-- API for MOP and Session Control, using JSON over HTTP(S)
+    - Passthrough ("Poor Man's Routing)
+- API for MOP and Session Control, using JSON over a Unix domain
+  socket).  Two types of "connectors" to wrap this API with a simple
+  programming interface are also supplied.
+  
 - HTTP(S) based monitoring interface
+- Applications:
+  - File transfer (NFT)
+  - Network management (NCP)
+  - Sample MOP remote console client
+  - Several other tools intended more as examples
 
 The API allows external processes to access protocol services in
-PyDECnet, via JSON carried over HTTPS (the same HTTPS port also used
-for monitoring).  Several sample API clients are provided in the
-"samples" directory.  A library to use this API to implement a socket
-style interface is planned.
+PyDECnet, via JSON carried over Unix domain sockets.
 
 Application features
 
@@ -88,9 +94,6 @@ well as OS-specific events from RSTS, RSX, and VMS.  For RSX and VMS,
 the event codes (messages) are handled but not OS-specific parameters
 due to the absence of documentation.
 
-To be done: details on which are exception cases.  Possible
-enhancement: configurable levels for particular events.
-
 Network management listener (NML, object 19)
 
 This implements the server end of the remote network management
@@ -110,6 +113,14 @@ subset is supported:
   is supported only on Ethernet circuits; it uses the Ethernet
   standard loop protocol.  All documented command keywords are
   supported. 
+
+Poor man's routing (PSTHRU, object 123)
+
+TBD
+
+File access listener (FAL, object 17)
+
+TBD
 
 Multiple node support
 

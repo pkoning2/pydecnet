@@ -29,9 +29,6 @@ except ImportError:
 # before any chroot is done.
 datetime.datetime.strptime("2020", "%Y")
 
-packagedir = os.path.dirname (__file__)
-resdir = os.path.join (packagedir, "resources")
-
 from .common import *
 from . import html
 from . import statemachine
@@ -41,6 +38,8 @@ from . import timers
 from . import nicepackets
 from . import events
 from .nsp import UnknownNode, WrongState, NSPException
+
+resdir = os.path.join (DECNETROOT, "resources")
 
 SvnFileRev = "$LastChangedRevision$"
 

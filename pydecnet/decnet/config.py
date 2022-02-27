@@ -441,14 +441,34 @@ cp.add_argument ("--argument", metavar = "A",
                  help = """Optional argument to pass to application
                         when started.  May be repeated to supply an
                         argument list.""")
+canuid = hasattr (os, "setuid") and os.getuid () == 0
 if pam:
-    cp.add_argument ("--authentication", choices = ("on", "off"),
-                     default = "off",
-                     help = """'on' to have PyDECnet verify username/password,
-                            'off' to ignore username/password.  
-                            Default: off.""")
+    if canuid:
+        cp.add_argument ("--authentication", choices = ("on", "off", "login"),
+                         default = "off",
+                         help = """'on' to have PyDECnet verify username/password,
+                                'login' to log file object in as that user,
+                                'off' to ignore username/password.  
+                                Default: off.""")
+    else:
+        cp.add_argument ("--authentication", choices = ("on", "off"),
+                         default = "off",
+                         help = """'on' to have PyDECnet verify username/password,
+                                'off' to ignore username/password.  
+                                Default: off.""")
 else:
     cp.set_defaults (authentication = "off")
+if canuid:
+    cp.add_argument ("--uid", default = None,
+                     help = """User ID or user name to use as default 
+                            for file object if 'login' authentication,
+                            or to set for other authentication.""")
+    cp.add_argument ("--gid", default = 0, type = int,
+                     help = """Group ID or user name to use as default 
+                            for file object if 'login' authentication,
+                            or to set for other authentication.""")
+else:
+    cp.set_defaults (uid = None, gid = 0)
 
 cp = config_cmd ("bridge", "LAN bridge layer")
 cp.add_argument ("name", help = "Bridge name")

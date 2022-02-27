@@ -24,12 +24,14 @@ class test_mirror (DnTest):
         if self.process:
             self.config.object = [ container () ]
             self.config.object[0].number = 25
-            self.config.object[0].file = "decnet/applications/mirror.py"
+            self.config.object[0].file = "applications/mirror.py"
             self.config.object[0].disable = False
             self.config.object[0].name = "MIRROR"
             self.config.object[0].module = None
             self.config.object[0].argument = [ ]
             self.config.object[0].authentication = "off"
+            self.config.object[0].uid = None
+            self.config.object[0].gid = 0
         else:
             self.config.object = [ ]
         self.node.nsp = unittest.mock.Mock ()
