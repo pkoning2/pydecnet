@@ -305,7 +305,7 @@ if ssl:
 cp.add_argument ("--mapper", default = "", help = argparse.SUPPRESS)
 cp.add_argument ("--mapdb", default = "/var/db/decnet/mapdata.json",
                  help = argparse.SUPPRESS)
-cp.add_argument ("--nodedbserver", default = "mim.update.uu.se",
+cp.add_argument ("--nodedbserver", default = "mim.stupi.net",
                  help = argparse.SUPPRESS)
 cp.add_argument ("--nodedbtz", default = "Europe/Stockholm",
                  help = argparse.SUPPRESS)
