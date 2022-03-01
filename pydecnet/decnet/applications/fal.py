@@ -70,7 +70,7 @@ def files (v7, req, attr = None):
     sendname = dirop or req.name or wild
     ret = list ()
     curdn = None
-    files = glob.glob (pn, include_hidden = False)
+    files = glob.glob (pn)
     if not files:
         # Nothing found, see what we should say about that
         dn, bn = os.path.split (pn)
