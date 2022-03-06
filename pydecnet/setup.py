@@ -20,9 +20,10 @@ setup (author = "Paul Koning",
        python_requires = ">=3.3",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
-                    "decnet.resources.images" ],
+                    "decnet.resources.images", "applications" ],
        package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.js", "*.html" ],
-                        "decnet.resources.images" : [ "*.png", "*.svg" ]},
+                        "decnet.resources.images" : [ "*.png", "*.svg" ],
+                        "applications" : [ "*" ]},
        entry_points  = {
            "console_scripts" : [
                "pydecnet = decnet.main:main"

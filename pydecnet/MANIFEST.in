@@ -2,12 +2,13 @@ include MANIFEST.in
 include LICENSE
 include Leaflet-Arc-LICENSE.md
 include Leaflet-LICENSE
-include README.txt
+include CHANGES.txt
 include samples/pydecnet.conf
 include samples/bridge.conf
 include crc.py
 recursive-include decnet *.py
-recursive-include samples *.py *.json *.yaml
+recursive-include applications *.py
+recursive-include samples *.py *.json *.yaml *.dat *.conf *.service
 recursive-include tests *.py
 recursive-include doc *.txt
 recursive-include decnet/resources *.css *.svg *.txt *.png *.js
