@@ -1,11 +1,11 @@
 ****************************************************************
 
-This is a work in progress, somewhat incomplete at present.
+This is a work in progress.  The current version is fairly complete
+and solid enough for production use.
 
-Please feel free to use it.  Don't be surprised about problems.  If
-you use this, please let me know; in particular bug reports would be
-appreciated, but if works well for you, I'd like to hear about that as
-well.
+If you use this software, I'd be interested in hearing your
+observations.  Bug reports in particular are of course welcome, but
+"it works fine" is also appreciated!
 
 		Paul Koning, paulkoning@comcast.net
 
@@ -22,15 +22,17 @@ implementation (other than by virtue of having published the protocol
 specifications, which are available to the general public).
 
 PyDECnet allows communication over Ethernet LANs (virtual or real),
-SIMH emulated DMC connections, and asynchronous DDCMP connections via
-a supported UART.  It was developed using Python 3.3 on Mac OS 10.6
-and 10.10; it should work with Python 3.3 or later (but not with any
-earlier version of Python) on any Unix-like operating system.  It may
-or may not work on Windows; if you try that, I would be interested in
-hearing the results.  Note, however, that some strange behavior has
-been seen in Python 3.3 and 3.5 testing -- but not in Python 3.7 --
-when configuring multiple systems in a single invocation.  (The
-symptom is that some of the sockets used get bind failures.)
+GRE, SIMH emulated DDCMP connections over TCP or UDP, asynchronous
+DDCMP connections via a supported UART, synchronous DDCMP connections
+using my DDCMP framer, and Multinet connections over TCP (or, very
+much not recommended, over UDP).  It was initially developed using
+Python 3.3 on Mac OS 10.6 and 10.10; it should work with Python 3.3 or
+later (but not with any earlier version of Python) on any Unix-like
+operating system.  The current version was tested with Python 3.6 and
+later since versions earlier than that are no longer supported (as of
+2022).  PyDECnet may or may not work on Windows; if you try that, I
+would be interested in hearing the results.  A few features require
+Python 3.7.
 
 The implementation is written to conform to the Digital Network
 Architecture, Phase II, III, and IV, as published by Digital Equipment
@@ -49,35 +51,30 @@ PyDECnet is licensed under the BSD 3-part license.
 knowledge. 
 
 Dependencies: Async DDCMP support, over an actual serial port (as
-opposed to a Telnet connection) requires the "serial" package.
+opposed to a Telnet connection) requires the "pyserial" package.
 Ethernet support (over real Ethernet, as opposed to Ethernet-style
 bridging via Johnny Bilquist's bridge program) requires libpcap or TAP
-support.  TAP support has only been done for Mac OS X at this time; it
-depends on the "tuntaposx" package by Mattias Nissler (see
-http://tuntaposx.sourceforge.net/ for details). To run as a daemon,
-you need the python-daemon package.  To use YAML files in the
---log-config option, you need the PyYAML package.
-
-A note on pcap: The original implementation used a modified version of
-the pylibpcap package (changed for Python 3 support and to add the
-"inject" method).  Later on, that dependency was removed and the
-decnet.pcap pure Python wrapper is used instead.
+support.  To run as a daemon, you need the python-daemon package.  To
+use YAML files in the --log-config option, you need the PyYAML
+package.  To do password authentication for incoming DECnet
+connections, you need the python-pam package.
 
 ****************************************************************
 
 Project status:
 
-As of 4/29/2020, the following are implemented and at least somewhat
+As of 3/9/2022, the following are implemented and at least somewhat
 tested:
 
 - Data links: LAN and point to point frameworks, Ethernet (via the
-Johnny Bilquist bridge; via pcap; on Mac OS, via TAP); GRE
-encapsulation of Ethernet; DDCMP (point to point only, over TCP, UDP,
-or an actual UART); Multinet over UDP (not recommended due to the fact
-that this protocol grossly violates the DECnet specifications) and
-over TCP.
+Johnny Bilquist bridge; via pcap; or via TAP); GRE encapsulation of
+Ethernet; DDCMP (point to point only, over TCP, UDP, an actual UART,
+or my synchronous framer USB device); Multinet over UDP (not
+recommended due to the fact that this protocol grossly violates the
+DECnet specifications) and over TCP.
 
-- MOP on Ethernet, including console carrier and counters request.
+- MOP on Ethernet, including console carrier and counters request, but
+not load/dump service.
 
 - Routing layer: endnode, level 1, level 2 (area router).  Phase II,
 Phase III, and Phase IV are all implemented.  Phase II includes
@@ -85,21 +82,25 @@ partial "intercept node" support (the routing part but not the
 connection tracking part).  All have received at least cursory
 testing. 
 
-- NSP and Session Control layer, with support for internal
-applications (implemented as Python modules).  There are several
-application modules available, all of which are enabled by default:
-"mirror" (for NCP LOOP NODE support), "nml" (NICE protocol
-implementation for read operations only) and "evl" (logging sink,
-accepts DECnet event messages from other nodes and send them to the
-logging machinery).
+- NSP and Session Control layer, with support for applications
+(implemented as Python modules or as files which are run in a
+subprocess).  There are several applications available, most of
+which are enabled by default: "mirror" (for NCP LOOP NODE support),
+"nml" (NICE protocol implementation for read operations only) and
+"evl" (logging sink, accepts DECnet event messages from other nodes
+and send them to the logging machinery), "pmr" (poor man's routing
+"Passthrough" object) and "fal" (DAP file access listener, not enabled
+by default).
 
 - Fairly complete monitoring via HTTP or HTTPS, with CSS support.
 Also monitoring via the NICE protocol.
 
-- An API framework accessed via JSON.  At the moment this supports
-status queries (accessing about the same data as the HTTP monitoring
-does) as well as a MOP Console Carrier client and MOP Counters Request
-client. 
+- An API framework accessed via JSON.  This supports status queries
+(similar to the data shown by the HTTP monitoring), a MOP Circuit Loop
+requester, Console Carrier client and MOP Counters Request client, all
+these for Ethernet circuits.  Also access to the Session Control
+services, allowing external programs to request connections outbound,
+receive inbound connections, and communicate over those connections.
 
 - Other infrastructure: event logging tied into the Python logging
 module, with event filtering, as well as support for the standard
@@ -115,9 +116,6 @@ To do:
 
 - More documentation.
 
-- Also support for external applications via additional JSON API
-mechanisms.
-
 - Control (not just monitoring) via HTTP and NICE.
 
 ****************************************************************
@@ -129,6 +127,9 @@ information about nodes from the HECnet node database, and then
 scanning the network status to find reachable nodes and operational
 circuits.  The resulting data is then mapped using the Leaflet map
 display tools.
+
+The HECnet map server is node 28NH, the map it generates is accessible
+at http://akdesign.dyndns.org:8080/map .
 
 A network needs only one or two map servers, and on HECnet those are
 provided already.  For this reason, PLEASE DO NOT enable the map

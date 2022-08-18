@@ -284,12 +284,10 @@ class AsyncApiConnector (AsyncConnector):
     def send (self, *, tag = None, api = None, system = None, **req):
         # Empty request means "get system list", otherwise fill in
         # standard arguments.  But "tag" is not considered in this test.
-        if req:
+        if req or api or system:
             assert api
             if system:
                 req["system"] = system
-            req["api"] = api
-        elif api:
             req["api"] = api
         if tag is not None:
             req["tag"] = tag

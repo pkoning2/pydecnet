@@ -130,7 +130,7 @@ phases = { "l2router" : 4, "l1router" : 4, "endnode" : 4,
            "phase3router" : 3, "phase3endnode" : 3,
            "phase2" : 2 }
 
-class Node (Entity):
+class Node:
     """A Node object is the outermost container for all the other objects
     that make up a DECnet node.  Typically there is one Node object, but
     it's certainly possible to create multiple ones (to emulate an

@@ -69,8 +69,11 @@ class ApiHandler:
                         # methods don't need to deal with those extra
                         # items.  This helps when the request is passed
                         # as a **req argument to some action method.
-                        system = req.pop ("system", self.owner.defnode).upper ()
-                        node = self.owner.nodes.get (system, None)
+                        system = req.pop ("system", self.owner.defnode)
+                        if system:
+                            node = self.owner.nodes.get (system.upper (), None)
+                        else:
+                            node = None
                         subsys = req.pop ("api", None)
                         # "type" is the request, or operation; default to "get"
                         reqtype = req.pop ("type", "get")

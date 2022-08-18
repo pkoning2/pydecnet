@@ -43,6 +43,10 @@ class ReceiptGen (object):
                 self.receipt = ret + 1
         return ret
 
+# The receipt generator is global, so we don't produce conflicting
+# receipt numbers if we're running a multi-node config.
+receipt = ReceiptGen ()
+
 # Some well known Ethernet addresses
 CONSMC = Macaddr ("AB-00-00-02-00-00")
 LOOPMC = Macaddr ("CF-00-00-00-00-00")
@@ -295,7 +299,7 @@ class Mop (Element):
         self.node.mop = self
         logging.debug ("Initializing MOP layer")
         self.config = config
-        self.circuits = EntityDict ()
+        self.circuits = dict ()
         dlcirc = self.node.datalink.circuits
         self.console_config = False
         self.connections = dict ()
@@ -548,7 +552,6 @@ class MopCircuit (Element):
                            self.datalink.__class__.__name__, self.name)
             # Dictionary of pending requests, indexed by receipt number
             self.requests = dict ()
-            self.receipt = ReceiptGen ()
             self.loop = LoopHandler (self, self.datalink)
             # The various MOP console handlers share a port, so we'll
             # own it and dispatch received traffic.
@@ -592,7 +595,7 @@ class MopCircuit (Element):
         The assigned receipt number is returned.
         """
         if receipt is None:
-            rnum = self.receipt.next ()
+            rnum = receipt.next ()
             pkt.receipt = rnum
         else:
             rnum = receipt
@@ -698,7 +701,9 @@ class CounterHandler (Element):
         logging.trace ("processing API call, counter request")
         conn = CounterConnection (self, self.parent, client, tag)
         return conn.start (req)
-    
+
+SYSID_STARTRATIO = 30
+
 class SysIdHandler (Element, timers.Timer):
     """This class defines processing for SysId messages, both sending
     them (periodically and on request) and receiving them (multicast
@@ -709,7 +714,7 @@ class SysIdHandler (Element, timers.Timer):
         timers.Timer.__init__ (self)
         self.mop = parent.mop
         # Send the initial ID fairly soon after startup
-        self.node.timers.start (self, self.id_self_delay () / 30)
+        self.node.timers.start (self, self.id_self_delay () / SYSID_STARTRATIO)
         self.port = port
         self.mop = parent.parent
         self.heard = dict ()
@@ -1289,7 +1294,7 @@ class LoopConnection (MopConnection):
             self.client.send_dict (ret)
 
     def buildloop (self, destlist, payload):
-        rnum = self.parent.parent.receipt.next ()
+        rnum = receipt.next ()
         ret = LoopReply (receipt = rnum, payload = payload)
         for dest in reversed (destlist):
             ret = LoopFwd (dest = dest, payload = ret)

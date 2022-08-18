@@ -120,7 +120,7 @@ class TestNiceResp (DnTest):
                           "DECnet/Python test system in NH, USA")
         self.assertEqual (e.maximum_links, 4095)
         es = NICE.format (e)
-        self.assertRegex (es, r"Routing Version = 2\.0\.0")
+        self.assertRegex (es, r"Routing version = 2\.0\.0")
         # Check encoding
         self.assertEqual (b, bytes (e))
 

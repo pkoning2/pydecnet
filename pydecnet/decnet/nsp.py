@@ -108,9 +108,9 @@ class NSP (Element):
         super ().__init__ (parent)
         logging.debug ("Initializing NSP")
         # Dictionary of connections indexed by local connection address
-        self.connections = EntityDict ()
+        self.connections = dict ()
         # Ditto but indexed by node ID and remote connection address.
-        self.rconnections = EntityDict ()
+        self.rconnections = dict ()
         self.config = config = config.nsp
         self.maxconns = config.max_connections
         # Fixed for now
@@ -1331,12 +1331,13 @@ class Connection (Element, statemachine.StateMachine):
     def update_delay (self, txtime):
         if txtime and self.destnode:
             delta = time.time () - txtime
-            # If the time estimate is smaller than our timer
-            # granularity, round it up to one tick.  Otherwise we may
-            # end up with retransmit timeouts that are too short and
-            # produce false timeouts.
-            if delta < JIFFY:
-                delta = JIFFY
+            # Make the time estimate at least one second.  That might
+            # seem excessive because we have 0.1 second granularity,
+            # but when using DDCMP serial links where the latency
+            # depends on length, short estimates produce false timeout
+            # and bad behavior if long packets are sent.
+            if delta < 1:
+                delta = 1
             if self.destnode.delay:
                 # There is an estimate, do weighted average
                 self.destnode.delay += (delta - self.destnode.delay) \

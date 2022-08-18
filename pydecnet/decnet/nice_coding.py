@@ -861,7 +861,10 @@ node_counters = (
     ( 930, CTR1, "Verification reject", "ver_rejects" ),
     # RSTS/E specific codes
     ( 2200, CTR2, "Current reachable nodes" ),
-    ( 2201, CTR2, "Maximum reachable nodes" )
+    ( 2201, CTR2, "Maximum reachable nodes" ),
+    # RSX specific codes
+    ( 2300, CTR2, "Maximum logical links" ),
+    ( 2310, CTR2, "Received connect resource errors" )
 )
 
 circuit_counters = (
@@ -875,6 +878,8 @@ circuit_counters = (
     ( 812, CTR2, "Transit congestion loss", "trans_cong" ),
     ( 820, CTR1, "Circuit down", "cir_down" ),
     ( 821, CTR1, "Initialization failure", "init_fail" ),
+    # From RSX, but generally applicable?
+    ( 900, CTR1, "Peak adjacencies", "peak_adj" ),
     ( 1000, CTR4, "Bytes received", "bytes_recv" ),
     ( 1001, CTR4, "Bytes sent" ),
     ( 1010, CTR4, "Data blocks received", "pkts_recv" ),
@@ -969,5 +974,18 @@ line_counters = (
               "Transmit underruns",
               "NAKs received, header format error",
               "Receive overrun",
-              "FRMR received, head format error" ))
+              "FRMR received, head format error" ),
+    # RSX specific counters for PCL-11:
+    ( 2410, CTR2, "Attempts to become master" ),
+    ( 2411, CTM2, "Process errors", None,
+            ( "Unrecognized receiver error",
+              "Unrecognized station error",
+              "Flag format error",
+              "Multiplexer address error" )),
+    ( 2412, CTM2, "Device errors", None,
+            ( "Transmitter underrun",
+              "Transmitter overflow",
+              "Receiver overrun",
+              "Receiver overflow",
+              "Interrupt timeout" )))
 )

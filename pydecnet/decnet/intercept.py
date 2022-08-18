@@ -238,7 +238,7 @@ class FullIntercept (BaseIntercept):
         except KeyError:
             # Unknown destination node nanme
             logging.debug ("intercept {}: unknown destination node {}",
-                           self.owner, pkt.dstnode)
+                           self.parent, pkt.dstnode)
         return None
     
     def send (self, pkt, adj):

@@ -215,7 +215,7 @@ class DecnetLogRecord (logging.LogRecord):
                 pkt = b"".join (makebytes (p) for p in pkt)
             else:
                 pkt = makebytes (pkt)
-            ret.append (dump_packet (pkt))
+            ret.append (dump_packet (pkt).replace ("\n", "\n  "))
         return "\n  ".join (ret)
 
 logging.setLogRecordFactory (DecnetLogRecord)

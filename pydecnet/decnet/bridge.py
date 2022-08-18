@@ -140,7 +140,7 @@ class Bridge (Element):
         # Database of known destination addresses
         self.addrdb = AddrDb (node)
         # Find our circuits
-        self.circuits = EntityDict ()
+        self.circuits = dict ()
         dlcirc = self.node.datalink.circuits
         for name, c in config.circuit.items ():
             dl = dlcirc[name]
@@ -241,5 +241,5 @@ class Bridge (Element):
         return dict (error = "Unsupported operation", type = reqtype)
 
     def get_api (self):
-        return { "circuits" : self.circuits.get_api (),
+        return { "circuits" : list (self.circuits.keys ()),
                  "name" : self.name }

@@ -82,6 +82,10 @@ class GRE (datalink.BcDatalink, StopThread):
             raise ValueError ("Source port must be specified")
         self.host = host.HostAddress (dest, GREPROTO, self.source)
         self.socket = None
+        logging.debug ("GRE datalink {} initialized:\n"
+                       "  Dest:   {}\n"
+                       "  Source: {}",
+                       self.name, config.destination or "*", config.source)
         
     def open (self):
         # Create the socket and start receive thread.  Note that we do not

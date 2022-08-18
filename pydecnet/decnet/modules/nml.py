@@ -343,9 +343,12 @@ class Application (Element):
             self.sendreply (resp)
         else:
             # Something else went wrong, call it a disconnect
-            self.loop_conn.abort()
+            try:
+                self.loop_conn.abort()
+            except DNAException:
+                pass
             self.loop_conn = None
-            resp = nicepackets.NiceReply ()
+            resp = nicepackets.NiceLoopErrorReply ()
             resp.retcode = -19   # Mirror connection failed
             resp.detail = 0      # TODO
             resp.notlooped = self.loop_count

@@ -900,18 +900,23 @@ class DictConnector (BaseConnector):
             # Control.
             args = item.args
             try:
-                action = getattr (self, args.pop ("type"))
+                aname = args.pop ("type")
+                action = getattr (self, aname)
                 assert action.is_api
             except (AssertionError, KeyError, AttributeError):
-                raise AttributeError ("Invalid API request", args) from None
-            logging.trace ("Application SC {} request:\n{}",
-                           action.__name__, repr (args))
-            try:
-                ret = action (**args)
-            except DNAException as e:
-                ret = dict (error = str (e))
+                action = None
+            if action:
+                logging.trace ("Application SC {} request:\n{}",
+                               action.__name__, repr (args))
+                try:
+                    ret = action (**args)
+                    if ret is not None:
+                        logging.trace ("action returns {}", repr (ret))
+                except DNAException as e:
+                    ret = dict (error = str (e))
+            else:
+                ret = dict (error = "Invalid API request", type = aname)
             if ret is not None:
-                logging.trace ("action returns {}", repr (ret))
                 tag = getattr (item, "tag", None)
                 if tag is not None:
                     ret["tag"] = tag

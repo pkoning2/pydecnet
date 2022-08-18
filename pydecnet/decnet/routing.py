@@ -338,7 +338,7 @@ class BaseRouter (Element):
         if not self.name:
             logging.critical ("No node name set for executor node {}", self.nodeid)
             raise ValueError
-        self.circuits = EntityDict ()
+        self.circuits = dict ()
         self.p2lines = dict ()
         self.adjacencies = dict ()
         self.selfadj = self.adjacencies[self.nodeid] = SelfAdj (self)
@@ -479,11 +479,17 @@ class BaseRouter (Element):
 
     def api (self, client, reqtype, tag, args):
         if reqtype == "get":
-            return self.get_api ()
+            return self.get_api (args)
         return dict (error = "Unsupported operation", type = reqtype)
 
-    def get_api (self):
-        return { "circuits" : self.circuits.get_api (),
+    def get_api (self, args):
+        c = args.get ("circuit", "").upper ()
+        if c:
+            try:
+                return self.circuits[c].get_api ()
+            except KeyError:
+                return dict (error = "Unknown circuit", circuit = c)
+        return { "circuits" : list (self.circuits.keys ()),
                  "address" : self.nodeid,
                  "name" : self.name,
                  "type" : self.ntypestring,
