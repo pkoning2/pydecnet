@@ -13,6 +13,8 @@ import re
 import tempfile
 import asyncio
 import time
+import random
+import collections
 
 try:
     # For the HTTP page scan subtests
@@ -22,6 +24,9 @@ except ImportError:
     
 from tests.dntest import *
 from decnet import async_connectors
+from decnet import mop
+
+mop.SYSID_STARTRATIO = 100
 
 # Test parameters
 QD = 4
@@ -44,41 +49,41 @@ TIMELIMIT = RUNTIME * 3
 # A is phase 4 area, R is phase 4 L1, E is phase 4 endnode, T is phase
 # 3 router, W is phase 2; Z is external nodes (can connect to the test
 # setup but aren't built as part of it)
-nodes = """1.1 a11
-1.2 r12
-1.3 w13
-1.4 t14
-1.5 t15
-1.6 e16
-1.7 e17
-1.42 zzrsts
-1.43 zzz
-2.1 a21
-2.2 t22
-2.3 w23
-2.4 w24
-2.5 r25
-2.6 e26
-3.1 a31
-3.2 e32
+nodes = """1.1 A11
+1.2 R12
+1.3 W13
+1.4 T14
+1.5 T15
+1.6 E16
+1.7 E17
+1.42 ZZRSTS
+1.43 ZZZ
+2.1 A21
+2.2 T22
+2.3 W23
+2.4 W24
+2.5 R25
+2.6 E26
+3.1 A31
+3.2 E32
 """
 
 # Connections between the nodes.  "eth" circuits have an implicit
 # bridge generated for them, the others are point to point
 # connections.  For point to point we just use DDCMP; there isn't much
 # reason to use Multinet, not for system test.
-circuits = """eth-1 a11 e26 a21 e17 r25 zzrsts zzz
-eth-2 a11 a31 e16
-dmc-1 a11 r12
-dmc-2 r12 w13
-dmc-3 r12 t14
-dmc-4 r12 t15
-dmc-5 a31 e32
-dmc-6 a21 t22
-dmc-7 a21 w23
-dmc-8 t22 w23
-dmc-9 w23 w24
-dmc-10 r12 zzrsts
+circuits = """ETH-1 A11 E26 A21 E17 R25 ZZRSTS ZZZ
+ETH-2 A11 A31 E16
+DMC-1 A11 R12
+DMC-2 R12 W13
+DMC-3 R12 T14
+DMC-4 R12 T15
+DMC-5 A31 E32
+DMC-6 A21 T22
+DMC-7 A21 W23
+DMC-8 T22 W23
+DMC-9 W23 W24
+DMC-10 R12 ZZRSTS
 """
 
 HTTP = 8421
@@ -90,6 +95,8 @@ api {}
 
 _a_re = re.compile (r'href="(.+?)"')
 
+lanaddresses = collections.defaultdict (set)
+
 class Eth:
     def __init__ (self, name, p1, p2):
         self.name = name
@@ -98,10 +105,12 @@ class Eth:
 
     def writeconfig (self, f, addr):
         if addr:
-            addr = "--hwaddr " + addr
+            addr = Macaddr (addr)
+            lanaddresses[self.name].add (addr)
+            addr = "--hwaddr {}".format (addr)
         else:
             addr = "--random-address"
-        print ("circuit {} Ethernet udp:{}:127.0.0.1:{} {} --t3 5"
+        print ("circuit {} Ethernet udp:{}:127.0.0.1:{} {} --t3 5 --mop"
                    .format (self.name, self.p1, self.p2, addr), file = f)
         
 class Ddcmp:
@@ -139,17 +148,17 @@ class NodeConf (Conf):
         self.area = a
         t = None
         self.onlyarea = self.myarea = None
-        if n1 == "a":
+        if n1 == "A":
             t = "l2router"
-        elif n1 == "r":
+        elif n1 == "R":
             t = "l1router"
-        elif n1 == "e":
+        elif n1 == "E":
             t = "endnode"
-        elif n1 == "t":
+        elif n1 == "T":
             t = "phase3router"
             self.onlyarea = a
             addr = i
-        elif n1 == "w":
+        elif n1 == "W":
             t = "phase2"
             self.myarea = a
             addr = i
@@ -166,15 +175,15 @@ class NodeConf (Conf):
 
     def hasint (self):
         for n in self.neighbors:
-            if n[0] != "w":
+            if n[0] != "W":
                 return True
         return False
     
     def reachable (self, n):
-        if self.name[0] in "are" and n.name[0] in "are":
+        if self.name[0] in "ARE" and n.name[0] in "ARE":
             # Both Phase 4, full connectivity
             return True
-        if self.name[0] == "t" or n.name[0] == "t":
+        if self.name[0] == "T" or n.name[0] == "T":
             # Either is Phase 3, must be same area
             return self.area == n.area
         if self.ntype == "phase2" and n.ntype == "phase2":
@@ -211,7 +220,7 @@ class NodeConf (Conf):
 
 class BridgeConf (Conf):
     def __init__ (self, cname):
-        name = cname.replace ("eth", "br")
+        name = cname.replace ("ETH", "BR")
         super ().__init__ (name)
 
     def writeconfig (self):
@@ -224,7 +233,7 @@ def ppair ():
     return ret
 
 def tnode (name):
-    return name[0] in "aretw"
+    return name[0] in "ARETW"
     
 def setUpModule ():
     global tempdir, tempdirobj, configs, portnum, nodeconf, cfns
@@ -241,7 +250,7 @@ def setUpModule ():
             configs[n] = NodeConf (a, n)
     for c in circuits.splitlines ():
         c, *nlist = c.split ()
-        if c.startswith ("eth"):
+        if c.startswith ("ETH"):
             # LAN, create a bridge for it
             bridge = BridgeConf (c)
             configs[bridge.name] = bridge
@@ -308,17 +317,19 @@ class TestSystem (ADnTest):
             print ("Starting test phase")
             # Use two API connectors.  Not that two are needed, but
             # this will test the proper dispatching of work to each.
-            conns = [ async_connectors.AsyncApiConnector (API),
-                      async_connectors.AsyncApiConnector (API) ]
-            for c in conns:
+            self.conns = [ async_connectors.AsyncApiConnector (API),
+                           async_connectors.AsyncApiConnector (API) ]
+            for c in self.conns:
                 await c.start ()
             tests = list ()
             # Test 1: Walk the entire HTTP interface
             tests.append (asyncio.create_task (self.httpwalk ()))
-            # Test 2: Run 12 concurrent data streams, with staggered
+            # Test 2: Walk the API
+            tests.append (asyncio.create_task (self.apiwalk (False)))
+            # Test 3: Run DCOUNT concurrent data streams, with staggered
             # start and stop.
             for i, np in enumerate (random.sample (nodepairs, DCOUNT)):
-                c = conns[i % len (conns)]
+                c = self.conns[i % len (self.conns)]
                 n1, n2 = np
                 tests.append (asyncio.create_task (self.dtest (c, n1, n2, i)))
             # Wait for them all to finish
@@ -332,10 +343,12 @@ class TestSystem (ADnTest):
                 t.result ()
             # Do a few more (quick) tests at the end
             await self.httpwalk ()
+            # API also (quick mode)
+            await self.apiwalk (True)
             # Print some stats
             print ("{} total messages, {:>.0f} messages/second".format (self.totalmsg, self.totalmsg / RUNTIME))
             # All done, close the connectors
-            for c in conns:
+            for c in self.conns:
                 await c.close ()
             # Stop PyDECnet
             self.sut.terminate ()
@@ -405,19 +418,89 @@ class TestSystem (ADnTest):
             return
         walked = set ()
         todo = { "/" }
-        n = 0
-        async with aiohttp.ClientSession () as s:
+        pages = other = 0
+        async with aiohttp.ClientSession (auto_decompress = False) as s:
             while todo:
                 t = todo.pop ()
                 walked.add (t)
                 async with s.get ("http://127.0.0.1:{}{}".format (HTTP, t)) as g:
-                    n += 1
-                    resp = await g.text ()
-                    for m in _a_re.finditer (resp):
-                        u = m.group (1)
-                        if u not in walked:
-                            todo.add (u)
-        print (n, "HTTP pages visited")
+                    #print ("processing page", t, g.content_type)
+                    if g.content_type == "text/html":
+                        # HTTP page, fetch it and parse it
+                        resp = await g.text ()
+                        pages += 1
+                        for m in _a_re.finditer (resp):
+                            u = m.group (1)
+                            if not u.startswith ("/"):
+                                # Relative name, make it absolute by
+                                # applying the path of the page in which
+                                # it occurs.
+                                u = os.path.dirname (t) + "/" + u
+                            if u not in walked:
+                                todo.add (u)
+                    else:
+                        # Fetch and ignore the content
+                        await g.read ()
+                        other += 1
+        print (pages, "HTTP pages visited,", other, "other files")
+
+    async def apiexch (self, **req):
+        #print ("req", req)
+        rc, resp = await self.conns[0].exch (**req)
+        self.assertIsNone (rc)
+        rdict = resp.__dict__
+        rdict.pop ("tag")
+        self.apicount += 1
+        return rdict
+
+    async def loopreq (self, s, circ, others, count):
+        st = time.time ()
+        dest = random.sample (list (others), min (len (others), 3))
+        resp = await self.apiexch (system = s, api = "mop", type = "loop",
+                                   circuit = circ.name, fast = True,
+                                   dest = dest,
+                                   timeout = 1, packets = count)
+        et = time.time () - st
+        t = 0
+        for d in resp["delays"]:
+            if d < 0:
+                t += 1
+        print ("Loop on {} circuit {}, {} timeouts, {:.1f} seconds"
+               .format (s, circ.name, t, et))
+        
+    async def apiwalk (self, quick):
+        if quick:
+            count = 500
+        else:
+            count = 2000
+        systems = set (configs.keys ())
+        self.apicount = 0
+        # Check systems list (empty API request)
+        self.assertEqual (systems, set (await self.apiexch ()))
+        reqs = list ()
+        for s in systems:
+            c = configs[s]
+            if s.startswith ("BR-"):
+                apis = ( "bridge", )
+            else:
+                apis = ( "mop", "routing", "nsp" )
+            for a in apis:
+                reqs.append (asyncio.create_task (self.apiexch (system = s, api = a)))
+            for cir in c.circuits:
+                if isinstance (cir, Eth) and "mop" in apis:
+                    a = lanaddresses[cir.name]
+                    others = a - { Macaddr (c.addr) }
+                    reqs.append (asyncio.create_task (self.loopreq (s, cir, others, count)))
+        done, pending = await asyncio.wait (reqs, timeout = TIMELIMIT,
+                                            return_when = asyncio.FIRST_EXCEPTION)
+        if pending:
+            print ("Some API requests are not yet finished")
+            for t in pending:
+                t.cancel ()
+        for t in done:
+            t.result ()
+        # All done
+        print (self.apicount, "API requests processed")
         
 if __name__ == "__main__":
     unittest.main ()
