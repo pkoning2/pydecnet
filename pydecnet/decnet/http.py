@@ -187,6 +187,9 @@ class DECnetMonitorRequest (http.server.BaseHTTPRequestHandler):
                 parts = [ "resources", "robots.txt" ]
             if parts[0] == "resources":
                 # Fetching a resource (a constant file)
+                if parts == [ "resources", "public" ]:
+                    # References to public directory, supply index.html
+                    parts.append ("index.html")
                 fn = os.path.join (self.server.resources, *parts[1:])
                 ctype = mimetypes.guess_type (fn, False)[0]
                 try:
