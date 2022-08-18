@@ -20,6 +20,10 @@ show known links: 16 04 14 07 ff
 
 show known objects: 16 04 14 04 ff
 
+So the system-specific entities are:
+4: Objects
+7: Links (NSP connections)
+
 RSX:
 
 show known objects: 16 02 14 07 ff
@@ -32,6 +36,11 @@ show system: 16 02 14 06
 show alias ALL: 16 02 14 08 03 41 4c 4c  .....ALL
 
 show known alias: 16 02 14 08 ff
+
+So the system-specific entities are:
+5: Process
+6: System (singleton, no additional bytes after entity code)
+8: Alias
 
 DECnet/10,20 : the source code suggests that there aren't any system
 specific functions.

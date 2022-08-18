@@ -67,22 +67,61 @@ modules in the Subversion working directory.  You can then invoke the
 
 Installation from the kit
 
-TODO: right now kits are not yet distributed.  
+Kits can be found on the DECnet/Python download page, which is
+maintained on the HECnet map server:
+http://akdesign.dyndns.org:8080/resources/public/index.html
 
-Installation of pydecnet from the kit (source tar archive) is done
-using the standard "pip" tool:
+The simplest installation is the "binary" kit, a "whl" file, which can
+be directly installed by the "pip" utility.  You can point it at the
+URL of the kit on the download server, or download it first and point
+"pip" at the downloaded file.  For example:
 
-   pip3 install decnet-1.0.tar.gz
+pip3 install http://akdesign.dyndns.org:8080/resources/public/decnet-1.0.596-py3-none-any.whl
 
 Unit test
 
 PyDECnet comes with a unit test collection.  This is mostly for
-development use, but feel free to use it.  To invoke it:
+development use, but feel free to use it.  You will need the full
+sources (source kit or Subversion working directory), not the binary
+kit.  After unpacking the sources, the tests are invoked this way:
 
    cd pydecnet
-   python3 -m unittest discover
+   python3 -m unittest 
 
 where "pydecnet" is the Subversion working directory or the top level
 directory of the unpacked source tar archive, according to which you
 used to get PyDECnet.  You can specify a particular Python 3.x to run
-the unit test collection against that particular Python release.
+the unit test collection against that particular Python release.  You
+will need the "psutil" module to run the tests, just as it is a
+requirement for running PyDECnet.  The optional modules are optional
+for test as well, but tests that exercise one of these will be skipped
+if the necessary optional component is not installed.
+
+The PyDECnet unit tests are built using the Python standard library
+module "unittest".  For more information on how that works, including
+other commands to invoke it to run selected tests or get more verbose
+output, refer to the Python library manual.
+
+A full unit test run takes about 2 minutes on a fast machine.  
+
+System exerciser
+
+Included in the unit test directory but not run as part of the unit
+test suite described above is a test that creates a simulated network
+of 15 PyDECnet nodes of various types and with various connections
+among them.  It then starts up that entire network and runs a variety
+of tests.  At the moment they are: (1) read all the HTTP status pages,
+(2) run data tests among 20 randomly chosen pairs of those 15 nodes.
+This delivers a basic check of operation of whole PyDECnet nodes, as
+opposed to the unit tests which check just one layer or code component
+at a time in isolation.
+
+To run the exerciser, simply pass the script to Python.  You may use a
+specific version of Python 3 if desired, but Python 3.8 is required.
+The "aiohttp" package is recommended; without it the HTTP page test is
+skipped. 
+
+   cd pydecnet
+   python3 tests/systemtest.py
+   
+A system exerciser run takes about 2 minutes.

@@ -85,7 +85,7 @@ Connection life cycle
 
 The process of creating a connection differs for the inbound (DECnet
 only) vs. outbound case.  Once the connection is active, data can flow
-in either direction in "data" messages, in the case of DECnet
+in either direction in "data" messages, and in the case of DECnet
 connections, also in "interrupt" messages.
 
 A connection is closed by a "disconnect" or "abort" request; both
@@ -93,6 +93,11 @@ close the connection but (in the case of DECnet connections) generate
 different disconnect reason codes to the other end.  A connection can
 also be closed by PyDECnet with a "disconnect" message which includes
 a disconnect reason code.
+
+All connections associated with an API connection are closed if the
+API connection closes; for example, if the API client process
+terminates unexpectedly, any connections it has open at the time are
+cleaned up.  
 
 Outbound connections
 
@@ -117,7 +122,7 @@ Description of the general API
 
 Get system list
 
-A general API request containing an empty dictionary (or actually, a
+A general API request containing an empty dictionary (or actually, any
 request that does not contain an "api" key) produces a response that
 is a dictionary keyed by the system named, with as value a list of the
 valid "api" values for that node.  Example:
@@ -126,7 +131,9 @@ valid "api" values for that node.  Example:
    "PYTS41" : [
       "mop",
       "routing",
-      "nsp"
+      "nsp",
+      "session",
+      "ncp"
    ]
 }
 
@@ -204,8 +211,8 @@ specific operation.
 
 All parameters except "circuit" are optional.
 
-"dest" is either a single destination address, a string in the usual
-form for Ethernet addresses, or a list of up to three addresses.  If
+"dest" is either a single destination address (a string in the usual
+form for Ethernet addresses), or a list of up to three addresses.  If
 omitted, the loopback assistance multicast address CF-00-00-00-00-00
 is used. If more than one address is specified, or the destination
 address is not the loopback assistance address, they must be a
@@ -221,7 +228,7 @@ request sent, in seconds, default is 3.  "fast" is a Boolean, default
 is false.  If false, there is a one second delay after each successful
 loop exchange (not after a timeout because we already waited for the
 timeout delay); if true, the next request is sent immediately upon
-receipt of the preceding reply, which should be done with caution
+receipt of the preceding reply.  Fast mode should be done with caution
 because of the added load on the network.
 
 The reply is a dictionary containing the overall operation status and
@@ -332,13 +339,16 @@ or
    "time_since_zeroed" : 65535,
 }
 
-TODO: update from here on
 API for Routing
+
+Routing supports the "get" requests for the routing layer and for
+individual circuits.
 
 GET for routing
 
-A GET request to routing returns some basic information about the
-DECnet node, and a list of circuit names.  For example:
+A GET request without a "circuit" argument returns some basic
+information about the DECnet node, and a list of circuit names.  For
+example:
 
 {
    "version" : "2.0.0",
@@ -346,34 +356,33 @@ DECnet node, and a list of circuit names.  For example:
       "MUL-0",
       "ETH-102"
    ],
-   "name" : "ERNIE",
-   "type" : "Area router",
-   "address" : 1026
+   "address" : 42025,
+   "name" : "PYTS41",
+   "type" : "L1 router",
+   "version" : "2.0.0",
+   "system" : "PYTS41",
+   "api" : "routing",
 }
 
 GET requests for a specific Routing circuit
 
-A GET request addressed to api/routing/circuits returns a list of the
-circuit names.
-
-A GET request addressed to api/routing/circuits/<circuitname> returns
-information that circuit.  You may use * for <circuitname> to get a
-list of circuit information for all the circuits in this routing
-layer.  The information returned depends on whether the circuit is
-point to point (such as DDCMP) or a LAN circuit (Ethernet).
+To obtain information from Routing about a specific circuit, include
+the "circuit" parameter giving the circuit name.  The information
+returned depends on whether the circuit is point to point (such as
+DDCMP) or a LAN circuit (Ethernet).
 
 Example of point to point circuit response:
 
 {
+   "name" : "MUL-187",
+   "state" : "ru4l1",
    "hello_timer" : 60,
-   "listen_timer" : 120,
-   "cost" : 1,
-   "state" : "ru",
+   "cost" : 4,
+   "neighbor" : 42171,
+   "type" : "L1 router",
    "blocksize" : 576,
-   "type" : "Area router",
-   "neighbor" : 2049,
    "version" : "2.0.0",
-   "name" : "MUL-0"
+   "listen_timer" : 63,
 }
 
 For a LAN circuit on a router, the response includes a list of
@@ -381,22 +390,22 @@ adjacencies, each of which gives a dictionary of attributes for that
 particular adjacency.  For example:
 
 {
-   "name" : "ETH-102",
-   "cost" : 1,
-   "priority" : 64,
-   "is_dr" : true,
-   "designated_router" : 2049
-   "hello_timer" : 10,
+   "name" : "ETH-0",
+   "is_dr" : false,
+   "hello_timer" : 15,
+   "priority" : 42,
+   "cost" : 3,
+   "designated_router" : "41.1",
    "adjacencies" : [
       {
-         "priority" : 64,
+         "neighbor" : 41985,
+         "blocksize" : 591,
+         "listen_timer" : 46,
          "type" : "Area router",
-         "neighbor" : 2049,
-         "listen_timer" : 30,
          "version" : "2.0.0",
-         "blocksize" : 591
+         "priority" : 64
       }
-   ]
+   ],
 }
 
 For a LAN circuit on an end node, the response shows the current
@@ -414,6 +423,8 @@ designated router, if known.  For example:
       "listen_timer" : 30
    }
 }
+
+//TODO after this.
 
 API for Bridge
 
@@ -471,7 +482,7 @@ An NCP request has the general form:
 
 {
     "type" : "nice",
-    "data":"\x12\x00\x06PYTHON",
+    "data": "\x12\x00\x06PYTHON",
     "api" : "ncp"
 }
 
@@ -484,14 +495,14 @@ is a list consisting of all the NICE response messages that make up
 the complete response to the request.  For many requests the response
 contains just one message, but for "show" commands where multiple
 items are returned (say, for "show known circuits") the list will have
-multiple entries.  Note that the empty "start of multiple responses
-(status 2) and "end of multiple responses (status -128) NICE protocol
+multiple entries.  Note that the empty "start of multiple responses"
+(status 2) and "end of multiple responses" (status -128) NICE protocol
 messages are omitted; only actual information responses are included
 in the list.  For example:
 
 {
     "api" : "ncp",
-    "data":["\x01\xff\xff\x00"]
+    "data": [ "\x01\xff\xff\x00" ]
 }
 
 The response shown here is a "success" status.

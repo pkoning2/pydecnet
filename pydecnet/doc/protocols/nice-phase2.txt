@@ -17,7 +17,10 @@ points assigned in Phase II are distinct from (lower than) the ones in
 the Phase III and IV NICE protocol.
 
 Some of the operations described below have code points assigned but
-are not implemented in TOPS-20 V4.1.
+are not implemented in TOPS-20 V4.1.  "not implemented" in
+descriptions below means not implemented in TOPS-20 V4.1.  I don't
+have access to other Phase II implementations so I don't know what
+their NML does, or even if they have one.
 
 Function codes:
 
@@ -32,8 +35,8 @@ Function codes:
 9: Zero counters
 14: Line service
 
-The second byte (?) supplies additional detail of the requested
-function:
+The second byte supplies additional detail of the requested function
+in some cases:
 
 Function 8 (read information):
 0: Local node counters (not implemented)

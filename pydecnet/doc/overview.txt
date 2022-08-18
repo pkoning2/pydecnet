@@ -1,6 +1,8 @@
 PyDECnet is an implementation of the Digital Network Architecture
 (commonly called "DECnet") implemented as a pure Python module.  It
-requires Python 3.3 or later.
+requires Python 3.3 or later.  Python 3.7 or later is recommended;
+note that the Python team no longer supports versions older than 3.5,
+and with Python 3.6 certain features of PyDECnet are not available.
 
 Standards compliance
 
@@ -17,6 +19,9 @@ specifications.
 PyDECnet also interoperates with Phase II nodes.  While this is not
 found in the Phase IV specifications, it is described in the Phase III
 specifications, and making it work was a straightforward extension.
+Phase II support includes the ability to provide "intercept" service.
+With this, a Phase II node that requests intercept (such as TOPS-20
+V4.1) will be able to reach any node, not just adjacent nodes.
 
 In addition, PyDECnet can be configured to operate as a Phase III or a
 Phase II node, in the sense that it runs the routing and NSP protocols
@@ -26,10 +31,9 @@ Supported datalinks
 
 Supported datalinks include Ethernet, DDCMP over TCP, UDP,
 asynchronous serial connections, or synchronous serial connections
-with the use of the USB connected DDCMP framer board, using the DMC-11
-emulation implemented in SIMH V3.9, "Multinet" encapsulation of point
-to point datalink messages over UDP or TCP, and GRE encapsulation of
-Ethernet packets.
+with the use of the USB connected DDCMP framer board, "Multinet"
+encapsulation of point to point datalink messages over UDP or TCP, and
+GRE encapsulation of Ethernet packets.
 
 Note that Multinet encapsulation over UDP is not recommended because
 it violates the DNA specification badly enough that it is extremely
@@ -73,54 +77,14 @@ PyDECnet includes several standard DECnet application layer
 components, currently just those implementing network management
 services.  These are all implemented as Python modules that run as
 part of the PyDECnet process (rather than as external application
-processes).  Below are more details on what is currently available.
+processes).  The following are currently available:
 
-Mirror object (object 25, "node loopback")
-
-This implements the mirror protocol defined in the Network Management
-specification, in full.  This mirror supports messages up to 65535
-bytes (the maximum possible given the way the protocol is defined).
-
+Mirror object (MIRROR, object 25, "node loopback")
 Event listener object (EVL, object 26)
-
-This is the receiving end of a "logging sink" specification, allowing
-other nodes to send their DECnet events to a PyDECnet node for
-logging.  The incoming messages are formatted into text according to
-the Network Management specification and then logged using the Python
-logging facility (see config.txt for more details on how to configure
-this).  Most events are treated as INFO log items, but a few have
-other levels (DEBUG, WARNING).  All standard events are recognized as
-well as OS-specific events from RSTS, RSX, and VMS.  For RSX and VMS,
-the event codes (messages) are handled but not OS-specific parameters
-due to the absence of documentation.
-
 Network management listener (NML, object 19)
-
-This implements the server end of the remote network management
-protocol described in the Network Management specification.  Only a
-subset is supported:
-
-- Read information -- only volatile parameters since PyDECnet does not
-  have the concept of a "permanent database".  No "loop nodes" (not
-  implemented in the routing layer); apart from that all standard
-  entities are supported as well as the "CONFIGURATOR" module.  Note
-  that the configurator module is not understood by many NCP
-  implementations, so you may need to find the right OS to be able to
-  query this.
-
-- Loop command -- only Loop Node and Loop Circuit.  Loop Node does an
-  application layer loop test using the Mirror object.  Loop Circuit
-  is supported only on Ethernet circuits; it uses the Ethernet
-  standard loop protocol.  All documented command keywords are
-  supported. 
-
 Poor man's routing (PSTHRU, object 123)
-
-TBD
-
 File access listener (FAL, object 17)
-
-TBD
+Topology server (TOPOL, used by TOPS-20 V4.1)
 
 Multiple node support
 

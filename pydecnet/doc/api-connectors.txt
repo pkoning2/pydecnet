@@ -20,8 +20,9 @@ This is found in module decnet.connectors; the two variants are
 SimpleApiConnector and SimplePipeConnector.
 
 Sample code using the simple API can be found in samples/apitest2.py
-and decnet/applications/mirror2.py.  Also, NCP (applications/ncp) uses
-the simple API connector.
+and decnet/applications/mirror2.py.  Also, NCP (applications/ncp) and
+NFT (applications/nft) use the simple API connector.  The FAL object
+(decnet/applications/fal.py) uses the simple pipe connector.
 
 Details TBS
 
@@ -30,9 +31,10 @@ Async API
 This is found in module decnet.async_connectors; the two variants are
 AsyncApiConnector and AsyncPipeConnector.
 
-Sample code using the simple API can be found in samples/apitest3.py
-and decnet/applications/mirror3.py.  Also, rcclient
-(applications/rcclient), the MOP remote console client program, uses
-the async API.
+Sample code using the asynchronous API can be found in
+samples/apitest3.py and decnet/applications/mirror3.py.  Also,
+rcclient (applications/rcclient), the MOP remote console client
+program, uses the async API.  The PMR object
+(decnet/applications/pmr.py) uses the async pipe connector.
 
 Details TBS

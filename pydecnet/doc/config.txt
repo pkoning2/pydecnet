@@ -677,7 +677,7 @@ By default, PyDECnet defines a number of objects.  These settings can
 be modified or the objects disabled if desired, but typically it is
 reasonable to keep them.  The descriptions below are given in the form
 of the equivalent "object" config lines.  Note that all the built-in
-objects have "off" authentication.
+objects have "off" authentication and no UID or GID.
 
 object --number 19 --name nml --module decnet.modules.nml
 This is the network management listener; it provides remote access via
@@ -700,9 +700,22 @@ used if you have such nodes as adjacent nodes.
 
 object --number 123 --name psthru --file applications/pmr.py
 This is the "poor man's routing" or "passthrough" object.  It is
-supported only with Python 3.7 or later.
+available only with Python 3.7 or later.
 
-DECnet/Python objects not active by default:
+As described above, explicit "object" statements can be used if
+desired to override some of the default setting of these standard
+objects.  For example, with several of them it would be possible to
+set authentication to "on" which would limit access to users who
+supply valid username/password credentials.  This is not meaningful
+for EVL (there is no facility in DECnet to supply event sink access
+control parameters), nor for TOPOL or PSTHRU, but it can be done for
+NML and even MIRROR.  It is also possible, but does not appear
+particularly useful, to set a UID/GID for file objects (PSTHRU and, if
+one of the sample file based MIRRORs is used, that one as well).
+
+If desired any of the default objects can be disabled.  
+
+DECnet/Python objects not configured by default:
 
 Additional objects are included with PyDECnet that are not enabled by
 default.  Currently there is one:
@@ -715,7 +728,8 @@ The FAL object is an example where "login" authentication is useful,
 because that will enable an authenticated user to access files
 according to that user's access permissions (just as if the user had
 logged in to the host via ssh or telnet).  The --uid parameter may be
-used to provide default access.
+used to provide default access.  Other authentication settings for FAL
+are NOT RECOMMENDED.
 
 FAL accepts one argument, which is the root directory for default
 access.  It is not relevant if explicit authentication is done, but if
@@ -727,3 +741,7 @@ not used because it complicates the running of the code.
 Example configuration line:
 
 object --number 17 --name FAL --file applications/fal.py --auth login --uid nobody --arg /home/decnet-def
+
+This enables default access, for which the user parameters of user
+"nobody" will be used, and in that case, the visible data is limited
+to the subtree under /home/decnet-def.
