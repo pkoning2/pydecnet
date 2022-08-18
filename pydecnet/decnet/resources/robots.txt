@@ -1,2 +1,5 @@
 User-agent: *
+Allow: /resources
+Disallow: /resources/__pycache__
+Disallow: /resources/images/__pycache__
 Disallow: /
