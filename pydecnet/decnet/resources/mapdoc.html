@@ -1,0 +1,108 @@
+<!-- This is not a standalone HTML page; it is inserted into the -->
+<!-- map page JavaScript code by code in mapper.py -->
+
+<h2>Description of the network map display.</h2>
+<p>
+The map display shows data from two sources: the node database, and
+the network scanner results.
+</p><p> 
+The node database is read from <a
+href="http://mim.update.uu.se/nodedb">the HECnet node name database at
+MIM</a>.  The code extracts name, node 
+address, owner's name, name of the node's location, and location 
+latitude/longitude.  This information is retrieved daily.  If your node
+location information is missing or incorrect, please contact <a
+href="mailto:bqt@mim.update.uu.se">Johnny Billquist</a>, the keeper of
+the HECnet node database.
+</p><p> 
+The network scanner looks at every node mentioned in the node database 
+plus every node it can see as reachable.  From these, it collects
+information about nodes and circuits (connections between nodes).
+</p><p> 
+The map display takes as input the node and adjacent-node information 
+collected by the scanner and summarizes it in two steps.  First, all 
+the nodes are grouped by latitude/longitude.  Each distinct spot on 
+the map is given a marker associated with all the nodes at that 
+location.   Nodes without location information are assigned the
+placeholder coordinates 37° 18′ S, 12° 41′ W (the location of
+<a
+href="https://en.wikipedia.org/wiki/Inaccessible_Island">Inaccessible 
+Island</a>).
+</p><p> 
+</p> 
+<h2>Colors used on the map</h2> 
+<p> 
+Each item (node or circuit) has a "health" which is similar to its
+up/down status. </p>
+<table>
+  <tr>
+    <th style="font-size:10pt">Health</th>
+    <th style="font-size:10pt">Description</th>
+  </tr>
+  <tr>
+    <td style="font-size:10pt">Up</td><td style="font-size:10pt">Node or circuit is currently visible to the
+      scanner as operational</td>
+  </tr>
+  <tr>
+    <td style="font-size:10pt">Down</td><td style="font-size:10pt">Node or circuit is not currently visible to the
+      scanner, or it is seen in the scan but the reported status is
+      "not operational"</td>
+  </tr>
+  <tr>
+    <td style="font-size:10pt">Faded</td><td style="font-size:10pt">Node or circuit has been "down" for more than
+      two weeks, or node has never been seen as "up".</td>
+  </tr>
+</table>
+<p>
+Location markers and connection arcs summarize multiple nodes and 
+circuits.  The color used for these comes from the health of the 
+node or circuit components that go into them.
+</p>
+<table>
+  <tr>
+    <th style="font-size:10pt">Color</th>
+    <th style="font-size:10pt">Description</th>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="/resources/images/marker-icon-green.png"></td><td style="font-size:10pt">All nodes at this
+	location, or all circuits on this path, are "up"</td>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="/resources/images/marker-icon-yellow.png"></td><td
+	style="font-size:10pt">Some nodes at this
+	location, or circuits on this path, are "down", but the
+	majority are "up"</td>
+  </tr>
+    <td style="text-align:center"><img
+      src="/resources/images/marker-icon-red.png"></td><td
+	style="font-size:10pt">More than half
+	the nodes at this
+	location, or circuits on this path, are "down"</td>
+  </tr>
+  <tr>
+    <td style="text-align:center"><img
+      src="/resources/images/marker-icon-gray.png"></td><td style="font-size:10pt">All nodes at this
+	location, or circuits on this path, are "faded".  But if a
+	path is "faded" for more than 180 days, it is not plotted on
+	the map at all.</td>
+  </tr>
+</table>
+<p>
+All location markers have a popup (window that appears when you click 
+the marker) which lists the nodes at that location, grouped by heath 
+status (up in black, down in red, faded in gray italics).  
+Exception: the default marker at Inaccessible Island
+omits gray nodes because there are too many.  A 
+location marker that isn't gray also has a tool tip (appears when you 
+hover over the marker) which lists the up and down nodes only, not the 
+faded ones. 
+</p><p> 
+Arcs also have popups, which list the individual circuits for this 
+path by their end point node names/numbers. 
+</p><p>
+More detail on the mapper system, including details of how it
+operates, can be found <a
+href="/resources/mapper-internals.html">here</a>.
+</p>

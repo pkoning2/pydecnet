@@ -1,0 +1,53 @@
+{
+  "version" : 1,
+  "formatters" : {
+    "dnformatter" : {
+      "()" : "decnet.logging.DnFormatter",
+      "format" : "{asctime}: {threadName}: {message}",
+      "style" : "{"
+    },
+    "traceformatter" : {
+      "()" : "decnet.logging.DnFormatter",
+      "format" : "{asctime}: {threadName} {filename}.{lineno}: {message}",
+      "style" : "{"
+    }      
+  },
+  "handlers" : {
+    "tracefilehandler" : {
+      "class" : "logging.handlers.RotatingFileHandler",
+      "formatter" : "traceformatter",
+      "filename" : "decnet-trace.log",
+      "maxBytes" : 2000000,
+      "backupCount" : 10
+    },
+    "tracehandler" : {
+	"class" : "decnet.logging.DnMemoryHandler",
+	"target" : "tracefilehandler",
+	"capacity" : 100,
+	"flushLevel" : "WARNING"
+    },
+    "maphandler" : {
+      "class" : "logging.handlers.RotatingFileHandler",
+      "formatter" : "traceformatter",
+      "filename" : "map-trace.log",
+      "maxBytes" : 20000000,
+      "backupCount" : 5
+    },
+    "consolehandler" : {
+      "class" : "logging.StreamHandler",
+      "formatter" : "dnformatter",
+      "level" : "DEBUG"
+    }
+  },
+  "root" : {
+    "level" : "TRACE",
+    "handlers" : [ "tracehandler", "consolehandler" ]
+  },
+  "loggers" : {
+    "decnet.mapper" : {
+      "level" : "TRACE",
+      "handlers" : [ "maphandler" ],
+      "propagate" : true
+    }
+  }
+}

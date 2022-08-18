@@ -1,0 +1,173 @@
+This document outlines the design and internals of pydecnet.
+
+Rev 0.0, 4/23/2019
+
+General structure
+
+The overall structure (modules, layers, threads) of pydecnet closely
+resembles the component layering used as a descriptive technique in
+the DECNET Architecture (DNA) documents, particularly the Phase IV
+documents.  The design aims for ease of understanding and correctness
+rather than worrying much about optimizing performance.
+
+Each node (system) is implemented mostly in a single thread, whose
+name is the system name, created at pydecnet startup.  Helper threads
+are used for communication tasks -- HTTP including the JSON API, and
+the datalink receive functions -- so these can use blocking operations
+for simplicity.  Function calls "downward" roughly match those shown
+in the DNA specifications.
+
+However, pydecnet does not use the polling model for handing inbound
+data as the DNA model does.  Instead, data flow "upward" is by "work
+items" queued to the system thread and delivered when the thread looks
+for work.  That work item dispatching is in node.py.  It ensures that
+handling of external input is synchronous with the rest of the thread,
+so the single-threaded model of the spec carries over to the
+implementation.
+
+Timers are implemented by a helper thread for each system, using a
+"Timer Wheel" implementation (see the paper by Varghese and Lauck).
+Timeouts are delivered as work items.
+
+Packet parsing and generation
+
+The DNA specs use a fairly consistent way of describing packet
+layouts, as a sequence of fields of various types.  For example, a
+field might be a byte string of a fixed length, an image field (string
+preceded by a one-byte length), a 2 or 4 byte little-endian integer
+value, or various other things.  One common encoding is the "TLV"
+encoding, seen for example in the MOP System ID message.  In that
+format, there is a variable number of items, each consisting of a type
+code identifying the item and its data encoding, a length field giving
+the length of the value, and the value itself.
+
+All these encodings are handled by subclassing the packet.Packet
+class.  Each subclass defines a particular packet layout.  The fields
+for that packet are given by the _layout class attribute, which lists
+the fields and their encoding.  For details of how this is done, refer
+to the comments on function process_layout in packet.py.  Good
+examples can be found in nsp.py, mop.py, and routing_packets.py.
+
+Subclasses inherit the attributes and layout of their base class, with
+any additional slots or any additional layout items added.  So a
+common header can be defined by a subclass of Packet, and then
+particular packet types that begin with that common header can be
+subclasses of that header class with additional fields beyond the
+common header defined in each _layout.
+
+The use of classes to describe packet formats is convenient, for
+example it allows parsed packets to be passed around and code to check
+"is this an X packet" by "if isinstance (pkt, X)".  But subclassing
+needs to be done with caution.  If Y is a subclass of X, the check
+"isinstance (pkt, X)" will accept Y.  If that is not wanted -- if X
+and Y are distinct packet types that have to be handled separately --
+the solution is to make X and Y both subclasses of a common base that
+is not itself used for packets.  Example of this technique can be
+found in nsp.py, classes AckData and AckOther.
+
+Instances of packet subclasses are Python objects with attributes
+corresponding to each of the field names given in the layout table.
+In addition, if an _addslots class attribute is defined, that names
+additional attributes to be created in the packet instances.  All
+packet instances have fields "src" (the source of the data, if
+applicable) and "decoded_from" (a copy of the byte string parsed to
+build this instance, if applicable).  
+
+Packet parsing is done by constructing an instance of the packet class
+with the data to be parsed as argument.  If the packet is invalid, an
+exception will result.  If the data is longer than the defined layout,
+and there is a "payload" field listed in the _addslots class
+attribute, any extra bytes are assigned to the "payload" attribute of
+the new packet object.  Otherwise, the packet is invalid and rejected.
+
+Alternatively, an instance of the class can be created with no
+arguments (which constructs a packet with null field values), then
+filled in by calling the packet.decode method passing the byte string
+to be parsed.  For this case, any extra data is returned as the
+function result, to be handled by the caller as needed.
+
+A packet object can be built or a previously constructed one modified
+by assigning values to the packet object attributes.  For example, to
+do forwarding of data packets in the routing layer, the packet would
+be parsed, then the "visits" field updated, and the resulting packet
+is then sent if it can be forwarded.  A packet is converted to a byte
+string for transmission either by feeding it to the bytes () function,
+or by invoking the "encode" method of the object.
+
+Session layer API
+
+TBD: how applications request DECnet data services.
+
+HTML generation
+
+TBD
+
+HTTP POST JSON API
+
+TBD: monitoring, control (in the future) and data service access via
+HTTP POST of JSON requests.
+
+Design notes for the point to point datalink related state machines
+
+In the DNA architecture, the routing point to point sublayer runs the
+routing layer initialization handshake state machine, starting with a
+"routing init" message, possibly followed by a verification message,
+and ending in the running state where hello messages are sent as
+needed and a listen timeout detects loss of communication.
+
+Below that is some point to point datalink which has its own
+initialization state machine.  DECnet treats these two as separate,
+and in particular is designed so they can fail separately.  The
+routing point to point sublayer has a "datalink start" state where the
+datalink layer is doing its initialization, but it has a timeout and
+will give up and reinitialize the datalink if its startup takes too
+long.
+
+This design makes sense where the two are separate components that can
+fail separately, such as a DMC-11 communications controller.  But in
+PyDECnet all this is in a single process and the "separate failure"
+case does not apply.  And a consequence of the routing layer timeout
+is that the routing layer may at times reinitialize the datalink layer
+just as the datalink is getting ready to report successful startup.
+
+For this reason, these two layers and their interaction in PyDECnet is
+slightly different from the spec, for efficiency and in particular to
+avoid the issue of clashing timeouts at the two layers.  The design
+relies on the fact that the data link layer does not fail separately,
+and will always (a) reliably report to the routing layer when it
+completes startup, and (b) keep trying to initialize forever until it
+succeeds.  So the routing layer initialization state machine does not
+have a timeout in the DS state.  Instead, it remains in that state
+until the data link layer reports Datalink UP.
+
+Once started, the data link state machine will keep trying until
+intialization completes.  If it loses a TCP connection during that
+process, the connection is simply re-established silently (the routing
+layer does not hear about that).  Reconnect and resending of data link
+initialization messages is done from a timer that has a bounded
+backoff on it, so it retries promptly on the first few tries after
+startup or if the datalink was previously up, but slows down so it
+doesn't keep hammering on a peer that is down or inoperative.
+
+Once the data link is up (and DlStatus UP has been sent to routing), a
+loss of a TCP connection will trigger a datalink restart, and any data
+link restart (from TCP disconnect or from a datalink protocol event
+that is defined to cause a restart) will produce a DlStatus DOWN to
+routing.  That is sent after the data link has completed shutdown,
+including stopping the receive thread, and has entered the Halted
+state.  Routing will restart the data link after a delay.
+
+There is one exception, Multinet UDP.  This is because Multinet is not
+actually a datalink at all; it is merely a trivial encapsulation and
+address mapping.  In the Multinet TCP case this is fairly well hidden
+by the fact that TCP provides the equivalent of the DNA data link
+layer services, i.e., we use the TCP connection machinery as the data
+link layer initialization and report datalink up to routing when the
+TCP connection has been made.  But UDP has no connections.
+
+So for the Multinet UDP case, there is a (fairly fast at first) timer
+in the DS state that causes the routing init messages to be resent
+until a proper response has been received.  This is controlled by the
+"start works" flag which is already in place to do the protocol
+workarounds needed to compensate (as best we can) for the lack of a
+"restart notification" in the Multinet UDP case.

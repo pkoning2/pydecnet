@@ -1,0 +1,136 @@
+PyDECnet is an implementation of the Digital Network Architecture
+(commonly called "DECnet") implemented as a pure Python module.  It
+requires Python 3.3 or later.
+
+Standards compliance
+
+PyDECnet implements the DECnet Phase IV architecture, from the
+specifications published by Digital. 
+
+PyDECnet was implemented from the published specifications, as a pure
+Python module.  It implements DECnet routing, both level 1 and level 2
+(area) routing.  It also implements other aspects of DNA, specifically
+the MOP (Maintenance Operations) protocols.  It will interoperate with
+Phase IV as well as Phase III nodes, as required by the
+specifications.
+
+PyDECnet also interoperates with Phase II nodes.  While this is not
+found in the Phase IV specifications, it is described in the Phase III
+specifications, and making it work was a straightforward extension.
+
+In addition, PyDECnet can be configured to operate as a Phase III or a
+Phase II node, in the sense that it runs the routing and NSP protocols
+according to those versions.  This is primarily a test tool.
+
+Supported datalinks
+
+Supported datalinks include Ethernet, DDCMP over TCP, UDP,
+asynchronous serial connections, or synchronous serial connections
+with the use of the USB connected DDCMP framer board, using the DMC-11
+emulation implemented in SIMH V3.9, "Multinet" encapsulation of point
+to point datalink messages over UDP or TCP, and GRE encapsulation of
+Ethernet packets.
+
+Note that Multinet encapsulation over UDP is not recommended because
+it violates the DNA specification badly enough that it is extremely
+unreliable except in the most ideal circumstances.  All the other data
+link types, including Multinet over TCP, are fine.
+
+Major components
+
+PyDECnet contains the following major components:
+
+- DNA layers:
+  - Datalink
+  - MOP
+  - Routing
+  - NSP
+  - Session Control
+  - Network Management   ("show" and "loop" support only)
+  - Applications
+    - File transfer      (planned, not yet implemented)
+    - NML
+    - EVL		 (event receiver only, sender NYI)
+    - Mirror
+- API for MOP and Session Control, using JSON over HTTP(S)
+- HTTP(S) based monitoring interface
+
+The API allows external processes to access protocol services in
+PyDECnet, via JSON carried over HTTPS (the same HTTPS port also used
+for monitoring).  Several sample API clients are provided in the
+"samples" directory.  A library to use this API to implement a socket
+style interface is planned.
+
+Application features
+
+PyDECnet includes several standard DECnet application layer
+components, currently just those implementing network management
+services.  These are all implemented as Python modules that run as
+part of the PyDECnet process (rather than as external application
+processes).  Below are more details on what is currently available.
+
+Mirror object (object 25, "node loopback")
+
+This implements the mirror protocol defined in the Network Management
+specification, in full.  This mirror supports messages up to 65535
+bytes (the maximum possible given the way the protocol is defined).
+
+Event listener object (EVL, object 26)
+
+This is the receiving end of a "logging sink" specification, allowing
+other nodes to send their DECnet events to a PyDECnet node for
+logging.  The incoming messages are formatted into text according to
+the Network Management specification and then logged using the Python
+logging facility (see config.txt for more details on how to configure
+this).  Most events are treated as INFO log items, but a few have
+other levels (DEBUG, WARNING).  All standard events are recognized as
+well as OS-specific events from RSTS, RSX, and VMS.  For RSX and VMS,
+the event codes (messages) are handled but not OS-specific parameters
+due to the absence of documentation.
+
+To be done: details on which are exception cases.  Possible
+enhancement: configurable levels for particular events.
+
+Network management listener (NML, object 19)
+
+This implements the server end of the remote network management
+protocol described in the Network Management specification.  Only a
+subset is supported:
+
+- Read information -- only volatile parameters since PyDECnet does not
+  have the concept of a "permanent database".  No "loop nodes" (not
+  implemented in the routing layer); apart from that all standard
+  entities are supported as well as the "CONFIGURATOR" module.  Note
+  that the configurator module is not understood by many NCP
+  implementations, so you may need to find the right OS to be able to
+  query this.
+
+- Loop command -- only Loop Node and Loop Circuit.  Loop Node does an
+  application layer loop test using the Mirror object.  Loop Circuit
+  is supported only on Ethernet circuits; it uses the Ethernet
+  standard loop protocol.  All documented command keywords are
+  supported. 
+
+Multiple node support
+
+In typical use, a PyDECnet invocation starts a single DNA node.  For
+testing, multiple systems (bridges or nodes) may be started by a
+single invocation.  The main advantage of doing so is that there is a
+single logging stream, so the entire sequence of events in the test
+configuration will show up, in correct order, in that log.  If this is
+done, the home page in the monitoring HTTP service will list the
+systems, and the pages for each system will have a URL argument of the
+form "?system=<name>" appended, for example "/routing?system=NI1D".
+
+Documentation
+
+The following documents are currently provided.  Note that
+documentation is very much a work in progress.  Comments would be
+appreciated. 
+
+1. overview.txt - this document
+2. install.txt - installing PyDECnet
+3. run.txt - how to configure, run, and monitor PyDECnet
+4. config.txt - detailed description of the configuration files
+5. api.txt - programmer's documentation of the JSON API
+6. internals.txt - overview of the design of PyDECnet

@@ -1,0 +1,204 @@
+Configuring, running, and monitoring PyDECnet
+
+A simple case
+
+PyDECnet can operate as one node or multiple nodes.  The single node
+case is the most common.  For this setup, you create a configuration
+file to describe the DECnet node configuration you want to run,
+including the node type, node address, and DECnet circuit information.
+You will typically want to have the HECnet node name table available;
+a reasonably current copy can be found in samples/nodenames.dat which
+you can include in your configuration file with a line of the form:
+
+   node @nodes.conf
+
+A few sample node configuration files can be found in the samples
+subdirectory.
+
+HTTP monitoring is configured separately from the node configuration
+in a separate config file.  Currently there is very little to
+configure, so a typical http configuration file just takes a single
+line.  You can use samples/http.conf or samples/http2.conf as a
+starting point.
+
+To run the resulting setup, the simplest startup command looks like
+this:
+
+   pydecnet mynode.conf samples/http.conf
+
+This will start the node configuration in mynode.conf, with HTTP
+monitoring.  You will get the default logging (INFO level log
+messages) to your terminal.
+
+Monitoring
+
+If HTTP monitoring was enabled, PyDECnet configures a simple HTTP
+server.  It will listen to the port number specified in the HTTP
+configuration file (8000 by default).  The home page is an "overview"
+page that displays summary information; it has a navigation toolbar
+that will lead you to additional material.
+
+Mobile-friendly monitoring
+
+To use HTTP monitoring on devices with small displays, like
+smartphones or tablets, use the "m" URL, for example:
+http://localhost:8000/m
+
+The HTTP monitoring pages use CSS to define the appearance.  If you
+want to modify that, edit decnet.css (or decnet-m.css for the
+mobile-specific style overrides) in the "resouces" subdirectory
+installed as part of the PyDECnet installation.
+
+Running PyDECnet, in detail
+
+The full set of command line options is:
+
+usage: pydecnet [-h] [-d] [--chroot P] [--uid UID] [--gid GID] [--pid-file FN]
+                [-L FN] [-e LV] [-S] [--syslog S] [--log-config LC] [-k KEEP]
+                [-H [CMD]] [-M N] [-V]
+                [CFN [CFN ...]]
+
+positional arguments:
+  CFN                   Configuration file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -d, --daemon          Run as daemon. Requires a log file name to be
+                        specified.
+  --chroot P            Root to change to, see documentation for details
+  --uid UID             User ID or user name to set
+  --gid GID             Group ID to set
+  --pid-file FN         PID file (default: /var/run/pydecnet.pid)
+  -L FN, --log-file FN  Log file (default: log to stderr)
+  -e LV, --log-level LV
+                        Log level (default: INFO)
+  -S                    Log to local syslog
+  --syslog S            Log to syslog at the indicated address, "local" means
+                        the appropriate local UDP or named socket
+  --log-config LC       Logging configuration file
+  -k KEEP, --keep KEEP  Number of log files to keep with nightly rotation.
+                        Requires a log file name to be specified.
+  -H [CMD], --config-help [CMD]
+                        Show configuration file help (for CMD if given)
+  -M N, --mac-address N
+                        MAC address calculator: argument is the node address
+                        to be converted.
+  -V, --version         show program's version number and exit
+
+Except when the -H, -M, or -V switches are used, at least one
+configuration file argument must be supplied.  Each configuration file
+corresponds to a PyDECnet node to be run, so a typical invocation will
+have a single configuration file.  Refer to the documentation in
+"config.txt" for a full explanation of the format of a configuration
+file.
+
+By default, PyDECnet runs in the foreground.  If --daemon is supplied,
+it runs as a daemon.  In that case, a log file name must be supplied
+because stderr is no longer open (either the --log-file or the
+--log-config argument is required).  --daemon requires the optional
+library module python-daemon (see install.txt for more).
+
+By default, PyDECnet runs with the root, uid, and gid of its parent
+process.  The --chroot, --uid, and/or --gid arguments can be used to
+override those values; this only works if PyDECnet is invoked as a
+root (super-user) process.  These options are typically used when
+running the program as a daemon, as an extra measure of protection
+against security issues.  --chroot requires some care because of how
+file references are handled; see below for details.  Note that there
+are no known security issues in PyDECnet that require the use of these
+options for adequate security; they were added partly "for paranoia"
+and partly "to see if it can be done".
+
+Logging uses the standard Python "logging" module.  By default
+messages of level INFO and higher are logged to the console (stderr).
+Command line switches are available to specify a different log
+destination and/or different message levels.
+
+For detailed control of logging, including options such as logging via
+log handlers not available through the command line, or logging to
+several destinations possibly with different message levels for each,
+the --log-config argument is used to specify a log config file.  The
+information in this file is documented in the Python library manual:
+https://docs.python.org/3/library/logging.config.html#logging-config-dictschema
+
+The file can be a YAML format file, if the PyYAML module is installed
+and the file name extension is .yaml, or a JSON format file (always
+available).  Samples of both are provided in the samples subdirectory.
+The sample files all configure the "root" logger.  The actual log
+calls made in pydecnet use a child logger named "decnet".  By default
+that is simply a passthrough logger that delegates everything to the
+root logger, so configuring what is wanted to be logged in the root
+logger is sufficient.  For complex cases it might be useful to set
+specific configurations on the logger named "decnet".  An example
+would be if pydecnet were treated as a library, a component of a
+larger application where other parts also make logging calls.
+
+DECnet architecture events can be logged via the logging module as
+well, with logging level INFO for most events and text formatted as
+documented in the DNA Network Management specification.  This feature
+is off by default, but can be controlled by the "logging"
+configuration line in the individual configuration files (see
+config.txt for details, including a list of events that use a log
+level different from INFO).
+
+The -H switch can be used to get usage information for each type of
+entry defined for the configuration files.
+
+The -M switch accesses the DECnet MAC address calculator.  The
+argument is a DECnet node ID in the usual form.  PyDECnet will print
+the corresponding MAC address (starting with AA-00-04-00) and exit.
+
+****************************************************************
+
+Considerations for the --chroot option
+
+The change of process root requested by the --chroot option occurs
+just before the DECnet components are started, but after configuration
+is read.  This means that some file accesses are affected by the
+--chroot while others are not.  To have a working system it is
+important to understand the details.
+
+All configuration files mentioned in the command line, any indirect
+files they reference, the file referenced by the --log-config
+argument, and all Python module code including module type session
+objects are loaded before the change of root.  This means they need
+not be visible from the chroot "jail" file system subtree.
+
+Other file references are relative to the chroot argument.  In
+particular, they are:
+1. The PID file specified by command line argument --pidfile
+2. All log files, whether specified by --log-file or in the logging
+   configuration file specified by --log-config
+3. All session control objects of type "file"
+4. The http root defined by the --http-root configuration parameter
+5. The mapper database
+6. Device names mentioned in circuit settings
+7. Any libraries referenced at runtime.  See below for an example
+8. /etc/localtime -- optional; if not present, mapper will display
+   time stamps in UTC.
+
+Note also that all these files affected by --chroot are accessed using
+the UID and GID specified by the --uid and --gid arguments, if
+present.  This means file and directory permissions have to be
+appropriate for those accesses to be allowed.  You need to make sure
+the directories where log and map database files are written allows
+file creation for that UID and GID, and that devices used for DECnet
+circuits allow read/write access.
+
+Similarly, host network resources accesses made by PyDECnet, such as
+for TCP or UDP sockets, will use the supplied UID and GID if present.
+If you specify a UID, "privileged" port numbers will be rejected by
+the OS, and privileged services such as PCAP will most likely not
+work.
+
+(TODO: in the future this may be changed by using the "effective UID"
+mechanism to allow privileges to be regained temporarily when network
+resources are opened.)
+
+On Linux, the thread machinery at run time needs to access library
+libgcc_s.so, which means that it has to exist in the chroot tree with
+the expected path name.  For example, suppose pydecnet was run with
+--chroot /home/decnet, the following may be needed:
+
+   mkdir /home/decnet/lib64
+   ln /lib64/libgcc_s* /home/decnet/lib64/

@@ -1,0 +1,124 @@
+Description of the mapper and the map displays.
+
+First of all, some background on how it works.  There are three parts:
+the node database, the network scanner, and the map display maker.
+
+The node database is read from MIM, it's basically the one you can see
+on the web server (nodedb page).  The code extracts name, node
+address, owner's name, name of the node's location, and location
+latitude/longitude.  This information is updated daily.
+
+The network scanner looks at every node mentioned in the node database
+plus every node it can see as reachable.  Roughly speaking, it makes a
+NICE connection (remote network management protocol) to each node,
+then asks it three questions: "show exec characteristics", "show
+active circuits" and "show active nodes".  The first questions answers
+"what type of node is this" and also gets the node name if we don't
+already know it.  The other two give the adjacent nodes, i.e., the
+connections from this node to its neighbors.  Often but not always,
+that information includes the node type of the adjacent nodes.
+
+This process continues iteratively until information for all visible
+nodes has been refreshed.
+
+There are some optimizations and tricks.  If a node is reported as
+reachable in the "show active nodes" reply (whether as a neighbor or
+farther away) it's recorded as reachable, even if I can't talk to it.
+This means that Phase II nodes, Phase III nodes in another area, or
+Cisco routers will all be shown as reachable so long as there is a
+node somewhere that answers NICE requests and shows them as reachable.
+
+Also, for optimization, if a node reports a neighbor's type as Phase
+II or Phase III (in another area) or endnode, I don't try to connect
+to it because I already have all the information I want.  This speeds
+up the scan.  It also avoids a bug in DECnet/E where "show active
+nodes" on an endnode leaves the request hanging after the reply data
+is sent (the "no more data" message is missing).
+
+At the completion of the scan, the up/down information is updated.
+Currently each node, and each adjacency entry for that node, has three
+timestamps: last up, last down, and last seen.  DUring the scan, when
+a node is seen as visible, or when an adjacent node is reported, that
+entry is marked with the current time as "last seen".  When the scan
+is finished, the entire database is examined.  Any item not marked
+with the current timestamp in "last seen" is currently down.  If it
+was previously up (its "last up" time is greater than its "last down")
+then "last down" is set to the current time. Similarly, any item
+previously marked "down" ("last down" greater than "last up") has its
+"last up" set to the current time.
+
+The map display takes as input the node and adjacent-node information
+collected by the scanner and summarizes it in two steps.  First, all
+the nodes are grouped by latitude/longitude.  Each distinct spot on
+the map is given a marker associated with all the nodes at that
+location.
+
+Next, all the circuits (adjacent node) information is examined,
+grouped by lat/long of the endpoints.  An arc on the map corresponds
+to all the connections between node pairs at the location markers
+connected by that arc.
+
+Now for the meaning of the colors.
+
+Each item (node or circuit) has a "health" which is similar to its
+up/down status.  Right now, they are "faded", "down" and "up".  Up
+means I can see it right now.  Down means it was seen before but isn't
+visible now.  Faded means either it has never been seen (this applies
+only to nodes) or it has been down for more than two weeks.  I've been
+thinking about adding a "warning" status, which would be something
+like "it's up now but it has been bouncing up/down a lot" but that
+isn't currently in the code.
+
+Location markers and connection arcs both summarize multiple nodes and
+circuits.  The color used for these comes from the health of the
+components that go into them.  For both, if all elements are up, the
+color is green.  If more than half are down, the color is red.  If
+some are down but more are up, the color is yellow.  And if all are
+faded, the color is gray.  Oh yes, and if an arc has been seen in the
+past but has been down for 180 days, it disappears (it won't be shown
+as gray anymore).  Obviously you won't see that for a while.
+
+All location markers have a popup (window that appears when you click
+the marker) which lists the nodes at that location, grouped by heath
+status (up in black, down in red, faded in gray italics).  That
+includes gray nodes (not seen).  Exception: the default marker in the
+south Atlantic omits gray nodes because there are too many.  A
+location marker that isn't gray also has a tool tip (appears when you
+hover over the marker) which lists the up and down nodes only, not the
+faded ones.
+
+Arcs also have popups, which list the individual circuits for this
+path by their end point node names/numbers.
+
+Map controls: the zoom in/out is at the top left.  The button at the
+top right is the layers tool, which lets you choose from a number of
+map sources, and also allows you to turn on/off the location and/or
+path display.
+
+As I mentioned, there is also a tabular display, sorted by node
+number, at /map/data.  I'll add a link to that on the map display.  It
+will show you more detail than can comfortably fit on the map itself.
+
+By the way, the map images come from various map sources, such as
+OpenStreetMap.  They all use Mercator projection, and there isn't a
+convenient way to change that so I haven't tried.  The map machinery
+has some limitations (I'd be tempted to call them bugs).  For example,
+if you zoom way out you'll see the continents more than once, which is
+proper, but the markers only appear on one copy.  This is why the
+Australia to USA links are not shown as proper great circle arcs; the
+program would not display them sensibly.  I suspect a hard core GIS
+tool would get this right, but those are a whole lot harder to use and
+I have not attempted to do so.
+
+Incremental map data update
+
+The mapper listens for events 4.7-10,14-15,18-19 sent to the "logging
+monitor" sink.  It enables these by default on the node where it is
+running, and cooperating nodes (typically backbone routers) can enable
+these with a "sink node" setting pointing at the mapper node.  These
+events, which represent circuit or node state changes, are then used
+to make incremental changes to the map data as they happen.  When
+events arrive, these are collected and a 15 second holdoff timer is
+started.  When the event stream stops, a selective node scan is done
+for any nodes that saw "up" type events.  The resulting modified map
+state is then reflected in a new map display and an updated map table.

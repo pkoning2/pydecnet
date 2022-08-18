@@ -1,0 +1,85 @@
+Prerequisites
+
+PyDECnet requires Python 3.3 or later.
+
+Apart from standard Python modules, PyDECnet requires the "psutil"
+module.
+
+PyDECnet can also use the following optional modules:
+
+1. python-daemon: if present, the --daemon command line option is
+   available.
+2. PyYAML: if present, the logging configuration file specified by the
+   --log-config command line option can be a YAML file.  If not, only
+   JSON configuration files are supported.
+3. python-pam: if present, username/password authentication for DECnet
+   objects is available.
+4. pyserial: if present, the "serial" mode of the DDCMP datalink
+   is available.
+
+You can check what optional libraries are installed using this
+command:
+
+   pip3 list
+   
+
+Installation
+
+Installation from the Subversion repository
+
+You can get the current code using the Subversion tool, from the
+PyDECnet repository:
+
+   svn co svn://akdesign.dyndns.org/pydecnet/trunk/pydecnet
+
+You can then install from the resulting working directory:
+
+   cd pydecnet
+   python3 setup.py install
+
+Note: if you have done this before, depending on tool versions you may
+end up with a broken "pydecnet" command, one that reports "Entry point
+... not found" at startup.  If so, remove the decnet.egg-info
+directory and repeat the operation.
+
+If you still have problems, you can create a source kit and install
+from that:
+
+     python3 setup.py sdist
+     pip3 install dist/decnet-1.0.tar.gz
+
+Running directly from the Subversion working directory
+
+If you want to run the current code in the working directory, without
+having to go through a reinstall each time there is a change, you need
+this command:
+
+     python3 setup develop
+
+That will create the "pydecnet" script in your default binary
+directory (typically /usr/local/bin on Linux systems, a suitable
+/Library/Frameworks directory on Mac OS) and a link to the Python
+modules in the Subversion working directory.  You can then invoke the
+"pydecnet" command to start the current code.
+
+Installation from the kit
+
+TODO: right now kits are not yet distributed.  
+
+Installation of pydecnet from the kit (source tar archive) is done
+using the standard "pip" tool:
+
+   pip3 install decnet-1.0.tar.gz
+
+Unit test
+
+PyDECnet comes with a unit test collection.  This is mostly for
+development use, but feel free to use it.  To invoke it:
+
+   cd pydecnet
+   python3 -m unittest discover
+
+where "pydecnet" is the Subversion working directory or the top level
+directory of the unpacked source tar archive, according to which you
+used to get PyDECnet.  You can specify a particular Python 3.x to run
+the unit test collection against that particular Python release.
