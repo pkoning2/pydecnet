@@ -11,17 +11,9 @@ Connect Initiate handshake: no connect data used in either direction.
 Then the daemon sends its config message.  The initiator uses that to
 determine which protocol variant to use.
 
-Network data message -- common layout:
-Offset	Length	Contents
-0	1	Message type code
-1	...	Type-specific data
-
-Message type codes (first byte in every message)
-1	Config message
-2	Control message
-3	USMM
-4	Continue message
-5	Data message
+Every other aspect of the protocol depends on the variant; for
+example, there is no commonality in message type codes or the fields
+contained in any given message.
 
 Config message format -- daemon to initiator:
 Offset	Length	Contents
@@ -31,7 +23,6 @@ Offset	Length	Contents
 3	1	Customer ECO (0)
 4	2	System type
 6	2	Protocol type
-Note that there is NO LENGTH FIELD in this message.
 
 System type codes:
 1	RT-11
@@ -67,7 +58,17 @@ Offset	Length	Contents
 1	2	Message length (including this common part)
 3	...	Type-specific data
 
-Config message format -- initiator to daemon:
+Message type codes (first byte in every message)
+1	Config message
+2	Control message
+3	USMM
+4	Continue message
+5	Data message
+
+Config message format -- initiator to daemon.  This message is
+required to transition the connection to "run" state but it is
+otherwise ignored.  Some clients send more stuff, but that has no
+effect. 
 Offset	Length	Contents
 0	1	Message type (1)
 1	2	Length (3)
