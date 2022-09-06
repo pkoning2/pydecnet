@@ -124,11 +124,15 @@ process.  The --chroot, --uid, and/or --gid arguments can be used to
 override those values; --uid and --gid are available only if PyDECnet
 is invoked as a root (super-user) process.  These options are
 typically used when running the program as a daemon, as an extra
-measure of protection against security issues.  --chroot requires some
-care because of how file references are handled; see below for
-details.  Note that there are no known security issues in PyDECnet
-that require the use of these options for adequate security; they were
-added partly "for paranoia" and partly "to see if it can be done".
+measure of protection against security issues.  --uid accepts either a
+numeric user ID or a user name; if a name is used, both user and group
+numbers associated with that name will be set, unless a different
+group ID is explicitly supplied with the --gid switch.  --chroot
+requires some care because of how file references are handled; see
+below for details.  Note that there are no known security issues in
+PyDECnet that require the use of these options for adequate security;
+they were added partly "for paranoia" and partly "to see if it can be
+done".
 
 Logging uses the standard Python "logging" module.  By default
 messages of level INFO and higher are logged to the console (stderr).
