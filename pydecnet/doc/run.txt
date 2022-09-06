@@ -213,6 +213,12 @@ If you specify a UID, "privileged" port numbers will be rejected by
 the OS, and privileged services such as PCAP will most likely not
 work.
 
+On Linux, you can use this sysctl setting:
+	net.ipv4.ip_unprivileged_port_start=...
+to change the range of "privileged" port numbers.  For example, if you
+use the default port number 700 for Multinet, you could set this
+parameter to 700 to avoid needing to run as root.
+
 (TODO: in the future this may be changed by using the "effective UID"
 mechanism to allow privileges to be regained temporarily when network
 resources are opened.)
