@@ -579,13 +579,12 @@ class NodeInit (P2StartBase):
             raise InvalidAddress (self.srcnode)
 
 class NodeVerify (P2StartBase):
-    # The spec says that "startype" is 2 bytes here even though it's 1
-    # byte in NodeInit.  We have the LSB in the base class; make the
-    # MSB a separate fake field with a fixed value of zero.
-    _layout = (( packet.B, "starttype_msb", 1 ),
-               ( packet.BV, "password", 8 ))
+    # The spec says that "starttype" is 2 bytes here even though it's
+    # 1 byte in NodeInit.  It appears this is a typo and VMS, at
+    # least, ignores that and implements it as one byte in both cases.
+    # So we'll do the same.
+    _layout = (( packet.BV, "password", 8 ),)
     starttype = 2
-    starttype_msb = 0
 
 class NopMsg (RoutingPacketBase):
     _layout = (( packet.B, "flags", 1 ),
