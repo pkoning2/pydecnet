@@ -86,6 +86,14 @@ class BaseIntercept (Element):
         if not pkt.dstnode or pkt.dstnode == self.nodename:
             return self.nodeid
         return None
+
+    def noroutehdr (self, pkt, adj):
+        "Return dest for packet received without route header"
+        return self.nodeid
+
+    def routehdr (self, pkt, adj, dstid):
+        "Do any extra processing for a packet received with a route header"
+        pass
     
     def recv (self, pkt, adj):
         """Handle arriving packet from a Phase II node.  The return
@@ -112,10 +120,13 @@ class BaseIntercept (Element):
                 logging.debug ("intercept {}: unexpected route header addresses {}",
                                adj, pkt)
                 return False, self.makedc (pkt, adj)
+            self.routehdr (pkt, adj, dstid)
         else:
-            # No route header, so it's from neighbor to us.
+            # No route header, so it's from neighbor to us, unless
+            # full intercept can look up routing information from NSP
+            # connection data.
             srcid = adj.rnodeid
-            dstid = self.nodeid
+            dstid = self.noroutehdr (pkt, adj)
         logging.trace ("intercept {}: recv from {} to {}: {}", adj, adj.rnodeid, self.nodeid, pkt.payload)
         return True, ShortData (dstnode = dstid, srcnode = srcid,
                                 rqr = 1, rts = 0, visit = 0,
@@ -187,21 +198,10 @@ class BaseIntercept (Element):
             src = self.nodename
             dst = adj.rnodename
         buf = makebytes (buf)
-        msgflg = buf[0]
         try:
-            t = msgmap[msgflg]
-        except KeyError:
-            # TYPE or SUBTYPE invalid, or MSGFLG is extended (step 1)
-            logging.debug ("Ill formatted NSP packet received from {}: {}",
-                           src, buf)
-            # FIXME: this needs to log the message in the right format
-            self.node.logevent (events.inv_msg, message = buf,
-                                source_node = src)
-            return None
-        try:
-            buf = t (buf)
-        except Exception:
-            logging.debug ("Ill formatted NSP packet received from {}: {}",
+            buf = NspHdr (buf)
+        except packet.DecodeError:
+            logging.trace ("Ill formatted NSP packet received from {}: {}",
                            src, buf)
             # FIXME: this needs to log the message in the right format
             self.node.logevent (events.inv_msg, message = buf,
@@ -227,7 +227,7 @@ class FullIntercept (BaseIntercept):
     """
     def __init__ (self, parent):
         super ().__init__ (parent)
-        # Other initialization TBD
+        self.conndb = dict ()
         
     def mapdst (self, pkt):
         # Map the received destination node to a node ID, if valid
@@ -240,7 +240,58 @@ class FullIntercept (BaseIntercept):
             logging.debug ("intercept {}: unknown destination node {}",
                            self.parent, pkt.dstnode)
         return None
-    
+
+    def noroutehdr (self, pkt, adj):
+        "Return dest for packet received without route header"
+        # For the full intercept case, we need to check the NSP
+        # message type.  If it is data, interrupt, link service, or
+        # some type of ack, we have to look it up in the logical link
+        # database.  If found, the routing information in that entry
+        # is used.  Otherwise, this is a packet for the local node
+        # (one hop).
+        try:
+            nsppkt = NspHdr (pkt.payload)
+        except packet.DecodeError:
+            logging.trace ("Ill formatted NSP packet received from {}: {}",
+                           adj, pkt.payload)
+            # FIXME: this needs to log the message in the right format
+            self.node.logevent (events.inv_msg, message = pkt.payload,
+                                source_node = adj.rnodeid)
+            # Default to "one hop message" to this node
+            return self.nodeid
+        if ifinstance (nsppkt, AckHdr):
+            # All the packets that can be routed from connection
+            # database information have an ACK header, with connection
+            # address fields in them.  We use the Phase II node's
+            # logical link address to find the connection.
+            try:
+                return self.conndb[(adj.rnodeid, nsppkt.srcaddr)]
+            except KeyError:
+                pass
+        # Other packets are local if no route header
+        return self.nodeid
+
+    def routehdr (self, pkt, adj, dstid):
+        "Do any extra processing for a packet received with a route header"
+        try:
+            nsppkt = NspHdr (pkt.payload)
+        except packet.DecodeError:
+            logging.trace ("Ill formatted NSP packet received from {}: {}",
+                           adj, pkt.payload)
+            # FIXME: this needs to log the message in the right format
+            self.node.logevent (events.inv_msg, message = pkt.payload,
+                                source_node = adj.rnodeid)
+            return
+        if isinstance (nsppkt, (ConnInit, ConnConf)):
+            # New connection, make a connection database entry
+            logging.trace ("Adding conn {} for adj {}", nsppkt.srcaddr, adj)
+            self.conndb[(adj.rnodeid, nsppkt.srcaddr)] = dstid
+        elif isinstance (nsppkt, (DiscInit, DiscConf)):
+            # Phase II node is terminating this connection, delete it
+            # from the database if present
+            logging.trace ("Removing conn {} for adj {}", nsppkt.srcaddr, adj)
+            self.conndb.pop ((adj.rnodeid, nsppkt.srcaddr), None)
+
     def send (self, pkt, adj):
         """Handle sending a packet to a Phase II node.  The supplied
         packet has a phase III or IV header (ShortData or LongData).
@@ -259,8 +310,26 @@ class FullIntercept (BaseIntercept):
         # Can't send it unless it's to the neighbor
         if pkt.dstnode != adj.id:
             return False, pkt
-        if pkt.srcnode != self.nodeid:
-            # It didn't come from this node, so supply a routing header.
+        # Parse the payload to see if we need to do anything special
+        try:
+            nsppkt = NspHdr (pkt.payload)
+        except packet.DecodeError:
+            logging.trace ("Ill formatted NSP packet received from {}: {}",
+                           pkt.srcnode, pkt.payload)
+            # FIXME: this needs to log the message in the right format
+            self.node.logevent (events.inv_msg, message = pkt.payload,
+                                source_node = pkt.srcnode)
+            # Discard it ?
+            return False, None
+        if isinstance (nsppkt, (DiscInit, DiscConf)):
+            # Remote end is terminating this connection, delete it
+            # from the database if present
+            logging.trace ("Removing conn {} for adj {}", nsppkt.dstaddr, adj)
+            self.conndb.pop ((adj.rnodeid, nsppkt.srcaddr), None)
+            self.conndb.pop ((adj.rnodeid, nsppkt.dstaddr), None)
+        if pkt.srcnode != self.nodeid and not isinstance (nsppkt, AckHdr):
+            # It didn't come from this node, so supply a routing
+            # header if it is the kind that requires one.
             src = self.node.nodeinfo_byid[pkt.srcnode].nodename
             dst = self.node.nodeinfo_byid[pkt.dstnode].nodename
             pkt = RouteHdr (srcnode = src, dstnode = dst,
