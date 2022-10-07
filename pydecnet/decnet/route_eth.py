@@ -243,11 +243,9 @@ class LanCircuit (timers.Timer):
             r.state = r.ON
             if self.dr:
                 if self.isdr:
-                    dr = self.node.nodeinfo (self.parent.nodeid)
+                    r.adjacent_node = self.node.nodeinfo (self.parent.nodeid).nodename
                 elif self.dr:
-                    dr = self.dr.adjnode ()
-                r.adjacent_node = str (dr)
-                
+                    r.adjacent_node = self.dr.adjnode ().nodename
 
 class NiCacheEntry (timers.Timer):
     """An entry in the on-Ethernet cache.  Or rather, in the previous hop
