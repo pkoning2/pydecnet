@@ -292,14 +292,14 @@ class test_ph2init (DnTest):
         
 class test_ph2verify (DnTest):
     def test_decode (self):
-        s = self.short (b"\x58\x02\x00PASSWORD", RoutingPacketBase)
+        s = self.short (b"\x58\x02PASSWORD", RoutingPacketBase)
         self.assertIsInstance (s, NodeVerify)
         self.assertEqual (s.password, b"PASSWORD")
 
     def test_encode (self):
         s = NodeVerify (password = b"TESTING")
         b = bytes (s)
-        self.assertEqual (b, b"\x58\x02\x00TESTING\x00")
+        self.assertEqual (b, b"\x58\x02TESTING\x00")
         
 class test_ph2nop (DnTest):
     def test_decode (self):

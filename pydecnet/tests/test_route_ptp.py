@@ -230,7 +230,7 @@ class test_ph2 (rtest):
         self.assertEqual (self.c.id, Nodeid (66))
         v, x = self.lastsent (self.cp, 2)
         self.assertIsInstance (v, NodeVerify)
-        self.assertEqual (bytes (v), b"\x58\x02\x00OVERIF\x00\x00")
+        self.assertEqual (bytes (v), b"\x58\x02OVERIF\x00\x00")
         
     def test_ph3 (self):
         pkt = b"\x01\x02\x00\x02\x10\x02\x01\x03\x00\x00"
@@ -1003,7 +1003,7 @@ class test_ph4verify (rtest):
         self.assertState ("rv2")
         self.assertEqual (self.c.rphase, 2)
         self.assertEqual (self.c.id, Nodeid (1, 66))
-        pkt = b"\x58\x02\x00IVERIF\x00\x00"
+        pkt = b"\x58\x02IVERIF\x00\x00"
         self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
         self.assertState ("ru2")
         self.assertEvent (events.circ_up,
