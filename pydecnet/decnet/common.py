@@ -285,7 +285,7 @@ _nodeid_re = re.compile (r"^(?:(\d+)\.)?(\d+)$")
 class Nodeid (Field, int):
     """A DECnet Node ID.
     """
-    def __new__ (cls, s = 0, id2 = None, wild = False):
+    def __new__ (cls, s = 0, id2 = None, wild = False, area = 0):
         """Create a Nodeid from a string, an integer, a pair of integers,
         a Mac address, or anything that can be converted to a byte string
         of length 2.
@@ -329,6 +329,8 @@ class Nodeid (Field, int):
                 raise DecodeError ("Invalid node ID {}".format (s))
         if a > 63 or n > 1023 or (n == 0 and a != 0 and not wild):
             raise ValueError ("Invalid node ID {}".format (s))
+        # Supply default area if needed and supplied
+        a = a or area
         return int.__new__ (cls, (a << 10) + n)
 
     @classmethod
@@ -370,8 +372,8 @@ class Nodeid (Field, int):
 
 class NiceNode (Nodeid):
     """A node address with optional node name. """
-    def __new__ (cls, nodeid = 0, name = ""):
-        n = Nodeid.__new__ (cls, nodeid)
+    def __new__ (cls, nodeid = 0, name = "", area = 0):
+        n = Nodeid.__new__ (cls, nodeid, area = area)
         if not name:
             name = getattr (nodeid, "nodename", "")
         n.nodename = name

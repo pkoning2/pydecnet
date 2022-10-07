@@ -65,13 +65,13 @@ class Nodeinfo (nsp.NSPNode, NiceNode):
     state and counters needed by NSP.  The argument is the node config entry.
     """
     loopnode = False
-    def __new__ (cls, c, nodeid = None):
+    def __new__ (cls, c, nodeid = None, area = 0):
         if c:
-            return NiceNode.__new__ (cls, c.id, c.name)
+            return NiceNode.__new__ (cls, c.id, c.name, area = area)
         assert (nodeid is not None)
-        return NiceNode.__new__ (cls, nodeid)
+        return NiceNode.__new__ (cls, nodeid, area = area)
 
-    def __init__ (self, c, nodeid = None):
+    def __init__ (self, c, nodeid = None, area = 0):
         nsp.NSPNode.__init__ (self)
         self.overif = None
         self.iverif = None
@@ -155,13 +155,15 @@ class Node:
             self.phase = phases[config.routing.type]
             if self.phase == 4:
                 self.nodeid = config.routing.id
+                self.area = self.nodeid // 1024
             else:
                 # Not phase IV, so make sure node ID is an old style
                 # (8 bit) value
                 self.nodeid = Nodeid (0, config.routing.id.tid)
+                self.area = 0
             # Build node lookup dictionaries
             for n in config.node.values ():
-                n = Nodeinfo (n)
+                n = Nodeinfo (n, area = self.area)
                 self.addnodeinfo (n)
             self.nodename = self.nodeinfo (self.nodeid).nodename
             self.nicenode = NiceNode (self.nodeid, self.nodename)

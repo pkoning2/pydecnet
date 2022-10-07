@@ -330,6 +330,17 @@ class BaseRouter (Element):
         self.nodeid = config.routing.id
         self.nodemacaddr = Macaddr (self.nodeid)
         self.homearea, self.tid = self.nodeid.split ()
+        if self.tiver == tiver_ph4:
+            if not self.homearea:
+                logging.critical ("No area number for executor node {}",
+                                  self.nodeid)
+                raise ValueError ("Executor area number not set")
+        else:
+            # Phase II or III, no areas
+            if self.homearea:
+                logging.critical ("Executor node {} should not have area number",
+                                  self.nodeid)
+                raise ValueError ("Executor node number should not have area number")
         self.typename = config.routing.type
         self.nodeinfo = parent.nodeinfo (self.nodeid)
         self.nodeinfo.counterclass = ExecCounters
@@ -337,7 +348,7 @@ class BaseRouter (Element):
         self.name = self.nodeinfo.nodename
         if not self.name:
             logging.critical ("No node name set for executor node {}", self.nodeid)
-            raise ValueError
+            raise ValueError ("Executor node name not set")
         self.circuits = dict ()
         self.p2lines = dict ()
         self.adjacencies = dict ()
@@ -712,6 +723,7 @@ class Phase2Routing (BaseRouter):
     """
     LanCircuit = None    # not supported
     PtpCircuit = PtpEndnodeCircuit
+    tiver = tiver_ph2
     ntype = PHASE2
     ntypestring = "Phase 2 node"
 
