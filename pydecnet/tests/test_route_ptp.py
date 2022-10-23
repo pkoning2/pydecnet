@@ -96,11 +96,11 @@ class rtest (DnTest):
         self.c.t3 = 15
         self.assertState ("ha")
         self.node.addwork (datalink.DlStatus (owner = self.c,
-                                            status = datalink.DlStatus.DOWN))
+                                              status = datalink.DlStatus.DOWN))
         self.c.start ()
         self.assertState ("ds")
         self.node.addwork (datalink.DlStatus (owner = self.c,
-                                            status = datalink.DlStatus.UP))
+                                              status = datalink.DlStatus.UP))
         self.assertState ("ri")        
 
     def tearDown (self):
@@ -170,24 +170,6 @@ class test_ph2 (rtest):
         self.assertState ("ru2")
         # NOP message is handled (ignored) in route_ptp
         spkt = self.lastdispatch (0)
-        # Deliver an incoming packet, with route header
-        pkt = b"\x42\x04TEST\x06REM130\x00\252\252\252"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru2")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        # Payload will be just the part after the route header
-        self.assertEqual (spkt.payload, b"\x00\252\252\252")
-        self.assertEqual (spkt.srcnode, Nodeid (130))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 0)
-        # Try a bad route header
-        pkt = b"\x42\xf4TEST\x06REM130\x00\252\252\252"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ds")
-        self.lastdispatch (1, element = self.r)
-        self.assertEvent (events.fmt_err, 
-                          packet_beginning = b"\x42\xf4TEST")
 
     def test_send (self):
         self.startup ()
@@ -407,16 +389,6 @@ class test_ph3 (rtest):
         self.assertState ("ru2")
         # NOP message is handled (ignored) in route_ptp
         spkt = self.lastdispatch (0)
-        # Deliver an incoming packet, with route header
-        pkt = b"\x42\x04TEST\x06REMOTE\x00\252\252\252"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru2")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, b"\x00\252\252\252")
-        self.assertEqual (spkt.srcnode, Nodeid (66))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 0)
         # Hello timer expiration
         DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
@@ -505,30 +477,6 @@ class test_ph4 (rtest):
         self.assertState ("ru4l1")
         spkt = self.lastdispatch (2, element = self.r)
         self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, b"abcdef payload")
-        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
-        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
-        self.assertEqual (spkt.visit, 17)
-        # Long data is accepted
-        pkt = b"\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
-              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
-              b"abcdef payload"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru4l1")
-        spkt = self.lastdispatch (3, element = self.r)
-        self.assertIsInstance (spkt, LongData)
-        self.assertEqual (spkt.payload, b"abcdef payload")
-        self.assertEqual (spkt.srcnode, Nodeid (2, 1))
-        self.assertEqual (spkt.dstnode, Nodeid (1, 3))
-        self.assertEqual (spkt.visit, 17)
-        # ditto but with padding
-        pkt = b"\x88Testing\x26\x00\x00\xaa\x00\x04\x00\x03\x04" \
-              b"\x00\x00\xaa\x00\x04\x00\x01\x08\x00\x11\x00\x00" \
-              b"abcdef payload"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru4l1")
-        spkt = self.lastdispatch (4, element = self.r)
-        self.assertIsInstance (spkt, LongData)
         self.assertEqual (spkt.payload, b"abcdef payload")
         self.assertEqual (spkt.srcnode, Nodeid (2, 1))
         self.assertEqual (spkt.dstnode, Nodeid (1, 3))
@@ -650,16 +598,6 @@ class test_ph4 (rtest):
         self.assertState ("ru2")
         # NOP message is handled (ignored) in route_ptp
         spkt = self.lastdispatch (0)
-        # Deliver an incoming packet, with route header
-        pkt = b"\x42\x04TEST\x06REMOTE\x00\252\252\252"
-        self.node.addwork (Received (owner = self.c, src = self.c, packet = pkt))
-        self.assertState ("ru2")
-        spkt = self.lastdispatch (1, element = self.r)
-        self.assertIsInstance (spkt, ShortData)
-        self.assertEqual (spkt.payload, b"\x00\252\252\252")
-        self.assertEqual (spkt.srcnode, Nodeid (1, 66))
-        self.assertEqual (spkt.dstnode, self.r.nodeid)
-        self.assertEqual (spkt.visit, 0)
         # Hello timer expiration
         DnTimeout (self.c)
         p, x = self.lastsent (self.cp, 3)
