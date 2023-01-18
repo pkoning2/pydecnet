@@ -234,6 +234,7 @@ class HostAddress (object):
         """Return the currently chosen sockaddr to use when sending to
         this host.
         """
+        self.check_interval ()
         return self.addrinfo[1]
 
     def __str__ (self):
