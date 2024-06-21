@@ -1,0 +1,13 @@
+local
+MANIFEST
+__pycache__
+build
+dist
+local
+*.pyc
+*.pyo
+*~
+*.o
+decnet.egg-info
+decnet.pem
+*.log
