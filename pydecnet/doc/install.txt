@@ -1,10 +1,14 @@
 Prerequisites
 
-PyDECnet requires Python 3.3 or later.  But note that versions 3.6 and
-earlier are now (2022) no longer supported.  The current release of
-PyDECnet has been tested with Python 3.6 through 3.10 and with
-3.11 alpha 4.  Version 3.7 or later is recommended; some features are
-not available with version 3.6.
+PyDECnet requires Python 3.3 or later.  The Python.org website
+indicates that versions 3.7 and earlier are now (as of July 2023) no
+longer supported.  The current release of PyDECnet has been tested
+with Python 3.6 through 3.12 and with 3.13 beta 2 including the "free
+threading" version.  Version 3.8 or later is recommended; some
+features are not available with version 3.6.
+
+PLEASE NOTE:
+In the next release, the minimum version will change to 3.7.
 
 Apart from standard Python modules, PyDECnet requires the "psutil"
 module.

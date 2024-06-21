@@ -28,6 +28,9 @@ class brtest (DnTest):
         for n, mop in self.circ:
             self.config.circuit[n] = container ()
             self.config.circuit[n].mop = mop
+            # TEMP until test cases are added for these features
+            self.config.circuit[n].phase_5 = False
+            self.config.circuit[n].ip = False
             self.node.datalink.circuits[n] = unittest.mock.Mock ()
             self.node.datalink.circuits[n].__class__ = ethernet.Ethernet
             self.node.datalink.circuits[n].create_port.side_effect = makeport

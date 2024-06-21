@@ -37,6 +37,13 @@ class BridgeCircuit (Element):
             self.datalink.add_proto (MOPCONSPROTO)
             self.datalink.add_proto (LATPROTO)
             self.datalink.add_proto (LOOPPROTO)
+        self.ip = config.ip
+        if self.ip:
+            self.datalink.add_proto (0x0800)            # IP
+            self.datalink.add_proto (0x0806)            # ARP
+        self.phase_5 = config.phase_5
+        if self.phase_5:
+            self.datalink.add_sap (OSISAP)
         self.datalink.set_promiscuous (True)
 
     def get_api (self):
@@ -183,7 +190,6 @@ class Bridge (Element):
             src = Macaddr (packet[6:12])
             if dest == src:
                 return
-            proto = packet[12:14]
             self.addrdb.learn (src, circ)
             logging.trace ("Received packet from {} on {}", src, circ)
             if dest in self.addrdb:

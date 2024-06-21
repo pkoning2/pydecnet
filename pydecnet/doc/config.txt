@@ -280,7 +280,7 @@ the system supports it.  The default is -4 -6, i.e., both enabled.
 
 If names are used, the addresses found by the lookup are used in
 random order.  But -4 or -6 can be repeated to give preference to that
-family.  For example, --destination google.com -466 will try any of
+family.  For example, --remote-address google.com -466 will try any of
 that hosts's addresses, but all its IPv6 addresses will be tried
 before the IPv4 addresses.  This applies to outbound traffic; inbound
 any enabled address will be accepted and that address will then be
@@ -353,8 +353,8 @@ types, are:
        serial port, to enable proper Telnet escape character
        processing.
        
-       Note that outbound connections are not made if --destination is
-       omitted ("any remote adddress" mode).
+       Note that outbound connections are not made if --remote-address
+       is omitted ("any remote adddress" mode).
 
 --cost: Circuit cost.  Argument is an integer in the range 1..25,
 default is 4.
@@ -404,11 +404,20 @@ loop node name is assigned to this circuit.  Loop nodes are only valid
 for point to point circuits (Multinet or DDCMP), not for Ethernet-type
 circuits (Ethernet or GRE).
 
---mop: applies only to bridge circuits.  By default, only DECnet
-packets are accepted from and sent to this circuit.  If --mop is
+--mop: applies only to bridge circuits.  By default, only DECnet Phase
+IV packets are accepted from and sent to this circuit.  If --mop is
 supplied, MOP, LAT, and loopback protocol packets are also accepted.
 This corresponds to the [lat] section in the bridge.conf file for the
 original bridge.c program.
+
+--mop: applies only to bridge circuits.  By default, only DECnet Phase
+IV packets are accepted from and sent to this circuit.  If --ip is
+supplied, IP related packets (including ARP) are also accepted.
+
+--phase-5: applies only to bridge circuits.  By default, only DECnet
+Phase IV packets are accepted from and sent to this circuit.  If
+--phase5 is supplied, OSI packets (802.3 format packets with SAP
+address 0xFE) are also accepted.
 
 --console: if present, enables the console carrier server in MOP for
 this circuit.  The argument is the verification string, which must be

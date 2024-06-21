@@ -587,7 +587,7 @@ are:
     "auth" : "off"
 }
 
-"num" is the object numberm, "name" is the object name to be
+"num" is the object number, "name" is the object name to be
 registered.  At least one must be given.  The name, if given, is
 converted to upper case.  The number and/or name must not already be
 in use by another object.  For example, the registration attempt shown

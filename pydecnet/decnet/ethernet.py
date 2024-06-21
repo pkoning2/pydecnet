@@ -35,12 +35,22 @@ ETH_TMO = 100    # ms
 class EthPort (datalink.BcPort):
     """DEC Ethernet port class.
     """
-    def __init__ (self, datalink, owner, proto, pad = True):
+    def __init__ (self, datalink, owner, proto = None, sap = None, pad = True):
         super ().__init__ (datalink, owner, proto)
         self.pad = pad
         f = self.frame = bytearray (1514)
-        f[12:14] = self.proto
-
+        if self.proto:
+            f[12:14] = self.proto
+            if pad:
+                self.plstart = 16
+            else:
+                self.plstart = 14
+        else:
+            # IEEE 802.3, length goes into bytes 12-13.
+            f[14] = f[15] = self.sap
+            f[16] = 0x03    # UI
+            self.plstart = 17
+        
     def send (self, msg, dest):
         destb = makebytes (dest)
         if len (destb) != 6:
@@ -55,13 +65,21 @@ class EthPort (datalink.BcPort):
                 raise ValueError ("Ethernet packet too long")
             f[14] = l & 0xff
             f[15] = l >> 8
-            f[16:16 + l] = makebytes (msg)
-            l += 16
+        elif self.sap:
+            # Include LLC header
+            tl = l + 3
+            if tl > 1500:
+                raise ValueError ("IEEE 802.3 packet too long")
+            # IEEE length includes LLC header and is big endian
+            f[12] = tl >> 8
+            f[13] = tl & 0xff
+            # TODO: some way to supply opcode?  For now it's always UI.
         else:
             if l > 1500:
                 raise ValueError ("Ethernet packet too long")
-            f[14:14 + l] = makebytes (msg)
-            l += 14
+        # Fill in the payload and compute total length
+        f[self.plstart:self.plstart + l] = makebytes (msg)
+        l += self.plstart
         self.counters.bytes_sent += l
         self.counters.pkts_sent += 1
         # Always send packet padded to min of 60 if need be, whether
@@ -117,8 +135,8 @@ class _Ethernet (datalink.BcDatalink, StopThread):
     def close (self):
         self.stop ()
         
-    def create_port (self, owner, proto, pad = True):
-        return super ().create_port (owner, proto, pad)
+    def create_port (self, owner, proto = None, sap = None, pad = True):
+        return super ().create_port (owner, proto, sap, pad)
 
     def receive (self, plen, packet, ts):
         if not packet:
@@ -126,7 +144,16 @@ class _Ethernet (datalink.BcDatalink, StopThread):
             return
         proto = packet[12:14]
         try:
-            port = self.ports[proto]
+            if proto <= b"\x05\xdc":
+                # 802.3 frame, handle that
+                plen2 = int.from_bytes (proto, "big")
+                dsap = packet[14]
+                port = self.ports[dsap]
+                pstart = 17
+            else:
+                port = self.ports[proto]
+                plen2 = plen - 14
+                pstart = 14
         except KeyError:
             # No protocol type match, ignore packet
             self.counters.unk_dest += 1
@@ -158,7 +185,7 @@ class _Ethernet (datalink.BcDatalink, StopThread):
                     return
                 payload = memoryview (packet)[16:16 + plen2]
             else:
-                payload = memoryview (packet)[14:]
+                payload = memoryview (packet)[pstart:pstart + plen2]
             # Pass the payload as "packet" but also pass up the whole
             # PDU for users like the bridge.  Also the third argument,
             # which is timestamp for Pcap (not interesting) but source
@@ -295,6 +322,7 @@ class _PcapEth (_Ethernet):
         """
         self.filter_str = fs
         if self.opened:
+            logging.trace ("dev {} new filter {}", self.dev, fs)
             self.pcap.setfilter (fs)
         
     def open (self):

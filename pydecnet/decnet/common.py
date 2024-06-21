@@ -22,7 +22,7 @@ WIN = "win" in sys.platform and "darwin" not in sys.platform
 DNVERNUM = "1.1"
 # Beta ("T") version for now
 DNVERSION = "DECnet/Python T{}".format (DNVERNUM)
-CYEAR = "2022"
+CYEAR = "2023"
 AUTHORS = "Paul Koning"
 
 DECNETROOT = os.path.dirname (__file__)
@@ -494,7 +494,7 @@ class Ethertype (Field, bytes):
         if isinstance (s, str):
             bl = _mac_re.split (s)
             if len (bl) != 2:
-                raise ValueError ("Invalid MAC address string {}".format (s))
+                raise ValueError ("Invalid protocol type string {}".format (s))
             else:
                 b = bytes (int (f, 16) for f in bl)
         elif isinstance (s, int):
@@ -540,6 +540,42 @@ MOPCONSPROTO = Ethertype ("60-02")
 ROUTINGPROTO = Ethertype ("60-03")
 LATPROTO     = Ethertype ("60-04")   # used by bridge
 LOOPPROTO    = Ethertype ("90-00")
+
+class DLSAP (Field, int):
+    """SAP address type for 802 LLC
+    """
+    def __new__ (cls, s):
+        """Create a DLSAP instance from a string or integer or single byte.
+        """
+        if isinstance (s, str):
+            b = int (s, 16)
+        elif isinstance (s, int):
+            if not 0 <= s <= 255:
+                raise ValueError ("Invalid DLSAP value {}".format (s))
+            b = s
+        elif isinstance (s, bytes) and len (s) == 1:
+            b = s[0]
+        else:
+            raise ValueError ("Unknown DLSAP value tye {}".format (s))
+        return int.__new__ (cls, b)
+
+    @classmethod
+    def decode (cls, buf):
+        require (buf, 2)
+        return cls (buf[:1]), buf[1:]
+
+    def encode (self):
+        return self
+    
+    def __str__ (self):
+        return "{:02x}".format (self)
+
+    __repr__ = __str__
+
+# Well known datalink SSAP/DSAP values
+BRIDGESAP = DLSAP (0x42)
+OSISAP    = DLSAP (0xfe)
+SNAPSAP   = DLSAP (0xaa)
 
 class Version (Field, bytes):
     """DECnet component version number -- 3 integers.  Subclasses can

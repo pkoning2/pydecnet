@@ -64,7 +64,7 @@ class EthTest (DnTest):
         lcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
         self.rport.macaddr = Macaddr (Nodeid (1, 3))
-        self.lport = self.eth.create_port (lcirc, LOOPPROTO, False)
+        self.lport = self.eth.create_port (lcirc, LOOPPROTO, pad = False)
         self.postPacket (b"\xaa\x00\x04\x00\x03\x04\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
         w = self.lastdispatch (1, rcirc, itype = Received)
@@ -210,7 +210,7 @@ class EthTest (DnTest):
         lcirc = self.circ ()
         self.rport = self.eth.create_port (rcirc, ROUTINGPROTO)
         self.rport.add_multicast (Macaddr ("AB-00-00-03-00-00"))
-        self.lport = self.eth.create_port (lcirc, LOOPPROTO, False)
+        self.lport = self.eth.create_port (lcirc, LOOPPROTO, pad = False)
         self.lport.add_multicast (Macaddr ("CF-00-00-00-00-00"))
         self.postPacket (b"\xab\x00\x00\x03\x00\x00\xaa\x00\x04\x00\x2a\x04" \
                          b"\x60\x03" + self.lelen (self.tdata) + self.tdata)
@@ -243,7 +243,7 @@ class EthTest (DnTest):
     def test_xmit (self):
         self.rport = self.eth.create_port (self.node, ROUTINGPROTO)
         self.rport.macaddr = Macaddr (Nodeid (1, 3))
-        self.lport = self.eth.create_port (self.node, LOOPPROTO, False)
+        self.lport = self.eth.create_port (self.node, LOOPPROTO, pad = False)
         self.rport.send (self.tdata, Macaddr (Nodeid (1, 42)))
         b = self.lastSent ()
         expected = b"\xaa\x00\x04\x00\x2a\x04\xaa\x00\x04\x00\x03\x04" \

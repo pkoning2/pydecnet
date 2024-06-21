@@ -154,13 +154,13 @@ class Datalink (Element, metaclass = ABCMeta):
             yield cls
 
     @abstractmethod
-    def create_port (self, *args):
+    def create_port (self, *args, **kwargs):
         """Create a port.  Returns an instance of the Port subclass
         associated with this datalink.  Depending on the datalink
         type, there may be a limit on the number of ports that can
         exist at one time.
         """
-        return self.port_class (self, *args)
+        return self.port_class (self, *args, **kwargs)
 
     @abstractmethod
     def open (self):
@@ -337,10 +337,10 @@ class PtpDatalink (Datalink, statemachine.StateMachine):
         """
         self.node.addwork (Reconnect (self, now))
         
-    def create_port (self, owner, proto = None, *args):
+    def create_port (self, owner, proto = None, *args, **kwargs):
         if self.port:
             raise RuntimeError ("Creating second port on ptp datalink")
-        port = super ().create_port (owner, proto, *args)
+        port = super ().create_port (owner, proto, *args, **kwargs)
         self.port = port
         return port
 
@@ -647,15 +647,30 @@ class BcDatalink (Datalink):
         self.ports = dict ()
         self.counters = self.counter_class (self)
 
-    def create_port (self, owner, proto, *args):
-        port = super ().create_port (owner, proto, *args)
-        proto = port.proto
-        if proto in self.ports:
-            raise RuntimeError ("Creating port for proto {!r} which is in use".format (proto))
-        self.ports[proto] = port
+    def create_port (self, owner, *args, **kwargs):
+        port = super ().create_port (owner, *args, **kwargs)
         self.newfilter ()
         return port
 
+    def portfilter (self, protos):
+        # Return a proto filter string
+        ret = list ()
+        for p in protos:
+            if isinstance (p, DLSAP):
+                # There is no elegant way to refer to a DSAP in PCAP
+                # filter language, but referring to it as Ethernet
+                # packet byte 14 is also correct and just works.  But
+                # there is no version-independent way of saying "check
+                # for LLC (802.3) format frame".  So ignore that
+                # aspect; just checking byte 14 will give a small
+                # number of false matches but that's acceptable, it
+                # isn't necessary for the PCAP filter to be exact.
+                p = "(ether[14]==0x{:x})".format (p)
+            else:
+                p = "(ether proto {:x})".format (p)
+            ret.append (p)
+        return " or ".join (ret)
+    
     def filter (self):
         "Return PCAP filter string for this datalink"
         # We'll build a string with an element for each enabled address,
@@ -672,15 +687,12 @@ class BcDatalink (Datalink):
             for a in port.multicast:
                 protomap[a].add (p)
         if promisc:
-            return " or ".join ("(ether proto {:x})".format (p)
-                                for p in self.ports.keys ())
+            return self.portfilter (self.ports.keys ())
         ret = list ()
         for a, ps in protomap.items ():
             if a and a != NULLID:
-                ret.append ("((ether dst {::}) and ({}))"
-                            .format (a, " or ".join ("(ether proto {:x})"
-                                                     .format (p)
-                                                     for p in ps)))
+                pf = self.portfilter (ps)
+                ret.append ("((ether dst {::}) and ({}))".format (a, pf))
         return " or ".join (ret)
 
     def update_filter (self, fs):
@@ -724,17 +736,22 @@ class BcPort (Port):
     a particular protocol type, individual address, and set of
     multicast addresses.
     """
-    def __init__ (self, datalink, owner, proto):
+    def __init__ (self, datalink, owner, proto = None, sap = None):
         super ().__init__ (datalink, owner)
         self._macaddr = datalink.hwaddr
         self.multicast = set ()
         self.promisc = False
         self._update_filter ()
-        proto = Ethertype (proto)
-        self.proto = proto
+        self.proto = self.sap = None
         self.protoset = set ()
-        self.protoset.add (proto)
+        self.sapset = set ()
         self.counters = BcPortCounters (self)
+        if proto:
+            assert not sap, "Exactly one of protocol type or SAP address must be specified"
+            self.add_proto (proto)
+        else:
+            assert sap, "Exactly one of protocol type or SAP address must be specified"
+            self.add_sap (sap)
 
     @property
     def macaddr (self):
@@ -789,6 +806,8 @@ class BcPort (Port):
             raise KeyError ("Protocol type already enabled")
         if proto in self.parent.ports:
             raise RuntimeError ("Protocol type in use by another port")
+        if not self.proto:
+            self.proto = proto
         self.parent.ports[proto] = self
         self.protoset.add (proto)
         logging.trace ("{} protocol {} added", self, proto)
@@ -799,4 +818,24 @@ class BcPort (Port):
         self.protoset.remove (proto)
         del self.parents.ports[proto]
         logging.trace ("{} protocol {} removed", self, proto)
+        self.parent.newfilter ()
+
+    def add_sap (self, sap):
+        sap = DLSAP (sap)
+        if sap in self.sapset:
+            raise KeyError ("SAP address already enabled")
+        if sap in self.parent.ports:
+            raise RuntimeError ("SAP address in use by another port")
+        if not self.sap:
+            self.sap = sap
+        self.parent.ports[sap] = self
+        self.sapset.add (sap)
+        logging.trace ("{} SAP address {} added", self, sap)
+        self.parent.newfilter ()
+        
+    def remove_sap (self, sap):
+        sap = DLSAP (sap)
+        self.sapset.remove (sap)
+        del self.parents.ports[sap]
+        logging.trace ("{} SAP address {} removed", self, sap)
         self.parent.newfilter ()

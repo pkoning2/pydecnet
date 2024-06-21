@@ -273,6 +273,12 @@ cp.add_argument ("--verify", action = "store_true", default = False,
                  help = "Require routing verification (point to point only)")
 cp.add_argument ("--mop", action = "store_true", default = False,
                  help = "Enable MOP and LAT (bridge circuit only)")
+cp.add_argument ("--ip", action = "store_true", default = False,
+                 help = "Enable IP (bridge circuit only)")
+cp.add_argument ("--phase-5", action = "store_true", default = False,
+                 help = "Enable OSI (bridge circuit only)")
+cp.add_argument ("--phase-1", type = int, default = 0,
+                 help = "Node address of Phase I neighbor node")
 
 cp = config_cmd ("http", "HTTP access")
 cp.add_argument ("--http-port", metavar = "S", default = 8000,

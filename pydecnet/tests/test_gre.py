@@ -75,7 +75,7 @@ class GreTest (DnTest):
         rcirc = self.circ ()
         lcirc = self.circ ()
         self.rport = self.gre.create_port (rcirc, ROUTINGPROTO)
-        self.lport = self.gre.create_port (lcirc, LOOPPROTO, False)
+        self.lport = self.gre.create_port (lcirc, LOOPPROTO, pad = False)
         self.postPacket (b"\x00\x00\x60\x03" +
                          self.lelen (self.tdata) + self.tdata)
         time.sleep (0.1)
@@ -107,7 +107,7 @@ class GreTest (DnTest):
 
     def test_xmit (self):
         self.rport = self.gre.create_port (self.node, ROUTINGPROTO)
-        self.lport = self.gre.create_port (self.node, LOOPPROTO, False)
+        self.lport = self.gre.create_port (self.node, LOOPPROTO, pad = False)
         self.rport.send (b"four score and seven years ago", None)
         data = self.expect ()
         self.assertIsNotNone (data)
