@@ -19,6 +19,7 @@ import time
 import threading
 import os
 import signal
+import cProfile
 try:
     from daemon import DaemonContext
 except ImportError:
@@ -90,12 +91,15 @@ dnparser.add_argument ("-k", "--keep", type = int, default = 0,
                        help = """Number of log files to keep with nightly
                               rotation.  Requires a log file name
                               to be specified.""")
+dnparser.add_argument ("--profile", metavar = "PF",
+                       help = "Collect and dump profiling data to the named file")
 dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
                        nargs = "?", const = "",
                        help = "Show configuration file help (for CMD if given)")
 dnparser.add_argument ("-M", "--mac-address", metavar = "N", type = Nodeid,
                        help = """MAC address calculator: argument is the
-                              node address to be converted.""")
+                              node address to be converted.  Prints the 
+                              answer and exits.""")
 
 class pidfile:
     def __init__ (self, args):
@@ -249,6 +253,10 @@ def main ():
         logging.exception ("Exception in daemon or chroot or uid/gid actions")
         raise
     
+    # Start profiling, if requested
+    if p.profile:
+        prof = cProfile.Profile ()
+        prof.enable ()
     # Start all the nodes, each in a thread of its own.
     for n in nodes:
         n.start ()
@@ -277,6 +285,10 @@ def main ():
         else:
             logging.info ("Exiting due to Ctrl/C")
     finally:
+        if p.profile:
+            prof.disable ()
+            prof.dump_stats (p.profile)
+            logging.info ("Profile data written to {}", p.profile)
         if api:
             api.stop ()
         # Stop nodes in reverse of the order in which they were started.
