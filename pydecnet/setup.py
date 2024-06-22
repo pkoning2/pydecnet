@@ -2,7 +2,7 @@
 
 """Installer for decnet module
 
-Copyright (c) 2013-2022, Paul Koning.
+Copyright (c) 2013-2024, Paul Koning.
 
 Licensed under open source license terms stated in file LICENSE.
 """
@@ -15,9 +15,9 @@ setup (author = "Paul Koning",
        license = "BSD",
        description = "DECnet protocol implementation in Python",
        name = "decnet",
-       #url = ""
+       url = "http://akdesign.dyndns.org:8080/resources/public/index.html",
        version = getrevision (),
-       python_requires = ">=3.3",
+       python_requires = ">=3.6",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
                     "decnet.resources.images", "applications" ],
@@ -31,6 +31,7 @@ setup (author = "Paul Koning",
         },
        py_modules = [ "crc" ],
        scripts = [ "applications/ncp", "applications/mirror-daemon",
+                   "applications/nft", "applications/tlk",
                    "applications/dnping", "applications/rcclient" ],
        install_requires = [
            "psutil >= 3.2.0"
@@ -53,5 +54,7 @@ setup (author = "Paul Koning",
            "Programming Language :: Python :: 3.9",
            "Programming Language :: Python :: 3.10",
            "Programming Language :: Python :: 3.11",
+           "Programming Language :: Python :: 3.12",
+           "Programming Language :: Python :: 3.13",
            ],       
        )

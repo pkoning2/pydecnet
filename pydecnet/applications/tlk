@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import time
+import re
+import argparse
+
+from decnet.common import *
+from decnet import connectors
+from decnet.session import reject_text
+
+cmdparser = argparse.ArgumentParser ()
+cmdparser.add_argument ("node", metavar = "N", help = "Node to talk to")
+cmdparser.add_argument ("tty", metavar = "T", type = int, help = "Terminal to talk to")
+cmdparser.add_argument ("-1", "--phase-1", action = "store_true",
+                       default = False, help = "Destination is Phase I")
+
+
+tty_re = re.compile (r"[0-9]+$")
+m = tty_re.search (os.ttyname (sys.stdin.fileno ()))
+tty = int (m.group (0))
+
+def main ():
+    p, rest = cmdparser.parse_known_args ()
+    msg = " ".join (rest)
+    cdata = p.tty.to_bytes (2, "little") + tty.to_bytes (2, "little") + b"\0"
+    if not p.phase_1:
+        cdata = b"\x00\x00" + cdata
+    c = connectors.SimpleApiConnector ()
+    conn, resp = c.connect (dest = p.node, remuser = "TLK", data = cdata)
+    if conn:
+        tdata = bytes (msg, "ascii")
+        conn.data (tdata)
+        # This is needed for Phase I for now -- once we have some way
+        # to know that the message has been sent this should no longer
+        # be needed.
+        time.sleep (0.1)
+        conn.disconnect ()
+    else:
+        reason = reject_text.get (resp.reason, resp.reason)
+        print ("connect reject, reason", reason)
+    c.close ()
+
+if __name__ == "__main__":
+    main ()
+    
