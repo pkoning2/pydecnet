@@ -13,7 +13,7 @@ Document no. HAL-78.001-03-S
 Note that we claim DAP version 7.2.0, for which unfortunately no spec
 appears to be available.  The main reason for doing this is to allow
 VMS to transfer Stream_LF format files, a record format not defined in
-5.6.0.  Some of the logic in the protocol code is guessword, derived
+5.6.0.  Some of the logic in the protocol code is guesswork, derived
 from reverse engineering of the protocol exchanges with other DECnet
 implementations.
 """
@@ -326,7 +326,7 @@ class Config (DapHeader):
                  ( "glob", 38, 1 ),
                  ( "name", 40, 1 ),
                  ( "seg", 41, 1 ),
-                 # DAP V7 options:
+                 # DAP V6 (?) options:
                  ( "close_att", 42, 1 ),
                  ( "close_tim", 43, 1 ),
                  ( "close_pro", 44, 1 ),
@@ -337,7 +337,22 @@ class Config (DapHeader):
                  ( "rename_tim", 49, 1 ),
                  ( "rename_pro", 50, 1 ),
                  ( "blkcnt", 51, 1 ),
-                 ( "octal_versions", 52, 1 )))
+                 ( "octal_versions", 52, 1 ),
+                 # DAP V7 options:
+                 ( "coll_table", 53, 1 ),
+                 ( "stream_access_stm", 54, 1 ),
+                 ( "stream_access_any", 55, 1 ),
+                 # DAP V7 options:
+                 ( "block_access", 56, 1 ),
+                 ( "access_switch", 57, 1 ),
+                 ( "attribute_storage", 58, 1 ),
+                 ( "non_8bit_data", 59, 1 ),
+                 ( "stm_default", 60, 1 ),
+                 ( "isam_prolog_1", 61, 1 ),
+                 ( "isam_prolog_2", 62, 1 ),
+                 ( "isam_prolog_3", 63, 1 ),
+                 ( "extended_syscap", 72, 1 )))
+
     type = 1
 
 class Attrib (DapHeader):
