@@ -51,15 +51,15 @@ class TestNiceResp (DnTest):
         b = b"\x01\x00\x01\x32" \
             b"\x02\x00\x02\x02\x04" \
             b"\x04\x00\x04\x01\x02\x03\x00" \
+            b"\x04\xe0\x01\x02\x03\x00" \
             b"\x0b\x00\x25\xf0\xff\x33\x42\x73" \
             b"\x0c\x00\x12\xf0\xff" \
+            b"\x0c\xd0\x05\x01\xff\xff" \
             b"\x15\x00\x33\x01\x33\x02" \
             b"\x26\x00\x22\xaa\xbb" \
             b"\x28\x00\x20\x05\xaa\x02\x03\x00\x00" \
             b"\x29\x00\x40\x0dGood Morning!" \
-            b"\x33\x00\x81\x01" \
-            b"\x04\xe0\x01\x02\x03\x00" \
-            b"\x0c\xd0\x05\x01\xff\xff"
+            b"\x33\x00\x81\x01"
         e, b2 = AllTypes.decode (b)
         self.assertIsInstance (e, AllTypes)
         self.assertEqual (b2, b"")
@@ -77,7 +77,9 @@ class TestNiceResp (DnTest):
         self.assertRegex (es, r"hcrc")
         self.assertRegex (es, r"two")
         self.assertRegex (es, r"Qualifier #8")
-        # Check encoding
+        # Check encoding.  Note that parameters are ordered by
+        # parameter code number, ignoring the flags that mark
+        # counters.
         self.assertEqual (b, bytes (e))
 
     def test_decode_other (self):
