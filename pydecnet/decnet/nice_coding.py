@@ -556,7 +556,10 @@ class NICE (packet.FieldGroup):
         pdict = dict ()
         flist = list ()
         names = list ()
-        for v in layouts:
+        # According to the standard the order does not matter, but for
+        # some cases (like state and substate) some implementations
+        # care, so ensure the entries are sorted.
+        for v in sorted (layouts, key = lambda x: x[0]):
             k, fn, v, f = NiceType.makecoderow (*v)
             names.append (fn)
             pdict[k] = v
