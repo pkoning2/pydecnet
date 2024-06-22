@@ -107,6 +107,9 @@ class ConnectInit (ApplicationWork):
 class Exited (ApplicationWork):
     "Application process has exited"
     name = "exited"
+class RunState (ApplicationWork):
+    "Connection has transitioned from CC to RUN state"
+    name = "runstate"
 
 class EndUser (packet.IndexedPacket):
     classindex = nlist (3)
@@ -705,6 +708,12 @@ class Session (Element):
                                             connection = conn,
                                             reason = pkt.reason)
                     del self.conns[nspconn]
+                elif isinstance (pkt, nsp.RunState):
+                    # Not an actual packet, but a notification of the
+                    # state change from CC to RUN (ack of a Connect
+                    # Confirm message), which means the connection can
+                    # now accept data send requests.
+                    awork = RunState (self, connection = conn, message = b"")
                 else:
                     logging.debug ("Unexpected work item {}", item)
                     return
@@ -770,7 +779,7 @@ class BaseConnector (Element):
                     conn.disconnect ()
                     continue
                 try:
-                        conn.nspconn.abort (OBJ_FAIL)
+                    conn.nspconn.abort (OBJ_FAIL)
                 except nsp.WrongState:
                     try:
                         conn.nspconn.reject (OBJ_FAIL)

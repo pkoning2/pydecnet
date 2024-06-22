@@ -92,7 +92,7 @@ async def reflect (conn):
     # two byte integer.  We have no limit so send 65535.
     i = 65535
     msg = i.to_bytes (2, "little")
-    conn.accept (msg)
+    await conn.accept (msg)
     while True:
         msg = await conn.recv ()
         # conn is a connectors.Connection object with an API similar

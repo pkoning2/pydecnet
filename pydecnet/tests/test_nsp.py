@@ -161,7 +161,7 @@ class common_inbound (inbound_base):
                       packet = d, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -185,7 +185,7 @@ class common_inbound (inbound_base):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # LS message gets immediate ACK
         self.assertEqual (r.send.call_count, 2 + self.cdadj + padj)
         # Send a data message
@@ -204,7 +204,7 @@ class common_inbound (inbound_base):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         lsadj = 0
         if nc.cphase < 4:
             lsadj = 1
@@ -220,7 +220,7 @@ class common_inbound (inbound_base):
                           packet = p, rts = False)
             self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (s.dispatch.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
             # LS gets immediate ACK, but it is part of the data packet
             # for Phase 4 (cross-subchannel ACK)
             if nc.cphase < 4:
@@ -264,7 +264,7 @@ class common_inbound (inbound_base):
                           packet = p, rts = False)
             self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (s.dispatch.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
             # LS gets immediate ACK, but it is part of the data packet
             # for Phase 4 (cross-subchannel ACK)
             if nc.cphase < 4:
@@ -334,7 +334,7 @@ class common_inbound (inbound_base):
                           packet = p, rts = False)
             self.node.addwork (w)
             # Not delivered to Session Control
-            self.assertEqual (s.dispatch.call_count, 2)
+            self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
             # LS gets immediate ACK, but it is part of the data packet
             # for Phase 4 (cross-subchannel ACK)
             if nc.cphase < 4:
@@ -368,7 +368,7 @@ class common_inbound (inbound_base):
                       packet = disc, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 3)
+        self.assertEqual (s.dispatch.call_count, 4 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -405,7 +405,7 @@ class common_inbound (inbound_base):
                       packet = d, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -435,7 +435,7 @@ class common_inbound (inbound_base):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # LS gets immediate ACK
         args, kwargs = r.send.call_args
         ds, dest = args
@@ -571,8 +571,8 @@ class common_inbound (inbound_base):
         w = Received (owner = self.nsp, src = self.remnode,
                       packet = p, rts = False)
         self.node.addwork (w)
-        # Not delivered to Session Control
-        self.assertEqual (s.dispatch.call_count, 1)
+        # Not delivered to Session Control, but RunState notification is
+        self.assertEqual (s.dispatch.call_count, 2)
         # LS ACK is acknowledged immediately
         self.assertEqual (r.send.call_count, 2 + self.cdadj)
         # Send a packet
@@ -629,7 +629,7 @@ class common_inbound (inbound_base):
         self.assertEqual (nc.state, nc.closed)
         self.assertConns (0)
         # Check that the timeout came to session control as a disconnect
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3)
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -674,7 +674,7 @@ class test_inbound_noflow_phase4 (common_inbound):
         self.assertEqual (nc.destnode.counters.msg_rcv, 1)
         self.assertEqual (nc.destnode.counters.byt_rcv, 7)
         # Check data to SC
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -690,7 +690,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p, rts = False)
         self.node.addwork (w)
         # Not delivered to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # Verify LS ACK was sent
         self.assertEqual (r.send.call_count, 4 + self.cdadj)
         # Send a second interrupt
@@ -863,7 +863,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = d4, rts = False)
         self.node.addwork (w)
         # Nothing yet to session control
-        self.assertEqual (s.dispatch.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 2 - (self.phase == 2))
         # No acks yet
         self.assertFalse (nc.data.islinked ())
         # Two packets in out of order cache
@@ -873,7 +873,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = d1, rts = False)
         self.node.addwork (w)
         # This should produce two packets to session control
-        self.assertEqual (s.dispatch.call_count, 3)
+        self.assertEqual (s.dispatch.call_count, 4 - (self.phase == 2))
         r1, r2 = s.dispatch.call_args_list[-2:]
         args, kwargs = r1
         w = args[0]
@@ -905,7 +905,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = d3, rts = False)
         self.node.addwork (w)
         # This should produce the other two packets to session control
-        self.assertEqual (s.dispatch.call_count, 5)
+        self.assertEqual (s.dispatch.call_count, 6 - (self.phase == 2))
         r1, r2 = s.dispatch.call_args_list[-2:]
         args, kwargs = r1
         w = args[0]
@@ -951,7 +951,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p2, rts = False)
         self.node.addwork (w)
         # Nothing to session control
-        self.assertEqual (s.dispatch.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 2 - (self.phase == 2))
         # No acks yet
         self.assertFalse (nc.other.islinked ())
         # One packet in out of order cache for Int/LS subchannel (yes,
@@ -962,7 +962,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = p1, rts = False)
         self.node.addwork (w)
         # Still nothing to session control (not SC data)
-        self.assertEqual (s.dispatch.call_count, 1)
+        self.assertEqual (s.dispatch.call_count, 2 - (self.phase == 2))
         # OOO cache is now empty
         self.assertEqual (len (nc.data.ooo), 0)
         # Int/LS always gets immediate ACK
@@ -1228,7 +1228,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = d1, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -1248,7 +1248,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                        packet = d1, rts = False)
         self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # Forces explicit ack
         self.assertFalse (nc.data.islinked ())
         self.assertEqual (r.send.call_count, 2 + self.cdadj + padj)
@@ -1274,7 +1274,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = d1, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -1288,7 +1288,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                        packet = d1, rts = False)
         self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # Again an ACK
         self.assertFalse (nc.other.islinked ())
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
@@ -1315,7 +1315,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = disc, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -1339,7 +1339,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                        packet = disc, rts = False)
         self.node.addwork (w2)
         # Not delivered to SC
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         # No Link reply expected
         self.assertEqual (r.send.call_count, 3 + self.cdadj)
         args, kwargs = r.send.call_args
@@ -1364,7 +1364,7 @@ class test_inbound_noflow_phase4 (common_inbound):
                       packet = disc, rts = False)
         self.node.addwork (w)
         # Check data to Session Control
-        self.assertEqual (s.dispatch.call_count, 2)
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -2243,8 +2243,12 @@ class test_connself_phase4 (ntest):
         s = self.node.session
         nc2.accept (b"ok")
         # Check data to Session Control on first (outbound) connection
-        self.assertEqual (s.dispatch.call_count, 2)
-        args, kwargs = s.dispatch.call_args
+        # as well as "RunState" notification
+        self.assertEqual (s.dispatch.call_count, 3 - (self.phase == 2))
+        if self.phase == 2:
+            args, kwargs = s.dispatch.call_args
+        else:
+            args, kwargs = s.dispatch.call_args_list[-2]
         w = args[0]
         pkt = w.packet
         self.assertIs (w.connection, nc1)
@@ -2261,7 +2265,7 @@ class test_connself_phase4 (ntest):
         self.assertEqual (nc2.state, nc2.run)
         # Send a data message
         nc2.send_data (b"data")
-        self.assertEqual (s.dispatch.call_count, 3)
+        self.assertEqual (s.dispatch.call_count, 4 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -2270,7 +2274,7 @@ class test_connself_phase4 (ntest):
         self.assertEqual (pkt.payload, b"data")
         # Send a data message the other way
         nc1.send_data (b"reply")
-        self.assertEqual (s.dispatch.call_count, 4)
+        self.assertEqual (s.dispatch.call_count, 5 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet
@@ -2283,7 +2287,7 @@ class test_connself_phase4 (ntest):
         # Close the outbound connection
         nc1.disconnect (payload = b"bye")
         # That should produce a session control message on the other one
-        self.assertEqual (s.dispatch.call_count, 5)
+        self.assertEqual (s.dispatch.call_count, 6 - (self.phase == 2))
         args, kwargs = s.dispatch.call_args
         w = args[0]
         pkt = w.packet

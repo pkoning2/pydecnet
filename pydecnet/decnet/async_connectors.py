@@ -45,6 +45,9 @@ class AsyncConnection (Connection):
         self.listenq = asyncio.Queue ()
 
     async def recv (self):
+        "Send an accept and wait for it to be delivered"
+        # On completion of this async method the connection is in run
+        # state, so it is then ready for data to be sent.
         if self.closed:
             raise ConnClosed
         resp = await self.recvq.get ()
@@ -66,6 +69,14 @@ class AsyncConnection (Connection):
     async def listen (self):
         ret = await self.listenq.get ()
         return ret
+
+
+    async def accept (self, data = ""):
+        self.send (type = "accept", data = makestr (data))
+        # Wait for a reply, which must be a "runstate" report.
+        resp = await self.recv ()
+        if resp.type != "runstate":
+            self.close ()
 
 class AsyncConnector (SimpleConnector):
     def __init__ (self):

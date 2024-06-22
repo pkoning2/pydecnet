@@ -60,6 +60,9 @@ class NspCounters (BaseCounters):
         self.timeout = 0
         self.no_res_rcv = 0
 
+class RunState:
+    "Pseudo-packet sent to Session Control to report CC->RUN state change"
+
 class NSPNode (object):
     """The remote node state needed by NSP.  This is a base class of
     the Nodeinfo object, which is what node.nodeinfo () returns.
@@ -1480,6 +1483,12 @@ class Connection (Element, statemachine.StateMachine):
                                  LinkSvcMsg, AckOther)):
                 self.data.ack (0)   # Treat ack or data as ACK of CC message
             self.set_state (self.run)
+            # This is done before the call to self.run, so the
+            # RunState event message goes to session control (and from
+            # there to the application) before the data message that
+            # produced the state change, if it was a data message
+            # rather than an ACK.
+            self.to_sc (Received (self, packet = RunState ()))
         return self.run (item)
 
     def run (self, item):

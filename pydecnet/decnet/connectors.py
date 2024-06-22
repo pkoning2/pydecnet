@@ -111,6 +111,10 @@ class Connection:
     # field in the JSON request matches the method name.
     def accept (self, data = ""):
         self.send (type = "accept", data = makestr (data))
+        # Wait for a reply, which must be a "runstate" report.
+        resp = self.recv ()
+        if resp.type != "runstate":
+            self.close ()
 
     def reject (self, data = ""):
         self.send (type = "reject", data = makestr (data))
