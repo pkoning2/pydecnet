@@ -137,7 +137,9 @@ class SelfAdj (adjacency.Adjacency):
         pass    # self adjacency doesn't time out
 
     def send (self, pkt):
-        """Forwarding to self, which means pass up to NSP.
+        """Forwarding to self, which means pass up to NSP.  The argument
+        is a routing data packet object, with the NSP data as its
+        payload.
         """
         # Note that local packets (originating here and terminating
         # here as well) are not counted since there isn't any circuit
@@ -523,37 +525,47 @@ class BaseRouter (Element):
             r.segment_buffer_size = MTU
             # Have the subclass supply anything else it wants to
             self.node_char (r)
-        elif req.sumstat ():
+        elif req.sumstat () and self.ntype != ENDNODE:
             # Summary or status
-            # We only know about it if it is in area
             if nodeid.area == self.homearea:
+                # In area, get the L1 info
                 tid = nodeid.tid
                 a = self.oadj[tid]
-                if a is not self.selfadj:
-                    if a:
-                        r = resp[nodeid]
-                        r.state = 4    # reachable
-                        r.adj_circuit = a.circuit
-                        if req.stat ():
+            elif self.ntype == L2ROUTER:
+                # Out of area, get the L2 info
+                tid = None    # Supress hops/cost data
+                a = self.aoadj[nodeid.area]
+            else:
+                # L1 router and node is out of area, use info for nearest L2 router
+                tid = None    # Supress hops/cost data
+                a = self.oadj[0]
+            if a is not self.selfadj:
+                if a:
+                    r = resp[nodeid]
+                    r.state = 4    # reachable
+                    r.adj_circuit = a.circuit
+                    if req.stat ():
+                        if tid:
+                            # In-area, we know the distance
                             r.hops = self.minhops[tid]
                             r.cost = self.mincost[tid]
-                            if nodeid == a.nodeid:
-                                # Node is adjacent
-                                if a.rphase == 4:
-                                    r.adj_type = a.ntype + 2
-                                elif a.rphase == 3:
-                                    r.adj_type = 1 if a.ntype == ENDNODE else 0
-                                else:
-                                    r.adj_type = 2
-                        else:
-                            # Like RSX, supply this only for
-                            # "summary".  The spec says otherwise, but
-                            # this way it makes the tabular output for
-                            # "show node status" look much better.
-                            r.next_node = self.node.nodeinfo (a.nodeid)
+                        if nodeid == a.nodeid:
+                            # Node is adjacent
+                            if a.rphase == 4:
+                                r.adj_type = a.ntype + 2
+                            elif a.rphase == 3:
+                                r.adj_type = 1 if a.ntype == ENDNODE else 0
+                            else:
+                                r.adj_type = 2
                     else:
-                        r = resp[nodeid]
-                        r.state = 5    # unreachable
+                        # Like RSX, supply this only for
+                        # "summary".  The spec says otherwise, but
+                        # this way it makes the tabular output for
+                        # "show node status" look much better.
+                        r.next_node = self.node.nodeinfo (a.nodeid)
+                else:
+                    r = resp[nodeid]
+                    r.state = 5    # unreachable
             
     def node_char (self, r):
         pass
@@ -595,6 +607,8 @@ class BaseRouter (Element):
                 # status or summary.
                 if req.one ():
                     self.read_node (req, req.entity.value, resp)
+                    if self.ntype == ENDNODE:
+                        self.circuit.nice_read (req, resp)
                 else:
                     # multiple nodes.  start with adjacencies.
                     for c in self.circuits.values ():
@@ -728,9 +742,9 @@ class Phase2Routing (BaseRouter):
     ntypestring = "Phase 2 node"
 
     def send (self, pkt, dest, rqr = False, tryhard = False):
-        """Send NSP packet to the given destination. rqr and
-        tryhard are ignored in Phase II except that rqr controls how to
-        handle "unreachable".  
+        """Send NSP packet to the given destination. rqr and tryhard are
+        ignored in Phase II except that rqr controls how to handle
+        "unreachable".
         """
         if isinstance (dest, Nodeid):
             # Normal node
