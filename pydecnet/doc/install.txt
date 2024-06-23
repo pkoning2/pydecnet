@@ -1,17 +1,14 @@
 Prerequisites
 
-PyDECnet requires Python 3.3 or later.  The Python.org website
+PyDECnet requires Python 3.7 or later.  The Python.org website
 indicates that versions 3.7 and earlier are now (as of July 2023) no
 longer supported.  The current release of PyDECnet has been tested
-with Python 3.6 through 3.12 and with 3.13 beta 2 including the "free
+with Python 3.7 through 3.12 and with 3.13 beta 2 including the "free
 threading" version.  Version 3.8 or later is recommended; some
-features are not available with version 3.6.
+features are not available with version 3.7.
 
-PLEASE NOTE:
-In the next release, the minimum version will change to 3.7.
-
-Apart from standard Python modules, PyDECnet requires the "psutil"
-module.
+PyDECnet requires only modules that are part of the standard Python
+library.
 
 PyDECnet can also use the following optional modules:
 
@@ -95,11 +92,10 @@ kit.  After unpacking the sources, the tests are invoked this way:
 where "pydecnet" is the Subversion working directory or the top level
 directory of the unpacked source tar archive, according to which you
 used to get PyDECnet.  You can specify a particular Python 3.x to run
-the unit test collection against that particular Python release.  You
-will need the "psutil" module to run the tests, just as it is a
-requirement for running PyDECnet.  The optional modules are optional
-for test as well, but tests that exercise one of these will be skipped
-if the necessary optional component is not installed.
+the unit test collection against that particular Python release.  The
+optional modules are optional for test as well, but tests that
+exercise one of these will be skipped if the necessary optional
+component is not installed.
 
 The PyDECnet unit tests are built using the Python standard library
 module "unittest".  For more information on how that works, including

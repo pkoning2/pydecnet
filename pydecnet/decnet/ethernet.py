@@ -13,7 +13,6 @@ import socket
 import struct
 import os
 import sys
-import psutil
 
 try:
     AF_MACADDR = socket.AF_LINK
@@ -113,17 +112,9 @@ class _Ethernet (datalink.BcDatalink, StopThread):
     def open (self):
         # If no explicit address was set, see if we find one to use.
         if self.hwaddr == NULLID:
-            ifaddr = psutil.net_if_addrs ()
             try:
-                for a in ifaddr[self.dev]:
-                    if a.family == AF_MACADDR:
-                        self.hwaddr = Macaddr (a.address)
-                        break
-                else:
-                    logging.error ("No hardware address for Ethernet {}",
-                                   self.name)
-                    return
-            except KeyError:
+                self.hwaddr = Macaddr (host.ifinfo (self.dev)["ether"][0])
+            except (KeyError, OSError):
                     logging.error ("No address info for interface {}",
                                    self.name)
                     return

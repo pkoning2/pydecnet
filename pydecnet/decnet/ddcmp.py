@@ -8,7 +8,6 @@ import select
 import socket
 import queue
 import errno
-import psutil
 
 try:
     AF_MACADDR = socket.AF_LINK

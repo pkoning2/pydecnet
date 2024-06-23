@@ -11,8 +11,8 @@ import os
 import re
 import subprocess
 import errno
-import psutil
 import random
+from collections import defaultdict
 
 from .common import *
 from . import logging
@@ -40,6 +40,70 @@ dualstack = has_dualstack_ipv6 ()
 
 # Time value way far into the future
 NEVER = 1 << 62
+
+# A simple substitute for psutil, in pure Python
+#
+# This is needed because psutil does not yet support the
+# free-threading version of Python 3.13.
+
+ifconfig_name_re = re.compile ("^([-a-z0-9_]+):")
+ip_name_re = re.compile ("^[0-9]+: ([-a-z0-9_]+):")
+ether_re = re.compile (r"(ether) ([0-9a-f:]+)")
+inet_re = re.compile (r"(inet) ([0-9.]+)")
+inet6_re = re.compile (r"(inet6) ([0-9a-f:]+)")
+
+def ifinfo (ifname = None):
+    """Return the addresses of the named interface, or all interfaces.
+
+    If an interface name is supplied, the return value is a dictionary,
+    with keys "ether", "inet" and "inet6" indicating the three address
+    types it looks for.  Each key value is a list of addresses, as
+    strings.  If a given address type does not exist at all, the
+    corresponding key is omitted.
+
+    If no interface name is supplied (or None is passed), the return
+    value is a dictionary keyed by interface name, with each value
+    an address info dictionary as described above.
+    """
+    r = None
+    ifconfig = False
+    try:
+        if ifname:
+            r = r=subprocess.run (["ip", "addr", "show", "dev", ifname],
+                                  capture_output = True, universal_newlines = True)
+        else:
+            r = r=subprocess.run (["ip", "addr"],
+                                  capture_output = True, universal_newlines = True)
+    except FileNotFoundError:
+        pass
+    if not r:
+        if ifname:
+            r = r=subprocess.run (["ifconfig", ifname],
+                                  capture_output = True, universal_newlines = True)
+        else:
+            r = r=subprocess.run (["ifconfig"],
+                                  capture_output = True, universal_newlines = True)
+        ifconfig = True
+    if r.returncode:
+        # Typically this means "no such interface"
+        raise OSError (r.stderr)
+    if ifname is None:
+        ret = dict ()
+    else:
+        ret = ret2 = defaultdict (list)
+    for l in r.stdout.splitlines ():
+        if ifname is None:
+            if ifconfig:
+                m = ifconfig_name_re.match (l)
+            else:
+                m = ip_name_re.match (l)
+            if m:
+                ret2 = ret[m.group (1)] = defaultdict (list)
+        for p in (ether_re, inet_re, inet6_re):
+            m = p.search (l)
+            if m:
+                ret2[m.group (1)].append (m.group (2))
+    return ret
 
 class HostAddress (object):
     """A class for handling host addresses, including periodic refreshing
@@ -331,16 +395,12 @@ class HostAddress (object):
                        source, self)
         return source.bind_socket (self.conn_family, socket.SOCK_RAW, proto)
     
-# Get the local addresses using psutil.  Link scope IPv6 addresses are
-# included, with the link name (%ifname part) stripped off.  
+# Get the local addresses.  Link scope IPv6 addresses are included.
 LocalAddresses = set ()
-for ifname, ifaddr in psutil.net_if_addrs ().items ():
-    for addr in ifaddr:
-        if addr.family == socket.AF_INET:
-            LocalAddresses.add (addr.address)
-        elif addr.family == socket.AF_INET6:
-            a, *rest = addr.address.split ("%")
-            LocalAddresses.add (a)
+for ifname, ifaddr in ifinfo ().items ():
+    for fam, addrlist in ifaddr.items ():
+        if fam != "ether":
+            LocalAddresses.update (addrlist)
 
 # Subclass of HostAddress used for this side of connections.
 class SourceAddress (HostAddress):

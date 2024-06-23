@@ -17,7 +17,7 @@ setup (author = "Paul Koning",
        name = "decnet",
        url = "http://akdesign.dyndns.org:8080/resources/public/index.html",
        version = getrevision (),
-       python_requires = ">=3.6",
+       python_requires = ">=3.7",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",
                     "decnet.resources.images", "applications" ],
@@ -33,9 +33,6 @@ setup (author = "Paul Koning",
        scripts = [ "applications/ncp", "applications/mirror-daemon",
                    "applications/nft", "applications/tlk",
                    "applications/dnping", "applications/rcclient" ],
-       install_requires = [
-           "psutil >= 3.2.0"
-           ],
        extras_require = {
            "daemon" : "python-daemon",
            "yaml" : "PyYAML",
