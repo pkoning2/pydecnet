@@ -498,8 +498,9 @@ class NSP (Element):
         if req.adj ():
             return
         if req.mult ():
-            # Multiple nodes: walk the node table
-            for n in self.node.nodeinfo_byid.values ():
+            # Multiple nodes: walk the node table.  Make it a list to
+            # avoid trouble if another thread modifies it.
+            for n in list (self.node.nodeinfo_byid.values ()):
                 # Add it to the response either if we're doing
                 # "known", or the executor, or "active" and there is a
                 # link, or "significant" and we have any information.
@@ -528,15 +529,10 @@ class NSP (Element):
         else:
             # Specific node by name or ID.  Name was converted to
             # Nodeinfo entry in node.py
-            try:
-                n = self.node.nodeinfo_byid[req.entity.value]
-            except KeyError:
-                try:
-                    print ("looking for", req.entity.value.nodename)
-                    n = self.node.nodeinfo_byname[req.entity.value.nodename]
-                except KeyError:
-                    print ("no node", req.entity.value)
-                    return
+            ne = req.entity.value
+            n = self.node.nodeinfo_byid.get (ne, None) or \
+                self.node.nodeinfo_byname.get (ne, None) or \
+                self.node.nodeinfo (ne, False)
             self.read_node (req, n, resp)
 
 class txqentry (timers.Timer):

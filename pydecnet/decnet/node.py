@@ -239,13 +239,15 @@ class Node:
         self.nodeinfo_byid[circ] = n
         return n
     
-    def nodeinfo (self, n):
+    def nodeinfo (self, n, add = True):
         """Look up a node in the node database.  The argument can be
         either a name (a string) or an id (a number or Nodeid).
 
         If the entry is not found and the lookup is by number, add a
         Nodeinfo object to the dictionary for that number, with no name.
         This implements what we need for the NSP node database.
+
+        If add is False, a Nodeinfo object is returned but not added.
         """
         if isinstance (n, str):
             try:
@@ -259,9 +261,10 @@ class Node:
         try:
             return self.nodeinfo_byid[n]
         except KeyError:
-            # No entry for this node ID; add one with no name
+            # No entry for this node ID; add one with no name if add is True
             n = Nodeinfo (None, n)
-            self.nodeinfo_byid[n] = n
+            if add:
+                self.nodeinfo_byid[n] = n
             return n
     
     def addwork (self, work, handler = None):
