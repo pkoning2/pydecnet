@@ -232,11 +232,18 @@ class DnTest (unittest.TestCase):
         # next layer, which is what checking for dispatched items will
         # do.
         element = element or self.node
-        if element.dispatch.call_count != calls:
+        # We check both the call count and the length of the arguments
+        # list, because the other thread may have changed one but not
+        # yet the other.
+        if element.dispatch.call_count != calls or \
+           len (element.dispatch.call_args_list) != calls or \
+           element.dispatch.call_args is None:
             time.sleep (0.1)
         self.assertEqual (element.dispatch.call_count, calls)
+        self.assertEqual (len (element.dispatch.call_args_list), calls)
         if not calls:
             return None
+        self.assertIsNotNone (element.dispatch.call_args)
         if back:
             a, k = element.dispatch.call_args_list[-1 - back]
         else:

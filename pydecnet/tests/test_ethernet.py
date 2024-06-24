@@ -387,6 +387,11 @@ class TestEthTap (EthTest):
             pkt += bytes (60 - len (pkt))
         self.pq.put (pkt)
         self.pq.join ()
+        # This is necessary here because the "deliver" method calls
+        # task_done as soon as it dequeues the packet, and only after
+        # that is it returned to the ethernet code for processing.
+        if wait:
+            time.sleep (0.1)
         
     def lastSent (self):
         write = self.os.write.call_args
