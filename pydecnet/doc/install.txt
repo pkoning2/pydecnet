@@ -29,12 +29,48 @@ command:
    
 Installation
 
-Installation from the Subversion repository
+Installation from the kit
 
-You can get the current code using the Subversion tool, from the
-PyDECnet repository:
+Kits can be found on the DECnet/Python download page, which is
+maintained on the HECnet map server:
+http://akdesign.dyndns.org:8080/resources/public/index.html
 
-   svn co svn://akdesign.dyndns.org/pydecnet/trunk/pydecnet
+The simplest installation is the "binary" kit, a "whl" file, which can
+be directly installed by the "pip" utility.  You can point it at the
+URL of the kit on the download server, or download it first and point
+"pip" at the downloaded file.  For example:
+
+pip3 install http://akdesign.dyndns.org:8080/resources/public/decnet-1.0.596-py3-none-any.whl
+
+Python "virtual environment"
+
+Python supports the notion of a "virtual environment" which is a
+lightweight way of separating custom configurations from each other
+and from the regular system installation.  With recent versions of
+Python (e.g., 3.12) private packages cannot be installed in the Python
+provided as part of the operating system or applications packaging
+(Linux distributions, or Mac OS packaging systems like Homebrew).
+Instead, these require any optional library modules to be installed
+from packager-supplied kits, wich of course is not an option for
+PyDECnet.
+
+The supported and recommended way to handle this situation is to
+create a "virtual environment" from the Python version to be used, and
+then install PyDECnet as well as any desired optional modules in that
+virtual environment.  For example:
+
+python3.12 -m venv /usr/local/decnet-venv
+/usr/local/decnet-venv/bin/pip install python-daemon python-pam
+/usr/local/decnet-venv/bin/pip install http://akdesign.dyndns.org:8080/resources/public/decnet-1.0.596-py3-none-any.whl
+
+PyDECnet can then be started by executing /usr/local/decnet-venv/bin/pydecnet.
+
+Installation from the Github repository
+
+You can get the current code using the Git tool, from the
+pydecnet repository on Github:
+
+   git clone https://github.com/pkoning2/pydecnet.git
 
 You can then install from the resulting working directory:
 
@@ -52,7 +88,7 @@ from that:
      python3 setup.py sdist
      pip3 install dist/decnet-1.0.tar.gz
 
-Running directly from the Subversion working directory
+Running directly from the Git working directory
 
 If you want to run the current code in the working directory, without
 having to go through a reinstall each time there is a change, you need
@@ -63,33 +99,20 @@ this command:
 That will create the "pydecnet" script in your default binary
 directory (typically /usr/local/bin on Linux systems, a suitable
 /Library/Frameworks directory on Mac OS) and a link to the Python
-modules in the Subversion working directory.  You can then invoke the
+modules in the Git working directory.  You can then invoke the
 "pydecnet" command to start the current code.
-
-Installation from the kit
-
-Kits can be found on the DECnet/Python download page, which is
-maintained on the HECnet map server:
-http://akdesign.dyndns.org:8080/resources/public/index.html
-
-The simplest installation is the "binary" kit, a "whl" file, which can
-be directly installed by the "pip" utility.  You can point it at the
-URL of the kit on the download server, or download it first and point
-"pip" at the downloaded file.  For example:
-
-pip3 install http://akdesign.dyndns.org:8080/resources/public/decnet-1.0.596-py3-none-any.whl
 
 Unit test
 
 PyDECnet comes with a unit test collection.  This is mostly for
 development use, but feel free to use it.  You will need the full
-sources (source kit or Subversion working directory), not the binary
-kit.  After unpacking the sources, the tests are invoked this way:
+sources (source kit or Git working directory), not the binary kit.
+After unpacking the sources, the tests are invoked this way:
 
    cd pydecnet
    python3 -m unittest 
 
-where "pydecnet" is the Subversion working directory or the top level
+where "pydecnet" is the Git working directory or the top level
 directory of the unpacked source tar archive, according to which you
 used to get PyDECnet.  You can specify a particular Python 3.x to run
 the unit test collection against that particular Python release.  The

@@ -4,11 +4,37 @@ change or a change that affects how you use or install the
 application.
 
 ----------------------------------------
+DECnet/Python V1.1
+
+This is the second release of DECnet/Python.
+
+Source control for DECnet/Python now using Git, hosted on Github.
+The former Subversion repository has been retired and has been taken
+off-line to avoid confusion.
+
+Changes for this release, from the T1.1 beta 3 described below:
+
+a. "psutil" is no longer required (mostly because it doesn't work
+with the "free threading" variant of Python 3.13).
+
+b. New application: tlk.
+
+c. New object: lsn.
+
+d. Various bugfixes for issues reported against T1.1.
+
+e. Source control for DECnet/Python is now done using Git, on Github.
+
+----------------------------------------
 DECnet/Python T1.1
 
 This is a beta test version of what will become DECnet/Python V1.1.
 
-1.1-627: Additional changes for second beta
+1.1-648: Third beta
+
+This contains a number of bugfixes and documentation updates.
+
+1.1-628: Additional changes for second beta
 
 a. Implemented "login" authentication in session control.  Add a basic
 FAL object (DAP file access server) which is intended to use this.
