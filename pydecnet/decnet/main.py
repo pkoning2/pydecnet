@@ -5,16 +5,11 @@
 """
 
 import sys
-if sys.version_info < (3, 3):
-    print ("PyDECnet requires Python 3.3 or later")
+if sys.version_info < (3, 7):
+    print ("PyDECnet requires Python 3.7 or later")
     sys.exit (1)
 
-try:
-    import argparse
-except ImportError:
-    print ("PyDECnet requires Python 3.3 or later")
-    sys.exit (1)
-    
+import argparse
 import time
 import threading
 import os

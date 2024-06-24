@@ -1277,7 +1277,6 @@ class Mapper (Element, statemachine.StateMachine):
             aent = self.mapadj (node, circ, adj)
             aent.update (False, nowts)
         except KeyError:
-            print (str (node.adj))
             maplogger.trace ("no map entry for {} {}", circ, adj)
         # Try to scan both endpoints of the circuit/adj that came up
         self.todo.add (src)

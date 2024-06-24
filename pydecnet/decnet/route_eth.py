@@ -173,6 +173,8 @@ class LanCircuit (timers.Timer):
                 if a.state != UP:
                     continue
                 neighbor = a.adjnode ()
+                if req.one () and req.entity.value != neighbor:
+                    continue
                 r = resp[neighbor]
                 r.adj_circuit = str (self)
                 if req.stat ():
