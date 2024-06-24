@@ -26,8 +26,6 @@ import asyncio
 
 from decnet.async_connectors import AsyncApiConnector, DEBUG
 
-SvnFileRev = "$LastChangedRevision: 478 $"
-
 async def main (argv):
     """The main program for this server application
     """

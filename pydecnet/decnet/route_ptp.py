@@ -19,8 +19,6 @@ from . import html
 from . import nicepackets
 from . import intercept
 
-SvnFileRev = "$LastChangedRevision$"
-
 class Start (Work):
     """A work item that says "start the circuit".
     """

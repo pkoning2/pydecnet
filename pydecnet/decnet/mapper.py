@@ -41,8 +41,6 @@ from .nsp import UnknownNode, WrongState, NSPException
 
 resdir = os.path.join (DECNETROOT, "resources")
 
-SvnFileRev = "$LastChangedRevision$"
-
 MapperUser = session.EndUser1 (name = "NETMAPPER")
 NICEVERSION = ( 4, 0, 0 )
 

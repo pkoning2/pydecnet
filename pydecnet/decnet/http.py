@@ -25,42 +25,17 @@ from . import logging
 from . import html
 from . import mapper
 from . import host
+from . import version
 
-SvnFileRev = "$LastChangedRevision$"
-
-def revno (s):
-    return int (s.split ()[1])
-
-DNREV = None
-
-def setdnrev ():
-    # This has to be in a function called during program startup,
-    # rather than top level code.  Otherwise it runs whenever this
-    # module happens to be imported in the order in which the various
-    # sources are read.  By delaying until we start execution, all our
-    # modules have been imported.
-    global DNREV, DNFULLVERSION, bottom
-    if DNREV is None:
-        DNREV = 0
-        for m in sys.modules.values ():
-            fn = getattr (m, "__file__", None)
-            if isinstance (fn, str) and fn.startswith (DECNETROOT):
-                # It's a DECnet module, get its rev
-                r = getattr (m, "SvnFileRev", None)
-                if r:
-                    r = revno (r)
-                    DNREV = max (DNREV, r)
-        DNFULLVERSION = "{}-{} © 2013-{} by {}".format (DNVERSION, DNREV,
-                                                        CYEAR, AUTHORS)
-        htmlversion = DNFULLVERSION.replace ("©", "&copy;")
-        bottom = html.footer ("{}<br>{}".format (htmlversion, PYTHONVERSION))
-        
 PYTHONVERSION = "Python {}.{}.{} ({}) on {}".format (sys.version_info.major,
                                                      sys.version_info.minor,
                                                      sys.version_info.micro,
                                                      sys.version_info.releaselevel,
                                                      sys.platform)
 
+htmlversion = version.DNFULLVERSION.replace ("©", "&copy;")
+bottom = html.footer ("{}<br>{}".format (htmlversion, PYTHONVERSION))
+        
 class Monitor:
     def __init__ (self, config, nodelist):
         self.config = config
@@ -74,7 +49,6 @@ class Monitor:
 
     def start (self):
         html.setstarttime ()
-        setdnrev ()
         ports = list ()
         mapserver = self.mapserver
         if mapserver:

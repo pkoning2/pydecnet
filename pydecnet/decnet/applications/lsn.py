@@ -13,8 +13,6 @@ import os
 
 from decnet.connectors import SimplePipeConnector, DEBUG, INFO
 
-SvnFileRev = "$LastChangedRevision: 599 $"
-
 def main (argv):
     """The main program for LSN, the talk program responder.  It is
     started as a subprocess by pydecnet, with pipes for the three

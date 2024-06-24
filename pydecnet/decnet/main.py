@@ -36,8 +36,7 @@ from . import events
 from . import logging
 from . import http
 from . import apiserver
-
-SvnFileRev = "$LastChangedRevision$"
+from . import version
 
 DEFPIDFILE = "/var/run/pydecnet.pid"
 
@@ -91,6 +90,8 @@ dnparser.add_argument ("-k", "--keep", type = int, default = 0,
                        help = """Number of log files to keep with nightly
                               rotation.  Requires a log file name
                               to be specified.""")
+dnparser.add_argument ("-V", "--version", action = "version",
+                       version = version.DNFULLVERSION)
 dnparser.add_argument ("--profile", metavar = "PF",
                        help = "Collect and dump profiling data to the named file")
 dnparser.add_argument ("-H", "--config-help", metavar = "CMD",
@@ -129,10 +130,6 @@ def sighandler (signum, frame):
     signalled = True
     raise KeyboardInterrupt
 
-def getrevision ():
-    http.setdnrev ()
-    return "{}.{}".format (http.DNVERNUM, http.DNREV)
-
 def main ():
     """Main program.  Parses command arguments and instantiates the
     parts of DECnet.
@@ -140,10 +137,6 @@ def main ():
     global nodes, httpserver, api
     # Handle SIGTERM as a sign to quit
     signal.signal (signal.SIGTERM, sighandler)
-    # Initialize DNFULLVERSION
-    http.setdnrev ()
-    dnparser.add_argument ("-V", "--version", action = "version",
-                           version = http.DNFULLVERSION)
     p = dnparser.parse_args ()
     if p.config_help is not None:
         if p.config_help:
@@ -182,8 +175,8 @@ def main ():
     logging.start (p)
 
     # Level 99 amounts to "Log regardless of logging level"
-    logging.log (99, "Starting DECnet/Python {}-{}\n Python {}",
-                 http.DNVERSION, http.DNREV,
+    logging.log (99, "Starting {}\n Python {}",
+                 version.DNIDENT,
                  "\n   ".join (sys.version.splitlines ()))
     logging.info (" command line: {}".format (" ".join (sys.argv)))
     logging.flush ()

@@ -14,8 +14,6 @@ from .routing_packets import *
 from . import logging
 from . import timers
 
-SvnFileRev = "$LastChangedRevision$"
-
 class Adjacency (Element, timers.Timer):
     """DECnet adjacency class.  Its parent (owner) is the circuit
     to which this adjacency belongs.  

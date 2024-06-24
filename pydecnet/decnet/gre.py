@@ -12,8 +12,6 @@ from . import logging
 from . import datalink
 from . import host
 
-SvnFileRev = "$LastChangedRevision$"
-
 greflags = bytes (2)
 
 class GREPort (datalink.BcPort):

@@ -19,8 +19,6 @@ from . import datalink
 from . import logging
 from . import host
 
-SvnFileRev = "$LastChangedRevision$"
-
 class MultinetUdpPort (datalink.PtpPort):
     """Multinet is exactly like generic point to point except that the
     spurious start message workaround needs to be turned on if we use

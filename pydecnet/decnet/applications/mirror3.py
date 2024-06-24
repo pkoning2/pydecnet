@@ -27,8 +27,6 @@ import asyncio
 
 from decnet.async_connectors import AsyncPipeConnector, DEBUG, Nodeid
 
-SvnFileRev = "$LastChangedRevision$"
-
 async def main (argv):
     """The main program for this process-level object.  It is started as
     a subprocess by pydecnet, with pipes for the three standard file

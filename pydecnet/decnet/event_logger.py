@@ -15,8 +15,6 @@ from . import nsp
 from . import session
 from . import timers
 
-SvnFileRev = "$LastChangedRevision$"
-
 EvlUser = session.EndUser1 (name = "EVENTLOGGER")
 MYVERSION = ( 4, 0, 0 )
 # "Known events" means all events this implementation can generate.  It

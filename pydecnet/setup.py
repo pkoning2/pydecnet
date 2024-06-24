@@ -8,7 +8,7 @@ Licensed under open source license terms stated in file LICENSE.
 """
 
 from setuptools import setup
-from decnet.main import getrevision
+from decnet.version import DNKITVERSION
 
 setup (author = "Paul Koning",
        author_email = "ni1d@arrl.net",
@@ -16,7 +16,7 @@ setup (author = "Paul Koning",
        description = "DECnet protocol implementation in Python",
        name = "decnet",
        url = "http://akdesign.dyndns.org:8080/resources/public/index.html",
-       version = getrevision (),
+       version = DNKITVERSION,
        python_requires = ">=3.7",
        packages = [ "decnet", "decnet.modules",
                     "decnet.applications", "decnet.resources",

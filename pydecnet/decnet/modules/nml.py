@@ -18,8 +18,6 @@ from decnet import session
 from decnet import nicepackets
 from decnet.nsp import UnknownNode, WrongState
 
-SvnFileRev = "$LastChangedRevision$"
-
 MYVERSION = ( 4, 0, 0 )
 
 # Map Connect Reject codes from session control into mirror connect

@@ -23,8 +23,6 @@ from decnet import session
 from decnet import logging
 from decnet.nicepackets import NiceReadNode, NodeReqEntity, NodeEntity
 
-SvnFileRev = "$LastChangedRevision: 480 $"
-
 TOPO_VERSION = Version (1, 0, 0)
 
 # Opcodes

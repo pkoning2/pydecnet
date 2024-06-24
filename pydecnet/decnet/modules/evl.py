@@ -21,8 +21,6 @@ from decnet.common import *
 from decnet import session
 from decnet import events
 
-SvnFileRev = "$LastChangedRevision$"
-
 MYVERSION = ( 4, 0, 0 )
 
 class Application (Element):

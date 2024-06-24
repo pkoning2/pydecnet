@@ -28,8 +28,6 @@ from . import nsp
 from . import html
 from . import nice_coding
 
-SvnFileRev = "$LastChangedRevision$"
-
 # General errors for this layer
 class SessException (DNAException): pass
 class UnexpectedPkt (SessException): "Unexpected NSP packet"

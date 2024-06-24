@@ -35,8 +35,6 @@ from .nice_coding import CTM1
 from . import host
 from . import pcap
 
-SvnFileRev = "$LastChangedRevision$"
-
 # oui is used to find framers; the framer interface address starts
 # with the same 3 bytes as this one.
 framer_oui = Macaddr ("AA-00-03-00-00-00")

@@ -23,8 +23,6 @@ from . import nicepackets
 if not WIN:
     from fcntl import *
 
-SvnFileRev = "$LastChangedRevision$"
-
 class ReceiptGen (object):
     """Generates MOP message receipt numbers, which are integers in the
     range 1..0xffff.  Note that 0 is not produced, it is used to indicate

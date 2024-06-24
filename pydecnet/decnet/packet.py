@@ -12,8 +12,6 @@ import time
 from .common import *
 from . import logging
 
-SvnFileRev = "$LastChangedRevision$"
-
 # Exceptions related to packet definitions
 class InvalidField (DNAException):
     """Invalid field descriptor."""

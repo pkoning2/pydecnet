@@ -23,8 +23,6 @@ from . import html
 from . import nicepackets
 from . import intercept
 
-SvnFileRev = "$LastChangedRevision$"
-
 UNREACHABLE = Failure ("Unreachable")
 OUT_OF_RANGE = Failure ("Address out of range")
 AGED = Failure ("Visit count exceeded")

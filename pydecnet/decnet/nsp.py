@@ -17,8 +17,6 @@ from . import statemachine
 from . import html
 from . import nicepackets
 
-SvnFileRev = "$LastChangedRevision$"
-
 # API exceptions
 class NSPException (DNAException): pass
 class WrongState (NSPException): "Connection is in the wrong state"

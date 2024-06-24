@@ -32,8 +32,6 @@ REGPOLLOUT = select.POLLOUT | POLLERRHUP
 # the normal seconds.
 POLLTS = 1000
 
-SvnFileRev = "$LastChangedRevision$"
-
 class DatalinkLayer (Element):
     """The datalink layer.  This is mainly a container for the individual
     datalink circuits.

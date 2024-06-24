@@ -10,8 +10,6 @@ from .common import *
 from . import packet
 from . import logging
 
-SvnFileRev = "$LastChangedRevision$"
-
 # Details about "entities" -- since the specs are not well written on
 # this subject.
 #

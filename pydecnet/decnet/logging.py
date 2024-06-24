@@ -23,8 +23,6 @@ except ImportError:
     
 from .common import *
 
-SvnFileRev = "$LastChangedRevision$"
-
 # Additional level
 TRACE = 2
 

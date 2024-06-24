@@ -31,8 +31,6 @@ from .host import dualstack
 
 defsockname = os.getenv ("DECNETAPI", "/tmp/decnetapi.sock")
 
-SvnFileRev = "$LastChangedRevision$"
-
 class dnparser_message (Exception): pass
 class dnparser_error (Exception): pass
 

@@ -19,12 +19,6 @@ import collections
 
 WIN = "win" in sys.platform and "darwin" not in sys.platform
 
-DNVERNUM = "1.1"
-# Beta ("T") version for now
-DNVERSION = "DECnet/Python T{}".format (DNVERNUM)
-CYEAR = "2023"
-AUTHORS = "Paul Koning"
-
 DECNETROOT = os.path.dirname (__file__)
 
 # Defaults
@@ -54,9 +48,6 @@ MSS = MTU - 13           # Max TSDU size
 JIFFY = 0.1              # Timer increment in seconds
 
 LE = "little"
-
-# For rev tracking
-SvnFileRev = "$LastChangedRevision$"
 
 # Exceptions
 class DNAException (Exception):

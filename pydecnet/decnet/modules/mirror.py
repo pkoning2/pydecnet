@@ -18,8 +18,6 @@ the same protocol but as an external process via the JSON API.
 from decnet.common import Element
 from decnet import session
 
-SvnFileRev = "$LastChangedRevision$"
-
 class Application (Element):
     """The top level (or only, for simple cases) class for the
     application.  This must be named "Application" since Session Control

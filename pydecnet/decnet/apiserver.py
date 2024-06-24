@@ -11,8 +11,6 @@ import socket
 from .common import *
 from . import logging
 
-SvnFileRev = "$LastChangedRevision$"
-
 enc = DNJsonEncoder ().encode
 dec = DNJsonDecoder ().decode
 

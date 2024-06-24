@@ -16,8 +16,6 @@ import asyncio
 
 from decnet.async_connectors import AsyncPipeConnector, DEBUG, Nodeid, makestr
 
-SvnFileRev = "$LastChangedRevision$"
-
 def closeconn (conn, abort = False):
     try:
         if not conn.closed:

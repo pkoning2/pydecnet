@@ -24,8 +24,7 @@ from . import event_logger
 from . import bridge
 from . import session
 from . import nicepackets
-
-SvnFileRev = "$LastChangedRevision$"
+from . import version
 
 class WorkStats:
     "A collection of time histograms for work items"
@@ -146,7 +145,7 @@ class Node:
         self.nodeinfo_byname = dict ()
         self.nodeinfo_byid = dict ()
         self.decnet = hasattr (config, "routing")
-        self.ident = self.swident = "{}-{}".format (http.DNVERSION, http.DNREV)
+        self.ident = self.swident = version.DNIDENT
         if config.system.identification:
             self.ident = config.system.identification
         if self.decnet:

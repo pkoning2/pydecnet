@@ -16,8 +16,6 @@ from . import timers
 from . import datalink
 from . import html
 
-SvnFileRev = "$LastChangedRevision$"
-
 def protostr (proto):
     return "{0[0]:02x}-{0[1]:02x}".format (proto)
 

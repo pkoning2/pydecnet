@@ -25,8 +25,6 @@ from . import datalink
 from . import pcap
 from . import host
 
-SvnFileRev = "$LastChangedRevision$"
-
 FILL = b'\x42' * 60
 ETH_MTU = 1518
 ETH_TMO = 100    # ms
