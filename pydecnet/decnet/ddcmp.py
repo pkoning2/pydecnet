@@ -10,11 +10,6 @@ import queue
 import errno
 
 try:
-    AF_MACADDR = socket.AF_LINK
-except AttributeError:
-    AF_MACADDR = socket.AF_PACKET
-
-try:
     import serial
 except ImportError:
     serial = None

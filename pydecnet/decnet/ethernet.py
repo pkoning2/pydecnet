@@ -14,11 +14,6 @@ import struct
 import os
 import sys
 
-try:
-    AF_MACADDR = socket.AF_LINK
-except AttributeError:
-    AF_MACADDR = socket.AF_PACKET
-    
 from .common import *
 from . import logging
 from . import datalink
