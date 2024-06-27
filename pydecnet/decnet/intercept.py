@@ -259,7 +259,7 @@ class FullIntercept (BaseIntercept):
                                 source_node = adj.rnodeid)
             # Default to "one hop message" to this node
             return self.nodeid
-        if ifinstance (nsppkt, AckHdr):
+        if isinstance (nsppkt, AckHdr):
             # All the packets that can be routed from connection
             # database information have an ACK header, with connection
             # address fields in them.  We use the Phase II node's

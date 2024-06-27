@@ -76,9 +76,9 @@ class Monitor:
                                self.nodelist, config, self.resources,
                                self.mapserver, secure)
         if secure:
-            httpd.socket = ssl.wrap_socket (httpd.socket,
-                                            certfile = config.certificate,
-                                            server_side = True)
+            context = ssl.SSLContext ()
+            context.load_cert_chain (config.certificate)
+            httpd.socket = context.wrap_socket (httpd.socket, server_side = True)
         httpd.serve_forever ()
 
 class DECnetMonitor (socketserver.ThreadingMixIn, http.server.HTTPServer):
