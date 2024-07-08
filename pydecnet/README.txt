@@ -53,7 +53,7 @@ knowledge.
 Dependencies: Async DDCMP support, over an actual serial port (as
 opposed to a Telnet connection) requires the "pyserial" package.
 Ethernet support (over real Ethernet, as opposed to Ethernet-style
-bridging via Johnny Bilquist's bridge program) requires libpcap or TAP
+bridging via Johnny Billquist's bridge program) requires libpcap or TAP
 support.  To run as a daemon, you need the python-daemon package.  To
 use YAML files in the --log-config option, you need the PyYAML
 package.  To do password authentication for incoming DECnet
@@ -67,7 +67,7 @@ As of 3/9/2022, the following are implemented and at least somewhat
 tested:
 
 - Data links: LAN and point to point frameworks, Ethernet (via the
-Johnny Bilquist bridge; via pcap; or via TAP); GRE encapsulation of
+Johnny Billquist bridge; via pcap; or via TAP); GRE encapsulation of
 Ethernet; DDCMP (point to point only, over TCP, UDP, an actual UART,
 or my synchronous framer USB device); Multinet over UDP (not
 recommended due to the fact that this protocol grossly violates the
@@ -108,7 +108,7 @@ three types of sinks to remote sink nodes.  Configuration file
 handling somewhat like the DECnet "permanent database" but with syntax
 similar to Unix commands.
 
-- An implementation in Python of Johnny Bilquist's bridge, ported from
+- An implementation in Python of Johnny Billquist's bridge, ported from
 his C program.  While this is not actually DECnet it is supporting
 infrastructure and handy for testing.
 

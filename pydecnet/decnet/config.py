@@ -198,7 +198,7 @@ cp.add_argument ("--cost", type = int, metavar = "N",
 cp.add_argument ("--latency", type = int, metavar = "L",
                  choices = range (1, 440),
                  help = """Circuit latency in ms (range 1..439), 
-                 used to compute cost via the Bilquist algorithm""")
+                 used to compute cost via the Billquist algorithm""")
 dualstack_switches (cp)
 cp.add_argument ("--t1", type = int, 
                  help = "Background routing message interval "
