@@ -2,17 +2,53 @@ PyDECnet API connectors
 
 While any application can use the raw JSON interface to communicate
 with either the general or the session control layer API of PyDECnet,
-it may be more convenient to use a wrapper that has a more procedural
-interface.  PyDECnet offers two of these: a "simple" connector that is
-intended for applications that deal with a single operation stream
-with requests and responses arriving in a predictable pattern, and an
-"async" connector that uses the Python "asyncio" multi-tasking
-mechanism to handle multiple full duplex data streams.
+this is not recommended.  Instead, it is more convenient to use a
+wrapper that has a more procedural interface.  PyDECnet offers two of
+these. The "simple" connector is designed for applications that use a
+single DECnet connection and deal with a single operation stream with
+requests and responses arriving in a predictable pattern, in
+particular a request-response pattern.  The "async" connector uses the
+Python "asyncio" multi-tasking mechanism to handle multiple full
+duplex data streams and is typically the more appropriate tool either
+for full-duplex communication, or for applications that need to run
+more than one connection concurrently.
 
 Both connector styles come in two variants, one that uses the Unix
 socket based "general" API, and one that uses the subprocess pipes for
 use in file-based DECnet objects to communicate with the session
-control API.  
+control API.  To implement a DECnet object (a process that runs in
+response to an incoming DECnet "connect" message) use the Pipe version
+of the desired connector API.  To implement a DECnet application (a
+program that initiates connections, or one that runs in daemon fashion
+to process any number of incoming connections) use the API version of
+the connector API.
+
+The API connectors use a Unix domain socket to communicate with the
+PyDECnet instance.  The socket name can be supplied as an argument
+when creating the API connector instance, or defaulted.  If defaulted,
+the name is taken from the environment variable DECNETAPI.  If that is
+not defined, /tmp/decnetapi.sock is used.
+
+Connections
+
+Associated with these connectors are Connection objects.  Most
+operations are done through calls to methods of the Connection.  The
+Connector methods are used to create connections, or to receive the
+connect messages that create inbound connections.
+
+Messages
+
+A number of connector and connection methods return "messages".  A
+messages is a subclass of "bytes" so the content of the message can be
+obtained simply by treating it as a byte string, for example by
+subscripting to extract individual bytes.  Messages also have
+attributes which provide additional information:
+
+- type: a string which identifies the message type, one of "connect",
+  "accept", "reject", "data", "interrupt" or "disconnect".
+- reason: present in "reject" and "disconnect", the reason code.
+- text: present in "reject" and "disconnect", the standard message
+  associated with the reject reason code.
 
 Simple API
 
@@ -20,11 +56,104 @@ This is found in module decnet.connectors; the two variants are
 SimpleApiConnector and SimplePipeConnector.
 
 Sample code using the simple API can be found in samples/apitest2.py
-and decnet/applications/mirror2.py.  Also, NCP (applications/ncp) and
-NFT (applications/nft) use the simple API connector.  The FAL object
-(decnet/applications/fal.py) uses the simple pipe connector.
+and decnet/applications/mirror2.py.  Also, NCP (applications/ncp), NFT
+(applications/nft) and dnping (applications/dnping) use the simple API
+connector.  The FAL object (decnet/applications/fal.py) uses the
+simple pipe connector.
 
-Details TBS
+An object process is created in response to an incoming connect
+request, so the SimplePipeConnector handles that request.  When
+constructed, the connect request will be waiting to be read as the
+first message seen by the program.
+
+When the SimpleApiConnector is constructed, it does not yet have a
+connection.  The application will use the "connect" method of the
+connector to create a connection to a remote object.
+
+Connector methods
+
+connect(**kwds)
+
+The connect method is used to request the creation of an outbound
+connection on a SimpleApiConnector.  All arguments are keyword
+arguments; they are optional unless stated otherwise.
+
+- dest: destination node name or node number (required)
+- remuser: destination object name or object number (required)
+- data: up to 16 bytes of connect data bytes (default: no data)
+- srcname: source object name (default: "PyDECnet")
+- proxy: request proxy (default: False)
+- username: authentication user name (default: empty)
+- password: authentication password (default: empty)
+- account: authentication account (default: empty)
+
+This method waits for the request to be completed.  The return value
+is a pair consisting of the Connection object for the created
+connection and the accept message, or None and the reject message if
+the connection attempt was rejected.
+
+recv()
+
+The recv method is used by objects at startup.  The return value is a
+pair consisting of the Connection created by PyDECnet for the inbound
+connection, and the connect message from the remote sender.
+
+log(level, msg, *args, **kwargs)
+
+The log method allows messages to be logged to the PyDECnet log
+facility.  "level" is one of the defined logging levels, for example
+"DEBUG".  "msg" is a text string that may contain markers for
+substituting values passed in the additional arguments.  For example:
+
+log(DEBUG, "example message, var1 is {}", var1)
+
+Connection methods
+
+These methods apply to an existing connection, described by a
+Connection object, to send or receive messages on that connection.
+Most of the send-type operations request the sending of the message in
+question but return immediately, but accept() waits for the message to
+be delivered.
+
+recv()
+
+Wait for a message on the connection and return it as a message
+object.  If the message type is disconnect, abort, or close, the
+connection is closed and can no longer be used after this point.
+
+accept(data)
+
+Send a connect accept message, with optional data up to 16 bytes.
+Either this call or reject() is required after an inbound connection
+was received.  This call waits for the ACK from the other end, which
+is the message that permits data to be sent on the newly accepted
+connection. 
+
+reject(data)
+
+Send a connect reject message, with optional data up to 16 bytes.  The
+connection is closed after this call.
+
+disconnect(data)
+
+Disconnect a connection, with optional disconnect data up to 16
+bytes.  The connection is closed after this call.
+
+abort(data)
+
+Abort the connection, with optional data up to 16 bytes.  The
+connection is closed after this call.  The difference between
+disconnect and abort is that disconnect waits for pending data to be
+sent, and the disconnect reason code is 0 for disconnect and 9 for
+abort.
+
+interrupt(data)
+
+Send an interrupt message, 1 to 16 bytes.
+
+data(data)
+
+Send a data message, any non-empty length.
 
 Async API
 
@@ -34,7 +163,79 @@ AsyncApiConnector and AsyncPipeConnector.
 Sample code using the asynchronous API can be found in
 samples/apitest3.py and decnet/applications/mirror3.py.  Also,
 rcclient (applications/rcclient), the MOP remote console client
-program, uses the async API.  The PMR object
+program, uses the async API, as does the MIRROR daemon
+(applications/mirror-daemon).  The PMR object
 (decnet/applications/pmr.py) uses the async pipe connector.
 
-Details TBS
+Associated with async connectors is the AsyncConnection class, a
+subclass of Connection (see simple connectectors above).  An object of
+this class describes a single DECnet connection controlled by the
+connector.
+
+The methods of the connectors and the AsyncConnection object are
+generally the same as the corresponding methods of the simple
+connectors, except that blocking methods are replaced by coroutine
+functions so they can be used in "await" statements or other
+asynchronous framework machinery.  Any methods described above for the
+simple connectors and not mentioned below apply unchanged to the async
+connector case (i.e., they work the same and are still regular
+methods, not coroutine functions).
+
+Async connector methods
+
+coroutine connect(**kwds)
+
+Like the simple connector connect() method, this requests the creation
+of a new DECnet connection.  But instead of waiting for the completion
+of the exchange with the remote node, it returns as soon as the
+connect request has been sent.  The return value normally is a pair
+consisting of a connection and an empty message of type "connecting".
+If the connect request could not be sent due to invalid parameters,
+the result is None and a "reject" message.
+
+If the connect is successful, the caller would typically create a new
+task which will deal with the traffic on the new connection.  The
+first message received on the connection will be an "accept" or
+"reject" message.
+
+coroutine bind(num, name, auth)
+
+This method is used to listen for incoming connections for the object
+identified by the specified object number and/or name.  One of these
+may be omitted.  "auth" may be "on" or "off" to say whether PyDECnet
+is to verify authentication data, as it would for objects defined with
+that value for their authentication parameter.  The return value is an
+AsyncConnection object useable only for receiving new connections.
+
+coroutine serve_forever(bconn, fun)
+
+This is a convenient helper function to implement "daemon server"
+applications, i.e., applications that call "bind" to ask for incoming
+connections and then serve those requests.  An example can be found in
+the mirror daemon (applications/mirror-daemon).  This coroutine takes
+as arguments the AsyncConnection returned by a "bind" call, and the
+name of a coroutine function which will be invoked (in a task) to
+serve an incoming connection.  That function takes one argument, the
+AsyncConnection for the newly created incoming connection.
+
+coroutine listen()
+
+This method applies only to the AsyncPipeConnector.  It returns the
+AsyncConnection object for the connection that started the object.
+
+AsyncConnection methods
+
+coroutine listen()
+
+This method is valid on the connection returned by bind().  It waits
+for an incoming connection request and returns the AsyncConnection
+object for that connection.
+
+coroutine recv()
+
+Same as the simple API recv() method but implemented as a coroutine.
+
+coroutine accept()
+
+Same as the simple API accept() method but implemented as a
+coroutine. 

@@ -13,7 +13,18 @@ bound (in the subprocess) to stdin, stdout, and stderr.
 
 There are two sets of helper APIs to wrap a higher level (procedural)
 interface around the JSON interface.  For documentation on those
-"connectors", see doc/api-connectors.txt
+"connectors", see doc/api-connectors.txt.  That interface is
+recommended; the underlying JSON version of the session control API
+should be viewed as an internal detail which remains available for
+historic reasons but is best avoided.
+
+Note that some DECnet objects are implemented as modules, running
+within the context of the PyDECnet process.  This is necessary for
+certain objects that operate directly on DECnet internal state, such
+as the management listener NML.  It is also done, for convenience, for
+the default MIRROR object.  For other applications this technique is
+not recommended; the file (subprocess) style of object should be used
+instead. 
 
 API data flow
 
@@ -509,6 +520,11 @@ The response shown here is a "success" status.
 
 API for Session
 
+As stated above, the API described here (using JSON) exists mostly for
+historic and internal purposes, and for new work the API "connector"
+mechanism is recommended.  See doc/api-connectors.txt for
+documentation of that API.
+
 The PyDECnet session layer has two slightly different APIs.
 
 Session control accepts messages from the general API directed to api
@@ -563,7 +579,7 @@ The request has a number of parameters, mostly optional:
 "dest" is the destination node name or node number.  "remuser" is the
 destination object name or number.  Both are required.  The other
 parameters are optional.  "srcname" is the source user identification,
-defaults is "ApiUser".  "proxy" is true for proxy requests (details
+defaults is "PyDECnet".  "proxy" is true for proxy requests (details
 TBS), default is false.  Username, password, and account are the
 DECnet standard access control credentials; each defaults to empty.
 

@@ -599,7 +599,10 @@ A bridge has one or more circuits, which must be Ethernet.  It will
 provide simple bridge services among all those circuits, flooding
 multicast and unknown address packets, and directly forwarding packets
 whose destination address is known.  It is compatible with the C based
-bridge implementation by Johnny Bilquist.
+bridge implementation by Johnny Billquist.  Note that this is a
+"simple bridge", it does not implement any spanning tree protocol.
+You need to be careful not to configure any redundant paths involving
+only these simple bridges, otherwise packets will loop indefinitely.
 
 Component "logging"
 
@@ -708,8 +711,7 @@ discover the network topology of the connected network.  It is only
 used if you have such nodes as adjacent nodes.
 
 object --number 123 --name psthru --file applications/pmr.py
-This is the "poor man's routing" or "passthrough" object.  It is
-available only with Python 3.7 or later.
+This is the "poor man's routing" or "passthrough" object.
 
 As described above, explicit "object" statements can be used if
 desired to override some of the default setting of these standard
