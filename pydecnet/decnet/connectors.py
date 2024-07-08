@@ -114,6 +114,7 @@ class Connection:
         # Wait for a reply, which must be a "runstate" report.
         resp = self.recv ()
         if resp.type != "runstate":
+            print ("accept but next message is not 'RunState'", file = sys.stderr)
             self.close ()
 
     def reject (self, data = ""):

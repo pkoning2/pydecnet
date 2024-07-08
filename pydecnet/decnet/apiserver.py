@@ -193,11 +193,7 @@ class ApiServer:
             self.socket.close ()
         except Exception:
             pass
-        try:
-            os.remove (self.socketname)
-        except Exception:
-            pass
-        self.server_thread.stop ()
+        self.server_thread.stop (wait = wait)
 
     def cleanup (self):
         try:
