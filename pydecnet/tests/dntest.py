@@ -12,7 +12,8 @@ import queue
 import unittest
 import unittest.mock
 
-sys.path.append (os.path.join (os.path.dirname (__file__), ".."))
+pydecnet = os.path.normpath (os.path.join (os.path.dirname (__file__), ".."))
+sys.path.insert (0, pydecnet)
 
 from decnet.common import *
 from decnet import logging

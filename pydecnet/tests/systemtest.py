@@ -15,6 +15,7 @@ import asyncio
 import time
 import random
 import collections
+import traceback
 
 try:
     # For the HTTP page scan subtests
@@ -22,6 +23,9 @@ try:
 except ImportError:
     aiohttp = None
     
+pydecnet = os.path.normpath (os.path.join (os.path.dirname (__file__), ".."))
+sys.path.insert (0, pydecnet)
+
 from tests.dntest import *
 from decnet import async_connectors
 from decnet import mop
@@ -67,6 +71,22 @@ nodes = """1.1 A11
 3.1 A31
 3.2 E32
 """
+# temp no phase 2
+nodes = """1.1 A11
+1.2 R12
+1.4 T14
+1.5 T15
+1.6 E16
+1.7 E17
+1.42 ZZRSTS
+1.43 ZZZ
+2.1 A21
+2.2 T22
+2.5 R25
+2.6 E26
+3.1 A31
+3.2 E32
+"""
 
 # Connections between the nodes.  "eth" circuits have an implicit
 # bridge generated for them, the others are point to point
@@ -83,6 +103,16 @@ DMC-6 A21 T22
 DMC-7 A21 W23
 DMC-8 T22 W23
 DMC-9 W23 W24
+DMC-10 R12 ZZRSTS
+"""
+# temp no phase 2
+circuits = """ETH-1 A11 E26 A21 E17 R25 ZZRSTS ZZZ
+ETH-2 A11 A31 E16
+DMC-1 A11 R12
+DMC-3 R12 T14
+DMC-4 R12 T15
+DMC-5 A31 E32
+DMC-6 A21 T22
 DMC-10 R12 ZZRSTS
 """
 
@@ -323,24 +353,35 @@ class TestSystem (ADnTest):
                 await c.start ()
             tests = list ()
             # Test 1: Walk the entire HTTP interface
-            tests.append (asyncio.create_task (self.httpwalk ()))
+            tests.append (asyncio.create_task (self.httpwalk (), name = "httpwalk"))
             # Test 2: Walk the API
-            tests.append (asyncio.create_task (self.apiwalk (False)))
+            tests.append (asyncio.create_task (self.apiwalk (False), name = "apiwalk"))
             # Test 3: Run DCOUNT concurrent data streams, with staggered
             # start and stop.
             for i, np in enumerate (random.sample (nodepairs, DCOUNT)):
                 c = self.conns[i % len (self.conns)]
                 n1, n2 = np
-                tests.append (asyncio.create_task (self.dtest (c, n1, n2, i)))
+                tests.append (asyncio.create_task (self.dtest (c, n1, n2, i),
+                                                   name = f"data_{n1}_{n2}"))
             # Wait for them all to finish
-            done, pending = await asyncio.wait (tests, timeout = TIMELIMIT,
-                                                return_when = asyncio.FIRST_EXCEPTION)
+            done, pending = await asyncio.wait (tests, timeout = TIMELIMIT)
+            print (f"{len (done)} tasks completed out of {len (tests)}")
             if pending:
-                print ("Some tasks are not yet finished")
+                print (f"{len (pending)} tasks are not yet finished")
                 for t in pending:
+                    print (f"canceling {t.get_name ()}")
                     t.cancel ()
+                # Update the pending and done lists after the cancels
+                done, pending = await asyncio.wait (tests, timeout = TIMELIMIT)
+                if pending:
+                    print (f"{len (pending)} tasks still active after cancel")
             for t in done:
-                t.result ()
+                try:
+                    t.result ()
+                    print (f"task {t.get_name ()} done")
+                except Exception:
+                    print (f"task {t.get_name ()} raised exception:")
+                    traceback.print_exc (file = sys.stdout)
             # Do a few more (quick) tests at the end
             await self.httpwalk ()
             # API also (quick mode)
@@ -358,10 +399,7 @@ class TestSystem (ADnTest):
             with self.assertRaises (OSError):
                 os.stat (API)
         finally:
-            try:
-                os.remove (API)
-            except OSError:
-                pass
+            pass    # No cleanup needed at the moment
 
     async def dtest (self, conn, n1, n2, delay):
         await asyncio.sleep (delay)
@@ -382,9 +420,13 @@ class TestSystem (ADnTest):
             return
         if delay & 1:
             # Get the connect from the sender
-            listener = await bound.listen ()
-            listener.accept ()
-            receiver = listener
+            receiver = await bound.listen ()
+            # First message on an inbound connection is the connect
+            # message, receive that to dispose of it but do nothing
+            # with it.
+            msg = await receiver.recv ()
+            assert msg.type == "connect"
+            await receiver.accept ()
         else:
             receiver = sender
         # Get the accept from the receiver
@@ -396,15 +438,20 @@ class TestSystem (ADnTest):
         for i in range (QD):
             sender.data (data)
         count = 0
-        while time.time () < endtime:
-            await receiver.recv ()
-            sender.data (data)
-            count += 1
+        try:
+            while time.time () < endtime:
+                await receiver.recv ()
+                sender.data (data)
+                count += 1
+        except asyncio.CancelledError:
+            print (f"test from {n1} to {n2} cancelled at message {count}")
         # Time's up, drain the pipe
         for i in range (QD):
-            await asyncio.wait_for (receiver.recv (), 1)
+            await asyncio.wait_for (receiver.recv (), 5)
         sender.disconnect ()
         if delay & 1:
+            # Receive the disconnect
+            await asyncio.wait_for (receiver.recv (), 5)
             bound.close ()
             what = "sent"
         else:
@@ -485,20 +532,33 @@ class TestSystem (ADnTest):
             else:
                 apis = ( "mop", "routing", "nsp" )
             for a in apis:
-                reqs.append (asyncio.create_task (self.apiexch (system = s, api = a)))
+                reqs.append (asyncio.create_task (self.apiexch (system = s, api = a),
+                                                  name = f"api_{a}_config"))
             for cir in c.circuits:
                 if isinstance (cir, Eth) and "mop" in apis:
                     a = lanaddresses[cir.name]
                     others = a - { Macaddr (c.addr) }
-                    reqs.append (asyncio.create_task (self.loopreq (s, cir, others, count)))
-        done, pending = await asyncio.wait (reqs, timeout = TIMELIMIT,
-                                            return_when = asyncio.FIRST_EXCEPTION)
+                    reqs.append (asyncio.create_task (self.loopreq (s, cir, others, count),
+                                                      name = f"api_loop_{cir.name}"))
+        try:
+            done, pending = await asyncio.wait (reqs, timeout = TIMELIMIT,
+                                                return_when = asyncio.FIRST_EXCEPTION)
+        except asyncio.CancelledError:
+            # API walk was cancelled, go cancel its tasks and collect
+            # any information we did get.
+            done, pending = await asyncio.wait (reqs, timeout = 0)
         if pending:
             print ("Some API requests are not yet finished")
             for t in pending:
+                print (f"canceling {t.get_name ()}")
                 t.cancel ()
         for t in done:
-            t.result ()
+            try:
+                t.result ()
+                print (f"API request {t.get_name ()} done")
+            except Exception:
+                print (f"API request {t.get_name ()} raised exception:")
+                traceback.print_exc (file = sys.stdout)
         # All done
         print (self.apicount, "API requests processed")
         
