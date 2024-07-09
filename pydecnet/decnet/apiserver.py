@@ -142,7 +142,9 @@ class ApiServer:
         else:
             self.defnode = None
         if os.path.exists (config.name):
-            raise RuntimeError ("Another socket server is already running")
+            raise RuntimeError (f"""Another socket server appears to be already running.
+To correct this, verify PyDECnet is not running, then remove
+{config.name} and restart.""")
         self.socketname = config.name
         self.clients = dict ()
         
