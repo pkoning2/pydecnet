@@ -59,6 +59,11 @@ class Monitor:
                 t = StopThread (target = self.serverstart, name = "https",
                                 args = (True,))
                 t.start ()
+                time.sleep (0.2)
+                if not t.is_alive ():
+                    t.join ()
+                    logging.critical ("HTTPS thread failed to start")
+                    sys.exit (1)
             self.serverstart (False)
         else:
             self.serverstart (True)
