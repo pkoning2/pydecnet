@@ -76,8 +76,8 @@ class Monitor:
                                self.nodelist, config, self.resources,
                                self.mapserver, secure)
         if secure:
-            context = ssl.SSLContext ()
-            context.load_cert_chain (config.certificate)
+            context = ssl.SSLContext (ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain (config.certificate, config.key_file)
             httpd.socket = context.wrap_socket (httpd.socket, server_side = True)
         httpd.serve_forever ()
 

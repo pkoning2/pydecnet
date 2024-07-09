@@ -87,6 +87,11 @@ for the HTTP listener.  Default is 8443.  The value 0 disables HTTPS.
 containing the SSL server certificate to be used for HTTPS.  Default
 is "decnet.pem".
 
+--key-file: the file name of the key file associated with the
+certificate, if you specified a separate key file when generating the
+certificate.  If the key is embedded in the certificate, omit this
+argument. 
+
 -4: enable HTTP access via IPv4.
 -6: enable HTTP access via IPv6.  These two switches are supported
 only if the platform has dual-stack support (which Windows, Linux,

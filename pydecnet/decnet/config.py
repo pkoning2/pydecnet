@@ -304,6 +304,9 @@ cp.add_argument ("--http-root", metavar = "R",
 if ssl:
     cp.add_argument ("--certificate", metavar = "C", default = "decnet.pem",
                      help = "Name of certificate file for HTTPS.  Default: 'decnet.pem'")
+    cp.add_argument ("--key-file", metavar = "K", default = None,
+                     help = """Name of certificate key file for HTTPS.  Default:
+                            no key file (key is contained within certificate).""")
 
 # Restricted use arguments, see config.txt
 cp.add_argument ("--mapper", default = "", help = argparse.SUPPRESS)
