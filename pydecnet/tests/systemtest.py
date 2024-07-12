@@ -135,7 +135,7 @@ class Eth:
 
     def writeconfig (self, f, addr):
         if addr:
-            addr = Macaddr (addr)
+            addr = Macaddr (Nodeid (addr))
             lanaddresses[self.name].add (addr)
             addr = "--hwaddr {}".format (addr)
         else:
@@ -379,6 +379,8 @@ class TestSystem (ADnTest):
                 try:
                     t.result ()
                     print (f"task {t.get_name ()} done")
+                except asyncio.CancelledError:
+                    print (f"Task {t.get_name ()} was cancelled")
                 except Exception:
                     print (f"task {t.get_name ()} raised exception:")
                     traceback.print_exc (file = sys.stdout)
@@ -390,7 +392,10 @@ class TestSystem (ADnTest):
             print ("{} total messages, {:>.0f} messages/second".format (self.totalmsg, self.totalmsg / RUNTIME))
             # All done, close the connectors
             for c in self.conns:
-                await c.close ()
+                try:
+                    await c.close ()
+                except asyncio.CancelledError:
+                    print (f"connector close for {c} was cancelled")
             # Stop PyDECnet
             self.sut.terminate ()
             await self.sut.wait ()
@@ -402,7 +407,8 @@ class TestSystem (ADnTest):
             pass    # No cleanup needed at the moment
 
     async def dtest (self, conn, n1, n2, delay):
-        await asyncio.sleep (delay)
+        # Delay is in  units of 200 ms.
+        await asyncio.sleep (delay / 5)
         endtime = time.time () + RUNTIME
         # Leading 0x00 byte is the MIRROR "loop request" message code
         data = b"\x00" + bytes (("test {} {} ".format (n1, n2)) * 10, "latin1")
@@ -445,6 +451,7 @@ class TestSystem (ADnTest):
                 count += 1
         except asyncio.CancelledError:
             print (f"test from {n1} to {n2} cancelled at message {count}")
+            return
         # Time's up, drain the pipe
         for i in range (QD):
             await asyncio.wait_for (receiver.recv (), 5)
@@ -537,7 +544,7 @@ class TestSystem (ADnTest):
             for cir in c.circuits:
                 if isinstance (cir, Eth) and "mop" in apis:
                     a = lanaddresses[cir.name]
-                    others = a - { Macaddr (c.addr) }
+                    others = a - { Macaddr (Nodeid (c.addr)) }
                     reqs.append (asyncio.create_task (self.loopreq (s, cir, others, count),
                                                       name = f"api_loop_{cir.name}"))
         try:
@@ -556,6 +563,8 @@ class TestSystem (ADnTest):
             try:
                 t.result ()
                 print (f"API request {t.get_name ()} done")
+            except asyncio.CancelledError:
+                print (f"API request {t.get_name ()} was cancelled")
             except Exception:
                 print (f"API request {t.get_name ()} raised exception:")
                 traceback.print_exc (file = sys.stdout)
