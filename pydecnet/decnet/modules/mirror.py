@@ -17,6 +17,7 @@ the same protocol but as an external process via the JSON API.
 
 from decnet.common import Element
 from decnet import session
+from decnet.nsp import WrongState
 
 class Application (Element):
     """The top level (or only, for simple cases) class for the
@@ -62,7 +63,12 @@ class Application (Element):
             if msg[0] == 0:
                 # Function code: loop command. Reply with status code:
                 # success.
-                conn.send_data (b"\x01" + msg[1:])
+                try:
+                    conn.send_data (b"\x01" + msg[1:])
+                except WrongState:
+                    # This can happen if the connection is closed
+                    # unexpectedly, so just exit if that happens.
+                    return
             else:
                 # Reply with status code: failure.
                 conn.send_data (b"\xff")
