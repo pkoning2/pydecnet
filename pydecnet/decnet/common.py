@@ -421,7 +421,9 @@ class Macaddr (Field, bytes):
         """
         if isinstance (s, str):
             bl = _mac_re.split (s)
-            if len (bl) != 6:
+            if len (bl) == 1:
+                b = int (s, 16).to_bytes (6, "big")
+            elif len (bl) != 6:
                 if _nodeid_re.match (s):
                     b = Nodeid (s)
                     if not b.area:
