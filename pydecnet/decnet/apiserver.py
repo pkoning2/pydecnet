@@ -7,6 +7,7 @@ import os
 import sys
 import io
 import socket
+import atexit
 
 from .common import *
 from . import logging
@@ -129,7 +130,17 @@ class ApiHandler:
         
     def stop (self):
         self.dthread.stop ()
-        
+
+def rmsock (name):
+    try:
+        os.remove (self.socketname)
+    except Exception:
+        try:
+            # This may not work, but try it.
+            logging.exception ("Error removing API socket {}", self.socketname)
+        except Exception:
+            pass
+    
 class ApiServer:
     """The DECnet API server, using a Unix socket
     """
@@ -158,6 +169,7 @@ To correct this, verify PyDECnet is not running, then remove
         # the bind to fail.  Moving it here makes things work.  Don't
         # know why...
         self.socket = socket.socket (socket.AF_UNIX)
+        atexit.register (rmsock, self.socketname)
         try:
             self.socket.bind (self.socketname)
             os.chmod (self.socketname, self.config.mode)
