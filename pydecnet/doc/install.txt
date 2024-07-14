@@ -18,7 +18,10 @@ PyDECnet can also use the following optional modules:
    --log-config command line option can be a YAML file.  If not, only
    JSON configuration files are supported.
 3. python-pam: if present, username/password authentication for DECnet
-   objects is available.
+   objects is available.  Note: in at least some versions, this
+   modules requires another module "six", but it is not properly
+   listed as a dependency.  So when you install "python-pam", also
+   install "six".
 4. pyserial: if present, the "serial" mode of the DDCMP datalink
    is available.
 
