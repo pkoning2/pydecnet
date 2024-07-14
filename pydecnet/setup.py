@@ -8,8 +8,13 @@ Licensed under open source license terms stated in file LICENSE.
 """
 
 from setuptools import setup
-from decnet.version import DNKITVERSION
+from decnet.version import DNKITVERSION, DNREV
+import os.path
 
+if DNREV:
+    with open (os.path.join (os.path.dirname (__file__), "decnet", "GITREV"), "wt") as f:
+        print (DNREV, file = f)
+        
 setup (author = "Paul Koning",
        author_email = "ni1d@arrl.net",
        license = "BSD",
@@ -24,6 +29,11 @@ setup (author = "Paul Koning",
        package_data = { "decnet.resources" : [ "*.txt", "*.css", "*.js", "*.html" ],
                         "decnet.resources.images" : [ "*.png", "*.svg" ],
                         "applications" : [ "*" ]},
+       # read MANIFEST.in and include files mentioned here to the package
+       include_package_data = True,
+       # this package will read some included files in runtime, avoid
+       # installing it as .zip
+       zip_safe = False,
        entry_points  = {
            "console_scripts" : [
                "pydecnet = decnet.main:main"

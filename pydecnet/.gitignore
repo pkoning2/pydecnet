@@ -11,3 +11,4 @@ local
 decnet.egg-info
 decnet.pem
 *.log
+decnet/GITREV
