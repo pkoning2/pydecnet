@@ -19,10 +19,11 @@ import os
 import socket
 import collections
 try:
-    import pytz
-    utc = pytz.utc
+    import zoneinfo
+    # There's a datetime.UTC but only in Python 3.11 and later
+    utc = zoneinfo.ZoneInfo("UTC")
 except ImportError:
-    pytz = None
+    zoneinfo = None
 
 # For some reason datetime.strptime does an import at runtime.  Make
 # that happen now so we have the resulting internal module imported
@@ -742,8 +743,6 @@ class Mapdata:
             maplogger.info ("No map database found, using null data")
             return
         self.decode_json (s)
-        if not self.lastupdate:
-            self.lastupdate = max (n.time for n in self.nodes)
         
     def encode_json (self):
         return dict (nodes = [ v for k, v in sorted (self.nodes.items ()) ],
@@ -1196,9 +1195,9 @@ class Mapper (Element, statemachine.StateMachine):
         statemachine.StateMachine.__init__ (self)
         self.config = config
         self.nodelist = nodelist
-        if not pytz:
-            raise ValueError ("Mapper requires pytz module")
-        self.dbtz = pytz.timezone (config.nodedbtz)
+        if not zoneinfo:
+            raise ValueError ("Mapper requires Python 3.9 or later")
+        self.dbtz = zoneinfo.ZoneInfo (config.nodedbtz)
         self.nodeid = n.routing.nodeid
         self.todo = set ()
         self.done = set ()
@@ -1629,7 +1628,7 @@ class Mapper (Element, statemachine.StateMachine):
         # Convert a time string in the local time of the database
         # server to a Unix time value.
         ret = datetime.datetime.strptime (s, "%d %b %Y %H:%M:%S")
-        ret = self.dbtz.localize (ret)
+        ret = ret.replace (tzinfo = self.dbtz)
         return ret.astimezone (utc).timestamp ()
     
     def dbupdate (self, full = False):
