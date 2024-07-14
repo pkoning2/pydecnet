@@ -41,7 +41,7 @@ setup (author = "Paul Koning",
            "uart" : "Adafruit_BBIO"
            },
        classifiers=[
-           "Development Status :: 4 - Beta",
+           "Development Status :: 5 - Production/Stable",
            "Topic :: Communications",
            "Environment :: Console",
            "License :: OSI Approved :: BSD License",
@@ -53,5 +53,5 @@ setup (author = "Paul Koning",
            "Programming Language :: Python :: 3.11",
            "Programming Language :: Python :: 3.12",
            "Programming Language :: Python :: 3.13",
-           ],       
+           ],
        )

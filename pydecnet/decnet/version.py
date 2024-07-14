@@ -7,7 +7,7 @@ import subprocess
 DNSTAGE = "V"
 DNVERNUM = "1.1"
 # Note: this must be incremented for each new kit released
-DNPATCH = "0rc2"
+DNPATCH = "0"
 CYEAR = "2024"
 AUTHORS = "Paul Koning"
 
