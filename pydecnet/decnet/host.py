@@ -6,6 +6,7 @@
 
 import time
 import socket
+import struct
 import queue
 import os
 import re
@@ -354,6 +355,12 @@ class HostAddress (object):
         assert self.can_connect
         logging.trace ("Connecting from {} to {}", source, self)
         sock = source.bind_socket (self.conn_family)
+        # Best-effort: enable TCP keepalive to detect half-open links
+        try:
+            set_tcp_keepalive (sock)
+        except Exception:
+            # Keepalive tuning is best-effort; ignore if not supported
+            logging.trace ("Keepalive setup failed", exc_info = True)
         sock.setblocking (False)
         try:
             sock.connect (self.sockaddr)
@@ -465,6 +472,41 @@ class SourceAddress (HostAddress):
         except socket.error:
             sock.close()
             raise
+
+def set_tcp_keepalive (sock, idle = 60, interval = 10, count = 5):
+    """Enable TCP keepalive on a socket with reasonable defaults.
+
+    Applies platform-specific tuning when available; silently ignores
+    unsupported options. Times are in seconds.
+    """
+    try:
+        sock.setsockopt (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except Exception:
+        return
+    # Linux-style knobs
+    try:
+        if hasattr (socket, 'TCP_KEEPIDLE'):
+            sock.setsockopt (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        if hasattr (socket, 'TCP_KEEPINTVL'):
+            sock.setsockopt (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
+        if hasattr (socket, 'TCP_KEEPCNT'):
+            sock.setsockopt (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, count)
+    except Exception:
+        pass
+    # macOS/BSD: TCP_KEEPALIVE is the idle time (seconds)
+    try:
+        if hasattr (socket, 'TCP_KEEPALIVE'):
+            sock.setsockopt (socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, idle)
+    except Exception:
+        pass
+    # Windows: use SIO_KEEPALIVE_VALS (milliseconds)
+    try:
+        if hasattr (socket, 'SIO_KEEPALIVE_VALS'):
+            # onoff, keepalivetime, keepaliveinterval
+            vals = struct.pack ('III', 1, int (idle * 1000), int (interval * 1000))
+            sock.ioctl (socket.SIO_KEEPALIVE_VALS, vals)
+    except Exception:
+        pass
         
 class NameResolver:
     # Helper class (singleton) to run name lookups in another thread
