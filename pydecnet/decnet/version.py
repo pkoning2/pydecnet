@@ -8,8 +8,8 @@ import os.path
 DNSTAGE = "V"
 DNVERNUM = "1.1"
 # Note: this must be incremented for each new kit released
-DNPATCH = "0"
-CYEAR = "2024"
+DNPATCH = "1"
+CYEAR = "2026"
 AUTHORS = "Paul Koning"
 
 # Combined from parts above:

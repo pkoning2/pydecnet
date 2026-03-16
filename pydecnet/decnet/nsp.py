@@ -828,8 +828,12 @@ class Data_Subchannel (Subchannel):
         """
         if isinstance (pkt, DataSeg):
             pkt.segnum = Seq (self.nextseg % Seq.modulus)
-            # Allow delayed ACK if the queue is not over half full
-            pkt.dly = len (self.pending_ack) <= self.dlymax
+            if self.parent.cphase >= 4:
+                # Allow delayed ACK if the queue is not over half full
+                pkt.dly = len (self.pending_ack) <= self.dlymax
+            else:
+                # Not supported before Phase IV
+                pkt.dly = 0
             qe = txqentry (pkt, self, self.nextseg, self.nextmsg)
             self.nextseg += 1
             if pkt.eom:
