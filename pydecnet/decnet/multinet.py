@@ -18,6 +18,7 @@ from .common import *
 from . import datalink
 from . import logging
 from . import host
+import errno
 
 class MultinetUdpPort (datalink.PtpPort):
     """Multinet is exactly like generic point to point except that the
@@ -180,7 +181,7 @@ class _ConnectMultinet (_TcpMultinet):
                 self.socket.close ()
             self.socket = None
         # Next time we'll try the next address, if we have several.
-        x=next (self.dest)
+        x = next (self.dest)
         logging.trace ("Next address is {}", x)
         # Wait a random time, initially in the 5 second range but
         # slowing down as we do more retries, for the outbound
@@ -210,7 +211,20 @@ class _ConnectMultinet (_TcpMultinet):
             if mask & datalink.POLLERRHUP:
                 return False
             if mask & select.POLLOUT:
+                # Confirm non-blocking connect result via SO_ERROR
+                try:
+                    err = sock.getsockopt (socket.SOL_SOCKET, socket.SO_ERROR)
+                except OSError:
+                    err = 0
+                if err:
+                    logging.trace ("Multinet {} connect failed, SO_ERROR {}", self.name, err)
+                    return False
                 logging.trace ("Multinet {} connected", self.name)
+                # Success: collapse connection backoff for faster future retries
+                try:
+                    self.conntmr.reset ()
+                except Exception:
+                    pass
                 return True
 
 class _ListenMultinet (_TcpMultinet):
@@ -227,6 +241,11 @@ class _ListenMultinet (_TcpMultinet):
             self.socket = self.source.create_server ()
             logging.trace ("Multinet {} bind {} done",
                            self.name, self.source)
+            # Successful bind: reset backoff for subsequent failures
+            try:
+                self.conntmr.reset ()
+            except Exception:
+                pass
         except (AttributeError, OSError, socket.error):
             logging.trace ("Multinet {} bind {} failed",
                            self.name, self.source)
@@ -261,6 +280,11 @@ class _ListenMultinet (_TcpMultinet):
                 sock, ainfo = sock.accept ()
                 if self.dest.valid (ainfo):
                     # Good connection, stop looking
+                    # Enable keepalive on accepted sockets to detect half-open peers
+                    try:
+                        host.set_tcp_keepalive (sock)
+                    except Exception:
+                        pass
                     break
                 # If the connect is from someplace we don't want
                 logging.trace ("Multinet {} connect received from " \
@@ -377,7 +401,7 @@ class Multinet (datalink.Datalink):
             m = dev_re.match (config.device)
             if not m:
                 logging.error ("Invalid device value for Multinet datalink {}",
-                               self.name)
+                               name)
                 raise ValueError
             config.destination, port, cmode, lmode, lport = m.groups ()
             config.mode = lmode or cmode
