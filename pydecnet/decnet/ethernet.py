@@ -387,17 +387,13 @@ class _VdeApi (object):
         return OSError (eno, os.strerror (eno))
 
     def open (self, url):
-        args = _VdeOpenArgs ()
-        args.port = 0
-        args.group = None
-        args.mode = 0
+        # No port/group/mode override is needed.  Passing NULL preserves
+        # libvdeplug's defaults and avoids coupling to its open-args ABI.
         if self.vde_interface_version is None:
-            conn = self.vde_open (url.encode ("utf-8"), b"pydecnet",
-                                  ctypes.byref (args))
+            conn = self.vde_open (url.encode ("utf-8"), b"pydecnet", None)
         else:
             conn = self.vde_open (url.encode ("utf-8"), b"pydecnet",
-                                  self.vde_interface_version,
-                                  ctypes.byref (args))
+                                  self.vde_interface_version, None)
         if not conn:
             raise self._error ()
         return conn
