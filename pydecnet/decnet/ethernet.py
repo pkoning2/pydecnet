@@ -355,9 +355,22 @@ class _VdeApi (object):
         if not libname:
             raise OSError ("libvdeplug not found")
         self.lib = ctypes.CDLL (libname, use_errno = True)
-        self.lib.vde_open.argtypes = (ctypes.c_char_p, ctypes.c_char_p,
+        # vde_open is a source-level macro in modern libvdeplug and the
+        # exported ABI entry point is vde_open_real.  Keep compatibility
+        # with older libvdeplug releases which exported vde_open directly.
+        try:
+            self.vde_open = self.lib.vde_open_real
+            self.vde_open.argtypes = (ctypes.c_char_p, ctypes.c_char_p,
+                                      ctypes.c_int,
                                       ctypes.POINTER (_VdeOpenArgs))
-        self.lib.vde_open.restype = ctypes.c_void_p
+            self.vde_open.restype = ctypes.c_void_p
+            self.vde_interface_version = 1
+        except AttributeError:
+            self.vde_open = self.lib.vde_open
+            self.vde_open.argtypes = (ctypes.c_char_p, ctypes.c_char_p,
+                                      ctypes.POINTER (_VdeOpenArgs))
+            self.vde_open.restype = ctypes.c_void_p
+            self.vde_interface_version = None
         self.lib.vde_recv.argtypes = (ctypes.c_void_p, ctypes.c_void_p,
                                       ctypes.c_size_t, ctypes.c_int)
         self.lib.vde_recv.restype = ctypes.c_ssize_t
@@ -378,7 +391,12 @@ class _VdeApi (object):
         args.port = 0
         args.group = None
         args.mode = 0
-        conn = self.lib.vde_open (url.encode ("utf-8"), b"pydecnet",
+        if self.vde_interface_version is None:
+            conn = self.vde_open (url.encode ("utf-8"), b"pydecnet",
+                                  ctypes.byref (args))
+        else:
+            conn = self.vde_open (url.encode ("utf-8"), b"pydecnet",
+                                  self.vde_interface_version,
                                   ctypes.byref (args))
         if not conn:
             raise self._error ()
