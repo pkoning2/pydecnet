@@ -11,6 +11,8 @@ except ImportError:
 import select
 import socket
 import struct
+import ctypes
+import ctypes.util
 import os
 import sys
 
@@ -341,6 +343,122 @@ class _PcapEth (_Ethernet):
             except pcap._pcap.error:
                 break
 
+
+class _VdeOpenArgs (ctypes.Structure):
+    _fields_ = (("port", ctypes.c_int),
+                ("group", ctypes.c_char_p),
+                ("mode", ctypes.c_uint))
+
+class _VdeApi (object):
+    def __init__ (self):
+        libname = ctypes.util.find_library ("vdeplug")
+        if not libname:
+            raise OSError ("libvdeplug not found")
+        self.lib = ctypes.CDLL (libname, use_errno = True)
+        self.lib.vde_open.argtypes = (ctypes.c_char_p, ctypes.c_char_p,
+                                      ctypes.POINTER (_VdeOpenArgs))
+        self.lib.vde_open.restype = ctypes.c_void_p
+        self.lib.vde_recv.argtypes = (ctypes.c_void_p, ctypes.c_void_p,
+                                      ctypes.c_size_t, ctypes.c_int)
+        self.lib.vde_recv.restype = ctypes.c_ssize_t
+        self.lib.vde_send.argtypes = (ctypes.c_void_p, ctypes.c_void_p,
+                                      ctypes.c_size_t, ctypes.c_int)
+        self.lib.vde_send.restype = ctypes.c_ssize_t
+        self.lib.vde_datafd.argtypes = (ctypes.c_void_p,)
+        self.lib.vde_datafd.restype = ctypes.c_int
+        self.lib.vde_close.argtypes = (ctypes.c_void_p,)
+        self.lib.vde_close.restype = ctypes.c_int
+
+    def _error (self):
+        eno = ctypes.get_errno ()
+        return OSError (eno, os.strerror (eno))
+
+    def open (self, url):
+        args = _VdeOpenArgs ()
+        args.port = 0
+        args.group = None
+        args.mode = 0
+        conn = self.lib.vde_open (url.encode ("utf-8"), b"pydecnet",
+                                  ctypes.byref (args))
+        if not conn:
+            raise self._error ()
+        return conn
+
+    def datafd (self, conn):
+        fd = self.lib.vde_datafd (conn)
+        if fd < 0:
+            raise self._error ()
+        return fd
+
+    def recv (self, conn, size):
+        buf = (ctypes.c_ubyte * size) ()
+        count = self.lib.vde_recv (conn, buf, size, 0)
+        if count < 0:
+            raise self._error ()
+        return bytes (buf[:count])
+
+    def send (self, conn, data):
+        data = makebytes (data)
+        buf = (ctypes.c_ubyte * len (data)).from_buffer_copy (data)
+        count = self.lib.vde_send (conn, buf, len (data), 0)
+        if count < 0:
+            raise self._error ()
+        return count
+
+    def close (self, conn):
+        if conn:
+            self.lib.vde_close (conn)
+
+def _load_vde_api ():
+    return _VdeApi ()
+
+class _VdeEth (_Ethernet):
+    def open (self):
+        self.vde = None
+        try:
+            self.vdeapi = _load_vde_api ()
+            self.vde = self.vdeapi.open (self.dev)
+            self.vdefd = self.vdeapi.datafd (self.vde)
+            self.sellist = ( self.vdefd, )
+        except OSError as e:
+            logging.error ("VDE open failure on {}: {}", self.dev, e)
+            if self.vde:
+                self.vdeapi.close (self.vde)
+            self.vde = None
+            return
+        super ().open ()
+
+    def close (self):
+        super ().close ()
+        if self.vde:
+            self.vdeapi.close (self.vde)
+        self.vde = None
+
+    def send_frame (self, buf, skip = None):
+        if not self.vde:
+            return
+        try:
+            self.vdeapi.send (self.vde, buf)
+        except OSError:
+            pass
+
+    def run (self):
+        while True:
+            if self.stopnow or not self.vde:
+                break
+            try:
+                r, w, x = select.select (self.sellist, (), self.sellist,
+                                         ETH_TMO / 1000)
+                if x:
+                    break
+                if not r:
+                    continue
+                pkt = self.vdeapi.recv (self.vde, ETH_MTU)
+                if pkt:
+                    self.receive (len (pkt), pkt, None)
+            except OSError:
+                break
+
 class _BridgeEth (_Ethernet):
     """Class for talking to a Johnny Billquist bridge (somewhere else,
     external to this process), via UDP packets each carrying an
@@ -426,6 +544,8 @@ class Ethernet (datalink.Datalink):
             c = _TapEth
         elif api == "pcap":
             c = _PcapEth
+        elif api == "vde":
+            c = _VdeEth
         elif api == "bridge" or api == "udp":
             # External bridge, i.e., IP connection to a bridge in
             # another host or process.  Allow "udp" because that's how

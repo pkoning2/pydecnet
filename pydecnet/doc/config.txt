@@ -301,6 +301,13 @@ types, are:
       
       pcap: PCAP library accessing the Ethernet interface named by the
       device argument.
+
+      vde: Attach directly to a Virtual Distributed Ethernet network
+      through libvdeplug.  The device argument is a libvdeplug URL, for
+      example vde:///tmp/dnnet.ctl.  The VDE switch and socket may be
+      owned entirely by the invoking user, so this mode does not require
+      TAP creation or root privileges.  Remote LANs may be joined by
+      connecting their VDE switches with vde_plug over SSH.
       
       bridge or udp: Attach this Ethernet to a Billquist bridge (using
       UDP).  Network addressing is done by the network configuration

@@ -398,6 +398,59 @@ class TestEthTap (EthTest):
         self.assertIsNotNone (write)
         return bytes (write[0][1])
 
+
+class TestEthVde (EthTest):
+    spec = "vde:///tmp/pydecnet-test.ctl --mode vde"
+
+    def setUp (self):
+        self.apipatch = unittest.mock.patch ("decnet.ethernet._load_vde_api")
+        self.selpatch = unittest.mock.patch ("decnet.ethernet.select.select")
+        self.loadapi = self.apipatch.start ()
+        self.selpatch.start ()
+        self.api = self.loadapi.return_value
+        self.conn = object ()
+        self.api.open.return_value = self.conn
+        self.api.datafd.return_value = 42
+        self.pq = queue.Queue ()
+        ethernet.select.select.side_effect = self.mselect
+        self.api.recv.side_effect = self.deliver
+        super ().setUp ()
+        self.api.open.assert_called_once_with ("vde:///tmp/pydecnet-test.ctl")
+        self.api.datafd.assert_called_once_with (self.conn)
+
+    def tearDown (self):
+        super ().tearDown ()
+        self.apipatch.stop ()
+        self.selpatch.stop ()
+
+    def mselect (self, *args):
+        try:
+            self.pkt = self.pq.get (timeout = 0.1)
+            return (True, False, False)
+        except queue.Empty:
+            return (False, False, False)
+
+    def deliver (self, conn, size):
+        self.assertIs (conn, self.conn)
+        p = self.pkt
+        self.pkt = None
+        self.pq.task_done ()
+        return p
+
+    def postPacket (self, pkt, wait = True):
+        if len (pkt) < 60:
+            pkt += bytes (60 - len (pkt))
+        self.pq.put (pkt)
+        self.pq.join ()
+        if wait:
+            time.sleep (0.1)
+
+    def lastSent (self):
+        call = self.api.send.call_args
+        self.assertIsNotNone (call)
+        self.assertIs (call[0][0], self.conn)
+        return bytes (call[0][1])
+
 class TestEthUdp (EthTest):
     def setUp (self):
         # First open the Ethernet
