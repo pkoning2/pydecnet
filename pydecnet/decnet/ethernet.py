@@ -413,6 +413,11 @@ def _load_vde_api ():
     return _VdeApi ()
 
 class _VdeEth (_Ethernet):
+    def __init__ (self, owner, name, dev, config):
+        if config.hwaddr == NULLID:
+            config.random_address = True
+        super ().__init__ (owner, name, dev, config)
+
     def open (self):
         self.vde = None
         try:
