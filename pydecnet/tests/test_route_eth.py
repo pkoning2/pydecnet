@@ -228,8 +228,10 @@ class test_end (lantest):
         self.assertEqual (len (self.c.prevhops), 1)
         self.assertEqual (self.c.prevhops[Nodeid (1, 17)].prevhop,
                           Macaddr (Nodeid (1, 1)))
-        # Send the packet again, should go to prev hop
-        self.c.send (pkt, None)
+        # Send the packet again, should go to prev hop.  A cached
+        # previous-hop transmission is successful; callers use False
+        # to synthesize return-to-sender for connection-init traffic.
+        self.assertTrue (self.c.send (pkt, None))
         p, dest = self.lastsent (self.cp, 4)
         self.assertEqual (dest, Macaddr (Nodeid (1, 1)))
         # Deliver a router hello to set DR

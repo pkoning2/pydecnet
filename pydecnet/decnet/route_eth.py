@@ -405,7 +405,7 @@ class EndnodeLanCircuit (LanCircuit):
                 try:
                     prev = self.prevhops[dstnode].prevhop
                     super ().send (pkt, prev)
-                    return
+                    return True
                 except KeyError:
                     pass
             if self.dr:
